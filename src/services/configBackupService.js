@@ -280,7 +280,7 @@ async function runComplianceAudit(backupId, organizationId) {
 
   // Load device type for filtering
   const [deviceRows] = await db.query(
-    'SELECT id, device_type FROM devices WHERE id = ?',
+    'SELECT id, type AS device_type FROM devices WHERE id = ?',
     [backup.device_id],
   );
   const deviceType = deviceRows.length > 0 ? deviceRows[0].device_type : null;

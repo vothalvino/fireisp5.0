@@ -220,9 +220,16 @@ async function _semanticSearch(orgId, query, locale, limit, llm) {
 
   if (rows.length === 0) return [];
 
-  // Get query embedding (use first available provider)
+  // Get query embedding (use this org's highest-priority enabled provider).
+  // CRITICAL: this previously had no organization_id filter at all — it
+  // picked ANY tenant's provider row, decrypted THEIR api_key, and sent this
+  // org's customer/article text to their endpoint on their bill (and the
+  // resulting embedding came from a different model than the one that
+  // produced the stored kb_article_embeddings, making every cosine score
+  // meaningless). Same shape as supportConversationService.getOrgProviderId.
   const [providerRow] = await db.query(
-    'SELECT id FROM ai_providers WHERE is_enabled = 1 ORDER BY priority ASC LIMIT 1',
+    'SELECT id FROM ai_providers WHERE organization_id = ? AND enabled = 1 ORDER BY priority ASC LIMIT 1',
+    [orgId],
   ).catch(() => [[]]);
   const providerId = providerRow?.[0]?.id;
   if (!providerId) return _keywordSearch(orgId, query, locale, limit);

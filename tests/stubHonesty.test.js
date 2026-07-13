@@ -367,7 +367,12 @@ describe('automationService', () => {
           condition_metric: 'cpu_usage', condition_operator: 'gt', condition_threshold: 90,
           cooldown_minutes: 1, last_triggered_at: null, is_enabled: 1, run_count: 0,
         }]))                                                     // SELECT rules
-        .mockResolvedValueOnce(qResult([{ metric_value: '95', device_id: 1 }])) // checkCondition
+        // checkRemediationCondition now evaluates per-device (item 4 of the
+        // second adversarial review) — the query returns device_id +
+        // metric_value (+ polled_at, unused here since this rule sets no
+        // condition_duration_minutes) per device with a recent reading,
+        // instead of one arbitrary org-wide row.
+        .mockResolvedValueOnce(qResult([{ device_id: 1, metric_value: '95', polled_at: new Date() }])) // checkCondition
         .mockResolvedValueOnce(insertResult(1))                  // INSERT executions
         .mockResolvedValueOnce(updateResult());                   // UPDATE rules
 
@@ -377,10 +382,12 @@ describe('automationService', () => {
         typeof c[0] === 'string' && c[0].includes('remediation_executions'),
       );
       expect(insertCall).toBeTruthy();
-      // status is the 4th param (index 3) in the INSERT values
-      expect(insertCall[1][3]).toBe('not_dispatched');
-      // result_message is the 5th param (index 4)
-      expect(insertCall[1][4]).toMatch(/not dispatched/i);
+      // INSERT columns are (organization_id, remediation_rule_id, device_id,
+      // action_type, status, result_message, duration_ms) — device_id (item
+      // 4: which device actually triggered it) shifted status to index 4.
+      expect(insertCall[1][2]).toBe(1); // device_id
+      expect(insertCall[1][4]).toBe('not_dispatched');
+      expect(insertCall[1][5]).toMatch(/not dispatched/i);
     });
 
     test('does not record stubbed status for remediation actions', async () => {
@@ -390,7 +397,7 @@ describe('automationService', () => {
           condition_metric: 'cpu_usage', condition_operator: 'gt', condition_threshold: 90,
           cooldown_minutes: 1, last_triggered_at: null, is_enabled: 1, run_count: 0,
         }]))
-        .mockResolvedValueOnce(qResult([{ metric_value: '99', device_id: 1 }]))
+        .mockResolvedValueOnce(qResult([{ device_id: 1, metric_value: '99', polled_at: new Date() }]))
         .mockResolvedValueOnce(insertResult(1))
         .mockResolvedValueOnce(updateResult());
 
@@ -400,7 +407,7 @@ describe('automationService', () => {
         typeof c[0] === 'string' && c[0].includes('remediation_executions'),
       );
       expect(insertCall).toBeTruthy();
-      expect(insertCall[1][3]).not.toBe('stubbed');
+      expect(insertCall[1][4]).not.toBe('stubbed');
     });
   });
 });

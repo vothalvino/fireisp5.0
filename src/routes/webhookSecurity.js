@@ -88,8 +88,14 @@ router.post('/verify-signature', async (req, res, next) => {
 // GET /delivery-logs — list webhook delivery logs for org
 router.get('/delivery-logs', async (req, res, next) => {
   try {
+    // webhook_deliveries has no organization_id column — org scoping goes
+    // through the parent webhooks row via webhook_id.
     const [rows] = await db.query(
-      'SELECT * FROM webhook_deliveries WHERE organization_id = ? ORDER BY id DESC LIMIT 100',
+      `SELECT wd.*
+       FROM webhook_deliveries wd
+       JOIN webhooks w ON w.id = wd.webhook_id
+       WHERE w.organization_id = ?
+       ORDER BY wd.id DESC LIMIT 100`,
       [req.orgId],
     );
     res.json({ data: rows });

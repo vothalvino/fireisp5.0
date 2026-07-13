@@ -90,23 +90,37 @@ function _currentIp(context) {
 
 async function _staticIpEligibility(context) {
   try {
+    // plans has no static_ip_available column, and plan_addons (the real
+    // static-IP offering, addon_type='static_ip') is org-wide, not tied to a
+    // specific plan — there is no per-plan "is this plan eligible" flag
+    // anywhere in the schema, so a per-plan answer literally cannot be
+    // computed. The closest true question is "does this org offer a
+    // static-IP add-on at all", scoped through the client's active contract.
+    //
+    // item 8 of the second adversarial review: the response text used to
+    // say "Tu PLAN es elegible" — claiming plan-level precision the query
+    // never actually verified. Rephrased to only claim what was actually
+    // checked (the org offers it as an add-on) and explicitly defer the
+    // real per-plan/availability answer to support, instead of asserting a
+    // fact the data model cannot support.
     const [rows] = await db.query(
-      `SELECT p.static_ip_available
+      `SELECT pa.id
          FROM contracts c
-         JOIN plans p ON p.id = c.plan_id
          JOIN clients cl ON cl.id = c.client_id
+         JOIN plan_addons pa ON pa.organization_id = c.organization_id
         WHERE cl.id = ? AND c.status = 'active'
-        ORDER BY c.id DESC LIMIT 1`,
+          AND pa.addon_type = 'static_ip' AND pa.status = 'active'
+        LIMIT 1`,
       [context?.customer?.id],
     );
-    const eligible = rows[0]?.static_ip_available === 1;
+    const orgOffersStaticIp = rows.length > 0;
     return {
-      response: eligible
-        ? 'Tu plan es elegible para IP estática. Contacta a soporte para activarla. Puede tener un costo adicional.'
-        : 'Tu plan actual no incluye IP estática. Para obtenerla, necesitarías cambiar a un plan que la incluya.',
+      response: orgOffersStaticIp
+        ? 'IP estática está disponible como complemento. La disponibilidad exacta para tu plan puede variar — contacta a soporte para confirmar y activarla. Puede tener un costo adicional.'
+        : 'No encontramos IP estática disponible como complemento en este momento. Contacta a soporte para confirmar las opciones disponibles para tu plan.',
       requiresConfirmation: false,
       actionType: 'static_ip_eligibility',
-      actionData: { eligible },
+      actionData: { orgOffersStaticIp },
     };
   } catch (err) {
     logger.warn({ err }, 'generalModule: staticIpEligibility failed');
@@ -146,8 +160,9 @@ async function _coverageCheck(context, messageContent, orgId) {
     const locationMatch = messageContent?.match(/en\s+(.+)$/i) ?? null;
     const locationHint = locationMatch ? locationMatch[1].trim() : null;
 
+    // Real column is `zone_type`, not `coverage_type`.
     const [rows] = await db.query(
-      'SELECT name, coverage_type, status FROM coverage_zones WHERE organization_id = ? AND status = ? LIMIT 5',
+      'SELECT name, zone_type FROM coverage_zones WHERE organization_id = ? AND status = ? LIMIT 5',
       [orgId, 'active'],
     );
     if (rows.length === 0) {
@@ -158,7 +173,7 @@ async function _coverageCheck(context, messageContent, orgId) {
         actionData: { locationHint },
       };
     }
-    const zones = rows.map(z => `• ${z.name} (${z.coverage_type})`).join('\n');
+    const zones = rows.map(z => `• ${z.name} (${z.zone_type})`).join('\n');
     return {
       response: `Nuestras zonas de cobertura activas incluyen:\n${zones}\nPara verificar disponibilidad en tu dirección exacta, compártenos tu ubicación o código postal.`,
       requiresConfirmation: false,
@@ -178,16 +193,22 @@ async function _coverageCheck(context, messageContent, orgId) {
 
 async function _businessHours(context, messageContent, orgId) {
   try {
+    // `organization_settings` does not exist, and the global (non-tenant)
+    // `settings` key/value table (see Organization.js / radiusService.js) is
+    // NOT the right source for a per-org value — it's a single-tenant-wide
+    // table with no organization_id, so it could never have answered "this
+    // org's" phone/email. The org's own contact fields on `organizations`
+    // are the real source; there is no business-hours column anywhere, so
+    // that stays the same hardcoded default this function's own error
+    // fallback already used.
     const [rows] = await db.query(
-      `SELECT setting_key, setting_value
-         FROM organization_settings
-        WHERE organization_id = ? AND setting_key IN ('business_hours', 'support_phone', 'support_email')`,
+      'SELECT phone, email FROM organizations WHERE id = ?',
       [orgId],
     );
-    const settings = Object.fromEntries(rows.map(r => [r.setting_key, r.setting_value]));
-    const hours = settings.business_hours || 'Lunes a Viernes 9:00–18:00, Sábado 9:00–14:00';
-    const phone = settings.support_phone || 'Consulta tu contrato';
-    const email = settings.support_email || '';
+    const org = rows[0] || {};
+    const hours = 'Lunes a Viernes 9:00–18:00, Sábado 9:00–14:00';
+    const phone = org.phone || 'Consulta tu contrato';
+    const email = org.email || '';
 
     return {
       response: `Nuestro horario de atención:\n📅 ${hours}\n📞 ${phone}${email ? `\n✉️  ${email}` : ''}`,

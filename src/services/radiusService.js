@@ -103,9 +103,16 @@ async function syncAllAccounts(organizationId) {
  * Get the most recent active session for a contract from connection_logs.
  */
 async function getActiveSession(contractId) {
+  // HIGH — item 3 of the second adversarial review: a session is live as
+  // long as the LATEST event recorded for its session_id is not 'stop' —
+  // anchoring only on the 'start' row (as this used to) misses sessions
+  // whose 'start' row isn't the most recent evidence of activity (or isn't
+  // retained), while a periodic 'interim-update' still is: that subscriber
+  // reads as disconnected even though RADIUS is actively accounting traffic
+  // for them right now.
   const [rows] = await db.query(`
     SELECT * FROM connection_logs
-    WHERE contract_id = ? AND event_type = 'start'
+    WHERE contract_id = ? AND event_type IN ('start', 'interim-update')
       AND NOT EXISTS (
         SELECT 1 FROM connection_logs cl2
         WHERE cl2.session_id = connection_logs.session_id
@@ -115,6 +122,60 @@ async function getActiveSession(contractId) {
     ORDER BY event_at DESC LIMIT 1
   `, [contractId]);
   return rows[0] || null;
+}
+
+/**
+ * Get the most recent active session for a CLIENT (not a specific contract),
+ * org-scoped. This is what the AI diagnostic engine (diagnosticEngineService.js)
+ * and support context service (supportContextService.js) call — both called
+ * `radiusService.getSessionByClientId(...)`, a function that never existed
+ * here, so every RADIUS/PPPoE session check in both of those always threw
+ * (caught, degrading to an 'unknown'/generic status — silently, forever).
+ *
+ * The returned object exposes the session under every field name a caller
+ * actually reads (`ip` / `framed_ip_address` / `framedipaddress`, `sessionActive`
+ * / `session_active`, `acctstarttime`) — connection_logs is this app's own
+ * accounting table, not a raw FreeRADIUS radacct row, so those names don't
+ * exist on it natively; they're computed here from the real columns
+ * (framed_ip, ip_address, event_at) once, so no caller needs to change.
+ *
+ * @param {number|string} clientId
+ * @param {number|string} orgId
+ * @returns {Promise<object|null>}
+ */
+async function getSessionByClientId(clientId, orgId) {
+  // Same liveness predicate as getActiveSession above: 'start' OR
+  // 'interim-update' is live evidence, as long as no 'stop' followed it for
+  // that session_id. Anchoring on 'start' alone diagnosed a currently
+  // connected subscriber as offline whenever the most recent row available
+  // for their session was an interim-update.
+  const [rows] = await db.query(`
+    SELECT cl.* FROM connection_logs cl
+    JOIN contracts c ON c.id = cl.contract_id
+    WHERE cl.client_id = ? AND c.organization_id = ? AND cl.event_type IN ('start', 'interim-update')
+      AND NOT EXISTS (
+        SELECT 1 FROM connection_logs cl2
+        WHERE cl2.session_id = cl.session_id
+          AND cl2.client_id = cl.client_id
+          AND cl2.event_type = 'stop'
+      )
+    ORDER BY cl.event_at DESC LIMIT 1
+  `, [clientId, orgId]);
+  const session = rows[0];
+  if (!session) return null;
+
+  const ip = session.framed_ip || session.ip_address || null;
+  return {
+    ...session,
+    sessionActive: true,
+    session_active: true,
+    ip,
+    framed_ip_address: ip,
+    framedipaddress: ip,
+    acctstarttime: session.event_at || null,
+    uptime: session.session_duration ?? null,
+    session_time: session.session_duration ?? null,
+  };
 }
 
 /**
@@ -940,6 +1001,7 @@ module.exports = {
   syncFreeradiusTables,
   checkCertificateExpiry,
   getActiveSession,
+  getSessionByClientId,
   disconnectSession,
   changeOfAuth,
   getSessionHistory,

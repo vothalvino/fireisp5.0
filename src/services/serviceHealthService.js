@@ -29,28 +29,52 @@ const logger = require('../utils/logger').child({ service: 'serviceHealthService
  */
 async function getRadiusSession(contractId) {
   try {
-    const [rows] = await db.query(
-      `SELECT r.username, r.status,
-              cl.ip_address, cl.session_id,
-              cl.bytes_in, cl.bytes_out, cl.session_time
-       FROM radius r
-       LEFT JOIN connection_logs cl
-              ON cl.radius_id = r.id
-             AND cl.event_type = 'start'
-       WHERE r.contract_id = ? AND r.status = 'active'
-       ORDER BY cl.id DESC
-       LIMIT 1`,
+    // CRITICAL/HIGH (second adversarial review, item 2): this used to derive
+    // `online` from `r.status` (the RADIUS ACCOUNT's provisioning state,
+    // already forced to 'active' by the WHERE clause) and grab the latest
+    // 'start' connection_logs row with no check that a 'stop' had since
+    // closed it — so every RADIUS-enabled contract reported ONLINE with a
+    // stale IP forever, even long after the subscriber disconnected. That
+    // fabricated snapshot is JSON-stringified straight into the
+    // customer-facing AI-reply prompt (aiReplyService) — the bot would tell
+    // an offline customer they're online.
+    //
+    // `online` must reflect a live SESSION, not account state. Delegate to
+    // radiusService.getActiveSession, which requires the latest event for
+    // the session_id to NOT be 'stop' (and now, after item 3 of the same
+    // review, also treats 'interim-update' as live evidence, not just
+    // 'start'). connection_logs.username is denormalised onto the row
+    // already, so no join back to `radius` is needed for a live session; for
+    // a contract with no live session we still surface the provisioned
+    // RADIUS username (so the health panel can show "this account exists,
+    // currently offline" instead of nothing), but online is always false in
+    // that case — never fabricated.
+    const radiusService = require('./radiusService');
+    const session = await radiusService.getActiveSession(contractId);
+
+    if (session) {
+      return {
+        online:      true,
+        username:    session.username,
+        ip:          session.ip_address || null,
+        sessionTime: session.session_duration ?? null,
+        bytesIn:     session.bytes_in ?? null,
+        bytesOut:    session.bytes_out ?? null,
+      };
+    }
+
+    const [acctRows] = await db.query(
+      'SELECT username FROM radius WHERE contract_id = ? LIMIT 1',
       [contractId],
     );
-    if (!rows.length) return null;
-    const row = rows[0];
+    if (!acctRows.length) return null;
     return {
-      online:      row.status === 'active',
-      username:    row.username,
-      ip:          row.ip_address,
-      sessionTime: row.session_time,
-      bytesIn:     row.bytes_in,
-      bytesOut:    row.bytes_out,
+      online:      false,
+      username:    acctRows[0].username,
+      ip:          null,
+      sessionTime: null,
+      bytesIn:     null,
+      bytesOut:    null,
     };
   } catch (err) {
     logger.warn({ contractId, err: err.message }, 'serviceHealthService: RADIUS session query failed');
@@ -65,12 +89,13 @@ async function getRadiusSession(contractId) {
  */
 async function getLastConnectionLog(contractId) {
   try {
+    // connection_logs.contract_id is direct — no join to radius needed (see
+    // getRadiusSession above for the same fix).
     const [rows] = await db.query(
-      `SELECT cl.event_type, cl.ip_address, cl.terminate_cause, cl.created_at
-       FROM connection_logs cl
-       JOIN radius r ON r.id = cl.radius_id
-       WHERE r.contract_id = ?
-       ORDER BY cl.id DESC
+      `SELECT event_type, ip_address, terminate_cause, created_at
+       FROM connection_logs
+       WHERE contract_id = ?
+       ORDER BY id DESC
        LIMIT 1`,
       [contractId],
     );
@@ -93,24 +118,70 @@ async function getSnmpMetrics(deviceIds) {
   const safeIds = deviceIds.map(Number).filter(n => Number.isFinite(n) && n > 0);
   if (!safeIds.length) return [];
   try {
+    // snmp_metrics is a WIDE table — one column per metric (cpu_usage,
+    // signal_dbm, …) — not a narrow (device, oid, value) table, so it has no
+    // profile_oid_id/value_gauge/value_counter/value_string columns. The
+    // per-OID -> per-column mapping lives on snmp_profile_oids.metric_column
+    // ("Target column in snmp_metrics", per its own schema comment), scoped
+    // through devices.snmp_profile_id -> snmp_profiles. Resolve that mapping,
+    // then pluck each configured OID's value out of the device's latest wide
+    // row by column name — read as a plain JS property (never interpolated
+    // into SQL), and guarded so a stale/garbage metric_column just yields no
+    // value instead of throwing.
     const placeholders = safeIds.map(() => '?').join(', ');
-    const [rows] = await db.query(
-      `SELECT sm.device_id, spo.oid_name, sm.value_gauge, sm.value_counter, sm.value_string, sm.polled_at
-       FROM snmp_metrics sm
-       JOIN snmp_profile_oids spo ON spo.id = sm.profile_oid_id
-       WHERE sm.device_id IN (${placeholders})
-         AND sm.polled_at >= NOW() - INTERVAL 15 MINUTE
-         -- 15-minute window: SNMP poller default interval is ≤5 min; 15 min
-         -- gives 3 poll cycles of headroom before data is considered stale.
-       ORDER BY sm.device_id, spo.oid_name, sm.polled_at DESC`,
+    const [deviceRows] = await db.query(
+      `SELECT id AS device_id, snmp_profile_id FROM devices
+       WHERE id IN (${placeholders}) AND snmp_profile_id IS NOT NULL`,
       safeIds,
     );
-    return rows.map(r => ({
-      deviceId:  r.device_id,
-      oidName:   r.oid_name,
-      value:     r.value_gauge ?? r.value_counter ?? r.value_string,
-      polledAt:  r.polled_at,
-    }));
+    if (!deviceRows.length) return [];
+
+    const profileIds = [...new Set(deviceRows.map((d) => d.snmp_profile_id))];
+    const profilePlaceholders = profileIds.map(() => '?').join(', ');
+    const [oidRows] = await db.query(
+      `SELECT profile_id, label AS oid_name, metric_column FROM snmp_profile_oids
+       WHERE profile_id IN (${profilePlaceholders}) AND status = 'active' AND deleted_at IS NULL`,
+      profileIds,
+    );
+    if (!oidRows.length) return [];
+    const oidsByProfile = new Map();
+    for (const oid of oidRows) {
+      if (!oidsByProfile.has(oid.profile_id)) oidsByProfile.set(oid.profile_id, []);
+      oidsByProfile.get(oid.profile_id).push(oid);
+    }
+
+    const metricPlaceholders = safeIds.map(() => '?').join(', ');
+    const [metricRows] = await db.query(
+      `SELECT * FROM snmp_metrics
+       WHERE device_id IN (${metricPlaceholders})
+         AND polled_at >= NOW() - INTERVAL 15 MINUTE
+         -- 15-minute window: SNMP poller default interval is ≤5 min; 15 min
+         -- gives 3 poll cycles of headroom before data is considered stale.
+       ORDER BY device_id, polled_at DESC`,
+      safeIds,
+    );
+    const latestByDevice = new Map();
+    for (const row of metricRows) {
+      if (!latestByDevice.has(row.device_id)) latestByDevice.set(row.device_id, row);
+    }
+
+    const results = [];
+    for (const device of deviceRows) {
+      const latest = latestByDevice.get(device.device_id);
+      if (!latest) continue;
+      for (const oid of oidsByProfile.get(device.snmp_profile_id) || []) {
+        if (!Object.prototype.hasOwnProperty.call(latest, oid.metric_column)) continue;
+        const value = latest[oid.metric_column];
+        if (value === null || value === undefined) continue;
+        results.push({
+          deviceId: device.device_id,
+          oidName: oid.oid_name,
+          value,
+          polledAt: latest.polled_at,
+        });
+      }
+    }
+    return results;
   } catch (err) {
     logger.warn({ deviceIds, err: err.message }, 'serviceHealthService: SNMP metrics query failed');
     return [];

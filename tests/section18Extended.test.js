@@ -53,7 +53,17 @@ jest.mock('../src/services/emailTransport',           () => ({ processQueue: jes
 jest.mock('../src/services/smsTransport',             () => ({ processQueue: jest.fn() }));
 jest.mock('../src/services/webhookService',           () => ({ processRetries: jest.fn() }));
 jest.mock('../src/services/checkoutService',          () => ({ processRecurringCharges: jest.fn() }));
-jest.mock('../src/services/alertService',             () => ({ evaluateAlerts: jest.fn() }));
+jest.mock('../src/services/alertService',             () => ({
+  evaluateAlerts: jest.fn(),
+  // automationService reads this real (unmocked) whitelist to validate
+  // condition_metric before building a dynamic snmp_metrics column reference.
+  SNMP_METRICS: new Set([
+    'cpu_usage', 'memory_usage', 'signal_strength', 'latency_ms', 'if_in_octets',
+    'if_out_octets', 'voltage_mv', 'temperature_c', 'fan_speed_rpm', 'if_in_discards',
+    'if_out_discards', 'sfp_tx_power_dbm', 'sfp_rx_power_dbm', 'sfp_temperature_c',
+    'ups_battery_pct', 'ups_runtime_min', 'poe_power_mw', 'humidity_pct',
+  ]),
+}));
 jest.mock('../src/services/retentionService',         () => ({ runAll: jest.fn() }));
 jest.mock('../src/services/paymentRetryService',      () => ({ processPendingRetries: jest.fn() }));
 jest.mock('../src/services/configBackupService',      () => ({ runNightlyBackups: jest.fn() }));
@@ -223,9 +233,15 @@ describe('taskRunner — §18 scheduled task dispatch', () => {
     });
 
     it('triggers a rule when condition is met (is_true operator)', async () => {
+      // `condition_metric` selects a real snmp_metrics COLUMN (the table has
+      // no generic metric/value pair) and is checked against a fixed
+      // whitelist before being interpolated into the query (SQL-injection
+      // guard — condition_metric is an admin-supplied free-form string with
+      // no content validation elsewhere) — 'cpu_usage' is a real, whitelisted
+      // column; a fictional metric like 'is_offline' is now rejected outright.
       db.query
         .mockResolvedValueOnce(mockRows([{  // rules query
-          id: 2, condition_metric: 'is_offline', condition_operator: 'is_true',
+          id: 2, condition_metric: 'cpu_usage', condition_operator: 'is_true',
           condition_threshold: null, action_type: 'reboot_device',
           cooldown_minutes: 5, last_triggered_at: null, is_enabled: 1,
         }]))
