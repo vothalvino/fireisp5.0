@@ -26,6 +26,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (_req, _res, next) => next(),
   sseLimiter: (_req, _res, next) => next(),
   webhookLimiter: (_req, _res, next) => next(),
+  uploadLimiter: (_req, _res, next) => next(),
 }));
 jest.mock('../src/middleware/checkQuota', () => ({ quotaCheck: () => (_req, _res, next) => next() }));
 jest.mock('../src/middleware/ipAllowlist', () => ({

@@ -68,6 +68,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   sseLimiter:       (_r, _s, n) => n(),
   webhookLimiter:   (_r, _s, n) => n(),
   tenantApiLimiter: (_r, _s, n) => n(),
+  uploadLimiter:    (_r, _s, n) => n(),
 }));
 jest.mock('../src/middleware/ipAllowlist', () => ({
   createIpAllowlist: () => (_r, _s, n) => n(),
