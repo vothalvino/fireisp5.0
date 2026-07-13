@@ -53564,6 +53564,10 @@
             "type": "number",
             "minimum": 1
           },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "contract_id": {
             "type": "number",
             "minimum": 1
@@ -53660,6 +53664,10 @@
             "type": "number",
             "minimum": 1
           },
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "contract_id": {
             "type": "number",
             "minimum": 1
@@ -53749,6 +53757,10 @@
         "type": "object",
         "properties": {
           "site_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "client_id": {
             "type": "number",
             "minimum": 1
           },

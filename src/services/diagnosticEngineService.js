@@ -49,19 +49,46 @@ function getWirelessService() {
 // a perfectly healthy, actively-monitored ONU. `devices` carries client_id
 // directly for both device kinds, so each gets its own resolver querying the
 // right `type`.
+//
+// devices.client_id was, until recently, unsettable through the API (no
+// validation-schema field, no fillable entry), so the "direct" lookup below
+// was permanently dead in practice — every ONU could only ever be reached
+// through the cpe_devices bridge, and `_resolveCpeDeviceId` never checked
+// `devices.type` on the far end of that bridge. Since cpe_devices.device_id
+// has no server-side type guard, nothing stopped an ONU from being linked
+// through the CPE bridge and misclassified as wireless (or vice versa).
+// `_resolveOnuDeviceId` now falls back to the same bridge (filtered to
+// `type = 'onu'`) so devices onboarded before client_id was settable still
+// resolve, and `_resolveCpeDeviceId` now joins back to `devices` and
+// restricts to the two real CPE type values so it can never return an ONU's
+// device id — the two resolvers are mutually exclusive by `devices.type`,
+// not just by which table happened to answer first.
 
 /**
  * Resolve the `devices.id` (type='onu') monitored for a client's fiber
  * service. Returns null if there is no monitored ONU for this client.
  */
 async function _resolveOnuDeviceId(clientId, orgId) {
-  const [rows] = await db.query(
+  const [direct] = await db.query(
     `SELECT id FROM devices
-      WHERE client_id = ? AND organization_id = ? AND type = 'onu'
+      WHERE client_id = ? AND organization_id = ? AND type = 'onu' AND deleted_at IS NULL
       ORDER BY id DESC LIMIT 1`,
     [clientId, orgId],
   );
-  return rows[0]?.id ?? null;
+  if (direct[0]?.id) return direct[0].id;
+
+  const [bridged] = await db.query(
+    `SELECT d.id
+       FROM cpe_devices cd
+       JOIN contracts c ON c.id = cd.contract_id
+       JOIN devices d ON d.id = cd.device_id
+      WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
+        AND cd.deleted_at IS NULL AND cd.device_id IS NOT NULL
+        AND d.type = 'onu' AND d.deleted_at IS NULL
+      ORDER BY cd.id DESC LIMIT 1`,
+    [clientId, orgId],
+  );
+  return bridged[0]?.id ?? null;
 }
 
 /**
@@ -74,8 +101,10 @@ async function _resolveCpeDeviceId(clientId, orgId) {
     `SELECT cd.device_id
        FROM cpe_devices cd
        JOIN contracts c ON c.id = cd.contract_id
+       JOIN devices d ON d.id = cd.device_id
       WHERE c.client_id = ? AND c.organization_id = ? AND c.status = 'active'
         AND cd.deleted_at IS NULL AND cd.device_id IS NOT NULL
+        AND d.type IN ('indoor_cpe', 'outdoor_cpe') AND d.deleted_at IS NULL
       ORDER BY cd.id DESC LIMIT 1`,
     [clientId, orgId],
   );
@@ -844,6 +873,12 @@ function _buildResult(checks, defaultRecommendation) {
   const errorChecks = checks.filter(c => c.status === 'error');
   const knownChecks = checks.filter(c => c.status !== 'unknown').length;
   const confidence = checks.length > 0 ? knownChecks / checks.length : 0;
+  // Blind run: every check came back 'unknown' (e.g. total service
+  // unavailability). Without this branch a blind run and a genuinely clean
+  // bill of health both fall through to the same reassuring
+  // 'No critical issues detected' text — a false negative. Mirrors
+  // _genericResult's honest zero-data phrasing above.
+  const blind = checks.length > 0 && knownChecks === 0;
 
   // Escalate if physical infrastructure issues detected
   const escalateNames = new Set(['olt_hardware', 'onu_replacement', 'fiber_splice']);
@@ -852,10 +887,12 @@ function _buildResult(checks, defaultRecommendation) {
 
   return {
     checks,
-    cause: errorChecks.length > 0
-      ? `Issues detected: ${errorChecks.map(c => c.name).join(', ')}`
-      : 'No critical issues detected',
-    recommendation: defaultRecommendation,
+    cause: blind
+      ? 'Unable to determine specific cause — manual review required'
+      : errorChecks.length > 0
+        ? `Issues detected: ${errorChecks.map(c => c.name).join(', ')}`
+        : 'No critical issues detected',
+    recommendation: blind ? 'Please contact technical support for assistance.' : defaultRecommendation,
     autoFixAvailable: 0,
     confidence: Math.round(confidence * 100) / 100,
     escalate,

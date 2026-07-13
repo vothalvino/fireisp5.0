@@ -16,20 +16,39 @@ const db = require('../config/database');
 const auditLog = require('../services/auditLog');
 const { pubsub } = require('../services/pubsub');
 const topologyContextService = require('../services/topologyContextService');
+const { assertDeviceClientFk } = require('../services/deviceAuthz');
 const logger = require('../utils/logger').child({ service: 'routes/devices' });
 
 const router = Router();
-const ctrl = crudController(Device, { cacheResource: 'devices' });
+
+const ctrl = crudController(Device, {
+  cacheResource: 'devices',
+  beforeUpdate: (_old, req) => assertDeviceClientFk(req.body, req.orgId),
+});
 
 router.use(authenticate);
 router.use(orgScope);
 
 router.get('/', requirePermission('devices.view'), httpCache('devices', 120), ctrl.list);
 router.get('/:id', requirePermission('devices.view'), ctrl.get);
-router.post('/', requirePermission('devices.create'), quotaCheck('devices'), validate(createDevice), ctrl.create);
+router.post(
+  '/',
+  requirePermission('devices.create'),
+  quotaCheck('devices'),
+  validate(createDevice),
+  async (req, res, next) => {
+    try {
+      await assertDeviceClientFk(req.body, req.orgId);
+    } catch (err) {
+      return next(err);
+    }
+    return ctrl.create(req, res, next);
+  },
+);
 router.put('/:id', requirePermission('devices.update'), validate(updateDevice), async (req, res, next) => {
   try {
     const old = await Device.findByIdOrFail(req.params.id, req.orgId);
+    await assertDeviceClientFk(req.body, req.orgId);
     const record = await Device.update(req.params.id, req.body, req.orgId);
     await auditLog.log({
       userId: req.user?.id,
