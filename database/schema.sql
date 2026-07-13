@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at          TIMESTAMP       NULL,
     failed_login_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Consecutive failed login attempts since last successful login',
     locked_until           TIMESTAMP       NULL DEFAULT NULL   COMMENT 'Account locked until this timestamp; NULL = not locked',
+    reset_token_hash        VARCHAR(64)    NULL     COMMENT 'sha256 hex digest of the password-reset token; NULL when no reset is pending (migration 382)',
+    reset_token_expires     DATETIME       NULL     COMMENT 'Reset token expiry, set to NOW()+1hr on request (migration 382)',
+    email_verify_token_hash VARCHAR(64)    NULL     COMMENT 'sha256 hex digest of the pending email-verification token (migration 382)',
+    email_verified_at       DATETIME       NULL     COMMENT 'When the user confirmed their email; NULL = unverified. Informational only today -- nothing gates login on it (migration 382)',
     created_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -40,6 +44,8 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uq_users_email (email, active_flag),
     KEY idx_users_organization_id (organization_id),
     KEY idx_users_deleted_at (deleted_at),
+    KEY idx_users_reset_token_hash (reset_token_hash),
+    KEY idx_users_email_verify_token_hash (email_verify_token_hash),
     CONSTRAINT fk_users_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_users_group FOREIGN KEY (group_id)
