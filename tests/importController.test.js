@@ -352,6 +352,121 @@ describe('importController', () => {
         ]);
       });
     });
+
+    // CSV credential import: optional pppoe_username/pppoe_password columns
+    // let an operator carry over pre-existing PPPoE credentials instead of
+    // always auto-generating a pair.
+    describe('caller-supplied PPPoE credentials', () => {
+      test('imports a pppoe row with both columns present, uses them verbatim, reports the username in credentials', async () => {
+        db.query.mockResolvedValue([[{ id: 1 }]]); // Client.findById + assertPlanSelectable both succeed
+        const conn = makeContractConn({ insertId: 30 });
+        db.getConnection.mockResolvedValue(conn);
+        const csv = 'client_id,plan_id,connection_type,pppoe_username,pppoe_password\n1,2,pppoe,carried-over,S3cretPass!';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result).toEqual({
+          imported: 1,
+          total: 1,
+          errors: [],
+          credentials: [{ row: 2, contract_id: 30, username: 'carried-over' }],
+        });
+        expect(conn.query).toHaveBeenCalledWith(
+          expect.stringMatching(/^INSERT INTO radius/),
+          expect.arrayContaining(['carried-over', 'S3cretPass!']),
+        );
+        // The supplied cleartext password must never appear in the response
+        // (would reintroduce the migration-383 credential leak).
+        expect(JSON.stringify(result)).not.toContain('S3cretPass!');
+      });
+
+      test('errors the row when only pppoe_username is supplied, and when only pppoe_password is supplied', async () => {
+        const csv = [
+          'client_id,plan_id,connection_type,pppoe_username,pppoe_password',
+          '1,2,pppoe,onlyuser,',
+          '1,2,pppoe,,onlypass',
+        ].join('\n');
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors).toEqual([
+          expect.objectContaining({ row: 2, error: 'pppoe_username and pppoe_password must both be provided together' }),
+          expect.objectContaining({ row: 3, error: 'pppoe_username and pppoe_password must both be provided together' }),
+        ]);
+        expect(db.getConnection).not.toHaveBeenCalled();
+        expect(db.query).not.toHaveBeenCalled();
+      });
+
+      test('errors the row when pppoe_username/pppoe_password are supplied on a static connection_type row', async () => {
+        const csv = 'client_id,plan_id,connection_type,pppoe_username,pppoe_password\n1,2,static,someuser,somepass';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors[0]).toEqual(
+          expect.objectContaining({
+            row: 2,
+            error: 'pppoe_username/pppoe_password only apply to connection_type pppoe or pppoe_dual',
+          }),
+        );
+        expect(db.getConnection).not.toHaveBeenCalled();
+      });
+
+      test('errors the row when pppoe_username fails the safe-charset/length check', async () => {
+        const csv = 'client_id,plan_id,connection_type,pppoe_username,pppoe_password\n1,2,pppoe,"bad user!",somepass';
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors[0]).toEqual(
+          expect.objectContaining({ row: 2, error: expect.stringMatching(/pppoe_username must be 1-64 characters/) }),
+        );
+      });
+
+      test('errors the row when pppoe_password exceeds 255 characters', async () => {
+        const longPassword = 'x'.repeat(256);
+        const csv = `client_id,plan_id,connection_type,pppoe_username,pppoe_password\n1,2,pppoe,gooduser,${longPassword}`;
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(0);
+        expect(result.errors[0]).toEqual(
+          expect.objectContaining({ row: 2, error: expect.stringMatching(/pppoe_password must be at most 255 characters/) }),
+        );
+      });
+
+      test('a caller-supplied username collision errors THAT row while a later valid row in the same CSV still imports', async () => {
+        db.query.mockResolvedValue([[{ id: 1 }]]); // Client.findById + assertPlanSelectable always succeed
+        const conn1 = makeContractConn({ insertId: 40, radiusUsernameTaken: true });
+        const conn2 = makeContractConn({ insertId: 41, radiusUsernameTaken: false });
+        db.getConnection.mockResolvedValueOnce(conn1).mockResolvedValueOnce(conn2);
+        const csv = [
+          'client_id,plan_id,connection_type,pppoe_username,pppoe_password',
+          '1,2,pppoe,dupe-user,pass1',
+          '1,2,pppoe,other-user,pass2',
+        ].join('\n');
+        const { req, res, next } = mockReqRes({ body: { csv } });
+        await importContracts(req, res, next);
+
+        const result = res.json.mock.calls[0][0].data;
+        expect(result.imported).toBe(1);
+        expect(result.errors).toEqual([
+          expect.objectContaining({ row: 2, error: expect.stringContaining("PPPoE username 'dupe-user' is already in use") }),
+        ]);
+        expect(result.credentials).toEqual([
+          { row: 3, contract_id: 41, username: 'other-user' },
+        ]);
+        expect(conn1.rollback).toHaveBeenCalledTimes(1);
+        expect(conn1.commit).not.toHaveBeenCalled();
+        expect(conn2.commit).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -492,6 +607,25 @@ describe('importController', () => {
       const result = res.json.mock.calls[0][0].data;
       expect(result.imported).toBe(0);
       expect(result.errors[0].error).toMatch(/connection_type must be one of/);
+    });
+
+    test('imports a pppoe row with caller-supplied credentials from a CSV file buffer, uses them verbatim', async () => {
+      db.query.mockResolvedValue([[{ id: 1 }]]);
+      const conn = makeContractConn({ insertId: 31 });
+      db.getConnection.mockResolvedValue(conn);
+      const csv = 'client_id,plan_id,connection_type,pppoe_username,pppoe_password\n1,2,pppoe,carried-over,S3cretPass!';
+      const { req, res, next } = mockReqRes({
+        file: { buffer: Buffer.from(csv), originalname: 'contracts.csv' },
+      });
+      await importContractsFile(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result).toEqual({
+        imported: 1,
+        total: 1,
+        errors: [],
+        credentials: [{ row: 2, contract_id: 31, username: 'carried-over' }],
+      });
+      expect(JSON.stringify(result)).not.toContain('S3cretPass!');
     });
   });
 

@@ -86,6 +86,18 @@ const passwordResetLimiter = makeLimiter(rl.passwordReset, 'Too many password re
 const verifyEmailResendLimiter = makeLimiter(rl.passwordReset, 'Too many verification email requests, please try again later');
 
 /**
+ * POST /bulk/email only — configurable via RATE_LIMIT_BULK_EMAIL (default
+ * 10). Same rationale as passwordResetLimiter/verifyEmailResendLimiter: a
+ * mass-send action reaching real client inboxes needs its own tighter budget
+ * stacked on top of the shared apiLimiter/tenantApiLimiter, which only cap
+ * request count — not the up-to-1000 recipients a single request can fan out
+ * to (see checkBulkEmailDailyBudget below for the recipient-count layer).
+ * A separate makeLimiter() instance (not a shared reference), same reason as
+ * verifyEmailResendLimiter: express-rate-limit's default store keys by IP
+ * only, so sharing an instance would merge budgets across routes.
+ */
+const bulkEmailLimiter = makeLimiter(rl.bulkEmail, 'Too many bulk email requests, please try again later');
+/**
  * POST /portal/auth/password-reset/request only — reuses the same modest
  * budget as passwordResetLimiter (RATE_LIMIT_PASSWORD_RESET, default 5),
  * since this is the same class of "sends real email" endpoint. Deliberately
@@ -196,6 +208,43 @@ class CacheStore {
 }
 
 /**
+ * Per-organization rolling-24h RECIPIENT-count budget for POST /bulk/email.
+ *
+ * Built directly on cacheService rather than express-rate-limit: the "cost"
+ * of a hit (resolved, in-org recipient count) is only known after client_ids
+ * are looked up, which doesn't fit express-rate-limit's per-request
+ * increment-by-one model. The window is fixed at first-hit (like
+ * CacheStore.increment above), not extended on every call, so a steady
+ * trickle of requests cannot keep pushing the reset time forward forever.
+ *
+ * Same non-atomic get+set trade-off as CacheStore: acceptable for an abuse
+ * cap, not a hard security boundary (see rateLimit.js module docs above).
+ *
+ * @param {number|string} orgId Organization ID (req.orgId).
+ * @param {number} count Number of recipients this request would add.
+ * @param {number} [limit] Daily recipient budget (default rl.bulkEmailDailyRecipients).
+ * @returns {Promise<{allowed: boolean, remaining: number, resetAt: number}>}
+ */
+async function checkBulkEmailDailyBudget(orgId, count, limit = rl.bulkEmailDailyRecipients) {
+  const key = `bulk_email_daily:${orgId}`;
+  const windowMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const existing = await cacheService.get(key);
+  let used = 0;
+  let resetAt = now + windowMs;
+  if (existing && existing.resetAt > now) {
+    used = existing.count;
+    resetAt = existing.resetAt;
+  }
+  if (used + count > limit) {
+    return { allowed: false, remaining: Math.max(0, limit - used), resetAt };
+  }
+  const ttlSeconds = Math.max(1, Math.ceil((resetAt - now) / 1000));
+  await cacheService.set(key, { count: used + count, resetAt }, ttlSeconds);
+  return { allowed: true, remaining: limit - used - count, resetAt };
+}
+
+/**
  * Per-tenant API rate limiter.
  *
  * Keyed by organization ID (req.orgId) so that each tenant's quota is tracked
@@ -221,6 +270,7 @@ module.exports = {
   authLimiter,
   passwordResetLimiter,
   verifyEmailResendLimiter,
+  bulkEmailLimiter,
   portalPasswordResetLimiter,
   sessionLimiter,
   isSessionPath,
@@ -230,5 +280,6 @@ module.exports = {
   sseLimiter,
   webhookLimiter,
   tenantApiLimiter,
+  checkBulkEmailDailyBudget,
   CacheStore,
 };

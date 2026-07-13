@@ -170,6 +170,28 @@ async function assertIpAvailable(runner, { ip, organizationId = null, excludeCon
 }
 
 /**
+ * Assert that a caller-supplied PPPoE username is not already in use.
+ * Mirrors generatePppoeCredentials's own uniqueness check exactly (same
+ * query, deliberately no `deleted_at` filter — see that function's docstring
+ * and migration 361's (username, active_flag) unique key) so a caller-
+ * supplied username is held to the same global-uniqueness standard as an
+ * auto-generated one.
+ *
+ * @param {object} runner DB pool or transaction connection exposing `.query`.
+ * @param {string} username Candidate PPPoE username to check.
+ * @throws {ConflictError} When the username is already in use.
+ */
+async function assertUsernameAvailable(runner, username) {
+  const [rows] = await runner.query(
+    'SELECT id FROM radius WHERE username = ? LIMIT 1',
+    [username],
+  );
+  if (rows.length > 0) {
+    throw new ConflictError(`PPPoE username '${username}' is already in use`);
+  }
+}
+
+/**
  * Provision the network resources for a freshly created contract.
  *  - PPPoE / PPPoE-dual: create a RADIUS account with generated credentials
  *    (and an IPv6 pool for dual-stack), returning the cleartext password.
@@ -180,14 +202,31 @@ async function assertIpAvailable(runner, { ip, organizationId = null, excludeCon
  *   client_id, connection_type; optional ip_address, organization_id).
  * @param {object} [opts]
  * @param {string} [opts.seed] Optional readable username seed (e.g. client name).
+ * @param {string} [opts.pppoeUsername] Caller-supplied PPPoE username (e.g.
+ *   from a CSV import carrying over pre-existing credentials). When supplied
+ *   together with opts.pppoePassword, this pair is used verbatim instead of
+ *   auto-generating one — still subject to the same uniqueness check as an
+ *   auto-generated username (assertUsernameAvailable).
+ * @param {string} [opts.pppoePassword] Caller-supplied PPPoE password. Must
+ *   be supplied together with opts.pppoeUsername; only one of the two is
+ *   never valid — callers (see importController) must reject that case
+ *   before calling this function.
  * @returns {Promise<object>} Provisioning summary.
  */
-async function provisionNewContract(runner, contract, { seed } = {}) {
+async function provisionNewContract(runner, contract, { seed, pppoeUsername, pppoePassword } = {}) {
   const result = { connection_type: contract.connection_type };
   const organizationId = contract.organization_id ?? null;
 
   if (isPppoe(contract.connection_type)) {
-    const { username, password } = await generatePppoeCredentials(runner, { seed });
+    let username;
+    let password;
+    if (pppoeUsername && pppoePassword) {
+      await assertUsernameAvailable(runner, pppoeUsername);
+      username = pppoeUsername;
+      password = pppoePassword;
+    } else {
+      ({ username, password } = await generatePppoeCredentials(runner, { seed }));
+    }
     const ipv4PoolId = await findActivePool(runner, { ipVersion: '4', organizationId });
     const ipv6PoolId = isDual(contract.connection_type)
       ? await findActivePool(runner, { ipVersion: '6', organizationId })
@@ -279,6 +318,7 @@ module.exports = {
   generatePppoeCredentials,
   findActivePool,
   assertIpAvailable,
+  assertUsernameAvailable,
   provisionNewContract,
   enableIpv6Line,
   isIpv4ToDualUpgrade,

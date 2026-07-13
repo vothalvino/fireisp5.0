@@ -73,6 +73,21 @@ describe('subscriberProvisioningService', () => {
     });
   });
 
+  describe('assertUsernameAvailable()', () => {
+    test('passes when the username is free', async () => {
+      const runner = makeRunner([[[]]]);
+      await expect(svc.assertUsernameAvailable(runner, 'alice-01')).resolves.toBeUndefined();
+      expect(runner.calls[0].sql).toMatch(/^SELECT id FROM radius WHERE username = \? LIMIT 1$/);
+      expect(runner.calls[0].params).toEqual(['alice-01']);
+    });
+
+    test('throws ConflictError when the username is already taken', async () => {
+      const runner = makeRunner([[[{ id: 4 }]]]);
+      await expect(svc.assertUsernameAvailable(runner, 'alice-01'))
+        .rejects.toBeInstanceOf(ConflictError);
+    });
+  });
+
   describe('assertIpAvailable()', () => {
     test('passes when the IP is free', async () => {
       const runner = makeRunner([[[]], [[]]]);
@@ -151,6 +166,55 @@ describe('subscriberProvisioningService', () => {
         runner,
         { id: 8, client_id: 2, connection_type: 'static', ip_address: '192.0.2.10' },
       )).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test('uses caller-supplied username+password when both are provided, skipping generatePppoeCredentials', async () => {
+      const runner = makeRunner([
+        [[]],                       // assertUsernameAvailable — free
+        [[{ id: 11 }]],             // ipv4 pool lookup
+        [{ insertId: 200 }],        // radius insert
+      ]);
+      const result = await svc.provisionNewContract(
+        runner,
+        { id: 12, client_id: 3, connection_type: 'pppoe', organization_id: 1 },
+        { pppoeUsername: 'carried-over', pppoePassword: 'S3cretPass!' },
+      );
+      expect(result.pppoe.username).toBe('carried-over');
+      expect(result.pppoe.password).toBe('S3cretPass!');
+      // Exactly 3 queries total (uniqueness check + pool lookup + insert) —
+      // generatePppoeCredentials's own retry-loop query never ran.
+      expect(runner.query).toHaveBeenCalledTimes(3);
+      const uniquenessCheck = runner.calls[0];
+      expect(uniquenessCheck.sql).toMatch(/^SELECT id FROM radius WHERE username = \? LIMIT 1$/);
+      expect(uniquenessCheck.params).toEqual(['carried-over']);
+      const insert = runner.calls.find(c => /INSERT INTO radius/.test(c.sql));
+      expect(insert.params).toEqual(expect.arrayContaining(['carried-over', 'S3cretPass!']));
+    });
+
+    test('falls back to generatePppoeCredentials when neither pppoeUsername nor pppoePassword is supplied', async () => {
+      const runner = makeRunner([
+        [[]],                       // generatePppoeCredentials's username uniqueness check
+        [[{ id: 11 }]],             // ipv4 pool lookup
+        [{ insertId: 201 }],        // radius insert
+      ]);
+      const result = await svc.provisionNewContract(
+        runner,
+        { id: 13, client_id: 3, connection_type: 'pppoe', organization_id: 1 },
+        {},
+      );
+      expect(result.pppoe.username).not.toBe('carried-over');
+      expect(result.pppoe.username).toBeTruthy();
+      expect(result.pppoe.password).toBeTruthy();
+    });
+
+    test('rejects a duplicate caller-supplied username with ConflictError, without an INSERT INTO radius', async () => {
+      const runner = makeRunner([[[{ id: 9 }]]]); // assertUsernameAvailable — already taken
+      await expect(svc.provisionNewContract(
+        runner,
+        { id: 14, client_id: 3, connection_type: 'pppoe', organization_id: 1 },
+        { pppoeUsername: 'taken-user', pppoePassword: 'whatever' },
+      )).rejects.toBeInstanceOf(ConflictError);
+      expect(runner.calls.some(c => /INSERT INTO radius/.test(c.sql))).toBe(false);
     });
   });
 
