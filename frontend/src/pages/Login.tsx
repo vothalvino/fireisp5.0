@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { type FormEvent, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -99,6 +99,8 @@ export function Login() {
         <button type="submit" disabled={loading} style={styles.button}>
           {loading ? t('common.signingIn') : t('common.signIn')}
         </button>
+
+        <Link to="/forgot-password" style={styles.link}>{t('login.forgotPasswordLink')}</Link>
       </form>
     </div>
   );
@@ -164,5 +166,11 @@ const styles = {
     fontSize: '1rem',
     cursor: 'pointer',
     marginTop: '0.5rem',
+  },
+  link: {
+    color: 'var(--accent)',
+    fontSize: '0.85rem',
+    textAlign: 'center' as const,
+    textDecoration: 'none',
   },
 };

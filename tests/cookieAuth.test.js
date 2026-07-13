@@ -22,6 +22,7 @@ jest.mock('../src/services/authService', () => ({
   changePassword: jest.fn(),
   verifyEmail: jest.fn(),
   generateEmailVerificationToken: jest.fn(),
+  resendVerificationEmail: jest.fn(),
   REFRESH_SECONDS: 604800,
   ACCESS_SECONDS: 900,
 }));
@@ -49,6 +50,10 @@ jest.mock('../src/models/Organization', () => ({
 jest.mock('../src/config', () => ({
   env: 'test',
   jwt: { secret: 'test-secret' },
+  // src/routes/auth.js now requires ../utils/logger (for password-reset/
+  // verify-email send-failure logging), which reads config.log.level at
+  // module-load time via pino() — must be present or requiring auth.js throws.
+  log: { level: 'silent' },
 }));
 
 const request = require('supertest');

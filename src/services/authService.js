@@ -9,6 +9,9 @@ const config = require('../config');
 const User = require('../models/User');
 const { sanitizeUser } = require('../utils/userSanitize');
 const db = require('../config/database');
+const emailTransport = require('./emailTransport');
+const emailTemplates = require('../views/emailTemplates');
+const logger = require('../utils/logger');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
 
 const SALT_ROUNDS = 12;
@@ -115,6 +118,36 @@ async function register({ firstName, lastName, email, password, organizationId, 
       'INSERT IGNORE INTO organization_users (organization_id, user_id, role) VALUES (?, ?, ?)',
       [organizationId, user.id, role || 'readonly'],
     );
+  }
+
+  // Generate an email-verification token (cheap, single UPDATE — kept
+  // synchronous so a fresh account always has a pending token immediately)
+  // and send it. The SMTP round-trip itself is intentionally NOT awaited:
+  // nodemailer's connection timeout defaults to ~2 minutes, and a slow or
+  // unreachable mail server must never make registration hang or vary its
+  // response timing. The account row already exists at this point, so a
+  // send failure is best-effort — logged server-side, never surfaced to the
+  // caller — and the user can request a fresh link via
+  // POST /auth/verify-email/resend.
+  try {
+    const { token } = await generateEmailVerificationToken(user.id);
+    const verifyUrl = `${config.appUrl}/verify-email?token=${token}`;
+    const userName = [firstName, lastName].filter(Boolean).join(' ') || undefined;
+    const template = emailTemplates.emailVerificationEmail({ userName, verifyUrl });
+    emailTransport.sendEmail({ to: email, subject: template.subject, html: template.html })
+      .then((sendResult) => {
+        if (!sendResult || !sendResult.success) {
+          logger.warn(`Verification email failed to send to ${email}: ${sendResult && sendResult.error}`);
+        }
+      })
+      .catch((err) => {
+        logger.error(`Verification email send threw for new user ${user.id}: ${err.message}`);
+      });
+  } catch (err) {
+    // Only the token-generation UPDATE can land here — sendEmail() above
+    // never throws synchronously (it's an async function; failures reach
+    // the .catch chained onto it instead).
+    logger.error(`Verification email send threw for new user ${user.id}: ${err.message}`);
   }
 
   return sanitizeUser(user);
@@ -355,7 +388,14 @@ async function requestPasswordReset(email) {
     [tokenHash, user.id],
   );
 
-  return { token, email: user.email, userId: user.id };
+  return {
+    token,
+    email: user.email,
+    userId: user.id,
+    // For the caller (route layer) to build the email greeting without a
+    // second DB round-trip.
+    userName: [user.first_name, user.last_name].filter(Boolean).join(' ') || undefined,
+  };
 }
 
 /**
@@ -380,8 +420,18 @@ async function resetPassword(token, newPassword) {
   const user = rows[0];
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
+  // Clear the brute-force login lockout too: possession of the emailed reset
+  // token is stronger proof of identity than a password (it required access
+  // to the account's inbox), so a successful reset should break the
+  // failed_login_attempts/locked_until loop from login()'s lockout logic —
+  // otherwise the documented account-recovery path doesn't actually recover
+  // the account, and repeatedly failing login then "recovering" becomes a
+  // pointless grief/DoS loop. Both columns already exist; no migration.
   await db.query(
-    'UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
+    `UPDATE users
+        SET password_hash = ?, reset_token_hash = NULL, reset_token_expires = NULL,
+            failed_login_attempts = 0, locked_until = NULL
+      WHERE id = ?`,
     [passwordHash, user.id],
   );
 
@@ -558,10 +608,48 @@ async function generateEmailVerificationToken(userId) {
   return { token };
 }
 
+/**
+ * Resend the email-verification link for the currently authenticated user.
+ * No-op fast path when the address is already verified — avoids generating a
+ * fresh token and sending an email that would go straight to an already
+ * confirmed inbox.
+ */
+async function resendVerificationEmail(userId) {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  if (user.email_verified_at) {
+    return { message: 'Email already verified', alreadyVerified: true };
+  }
+
+  const { token } = await generateEmailVerificationToken(user.id);
+  const verifyUrl = `${config.appUrl}/verify-email?token=${token}`;
+  const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || undefined;
+  const template = emailTemplates.emailVerificationEmail({ userName, verifyUrl });
+
+  // Detached — see register() above: the SMTP round-trip must never sit on
+  // the response critical path (nodemailer's connection timeout defaults to
+  // ~2 minutes). sendEmail() is an async function, so a failure can only
+  // ever surface via this .catch, never as an unhandled rejection.
+  emailTransport.sendEmail({ to: user.email, subject: template.subject, html: template.html })
+    .then((sendResult) => {
+      if (!sendResult || !sendResult.success) {
+        logger.warn(`Verification email resend failed for ${user.email}: ${sendResult && sendResult.error}`);
+      }
+    })
+    .catch((err) => {
+      logger.error(`Verification email resend threw for user ${user.id}: ${err.message}`);
+    });
+
+  return { message: 'Verification email sent' };
+}
+
 module.exports = {
   register, login, logout, refreshToken, switchOrganization,
   requestPasswordReset, resetPassword, changePassword,
-  verifyEmail, generateEmailVerificationToken,
+  verifyEmail, generateEmailVerificationToken, resendVerificationEmail,
   // Exported for cookie maxAge calculations in auth routes
   REFRESH_SECONDS,
   ACCESS_SECONDS,

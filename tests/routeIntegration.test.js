@@ -16,12 +16,20 @@ jest.mock('../src/config/database', () => ({
 
 jest.mock('../src/models/User');
 
+// register() and POST /auth/password-reset/request now send real transactional
+// email (§382 Tier 2) — mock the transport so these tests never attempt a real
+// SMTP connection and can assert on the send call directly.
+jest.mock('../src/services/emailTransport', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'test-message-id' }),
+}));
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
+const emailTransport = require('../src/services/emailTransport');
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -107,6 +115,10 @@ describe('Auth Routes — /api/auth', () => {
       expect(res.status).toBe(201);
       expect(res.body.data).toBeDefined();
       expect(res.body.data.email).toBe('jane@example.com');
+      // A verification email is sent for every new registration (§382 Tier 2)
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'jane@example.com', subject: 'Verify Your Email Address' }),
+      );
     });
   });
 
@@ -183,10 +195,12 @@ describe('Auth Routes — /api/auth', () => {
   });
 
   describe('POST /api/auth/password-reset/request', () => {
-    test('success — returns message', async () => {
+    test('success — returns message and emails the reset link', async () => {
       User.findByEmail.mockResolvedValue({
         id: 1,
         email: 'test@example.com',
+        first_name: 'Test',
+        last_name: 'User',
       });
       db.query.mockResolvedValue([{ affectedRows: 1 }]);
 
@@ -196,6 +210,63 @@ describe('Auth Routes — /api/auth', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.message).toBeDefined();
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'test@example.com', subject: 'Password Reset Request' }),
+      );
+    });
+
+    test('unknown email — returns the same generic message and sends NO email (anti-enumeration)', async () => {
+      User.findByEmail.mockResolvedValue(null);
+
+      const res = await request(app)
+        .post('/api/auth/password-reset/request')
+        .send({ email: 'nobody@example.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toContain('If that email exists');
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /api/auth/verify-email/resend', () => {
+    test('no-op fast path when already verified — does not send an email', async () => {
+      mockAuthUser();
+      User.findById.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        status: 'active',
+        email_verified_at: '2026-01-01 00:00:00',
+      });
+
+      const res = await request(app)
+        .post('/api/auth/verify-email/resend')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.alreadyVerified).toBe(true);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    test('sends a fresh verification email when not yet verified', async () => {
+      mockAuthUser();
+      User.findById.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        first_name: 'Test',
+        last_name: 'User',
+        status: 'active',
+        email_verified_at: null,
+      });
+      db.query.mockResolvedValue([{ affectedRows: 1 }]);
+
+      const res = await request(app)
+        .post('/api/auth/verify-email/resend')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'test@example.com', subject: 'Verify Your Email Address' }),
+      );
     });
   });
 

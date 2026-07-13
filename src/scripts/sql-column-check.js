@@ -66,16 +66,11 @@ const NOT_AN_ALIAS = new Set(['set', 'join', 'inner', 'left', 'right', 'cross', 
 // table/column not listed here, fails the build.
 //
 // Removing an entry from this list is how you close the gap.
-const KNOWN_SCHEMA_GAPS = [
-  {
-    file: 'src/services/authService.js',
-    table: 'users',
-    columns: ['reset_token_hash', 'reset_token_expires', 'email_verified_at', 'email_verify_token_hash'],
-    why: 'password reset + email verification have NO storage: POST /auth/forgot-password, '
-       + '/auth/reset-password and /auth/verify-email 500 on every call. Needs a migration '
-       + 'adding these four columns to `users` (or a password_resets table).',
-  },
-];
+//
+// Migration 382 added reset_token_hash/reset_token_expires/email_verified_at/
+// email_verify_token_hash to `users` — the entry that used to document that gap
+// here is gone; this check now enforces those four statements for real.
+const KNOWN_SCHEMA_GAPS = [];
 
 function isKnownGap(st, column) {
   return KNOWN_SCHEMA_GAPS.some(

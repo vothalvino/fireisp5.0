@@ -44,7 +44,38 @@
     "passwordLabel": "Senha",
     "totpLabel": "Código de dois fatores",
     "totpPlaceholder": "Código de 6 dígitos",
-    "totpPrompt": "Insira seu código de autenticação de dois fatores."
+    "totpPrompt": "Insira seu código de autenticação de dois fatores.",
+    "forgotPasswordLink": "Esqueceu a senha?"
+  },
+  "forgotPassword": {
+    "title": "Esqueci minha senha",
+    "subtitle": "Digite seu e-mail e enviaremos um link para redefinir sua senha.",
+    "submitButton": "Enviar link",
+    "submitting": "Enviando…",
+    "successMessage": "Se esse e-mail existir, um link de redefinição foi enviado.",
+    "backToLogin": "Voltar ao login"
+  },
+  "resetPassword": {
+    "title": "Redefinir senha",
+    "subtitle": "Escolha uma nova senha para sua conta.",
+    "passwordLabel": "Nova senha",
+    "confirmPasswordLabel": "Confirmar nova senha",
+    "submitButton": "Redefinir senha",
+    "submitting": "Redefinindo…",
+    "successMessage": "Sua senha foi redefinida. Você já pode entrar.",
+    "passwordMismatch": "As senhas não coincidem.",
+    "missingToken": "Nenhum token de redefinição foi fornecido. Solicite um novo link.",
+    "invalidOrExpired": "Este link é inválido ou expirou.",
+    "requestNewLink": "Solicitar um novo link",
+    "goToLogin": "Ir para o login"
+  },
+  "verifyEmail": {
+    "title": "Verificar e-mail",
+    "verifying": "Verificando seu e-mail…",
+    "successMessage": "Seu e-mail foi verificado.",
+    "missingToken": "Nenhum token de verificação foi fornecido.",
+    "invalidOrExpired": "Este link é inválido ou expirou.",
+    "goToLogin": "Ir para o login"
   },
   "portalLogin": {
     "subtitle": "Portal da conta do cliente",

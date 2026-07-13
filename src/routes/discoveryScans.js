@@ -13,6 +13,7 @@ const Device = require('../models/Device');
 const { createDiscoveryScan, updateDiscoveryScan } = require('../middleware/schemas/discoveryScans');
 const { encrypt } = require('../utils/encryption');
 const db = require('../config/database');
+const { assertDeviceClientFk } = require('../services/deviceAuthz');
 
 const router = Router();
 router.use(authenticate);
@@ -75,9 +76,16 @@ router.post('/:id/results/:resultId/onboard', requirePermission('discovery_scans
       return res.status(409).json({ error: { message: 'Already onboarded' } });
     }
 
-    // Create device from discovery data
+    // Create device from discovery data. req.body is spread BEFORE the
+    // server-authoritative organization_id so a caller-supplied
+    // organization_id in the request body can never win (the old field
+    // order — organization_id first, ...req.body last — let a spread
+    // organization_id silently override the caller's own org: a
+    // pre-existing cross-tenant hole, fixed here). client_id is now a
+    // settable Device field (see src/models/Device.js), so it needs the
+    // same cross-tenant FK guard /devices itself uses — otherwise this
+    // onboard endpoint would bypass it entirely via Device.create.
     const deviceData = {
-      organization_id: req.orgId,
       name: result.hostname || result.ip_address,
       ip_address: result.ip_address,
       manufacturer: result.manufacturer,
@@ -88,8 +96,10 @@ router.post('/:id/results/:resultId/onboard', requirePermission('discovery_scans
       snmp_version: result.snmp_version === 1 ? 'v1' : result.snmp_version === 3 ? 'v3' : 'v2c',
       snmp_profile_id: result.suggested_profile_id || null,
       status: 'offline',
-      ...req.body, // allow caller to override
+      ...req.body, // allow caller to override suggested defaults
+      organization_id: req.orgId, // server-authoritative — must win over any spread value
     };
+    await assertDeviceClientFk(deviceData, req.orgId);
     const device = await Device.create(deviceData);
 
     // Mark result as onboarded

@@ -117,6 +117,12 @@ into the result (footer action is typically the last one in DOM order) when
 a test needs to click the footer close/cancel button specifically. Seen in
 `RoleList.test.tsx`'s admin-kind read-only permission matrix test.
 
+## jsdom enforces native HTML5 constraint validation on `fireEvent.click(submitButton)`
+
+An `<input type="email" required>` with a syntactically invalid value (e.g. `'bad'` — no `@`/domain) silently blocks the form's `submit` event in jsdom, exactly like a real browser — the component's `onSubmit` handler never fires, so `fetch` is never called and the test hangs waiting for state that will never change. This is easy to hit by accident when a test's *intent* is "malformed input the server rejects" — jsdom's client-side validation intercepts it before the server ever sees it.
+
+**How to apply:** When testing a server-side rejection path for an `<input type="email">` (or other native-validated type) field, use a syntactically valid value the test wants the *server* to reject (e.g. `'rejected@test.com'`), not a value invalid enough to fail native browser validation first. Seen in `ForgotPassword.test.tsx`.
+
 ## react-leaflet components require mocking in vitest
 
 `react-leaflet`'s `MapContainer` and other components try to access DOM canvas/SVG which jsdom doesn't support. Any test for a page that imports from `react-leaflet` must mock the module:
@@ -152,6 +158,18 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 `tests/routesCoverage.test.js` has `jest.mock('../src/services/billingService')` at the top (Jest auto-mock: every exported function becomes a `jest.fn()` returning `undefined` unless configured). `tests/billingService.test.js`, `tests/e2eBillingWorkflow.test.js`, `tests/e2ePaymentFlow.test.js`, `tests/integrationWorkflow.test.js`, and `tests/routeIntegration.test.js` do NOT mock it — they exercise the real implementation via a mocked `conn`/`db`.
 
 **How to apply:** Before editing `conn.execute`/`conn.query` mock sequences in a route-level test file to account for a change inside a service function, `grep -n "jest.mock.*services/<name>"` that specific test file first. If the service is whole-module-mocked, the route handler's call into it never touches `conn` at all — mock the service function's return value directly (`serviceName.fnName.mockResolvedValue(...)`) instead of trying to replicate its internal DB call sequence. Mixing the two approaches produces a queued-mock off-by-N that manifests as a confusing downstream error (e.g. "X is not iterable") several calls later, not at the call site that's actually wrong. Seen fixing `nextInvoiceNumber()` (PR #389): `routesCoverage.test.js`'s quotes-convert-to-invoice tests needed `billingService.nextInvoiceNumber.mockResolvedValue(...)`, while every other affected test file needed real `conn.execute`/`conn.query` mock entries for the function's actual SQL statements.
+
+## Test files that mock `../src/middleware/rateLimit` must list EVERY export app.js destructures
+
+`src/app.js` does `const { apiLimiter, authLimiter, passwordResetLimiter, sessionLimiter, ... } = require('./middleware/rateLimit')` and then `app.use(path, thatLimiter)` for each. Any test file that does `jest.mock('../src/middleware/rateLimit', () => ({ apiLimiter: ..., authLimiter: ..., ... }))` with a **partial** object gets `undefined` for any export it didn't list — `app.use(path, undefined)` then throws `TypeError: argument handler must be a function` at `require('../src/app')` time, failing the whole suite with a stack trace that points at app.js, not the test's mock.
+
+**How to apply:** Adding a new named limiter to `rateLimit.js` + wiring it into `app.js` requires grepping `tests/*.js` for `jest.mock('../src/middleware/rateLimit'` and adding the new export (as a no-op `(_req,_res,next)=>next()`) to every partial mock found — not just the ones that already happen to be running in your targeted test pass. Seen adding `passwordResetLimiter` (§382): 7 of 8 files with a partial mock broke; the 8th (`clientDnd.test.js`) didn't because it requires the route file directly, never `../src/app`.
+
+## Adding a top-level `require('../utils/logger')` to a widely-required module can break minimal `config` mocks
+
+`src/utils/logger.js` calls `pino({ level: config.log.level, ... })` **at module-load time** (not lazily). If a test file does `jest.mock('../src/config', () => ({ env: 'test', jwt: {...} }))` — a minimal object missing `log` — and some file it requires (directly or transitively) gains a new `require('../utils/logger')`, that require now throws `Cannot read properties of undefined (reading 'level')` immediately, even if the test never touches logging.
+
+**How to apply:** Before adding `require('../utils/logger')` (or any other eagerly-config-reading module) to a file, grep for test files that `jest.mock('../src/config', ...)` with a hand-written minimal object AND directly `require()` that file (or its whole route file) — they need `log: { level: 'silent' }` added to their mock. Seen in `tests/cookieAuth.test.js` (direct `require('../src/routes/auth')`) after adding logger to `auth.js`.
 
 ## CI's README-sync check has TWO independent assertions — both must be updated
 
