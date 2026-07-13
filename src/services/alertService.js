@@ -211,10 +211,13 @@ async function recordAlert(rule, breach) {
  */
 async function autoCreateOutage(organizationId, rule, breach) {
   try {
+    // `outages` has no organization_id column — it is scoped through its
+    // device/site — and status is ENUM('ongoing','resolved','post_mortem'), so
+    // an outage that has just started is 'ongoing' (database/schema.sql).
     await db.query(
-      `INSERT INTO outages (organization_id, device_id, title, severity, status, started_at)
-       VALUES (?, ?, ?, ?, 'active', NOW())`,
-      [organizationId, breach.device_id,
+      `INSERT INTO outages (device_id, title, severity, status, started_at)
+       VALUES (?, ?, ?, 'ongoing', NOW())`,
+      [breach.device_id,
         `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
         rule.severity || 'major'],
     );

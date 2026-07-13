@@ -91,6 +91,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Dark mode — CSS custom-property token system, per-user preference persisted in localStorage, toggle in Layout and PortalLayout
 - PROFECO complaint management — complaint register for ISPs subject to CONCILIANET obligations: intake, lifecycle tracking, staff attribution, quarterly export for regulatory filing
 - Spec-driven development — `spec:check` drift scanner detects route/schema gaps against the OpenAPI spec in CI; `spec:gen` scaffolds new route stubs from the spec
+- Schema-truth enforcement — `sql:check` statically verifies that every `INSERT`/`UPDATE` in the backend names columns that actually exist on that table in `database/schema.sql`, and that every literal written to an `ENUM` column is one of its values. The Jest suite mocks the database, so this is the only gate that catches a mistyped column before it becomes a permanent 500 in production
 - OWASP ZAP DAST scan in CI — automated active scan against a live test instance on every push; ZAP HTML report uploaded as a workflow artifact
 - WCAG 2.1 AA accessibility — jest-axe audit on all major pages; aria-label fixes across TicketList, UserList, and other interactive components
 - AI Reply Assistant — topology-aware LLM chatbot that drafts (and optionally auto-sends) professional answers to inbound support tickets; pluggable provider registry (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, custom); phrase library with forbidden-term guard; PII redaction before prompt dispatch; per-org master on/off switch and per-channel toggles; optional RAG via ChromaDB; full audit log. **Emergency kill switch:** `PUT /api/v1/ai/policy` `{"enabled":false}` or untick the master switch in Settings → AI Assistant → General.
@@ -1277,6 +1278,8 @@ docker compose up -d
 | `pnpm run seed` | Seed default data (roles, settings, tax rates) |
 | `pnpm run openapi` | Generate OpenAPI spec to `docs/openapi.json` |
 | `pnpm run spec:check` | Check for OpenAPI ↔ route drift (run in CI) |
+| `pnpm run sql:check` | Check every `INSERT`/`UPDATE` in `src/` against `database/schema.sql` — column names and ENUM values (run in CI) |
+| `pnpm run schema:parity` | Offline `schema.sql` ↔ migrations parity check (no database needed; run in CI) |
 | `pnpm run spec:gen` | Scaffold a new route stub from the OpenAPI spec |
 | `pnpm --filter fireisp-frontend test` | Run frontend tests (Vitest) |
 | `pnpm --filter fireisp-frontend run lint` | Run frontend type-check / lint step |

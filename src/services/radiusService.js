@@ -10,6 +10,13 @@ const { sendRadiusDisconnect, sendRadiusCoA } = require('./suspensionService');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const { generateAttributes } = require('./radiusAttributeService');
 const { serializeLoginTime } = require('./radiusLoginTimeService');
+const {
+  WALLED_GARDEN_REASON_PREFIX,
+  OPEN_WALLED_GARDEN_PREDICATE,
+  openWalledGardenPredicate,
+  triggeredBy,
+  describeTrigger,
+} = require('./suspensionLogConstants');
 const logger = require('../utils/logger').child({ service: 'radius' });
 
 const BYTES_PER_GB = 1024 * 1024 * 1024;
@@ -402,7 +409,7 @@ async function syncFreeradiusTables(organizationId) {
     if (wgRows.length > 0) walledGardenAddressListName = wgRows[0].address_list_name;
   }
 
-  // 4e. Load subscribers who are currently walled (active walled_garden suspension_log)
+  // 4e. Load subscribers who are currently walled (open walled-garden suspension_log)
   const walledUsernames = new Set();
   if (organizationId) {
     const [walledRows] = await db.query(
@@ -411,8 +418,7 @@ async function syncFreeradiusTables(organizationId) {
        JOIN contracts ct ON ct.id = sl.contract_id
        JOIN radius r ON r.contract_id = ct.id
        WHERE ct.organization_id = ?
-         AND sl.action = 'walled_garden'
-         AND sl.restored_at IS NULL
+         AND ${openWalledGardenPredicate('sl')}
          AND r.status = 'active'
          AND r.deleted_at IS NULL`,
       [organizationId],
@@ -822,10 +828,27 @@ async function walledGardenSuspendContract(contractId, ruleId, userId, invoiceId
     coaResponse = JSON.stringify({ action: 'walled_garden', result: 'CoA send failed' });
   }
 
+  // action = 'suspended' with a 'walled_garden:' reason prefix — the ENUM has no
+  // walled-garden value and we do not extend it; see suspensionLogConstants.
+  // client_id is NOT NULL, so the row is built with INSERT ... SELECT off the
+  // contract rather than a separate lookup.
   await db.query(
-    `INSERT INTO suspension_logs (contract_id, suspension_rule_id, action, performed_by, invoice_id, coa_sent, coa_response, suspended_at)
-     VALUES (?, ?, 'walled_garden', ?, ?, ?, ?, NOW())`,
-    [contractId, ruleId, userId, invoiceId, coaSent, coaResponse],
+    `INSERT INTO suspension_logs
+       (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
+        performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
+     SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
+     FROM contracts c
+     WHERE c.id = ?`,
+    [
+      ruleId,
+      `${WALLED_GARDEN_REASON_PREFIX} ${describeTrigger('walled-garden restriction', ruleId, userId, invoiceId)}`,
+      triggeredBy(userId),
+      userId,
+      coaSent,
+      coaResponse,
+      invoiceId,
+      contractId,
+    ],
   );
 
   // Trigger a FreeRADIUS sync so re-auth picks up the walled attribute
@@ -850,10 +873,10 @@ async function walledGardenSuspendContract(contractId, ruleId, userId, invoiceId
 async function walledGardenReconnect(contractId, _userId) {
   logger.info({ contractId }, 'Removing walled garden restriction');
 
-  // Mark any open walled_garden suspension logs as restored
+  // Mark any open walled-garden suspension logs as restored
   await db.query(
     `UPDATE suspension_logs SET restored_at = NOW()
-     WHERE contract_id = ? AND action = 'walled_garden' AND restored_at IS NULL`,
+     WHERE contract_id = ? AND ${OPEN_WALLED_GARDEN_PREDICATE}`,
     [contractId],
   );
 

@@ -15,13 +15,22 @@ const createFirewallRule = {
   direction: { enum: ['inbound', 'outbound', 'both'] },
 };
 
+// Field names and enum values mirror ddos_protection_rules in database/schema.sql
+// exactly. They previously did not: the route wrote threshold_pps/threshold_bps/
+// is_active (no such columns) and this schema accepted action values
+// ('drop'/'ratelimit'/'redirect') that are not in the column's ENUM, so a request
+// that passed validation was still rejected by MySQL.
 const createDdosRule = {
-  rule_type: { required: true, enum: ['flowspec', 'rtbh'] },
+  rule_type: { required: true, enum: ['flowspec', 'rtbh', 'scrubbing', 'rate_limit'] },
   target_prefix: { required: true },
-  action: { required: true, enum: ['drop', 'ratelimit', 'redirect'] },
-  name: {},
-  threshold_pps: { type: 'number' },
-  threshold_bps: { type: 'number' },
+  action: {
+    required: true,
+    enum: ['blackhole', 'rate_limit', 'redirect_scrubbing', 'flowspec_drop', 'monitor_only'],
+  },
+  name: { required: true },
+  pps_threshold: { type: 'number' },
+  bandwidth_threshold_mbps: { type: 'number' },
+  status: { enum: ['inactive', 'active', 'auto_triggered', 'expired'] },
   notes: {},
 };
 

@@ -24,8 +24,10 @@ describe('notificationService', () => {
 
       db.query
         .mockResolvedValueOnce([[template]])  // template lookup
-        .mockResolvedValueOnce([{ insertId: 1 }])  // email_logs INSERT
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // notifications INSERT
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // email_logs INSERT
+      // No `notifications` INSERT: notifications.user_id is NOT NULL and the table
+      // has no organization_id/status column — the row this service used to write
+      // could never be inserted (database/schema.sql).
 
       const result = await notificationService.sendNotification({
         organizationId: 42,
@@ -47,8 +49,7 @@ describe('notificationService', () => {
 
       db.query
         .mockResolvedValueOnce([[template]])
-        .mockResolvedValueOnce([{ insertId: 1 }])  // sms_logs INSERT
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // notifications INSERT
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // sms_logs INSERT
 
       const result = await notificationService.sendNotification({
         organizationId: 42,
@@ -66,7 +67,6 @@ describe('notificationService', () => {
     test('sends WhatsApp notification via sms_logs', async () => {
       db.query
         .mockResolvedValueOnce([[{ id: 3, subject: 'Test', body: 'Test body' }]])
-        .mockResolvedValueOnce([{ insertId: 1 }])
         .mockResolvedValueOnce([{ insertId: 1 }]);
 
       const result = await notificationService.sendNotification({
@@ -83,8 +83,7 @@ describe('notificationService', () => {
     test('handles missing template gracefully', async () => {
       db.query
         .mockResolvedValueOnce([[]])  // template not found
-        .mockResolvedValueOnce([{ insertId: 1 }])  // email_logs
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // notifications
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // email_logs
 
       const result = await notificationService.sendNotification({
         organizationId: 42,

@@ -129,10 +129,14 @@ describe('suspensionService — soft suspend & exemption', () => {
       // At minimum: isClientSuspensionExempt query + RADIUS lookup + INSERT
       expect(db.query).toHaveBeenCalledTimes(3);
 
-      // The INSERT into suspension_logs should have 'soft_suspend' action
+      // suspension_logs.action is ENUM('suspended','unsuspended','disconnected',
+      // 'reconnected') — 'soft_suspend' is NOT a value and writing it threw. The
+      // row is logged as 'suspended' with a 'soft_suspend:' reason prefix.
       const insertCall = db.query.mock.calls[2];
       expect(insertCall[0]).toContain('INSERT INTO suspension_logs');
-      expect(insertCall[0]).toContain('soft_suspend');
+      expect(insertCall[0]).toContain("'suspended'");
+      expect(insertCall[0]).not.toContain("'soft_suspend'");
+      expect(insertCall[1].some(p => typeof p === 'string' && p.startsWith('soft_suspend:'))).toBe(true);
     });
 
     test('inserts suspension_log with correct contractId and ruleId', async () => {

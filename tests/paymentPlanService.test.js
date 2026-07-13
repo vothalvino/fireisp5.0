@@ -317,15 +317,22 @@ describe('paymentPlanService', () => {
       expect(db.query).toHaveBeenCalledTimes(1);
     });
 
-    test('does not throw when notification_events insert fails', async () => {
+    test('does not write to notification_events — the table does not exist', async () => {
+      // This used to INSERT INTO notification_events inside a try/catch. There is
+      // no such table in database/schema.sql, so the INSERT threw for every row
+      // and the catch swallowed it: the "fallback" log was the only code path that
+      // ever ran. The service now logs directly and issues no INSERT.
       const overdueInst = { id: 5, plan_id: 1, sequence: 1, amount: '50.00', due_date: '2025-01-01', client_id: 10, organization_id: 1 };
 
       db.query
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE overdue
-        .mockResolvedValueOnce([[overdueInst]])           // SELECT overdue rows
-        .mockRejectedValueOnce(new Error('Table notification_events does not exist')); // INSERT notification
+        .mockResolvedValueOnce([[overdueInst]]);        // SELECT overdue rows
 
       await expect(paymentPlanService.checkInstallmentsDue()).resolves.toBeUndefined();
+
+      expect(db.query).toHaveBeenCalledTimes(2);
+      const sqlIssued = db.query.mock.calls.map(([sql]) => sql).join('\n');
+      expect(sqlIssued).not.toContain('notification_events');
     });
   });
 

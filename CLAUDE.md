@@ -29,6 +29,8 @@ pnpm lint                     # eslint src/
 pnpm run migrate              # apply database/migrations/*.sql
 pnpm run openapi              # regenerate docs/openapi.json from src/utils/openapi.js
 pnpm run spec:check           # spec drift check (also runs in CI + specDrift.test.js)
+pnpm run sql:check            # INSERT/UPDATE/SELECT columns, ENUM values, GENERATED-column writes, FROM/JOIN table existence vs database/schema.sql (CI + sqlColumnCheck.test.js)
+pnpm run schema:parity        # offline schema.sql <-> migrations parity (no DB needed)
 pnpm run seed                 # seed default data
 ```
 
@@ -70,6 +72,7 @@ Every feature touches this chain; skipping a link produces the classic FireISP b
 ## Gotchas that have caused real bugs
 
 - **Column names are the API contract.** `SELECT *` responses are unaliased DB columns. If a frontend interface guesses a different field name, it renders `undefined`/`—`/`NaN` with no error. This was the #1 historical bug class. Check the migration, not your intuition.
+- **This whole bug class is now gated: `pnpm run sql:check`.** Every `INSERT`/`UPDATE` *and* top-level `SELECT` in `src/` is parsed and checked against `database/schema.sql` — column existence, ENUM values, `GENERATED ALWAYS AS (...)` columns (MySQL rejects any explicit value for one), and FROM/JOIN table existence. Dynamic SQL it cannot resolve is skipped and counted, never guessed. `KNOWN_SCHEMA_GAPS`/`KNOWN_MISSING_TABLES` in that script are a ratchet of statements still broken in production that the check cannot fix in code alone — most need a migration (e.g. password reset / email verification have no columns on `users`), but an entry can also point at a follow-up PR when the real fix requires review beyond a mechanical column rename (see the `SWEEP_FOLLOWUP` entries — a peripheral SELECT-column sweep was reverted out of a PR after adversarial review found silent-wrong-data defects, e.g. a cross-tenant leak, hiding behind fixes that "ran" but weren't *right*). Either way: shrink these lists, never grow them without a comment explaining why.
 - **Request-shape drift is silent.** `validate()` ignores undeclared fields and `fillable` drops them — a misnamed form field or mismatched enum is lost or 422s with no client warning. This was bug class #2.
 - **The frontend does not gate UI by permission.** There is no `usePermissions` hook; buttons render for everyone and the backend 403s. Expect visible-but-forbidden actions for restricted roles; don't add gating ad hoc without a plan.
 - **`req.orgId`**, not `req.organizationId` (a past typo made every tax-report export return zero rows).

@@ -63613,7 +63613,9 @@
             "type": "string",
             "enum": [
               "flowspec",
-              "rtbh"
+              "rtbh",
+              "scrubbing",
+              "rate_limit"
             ]
           },
           "target_prefix": {
@@ -63622,19 +63624,30 @@
           "action": {
             "type": "string",
             "enum": [
-              "drop",
-              "ratelimit",
-              "redirect"
+              "blackhole",
+              "rate_limit",
+              "redirect_scrubbing",
+              "flowspec_drop",
+              "monitor_only"
             ]
           },
           "name": {
             "type": "string"
           },
-          "threshold_pps": {
+          "pps_threshold": {
             "type": "number"
           },
-          "threshold_bps": {
+          "bandwidth_threshold_mbps": {
             "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "inactive",
+              "active",
+              "auto_triggered",
+              "expired"
+            ]
           },
           "notes": {
             "type": "string"
@@ -63643,7 +63656,8 @@
         "required": [
           "rule_type",
           "target_prefix",
-          "action"
+          "action",
+          "name"
         ]
       },
       "security_createBlackholeRoute": {
@@ -65413,11 +65427,14 @@
               "soft_suspend"
             ]
           },
-          "notify_days_before": {
+          "notify_before_days": {
             "type": "number",
             "minimum": 0
           },
-          "is_enabled": {
+          "apply_to_plan_ids": {
+            "type": "string"
+          },
+          "is_active": {
             "type": "boolean"
           },
           "soft_suspend_download_kbps": {
@@ -65460,11 +65477,14 @@
               "soft_suspend"
             ]
           },
-          "notify_days_before": {
+          "notify_before_days": {
             "type": "number",
             "minimum": 0
           },
-          "is_enabled": {
+          "apply_to_plan_ids": {
+            "type": "string"
+          },
+          "is_active": {
             "type": "boolean"
           },
           "soft_suspend_download_kbps": {

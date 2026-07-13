@@ -1187,7 +1187,9 @@ describe('POST /api/v1/network-security/ddos-protection/:id/deactivate', () => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('ddos')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
       }
-      if (typeof sql === 'string' && sql.includes('ddos_protection_rules') && sql.includes('deactivated_at')) {
+      // ddos_protection_rules has no `deactivated_at` / `is_active` column — the
+      // rule is turned off via status ENUM(...,'inactive',...) (database/schema.sql).
+      if (typeof sql === 'string' && sql.includes('ddos_protection_rules') && sql.includes("status = 'inactive'")) {
         return Promise.resolve([{ affectedRows: 1 }]);
       }
       return Promise.resolve([{ affectedRows: 0 }]);
@@ -1537,7 +1539,10 @@ describe('Error paths — networkSecurity catch blocks', () => {
       .post('/api/v1/network-security/ddos-protection')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '1')
-      .send({ rule_type: 'flowspec', target_prefix: '10.0.0.0/8', action: 'drop' });
+      .send({
+        name: 'Flowspec 10.0.0.0/8', rule_type: 'flowspec',
+        target_prefix: '10.0.0.0/8', action: 'flowspec_drop',
+      });
     expect(res.status).toBe(500);
   });
 
@@ -1766,7 +1771,12 @@ describe('POST /api/v1/network-security/ddos-protection', () => {
       .post('/api/v1/network-security/ddos-protection')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '1')
-      .send({ rule_type: 'rtbh', target_prefix: '203.0.113.0/24', action: 'drop' });
+      // `action` must be a value of the column's ENUM — 'drop' never was, so this
+      // request used to pass validation and then be rejected by MySQL.
+      .send({
+        name: 'RTBH 203.0.113.0/24', rule_type: 'rtbh',
+        target_prefix: '203.0.113.0/24', action: 'blackhole',
+      });
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('id');
   });
@@ -1939,7 +1949,7 @@ describe('POST /api/v1/network-security/ddos-protection/:id/deactivate', () => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('ddos')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
       }
-      if (typeof sql === 'string' && sql.includes('ddos_protection_rules') && sql.includes('deactivated_at')) {
+      if (typeof sql === 'string' && sql.includes('ddos_protection_rules') && sql.includes("status = 'inactive'")) {
         return Promise.resolve([{ affectedRows: 1 }]);
       }
       return Promise.resolve([{ affectedRows: 0 }]);

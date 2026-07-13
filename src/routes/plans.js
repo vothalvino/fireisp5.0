@@ -48,7 +48,8 @@ router.post('/addons', requirePermission('plans.create'), validate(createPlanAdd
   try {
     const { name, addon_type, price, billing_cycle, taxable, status } = req.body;
     const [result] = await db.query(
-      `INSERT INTO plan_addons (organization_id, name, addon_type, price, billing_cycle, taxable, status)
+      // Column is `is_taxable` (database/schema.sql); the request field stays `taxable`.
+      `INSERT INTO plan_addons (organization_id, name, addon_type, price, billing_cycle, is_taxable, status)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [req.orgId, name, addon_type, price, billing_cycle, taxable !== false, status || 'active'],
     );

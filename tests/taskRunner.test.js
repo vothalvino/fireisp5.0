@@ -300,9 +300,12 @@ describe('taskRunner', () => {
     test('updates last_run_at and status', async () => {
       db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
       await taskRunner.markTaskRun('auto_generate_invoices');
+      // Column is `last_status` ENUM('success','failed','running','skipped',
+      // 'timed_out') — there is no `status` column on scheduled_tasks and no
+      // 'completed' value, so this UPDATE used to throw after every task run.
       expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE scheduled_tasks'),
-        ['completed', 'auto_generate_invoices'],
+        expect.stringContaining('UPDATE scheduled_tasks SET last_run_at = NOW(), last_status = ?'),
+        ['success', 'auto_generate_invoices'],
       );
     });
   });

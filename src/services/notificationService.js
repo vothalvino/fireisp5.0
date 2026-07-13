@@ -70,13 +70,12 @@ async function sendNotification({ organizationId, clientId, channel, templateId,
     );
   }
 
-  // Create in-app notification
-  await db.query(
-    `INSERT INTO notifications (user_id, organization_id, title, body, type, status)
-     VALUES (NULL, ?, ?, ?, 'billing', 'unread')`,
-    [organizationId, subject, body],
-  );
-
+  // In-app notifications are STAFF-facing: `notifications.user_id` is NOT NULL and
+  // the table has neither an `organization_id` nor a `status` column
+  // (database/schema.sql). This function notifies a *client* over email/SMS —
+  // there is no staff recipient to address — so it no longer writes a row that
+  // could never be inserted. Delivery is already recorded in email_logs/sms_logs;
+  // per-user in-app notifications are created by the callers that have a user id.
   return { subject, body, channel };
 }
 

@@ -26,16 +26,19 @@ async function runSecureDeletion(organizationId) {
   for (const tableResult of tables) {
     if (tableResult.deleted > 0) {
       try {
+        // Real columns are record_count / reason / requestor_type / deleted_at /
+        // criteria — `records_deleted`, `deletion_reason`, `triggered_by`,
+        // `completed_at` and `details` do not exist (database/schema.sql).
         await db.query(
           `INSERT INTO secure_deletion_log
-            (organization_id, table_name, records_deleted, deletion_reason, triggered_by, completed_at, details)
-           VALUES (?, ?, ?, ?, ?, NOW(), ?)`,
+            (organization_id, table_name, record_count, deletion_method, reason,
+             requestor_type, criteria, deleted_at)
+           VALUES (?, ?, ?, 'hard_delete', ?, 'retention_policy', ?, NOW())`,
           [
             organizationId,
             tableResult.table,
             tableResult.deleted,
             'retention_policy',
-            'system',
             JSON.stringify({ error: tableResult.error || null }),
           ],
         );

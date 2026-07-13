@@ -245,30 +245,23 @@ async function checkInstallmentsDue() {
        LIMIT 500`,
     );
 
-    // Try inserting into notification_events; if table doesn't exist, log instead
-    try {
-      for (const inst of overdueRows) {
-        await db.query(
-          `INSERT INTO notification_events (organization_id, event_type, payload, created_at)
-           VALUES (?, 'installment_overdue', ?, NOW())`,
-          [
-            inst.organization_id,
-            JSON.stringify({
-              plan_id: inst.plan_id,
-              installment_id: inst.id,
-              sequence: inst.sequence,
-              amount: inst.amount,
-              due_date: inst.due_date,
-              client_id: inst.client_id,
-            }),
-          ],
-        );
-      }
-    } catch (_notifyErr) {
-      // notification_events table may not exist — log and continue
+    // There is no `notification_events` table in the schema and never has been
+    // (database/schema.sql), so the INSERT that used to be here threw for every
+    // row and the catch below swallowed it — the log line was the only thing that
+    // ever ran. Log honestly instead of pretending to enqueue an event.
+    // TODO: emit a real notification once overdue installments have a channel.
+    for (const inst of overdueRows) {
       logger.info(
-        { count: overdueRows.length },
-        'Overdue installments detected (notification_events table unavailable — logged only)',
+        {
+          organization_id: inst.organization_id,
+          client_id: inst.client_id,
+          plan_id: inst.plan_id,
+          installment_id: inst.id,
+          sequence: inst.sequence,
+          amount: inst.amount,
+          due_date: inst.due_date,
+        },
+        'Overdue installment detected (no notification channel wired yet)',
       );
     }
   } catch (err) {

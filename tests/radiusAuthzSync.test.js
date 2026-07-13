@@ -77,7 +77,10 @@ function setupMockDb({
       }
       return Promise.resolve([[]]);
     }
-    if (sql.includes('suspension_logs') && sql.includes('walled_garden')) {
+    // The walled-garden lookup no longer keys off a bogus action='walled_garden'
+    // (not an ENUM value) — it matches action='suspended' + a 'walled_garden:'
+    // reason prefix, in which the underscore is LIKE-escaped ('walled\\_garden:%').
+    if (sql.includes('suspension_logs') && sql.includes('walled')) {
       return Promise.resolve([walledUsernames.map(u => ({ username: u }))]);
     }
     if (sql.includes('FROM pppoe_service_profiles')) {

@@ -93,11 +93,20 @@ async function charge({ organizationId, clientId, amount, currency, description,
     throw new Error('No active payment gateway configured');
   }
 
+  // Column is `payment_gateway_id`; there is no `description` column. And
+  // `gateway_reference_id` is NOT NULL even though the provider only assigns the
+  // real reference *after* the charge succeeds (it is overwritten below, and by
+  // the webhook handler), so the pending row carries a provisional reference.
+  // The description survives in raw_request.
+  const provisionalRef = `pending:${idempotencyKey || crypto.randomUUID()}`;
   const [txResult] = await db.query(
     `INSERT INTO payment_transactions
-     (organization_id, gateway_id, client_id, amount, currency, description, gateway_status, idempotency_key)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    [organizationId, gateway.id, clientId, amount, currency || 'MXN', description, idempotencyKey || null],
+     (organization_id, payment_gateway_id, client_id, amount, currency,
+      gateway_reference_id, gateway_status, idempotency_key, raw_request)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    [organizationId, gateway.id, clientId, amount, currency || 'MXN',
+      provisionalRef, idempotencyKey || null,
+      JSON.stringify({ description: description || null, amount, currency: currency || 'MXN' })],
   );
 
   const transactionId = txResult.insertId;

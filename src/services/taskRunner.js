@@ -483,9 +483,11 @@ async function runCsdExpiryCheck(organizationId) {
  * Update last_run_at after task execution.
  */
 async function markTaskRun(taskName) {
+  // Column is `last_status` ENUM('success','failed','running','skipped','timed_out')
+  // — there is no `status` column and no 'completed' value (database/schema.sql).
   await db.query(
-    'UPDATE scheduled_tasks SET last_run_at = NOW(), status = ? WHERE task_name = ?',
-    ['completed', taskName],
+    'UPDATE scheduled_tasks SET last_run_at = NOW(), last_status = ? WHERE task_name = ?',
+    ['success', taskName],
   );
 }
 
