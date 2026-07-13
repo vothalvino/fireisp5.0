@@ -11,9 +11,10 @@
 // Message templates were promoted into their own page at /message-templates.
 // =============================================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 
@@ -21,7 +22,7 @@ import { useAuth } from '@/auth/AuthContext';
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas';
+type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas' | 'emailSettings';
 
 interface Setting {
   key: string;
@@ -53,6 +54,21 @@ interface PaymentGateway {
   webhook_secret: string | null;
   status: string;
   created_at: string;
+}
+
+interface EmailSettingsData {
+  organization_id: number;
+  enabled: boolean;
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_secure: boolean;
+  smtp_user: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  configured: boolean;
+  last_test_at: string | null;
+  last_test_status: 'success' | 'failed' | null;
+  last_test_error: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -752,6 +768,206 @@ function QuotasTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Email Settings tab — per-org outbound SMTP configuration (migration 386)
+// ---------------------------------------------------------------------------
+
+const EMPTY_EMAIL_FORM = {
+  enabled: true,
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_secure: false,
+  smtp_user: '',
+  smtp_password: '',
+  from_email: '',
+  from_name: '',
+};
+
+function EmailSettingsTab() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ ...EMPTY_EMAIL_FORM });
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [testTo, setTestTo] = useState('');
+  const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['email-settings'],
+    queryFn: () => apiFetch<{ data: EmailSettingsData }>(`${API_BASE}/email-settings`),
+  });
+
+  useEffect(() => {
+    const d = data?.data;
+    if (d) {
+      setForm({
+        enabled: d.enabled,
+        smtp_host: d.smtp_host ?? '',
+        smtp_port: String(d.smtp_port ?? 587),
+        smtp_secure: d.smtp_secure,
+        smtp_user: d.smtp_user ?? '',
+        smtp_password: '',
+        from_email: d.from_email ?? '',
+        from_name: d.from_name ?? '',
+      });
+    }
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<{ data: EmailSettingsData }>(`${API_BASE}/email-settings`, { method: 'PUT', body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['email-settings'] });
+      setMsg({ type: 'success', text: t('emailSettings.saved') });
+      setTimeout(() => setMsg(null), 3000);
+    },
+    onError: () => setMsg({ type: 'error', text: t('emailSettings.saveError') }),
+  });
+
+  const testMutation = useMutation({
+    mutationFn: (to: string) =>
+      apiFetch<{ data: { success: boolean; error?: string } }>(`${API_BASE}/email-settings/test`, {
+        method: 'POST',
+        body: JSON.stringify({ to }),
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['email-settings'] });
+      if (res.data.success) {
+        setTestResult({ type: 'success', text: t('emailSettings.testSuccess') });
+      } else {
+        setTestResult({ type: 'error', text: t('emailSettings.testFailed', { error: res.data.error ?? '' }) });
+      }
+    },
+    onError: (err: Error) => setTestResult({ type: 'error', text: t('emailSettings.testFailed', { error: err.message }) }),
+  });
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    const body: Record<string, unknown> = {
+      enabled: form.enabled,
+      smtp_host: form.smtp_host || null,
+      smtp_port: form.smtp_port ? Number(form.smtp_port) : undefined,
+      smtp_secure: form.smtp_secure,
+      smtp_user: form.smtp_user || null,
+      from_email: form.from_email || null,
+      from_name: form.from_name || null,
+    };
+    // Write-only password field: only send when the operator actually typed
+    // something. Omitted -> backend keeps the existing encrypted value.
+    if (form.smtp_password) body.smtp_password = form.smtp_password;
+    saveMutation.mutate(body);
+  }
+
+  function handleTestSubmit(e: FormEvent) {
+    e.preventDefault();
+    setTestResult(null);
+    if (!testTo.trim()) return;
+    testMutation.mutate(testTo.trim());
+  }
+
+  const configured = data?.data?.configured ?? false;
+  const lastTestAt = data?.data?.last_test_at;
+  const lastTestStatus = data?.data?.last_test_status;
+
+  return (
+    <div>
+      <h3 style={sty.sectionTitle}>{t('emailSettings.title')}</h3>
+
+      {isLoading && <p style={sty.muted}>{t('common.loading')}</p>}
+      {error && <p style={sty.errorText}>{t('emailSettings.saveError')}</p>}
+
+      <p style={{ fontSize: '0.85rem', color: configured ? '#16a34a' : '#888', marginTop: 0 }}>
+        {configured ? `✓ ${t('emailSettings.configuredLabel')}` : t('emailSettings.notConfigured')}
+        {lastTestAt && (
+          <span style={{ marginLeft: 10, color: 'var(--text-faint)' }}>
+            {t('emailSettings.lastTested', { date: new Date(lastTestAt).toLocaleString(), status: lastTestStatus })}
+          </span>
+        )}
+      </p>
+
+      <form onSubmit={handleSubmit} style={{ ...sty.form, maxWidth: 480 }}>
+        {msg && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 6,
+            background: msg.type === 'success' ? '#d1fae5' : '#fee2e2',
+            color: msg.type === 'success' ? '#065f46' : '#991b1b', fontSize: 14,
+          }}>
+            {msg.text}
+          </div>
+        )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.875rem' }}>
+          <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} />
+          {t('emailSettings.enabled')}
+        </label>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: '-6px 0 0' }}>{t('emailSettings.enabledHint')}</p>
+
+        <label style={sty.label}>{t('emailSettings.smtpHost')}
+          <input style={sty.input} value={form.smtp_host} placeholder="smtp.example.com"
+            onChange={e => setForm(f => ({ ...f, smtp_host: e.target.value }))} />
+        </label>
+
+        <div style={sty.row2}>
+          <label style={sty.label}>{t('emailSettings.smtpPort')}
+            <input style={sty.input} type="number" min={1} max={65535} value={form.smtp_port}
+              onChange={e => setForm(f => ({ ...f, smtp_port: e.target.value }))} />
+          </label>
+          <label style={{ ...sty.label, justifyContent: 'flex-end', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={form.smtp_secure} onChange={e => setForm(f => ({ ...f, smtp_secure: e.target.checked }))} />
+            {t('emailSettings.smtpSecure')}
+          </label>
+        </div>
+
+        <label style={sty.label}>{t('emailSettings.smtpUser')}
+          <input style={sty.input} value={form.smtp_user} autoComplete="off"
+            onChange={e => setForm(f => ({ ...f, smtp_user: e.target.value }))} />
+        </label>
+
+        <label style={sty.label}>
+          {t('emailSettings.smtpPassword')} <span style={sty.hint}>({t('emailSettings.smtpPasswordHint')})</span>
+          <input style={sty.input} type="password" autoComplete="new-password"
+            value={form.smtp_password} placeholder={configured ? '••••••••' : ''}
+            onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} />
+        </label>
+
+        <div style={sty.row2}>
+          <label style={sty.label}>{t('emailSettings.fromEmail')}
+            <input style={sty.input} type="email" value={form.from_email}
+              onChange={e => setForm(f => ({ ...f, from_email: e.target.value }))} />
+          </label>
+          <label style={sty.label}>{t('emailSettings.fromName')}
+            <input style={sty.input} value={form.from_name}
+              onChange={e => setForm(f => ({ ...f, from_name: e.target.value }))} />
+          </label>
+        </div>
+
+        <div>
+          <button type="submit" style={sty.btnPrimary} disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
+      </form>
+
+      <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)', maxWidth: 480 }}>
+        <form onSubmit={handleTestSubmit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <label style={{ ...sty.label, flex: 1 }}>{t('emailSettings.testEmailPrompt')}
+            <input style={sty.input} type="email" required value={testTo}
+              onChange={e => setTestTo(e.target.value)} placeholder="you@example.com" />
+          </label>
+          <button type="submit" style={sty.btnGhost} disabled={testMutation.isPending}>
+            {testMutation.isPending ? t('common.saving') : t('emailSettings.testEmail')}
+          </button>
+        </form>
+        {testResult && (
+          <p style={{ fontSize: '0.85rem', marginTop: 8, color: testResult.type === 'success' ? '#16a34a' : '#dc2626' }}>
+            {testResult.text}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Settings page
 // ---------------------------------------------------------------------------
 
@@ -760,6 +976,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'alertRules', label: '🚨 Alert Rules' },
   { id: 'paymentGateways', label: '💳 Payment Gateways' },
   { id: 'quotas', label: '📊 Quotas' },
+  { id: 'emailSettings', label: '📧 Email' },
 ];
 
 export function Settings() {
@@ -788,6 +1005,7 @@ export function Settings() {
         {tab === 'alertRules' && <AlertRulesTab />}
         {tab === 'paymentGateways' && <PaymentGatewaysTab />}
         {tab === 'quotas' && <QuotasTab />}
+        {tab === 'emailSettings' && <EmailSettingsTab />}
       </div>
     </div>
   );
