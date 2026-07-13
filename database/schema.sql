@@ -467,6 +467,12 @@ CREATE TABLE IF NOT EXISTS contracts (
                        COMMENT 'Master switch for AI-diagnostic auto-escalation (creates a real technician ticket) on this contract; 0 = never auto-escalate regardless of fault (migration 387)',
     escalate_on_disconnect TINYINT(1) NOT NULL DEFAULT 0
                        COMMENT 'When 1, ALSO auto-escalate on offline/disconnect faults (onu_status/cpe_status offline, dropped pppoe/radius session) on top of the always-on signal-quality rule; for clients with a UPS where offline is abnormal (migration 387)',
+    optical_min_dbm SMALLINT NULL
+                       COMMENT 'Per-contract override of the fiber ONU RX power threshold (dBm) above which onu_signal/onu_signal_stability are healthy; NULL = use the org-wide -27 dBm default (diagnosticEngineService.js) (migration 388)',
+    wireless_signal_min_dbm SMALLINT NULL
+                       COMMENT 'Per-contract override of the wireless CPE signal threshold (dBm) above which cpe_signal is healthy; NULL = use the serving sector default (ap_sector_configs.signal_min_dbm), else the org-wide -75 dBm default (migration 388)',
+    wireless_link_capacity_min_mbps DECIMAL(8,2) NULL
+                       COMMENT 'Per-contract override of the minimum acceptable negotiated RF link rate (Mbps) for the cpe_link_capacity check; NULL = use the serving sector default (ap_sector_configs.link_capacity_min_mbps); no org-wide default exists — if neither resolves, cpe_link_capacity reports status unknown rather than fabricating ok/warning (migration 388)',
     version        INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     created_by     BIGINT UNSIGNED NULL,
     created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -3470,6 +3476,8 @@ CREATE TABLE IF NOT EXISTS ap_sector_configs (
     polarization        ENUM('vertical','horizontal','dual','cross') NULL
                             COMMENT 'Antenna polarization',
     max_clients         SMALLINT        NULL     COMMENT 'Maximum subscriber connections per sector',
+    signal_min_dbm      SMALLINT        NULL     COMMENT 'Default minimum healthy CPE signal (dBm) for clients served by this sector; NULL = use the org-wide -75 dBm default. Overridden per-client by contracts.wireless_signal_min_dbm (migration 388)',
+    link_capacity_min_mbps DECIMAL(8,2) NULL     COMMENT 'Default minimum acceptable negotiated RF link rate (Mbps) for clients served by this sector, used by the cpe_link_capacity check; NULL = no default (capacity check reports unknown unless the client contract sets an override). Overridden per-client by contracts.wireless_link_capacity_min_mbps (migration 388)',
     notes               TEXT            NULL,
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
