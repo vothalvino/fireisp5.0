@@ -287,6 +287,16 @@
     "openRunbook": "Open DR Runbook ↗",
     "dismiss": "Acknowledge & dismiss for this session"
   },
+  "emailVerify": {
+    "banner": "Please verify your email address.",
+    "resend": "Resend verification email",
+    "sending": "Sending…",
+    "sentConfirm": "Verification email sent — check your inbox.",
+    "alreadyDone": "I already verified — refresh",
+    "rateLimited": "Too many requests — please wait a minute and try again.",
+    "sendFailed": "Couldn't send the verification email. Try again shortly.",
+    "dismiss": "Dismiss"
+  },
   "portalDashboard": {
     "welcome": "Welcome, {{name}}",
     "subtitle": "Manage your invoices, payments, and support requests below.",
@@ -3317,6 +3327,13 @@
       "contractId": "Contract ID",
       "lastPolledAt": "Last Polled",
       "lastPollError": "Last Poll Error"
+    },
+    "clientAssign": {
+      "assign": "Assign client",
+      "change": "Change",
+      "unassigned": "Unassigned",
+      "save": "Save",
+      "saveFailed": "Could not update the linked client."
     },
     "tabs": {
       "overview": "Overview",

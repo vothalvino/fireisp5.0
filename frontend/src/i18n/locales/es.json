@@ -287,6 +287,16 @@
     "openRunbook": "Abrir runbook de DR ↗",
     "dismiss": "Reconocer y descartar para esta sesión"
   },
+  "emailVerify": {
+    "banner": "Por favor verifica tu dirección de correo electrónico.",
+    "resend": "Reenviar correo de verificación",
+    "sending": "Enviando…",
+    "sentConfirm": "Correo de verificación enviado — revisa tu bandeja de entrada.",
+    "alreadyDone": "Ya lo verifiqué — actualizar",
+    "rateLimited": "Demasiadas solicitudes — espera un minuto e inténtalo de nuevo.",
+    "sendFailed": "No se pudo enviar el correo de verificación. Inténtalo de nuevo en breve.",
+    "dismiss": "Descartar"
+  },
   "portalDashboard": {
     "welcome": "Bienvenido, {{name}}",
     "subtitle": "Administra tus facturas, pagos y solicitudes de soporte a continuación.",
@@ -3317,6 +3327,13 @@
       "contractId": "ID Contrato",
       "lastPolledAt": "Último Sondeo",
       "lastPollError": "Error Último Sondeo"
+    },
+    "clientAssign": {
+      "assign": "Asignar cliente",
+      "change": "Cambiar",
+      "unassigned": "Sin asignar",
+      "save": "Guardar",
+      "saveFailed": "No se pudo actualizar el cliente vinculado."
     },
     "tabs": {
       "overview": "Resumen",

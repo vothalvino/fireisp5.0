@@ -10,6 +10,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
+import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -369,6 +370,7 @@ export function Layout() {
           )}
         </header>
         <DrDrillBanner />
+        <EmailVerificationBanner />
         <Outlet />
       </main>
     </div>
