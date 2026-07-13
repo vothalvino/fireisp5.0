@@ -867,37 +867,51 @@ function _genericResult(symptom) {
 }
 
 // ---------------------------------------------------------------------------
-// Escalation policy — which check-level 'error' statuses justify creating a
-// real support ticket (see supportConversationService.escalate). Deliberately
-// conservative and a NAMED, easy-to-tune constant (documented product
-// decision): only checks representing a PHYSICAL or PROVISIONING fault a
-// customer cannot fix by power-cycling their own equipment. Every name below
-// was verified against the handler that actually emits it (see PR report) —
-// this replaces a prior set that referenced dead/never-'error' check names
-// (olt_hardware/fiber_splice are hardcoded 'unknown'; onu_replacement is
-// never emitted) plus a compound onu_signal+onu_status AND that could never
-// be true (mutually-exclusive handlers). Explicitly excluded:
-//  - pppoe_session / radius_session ('error' = no active session) — the
-//    self-serve tip for no_internet already tells the customer to check
-//    cables and reboot; a bare session drop alone isn't evidence of a
-//    physical fault.
-//  - account_suspension ('error' = billing hold) — routes to payment, not a
-//    truck roll.
-//  - disconnect_frequency ('error' = >10 disconnects/7d, _diagDisconnects) —
-//    a real signal but a noisier pattern-based heuristic than a direct
-//    measurement; left OUT by default to avoid over-ticketing. Add it here
-//    first if support wants tighter coverage.
-const ESCALATABLE_CHECK_NAMES = new Set([
-  // optical RX power below threshold (_diagSlowFiber) — a measured
-  // fiber-plant fault, unrelated to any reboot.
-  'onu_signal',
-  // ONU reporting non-'online' state on a no_internet symptom
-  // (_diagNoInternetFiber) — device/fiber down, not just slow.
-  'onu_status',
-  // CPE not 'active' (offline/error/unprovisioned) on a no_internet
-  // symptom (_diagNoInternetWireless).
-  'cpe_status',
-]);
+// Escalation policy — which checks justify auto-creating a real support
+// ticket (a technician truck roll — see supportConversationService.escalate).
+//
+// BINDING PRODUCT DECISION (ISP owner): this service area has frequent grid
+// power outages and customers rarely run a UPS, so an offline/disconnected
+// ONU or CPE, a dropped PPPoE/RADIUS session, or a suspended account are
+// NORMAL day-to-day states here, not faults — auto-dispatching a technician
+// for any of them would be wrong. Auto-escalation must fire ONLY on a
+// genuine RF/optical QUALITY-degradation measurement the customer cannot fix
+// by power-cycling anything:
+//  - FIBER: bad optical RX power on the ONU (`onu_signal`, status 'error' —
+//    rx_power_dbm <= -27, see _diagSlowFiber).
+//  - WIRELESS: low CPE signal (`cpe_signal`). This check's threshold logic
+//    (see _diagSlowWireless) emits status 'warning' — NOT 'error' — for
+//    signal_dbm <= -75, so its escalation trigger must match 'warning'.
+// Offline/status/session/account checks (onu_status, cpe_status,
+// pppoe_session, radius_session, dhcp_session, account_suspension,
+// disconnect_frequency) are explicitly EXCLUDED, on purpose, per the above —
+// do not add any of them back to ESCALATE_WHEN without a new product
+// decision.
+//
+// ESCALATE_WHEN is the single source of truth: { checkName: [statuses that
+// trigger escalation] }. The -27 dBm / -75 dBm thresholds live in the check
+// handlers above (_diagSlowFiber / _diagSlowWireless) and are tunable there —
+// ESCALATE_WHEN only says which (name, status) combination coming out of
+// those handlers counts as "quality degraded enough to dispatch a
+// technician".
+//
+// NOT escalatable today, deliberately: wireless "capacity" (raised by the
+// owner alongside signal quality) has no reliable per-client signal yet —
+// `ap_load` is unimplemented (always 'unknown', see _diagSlowWireless) and
+// `channel_interference` is computed org-wide via
+// wirelessService.getInterferenceReport(orgId), not per client, so treating
+// either as escalatable would auto-dispatch a technician for every wireless
+// customer in the org simultaneously off a single interference event.
+// Per-client wireless capacity escalation is pending ap_load telemetry — not
+// escalatable today; flagged as a follow-up, not implemented here.
+const ESCALATE_WHEN = {
+  onu_signal: ['error'],
+  cpe_signal: ['warning', 'error'],
+};
+
+function _escalatingChecks(checks) {
+  return checks.filter(c => (ESCALATE_WHEN[c.name] || []).includes(c.status));
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build DiagnosticResult from checks array
@@ -913,10 +927,12 @@ function _buildResult(checks, defaultRecommendation) {
   // _genericResult's honest zero-data phrasing above.
   const blind = checks.length > 0 && knownChecks === 0;
 
-  // Escalate when at least one check with status 'error' represents a
-  // physical/provisioning fault the customer cannot self-resolve — see
-  // ESCALATABLE_CHECK_NAMES above for the exact set and rationale.
-  const escalate = errorChecks.some(c => ESCALATABLE_CHECK_NAMES.has(c.name));
+  // Escalate only on genuine RF/optical quality degradation — see
+  // ESCALATE_WHEN above for the exact (check, status) set and the binding
+  // product rationale (power outages are normal here; offline is not a
+  // fault).
+  const escalatingChecks = _escalatingChecks(checks);
+  const escalate = escalatingChecks.length > 0;
 
   return {
     checks,
@@ -929,7 +945,7 @@ function _buildResult(checks, defaultRecommendation) {
     autoFixAvailable: 0,
     confidence: Math.round(confidence * 100) / 100,
     escalate,
-    escalationReason: escalate ? 'Physical infrastructure issue detected — technician required' : null,
+    escalationReason: escalate ? 'Signal/optical quality degraded — technician recommended' : null,
   };
 }
 
@@ -1112,8 +1128,12 @@ function _buildCustomerReply(symptom, result) {
   if (result.escalate) {
     // escalate:true DOES create a real ticket (generateSupportResponse ->
     // supportConversationService.escalate) — this wording is truthful and
-    // must stay as-is.
-    return `Detectamos una posible falla física relacionada con ${_labelChecks(errorChecks.length ? errorChecks : checks)} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
+    // must stay as-is. Name exactly the check(s) that triggered escalation
+    // (see ESCALATE_WHEN / _escalatingChecks above) — NOT errorChecks: a
+    // 'warning'-driven escalation (e.g. cpe_signal) has no errorChecks, and
+    // falling back to `checks` would wrongly dump every check (including
+    // unrelated 'unknown' ones) into this sentence.
+    return `Detectamos una posible falla física relacionada con ${_labelChecks(_escalatingChecks(checks))} que puede requerir la visita de un técnico. Te estamos conectando con nuestro equipo para coordinar la revisión.`;
   }
 
   if (errorChecks.length > 0) {

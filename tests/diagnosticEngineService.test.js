@@ -33,6 +33,7 @@ jest.mock('../src/utils/logger', () => {
 
 const db = require('../src/config/database');
 const radiusService = require('../src/services/radiusService');
+const wirelessService = require('../src/services/wirelessService');
 const mockLoggerModule = require('../src/utils/logger');
 const diagnosticEngineService = require('../src/services/diagnosticEngineService');
 
@@ -125,6 +126,79 @@ function makeNoInternetFiberDbMock({
     // contracts c JOIN clients cl ...
     if (/FROM contracts c/i.test(sql) && /JOIN clients/i.test(sql)) {
       return Promise.resolve([accountRow ? [accountRow] : [], undefined]);
+    }
+    if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) {
+      return Promise.resolve([{ insertId: 1 }, undefined]);
+    }
+    return Promise.resolve([[], undefined]);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SQL-text dispatch mock for the symptom='slow' + accessType='wireless' path
+// (_diagSlowWireless) — needed for the cpe_signal escalation coverage below,
+// since cpe_signal is only ever emitted by this handler.
+// ---------------------------------------------------------------------------
+function makeSlowWirelessDbMock({
+  cpeDeviceId = null,
+  wirelessSignalRow = null,
+} = {}) {
+  return jest.fn((sql) => {
+    // No ONU for this client -> access-type inference falls through to CPE.
+    if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    if (/FROM cpe_devices/i.test(sql) && /d\.type = 'onu'/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    // CPE resolver (access-type inference AND _diagSlowWireless check 1).
+    if (/FROM cpe_devices/i.test(sql) && /indoor_cpe/i.test(sql)) {
+      return Promise.resolve([cpeDeviceId ? [{ device_id: cpeDeviceId }] : [], undefined]);
+    }
+    if (/FROM wireless_client_sessions/i.test(sql)) {
+      return Promise.resolve([wirelessSignalRow ? [wirelessSignalRow] : [], undefined]);
+    }
+    if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) {
+      return Promise.resolve([{ insertId: 1 }, undefined]);
+    }
+    return Promise.resolve([[], undefined]);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SQL-text dispatch mock for the symptom='no_internet' + accessType='wireless'
+// path (_diagNoInternetWireless) — needed for the cpe_status non-escalation
+// coverage below (offline CPE must NOT escalate — see the binding product
+// decision in diagnosticEngineService.js).
+// ---------------------------------------------------------------------------
+function makeNoInternetWirelessDbMock({
+  cpeDeviceId = null,
+  cpeStatusRow = null, // { status, device_id }
+  wirelessSignalRow = null,
+  clientStatusRow = null, // { status }
+} = {}) {
+  return jest.fn((sql) => {
+    if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    if (/FROM cpe_devices/i.test(sql) && /d\.type = 'onu'/i.test(sql)) {
+      return Promise.resolve([[], undefined]);
+    }
+    // CPE resolver (access-type inference AND area_outage's site lookup).
+    if (/FROM cpe_devices/i.test(sql) && /indoor_cpe/i.test(sql)) {
+      return Promise.resolve([cpeDeviceId ? [{ device_id: cpeDeviceId }] : [], undefined]);
+    }
+    // cpe_status check: SELECT cd.status, cd.device_id FROM cpe_devices cd ...
+    // (no `indoor_cpe`/`d.type` — distinct query, no `devices` join).
+    if (/FROM cpe_devices cd/i.test(sql) && /cd\.status/i.test(sql)) {
+      return Promise.resolve([cpeStatusRow ? [cpeStatusRow] : [], undefined]);
+    }
+    if (/FROM wireless_client_sessions/i.test(sql)) {
+      return Promise.resolve([wirelessSignalRow ? [wirelessSignalRow] : [], undefined]);
+    }
+    // account_suspension check: SELECT status FROM clients WHERE id = ?
+    if (/FROM clients\b/i.test(sql)) {
+      return Promise.resolve([clientStatusRow ? [clientStatusRow] : [], undefined]);
     }
     if (/INSERT INTO ai_diagnostic_runs/i.test(sql)) {
       return Promise.resolve([{ insertId: 1 }, undefined]);
@@ -230,11 +304,11 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     // Not the raw check name 'onu_signal' — the Spanish plain-language label.
     expect(result.reply).toContain('la señal óptica de tu equipo ONU');
     expect(result.reply).not.toContain('onu_signal');
-    // onu_signal is a measured optical-power fault (ESCALATABLE_CHECK_NAMES)
-    // — it escalates on its own; no paired onu_status is required (the old
-    // dead compound AND condition is gone).
+    // onu_signal 'error' (bad optical dBm) is one of exactly two checks in
+    // ESCALATE_WHEN — a measured fiber-plant quality fault, escalates on its
+    // own.
     expect(result.escalate).toBe(true);
-    expect(result.escalationReason).toBe('Physical infrastructure issue detected — technician required');
+    expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
     // Escalating -> a real ticket IS created (see #400 wiring) -> this
     // "connecting you with our team" copy is truthful here.
     expect(result.reply).toMatch(/posible falla física/i);
@@ -243,11 +317,14 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // ESCALATABLE_CHECK_NAMES coverage on the no_internet/fiber path
-  // (_diagNoInternetFiber) — onu_status and account_suspension are only ever
-  // emitted here, never by _diagSlowFiber above.
+  // ESCALATE_WHEN coverage on the no_internet/fiber path (_diagNoInternetFiber)
+  // — offline/session/account checks are only ever emitted here, never by
+  // _diagSlowFiber above. Product decision: offline/disconnected states are
+  // NORMAL in this service area (frequent grid outages, no UPS) and must
+  // never auto-dispatch a technician — only measured signal/optical QUALITY
+  // degradation (onu_signal / cpe_signal) does.
   // ---------------------------------------------------------------------------
-  test('no_internet fiber: onu_status error (ONU offline) escalates — a real, non-dead ESCALATABLE check', async () => {
+  test('no_internet fiber: onu_status error (ONU offline) does NOT escalate — offline is normal here (power outages, no UPS)', async () => {
     const dbMock = makeNoInternetFiberDbMock({
       onuDeviceId: 5,
       onuDetailsRow: { onu_state: 'offline', olt_port_id: 9, rx_power_dbm: -20, tx_power_dbm: 2 },
@@ -262,10 +339,35 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     });
 
     expect(result.diagnosticResult.checks.find((c) => c.name === 'onu_status').status).toBe('error');
-    expect(result.escalate).toBe(true);
-    expect(result.escalationReason).toBe('Physical infrastructure issue detected — technician required');
-    expect(result.reply).toMatch(/posible falla física/i);
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    // Not escalating -> no ticket -> must not promise a technician; falls to
+    // the normal issue-found reply naming the ONU status check.
+    expect(result.reply).not.toMatch(/posible falla física/i);
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
     expect(result.reply).toContain('el estado de tu equipo ONU');
+  });
+
+  test('no_internet wireless: cpe_status error (CPE offline) does NOT escalate — offline is normal here (power outages, no UPS)', async () => {
+    const dbMock = makeNoInternetWirelessDbMock({
+      cpeDeviceId: 7,
+      cpeStatusRow: { status: 'offline', device_id: 7 },
+      clientStatusRow: { status: 'active' },
+    });
+    db.query.mockImplementation(dbMock);
+    // radius_session 'ok' so cpe_status is isolated as the only error check.
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.7' });
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'no tengo internet',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'cpe_status').status).toBe('error');
+    expect(result.escalate).toBe(false);
+    expect(result.escalationReason).toBeNull();
+    expect(result.reply).not.toMatch(/posible falla física/i);
+    expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
+    expect(result.reply).toContain('el estado de tu equipo (router/CPE)');
   });
 
   test('no_internet fiber: pppoe_session error alone does NOT escalate (reboot-first, not a truck roll)', async () => {
@@ -306,6 +408,38 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
     expect(result.escalate).toBe(false);
     expect(result.escalationReason).toBeNull();
     expect(result.reply).not.toMatch(/conectando con nuestro equipo/i);
+  });
+
+  test('wireless slow: cpe_signal warning (low signal, not error) DOES escalate — names only the degraded check, not a garbled all-checks dump', async () => {
+    const dbMock = makeSlowWirelessDbMock({
+      cpeDeviceId: 7,
+      wirelessSignalRow: { signal_dbm: -80, noise_floor_dbm: -95, ccq_pct: 60 }, // <= -75 -> 'warning', not 'error'
+    });
+    db.query.mockImplementation(dbMock);
+    wirelessService.getInterferenceReport.mockResolvedValue([]); // channel_interference -> 'ok'
+    radiusService.getSessionByClientId.mockResolvedValue({ acctstarttime: '2026-01-01' }); // radius_session -> 'ok'
+
+    const result = await diagnosticEngineService.generateSupportResponse({
+      orgId: 1, clientId: 10, conversationId: 1, content: 'la velocidad está muy lenta',
+    });
+
+    expect(result.diagnosticResult.checks.find((c) => c.name === 'cpe_signal').status).toBe('warning');
+    // cpe_signal 'warning' is the other of exactly two ESCALATE_WHEN entries
+    // — a measured wireless quality fault escalates even though its status
+    // is 'warning', not 'error' (see the binding product decision).
+    expect(result.escalate).toBe(true);
+    expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
+    expect(result.reply).toMatch(/posible falla física/i);
+    expect(result.reply).toMatch(/conectando con nuestro equipo/i);
+    // Names exactly the check that triggered escalation...
+    expect(result.reply).toContain('la señal de tu equipo (router/CPE)');
+    // ...never a dump of every check (this is a 'warning', not an 'error',
+    // so the old errorChecks-based naming would have found nothing and
+    // fallen back to ALL checks, including the unrelated 'unknown' ones).
+    expect(result.reply).not.toContain('la carga de la antena');
+    expect(result.reply).not.toContain('tu consumo de datos');
+    expect(result.reply).not.toContain('interferencia en el canal inalámbrico');
+    expect(result.reply).not.toContain('tu sesión de conexión');
   });
 
   test('blind case: honest non-reassuring reply, never a fabricated clean bill of health', async () => {
