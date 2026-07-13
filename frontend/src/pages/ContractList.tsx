@@ -35,13 +35,16 @@ interface Contract {
   notes: string | null;
 }
 
-// A provisioned PPPoE / RADIUS account belonging to a contract.  The backend
-// returns the password in plaintext by design (operators need it to configure
-// CPE).  A contract may have 0 or several accounts.
+// A provisioned PPPoE / RADIUS account belonging to a contract.  The base
+// endpoint (GET /radius/contract/{contractId}, requires devices.view) never
+// includes `password` — it is layered on separately from the /credentials
+// endpoint (requires radius.credentials.view) so staff who provision routers
+// keep seeing it, while a pure view-only role does not.  A contract may have
+// 0 or several accounts.
 interface RadiusAccount {
   id: number;
   username: string;
-  password: string | null;
+  password?: string;
   ip_address: string | null;
   ipv6_address: string | null;
   status: string | null;
@@ -123,6 +126,30 @@ async function fetchRadiusByContract(id: number): Promise<RadiusAccount[]> {
       throw new Error(RADIUS_FORBIDDEN);
     }
     throw new Error('Failed to load RADIUS accounts');
+  }
+  return (res.data as unknown as { data: RadiusAccount[] }).data;
+}
+
+// Sentinel thrown by fetchRadiusCredentials — distinct from RADIUS_FORBIDDEN
+// above because a user can legitimately see that an account exists
+// (devices.view) while lacking radius.credentials.view for the cleartext
+// password specifically; the UI shows the account with the password field
+// replaced by an "insufficient permission" note instead of hiding everything.
+const RADIUS_CREDENTIALS_FORBIDDEN = 'radius_credentials_forbidden';
+
+async function fetchRadiusCredentials(id: number): Promise<RadiusAccount[]> {
+  const res = await api.GET('/radius/contract/{contractId}/credentials', {
+    params: { path: { contractId: id } as never },
+  });
+  const { error, response } = res as unknown as {
+    error: unknown;
+    response: { status: number };
+  };
+  if (error) {
+    if (response?.status === 401 || response?.status === 403) {
+      throw new Error(RADIUS_CREDENTIALS_FORBIDDEN);
+    }
+    throw new Error('Failed to load RADIUS credentials');
   }
   return (res.data as unknown as { data: RadiusAccount[] }).data;
 }
@@ -790,8 +817,15 @@ function CredentialRow({
   );
 }
 
-/** A single PPPoE/RADIUS account block with a password reveal toggle. */
-function RadiusAccountCard({ account }: { account: RadiusAccount }) {
+/**
+ * A single PPPoE/RADIUS account block with a password reveal toggle.
+ *
+ * `passwordForbidden` is true when the caller has `devices.view` (so the
+ * account itself is visible) but not `radius.credentials.view` — the
+ * password field is replaced with an "insufficient permission" note instead
+ * of hiding the whole account.
+ */
+function RadiusAccountCard({ account, passwordForbidden }: { account: RadiusAccount; passwordForbidden?: boolean }) {
   const { t } = useTranslation();
   const [showPw, setShowPw] = useState(false);
 
@@ -807,24 +841,28 @@ function RadiusAccountCard({ account }: { account: RadiusAccount }) {
       <CredentialRow
         label={t('contractList.password')}
         value={
-          <span style={detailStyles.mono}>
-            {account.password == null
-              ? '—'
-              : showPw
-                ? account.password
-                : '•'.repeat(Math.min(12, Math.max(6, account.password.length)))}
-            {account.password != null && (
-              <button
-                type="button"
-                style={detailStyles.toggleBtn}
-                onClick={() => setShowPw(s => !s)}
-              >
-                {showPw ? t('contractList.hidePassword') : t('contractList.showPassword')}
-              </button>
-            )}
-          </span>
+          passwordForbidden ? (
+            <span style={detailStyles.mono}>{t('contractList.passwordForbidden')}</span>
+          ) : (
+            <span style={detailStyles.mono}>
+              {account.password == null
+                ? '—'
+                : showPw
+                  ? account.password
+                  : '•'.repeat(Math.min(12, Math.max(6, account.password.length)))}
+              {account.password != null && (
+                <button
+                  type="button"
+                  style={detailStyles.toggleBtn}
+                  onClick={() => setShowPw(s => !s)}
+                >
+                  {showPw ? t('contractList.hidePassword') : t('contractList.showPassword')}
+                </button>
+              )}
+            </span>
+          )
         }
-        copyable={account.password}
+        copyable={passwordForbidden ? undefined : account.password}
       />
       <CredentialRow label={t('contractList.assignedIp')} value={assignedIp} copyable={assignedIp !== '—' ? assignedIp : null} mono />
       <CredentialRow label={t('contractList.table.status')} value={account.status ? <StatusBadge status={account.status} /> : '—'} />
@@ -846,6 +884,18 @@ function ContractDetailModal({ contract, plans, onClose }: ContractDetailModalPr
 
   const accounts = radiusQ.data ?? [];
   const forbidden = radiusQ.error instanceof Error && radiusQ.error.message === RADIUS_FORBIDDEN;
+
+  // Layered on top of the base (password-free) fetch above: only requested
+  // once we know at least one account exists, so a caller without
+  // radius.credentials.view doesn't take an extra guaranteed-403 round trip
+  // when there's nothing to show credentials for anyway.
+  const credentialsQ = useQuery({
+    queryKey: ['radius-contract-credentials', contract.id],
+    queryFn: () => fetchRadiusCredentials(contract.id),
+    enabled: accounts.length > 0,
+  });
+  const credentialsForbidden = credentialsQ.error instanceof Error && credentialsQ.error.message === RADIUS_CREDENTIALS_FORBIDDEN;
+  const passwordById = new Map((credentialsQ.data ?? []).map(c => [c.id, c.password]));
 
   return (
     <div style={modalStyles.backdrop} onClick={onClose}>
@@ -884,7 +934,13 @@ function ContractDetailModal({ contract, plans, onClose }: ContractDetailModalPr
         ) : accounts.length === 0 ? (
           <p style={styles.msg}>{t('contractList.noRadius')}</p>
         ) : (
-          accounts.map(acc => <RadiusAccountCard key={acc.id} account={acc} />)
+          accounts.map(acc => (
+            <RadiusAccountCard
+              key={acc.id}
+              account={passwordById.has(acc.id) ? { ...acc, password: passwordById.get(acc.id) } : acc}
+              passwordForbidden={credentialsForbidden && !passwordById.has(acc.id)}
+            />
+          ))
         )}
 
         <div style={modalStyles.actions}>

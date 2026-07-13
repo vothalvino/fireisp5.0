@@ -9567,7 +9567,7 @@
         "tags": [
           "RADIUS"
         ],
-        "summary": "List RADIUS accounts for a contract",
+        "summary": "List RADIUS accounts for a contract (response excludes the cleartext `password` column — see /credentials for that)",
         "operationId": "listRadiusByContract",
         "security": [
           {
@@ -9586,7 +9586,79 @@
         ],
         "responses": {
           "200": {
-            "description": "RadiusAccount[]",
+            "description": "RadiusAccount[] (no password field)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/contract/{contractId}/credentials": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "View cleartext PPPoE credentials (username+password) for a contract’s RADIUS account(s); requires radius.credentials.view",
+        "operationId": "getRadiusContractCredentials",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RadiusAccount[] (includes cleartext password)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/{id}/credentials": {
+      "get": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "View cleartext PPPoE credentials (username+password) for a single RADIUS account; requires radius.credentials.view",
+        "operationId": "getRadiusCredentials",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RadiusAccount (includes cleartext password)",
             "content": {
               "application/json": {
                 "schema": {

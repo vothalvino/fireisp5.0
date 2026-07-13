@@ -169,10 +169,14 @@ async function postContractAction(
 // PPPoE credential helpers
 // ---------------------------------------------------------------------------
 
+// The base endpoint (GET /radius/contract/{contractId}, requires devices.view)
+// never includes `password` — it is layered on separately from the
+// /credentials endpoint (requires radius.credentials.view) so staff who
+// provision routers keep seeing it, while a pure view-only role does not.
 interface RadiusAccount {
   id: number;
   username: string;
-  password: string;
+  password?: string;
   status: string | null;
 }
 
@@ -181,6 +185,26 @@ async function fetchRadiusAccounts(contractId: string): Promise<RadiusAccount[]>
     params: { path: { contractId: Number(contractId) } },
   } as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load PPPoE account');
+  const d = (res as { data: unknown }).data as { data?: RadiusAccount[] } | RadiusAccount[];
+  return Array.isArray(d) ? d : d.data ?? [];
+}
+
+// Sentinel thrown by fetchRadiusCredentials so the UI can replace just the
+// password field with an "insufficient permission" note instead of hiding
+// the whole account (which fetchRadiusAccounts above already made visible).
+const RADIUS_CREDENTIALS_FORBIDDEN = 'radius_credentials_forbidden';
+
+async function fetchRadiusCredentials(contractId: string): Promise<RadiusAccount[]> {
+  const res = await api.GET('/radius/contract/{contractId}/credentials' as never, {
+    params: { path: { contractId: Number(contractId) } },
+  } as never);
+  const { error, response } = res as unknown as { error: unknown; response: { status: number } };
+  if (error) {
+    if (response?.status === 401 || response?.status === 403) {
+      throw new Error(RADIUS_CREDENTIALS_FORBIDDEN);
+    }
+    throw new Error('Failed to load PPPoE credentials');
+  }
   const d = (res as { data: unknown }).data as { data?: RadiusAccount[] } | RadiusAccount[];
   return Array.isArray(d) ? d : d.data ?? [];
 }
@@ -419,15 +443,32 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
     queryFn: () => fetchRadiusAccounts(contractId),
   });
 
+  const account = accounts?.[0];
+
+  // Layered on top of the base (password-free) fetch above: only requested
+  // once we know an account exists, so a caller without
+  // radius.credentials.view doesn't take a guaranteed-403 round trip for
+  // nothing when there's no account at all.
+  const credentialsQ = useQuery({
+    queryKey: ['contract-radius-credentials', contractId],
+    queryFn: () => fetchRadiusCredentials(contractId),
+    enabled: !!account,
+  });
+  const credentialsForbidden = credentialsQ.error instanceof Error && credentialsQ.error.message === RADIUS_CREDENTIALS_FORBIDDEN;
+
   if (isLoading) return <p style={styles.msg}>Loading PPPoE account…</p>;
   if (error) return <p style={styles.msg}>Unable to load PPPoE credentials (no account, or insufficient permission).</p>;
 
-  const account = accounts?.[0];
   if (!account) {
     return <p style={styles.msg}>No PPPoE account for this contract. Use “Renew” to provision one.</p>;
   }
 
-  const password = regenerated?.password ?? account.password;
+  // A freshly-regenerated password (from POST .../regenerate-pppoe, gated by
+  // contracts.update — a separate write permission) is shown regardless of
+  // radius.credentials.view, since the API already returned it to this
+  // caller directly. Otherwise the password comes from the credentials
+  // fetch above, which IS gated by radius.credentials.view.
+  const password = regenerated?.password ?? credentialsQ.data?.[0]?.password;
 
   async function handleRegenerate() {
     setConfirmOpen(false);
@@ -438,6 +479,7 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
       setRegenerated({ password: r.password, pushed: r.pushed });
       setReveal(true);
       qc.invalidateQueries({ queryKey: ['contract-radius', contractId] });
+      qc.invalidateQueries({ queryKey: ['contract-radius-credentials', contractId] });
     } catch (e) {
       setRegenError(e instanceof Error ? e.message : 'Failed to regenerate credentials');
     } finally {
@@ -449,7 +491,21 @@ function PppoeTab({ contractId, canEdit }: { contractId: string; canEdit: boolea
     <div style={{ padding: '1.25rem' }}>
       <div style={styles.infoGrid}>
         <CredField label="Username" value={account.username} />
-        <CredField label="Password" value={password} secret reveal={reveal} onToggle={() => setReveal(v => !v)} />
+        {!regenerated && credentialsForbidden ? (
+          <div style={styles.infoRow}>
+            <span style={styles.infoLabel}>Password</span>
+            <span style={{ ...styles.infoValue, color: 'var(--text-dimmed)' }}>
+              Insufficient permission to view the password (requires radius.credentials.view).
+            </span>
+          </div>
+        ) : password === undefined ? (
+          <div style={styles.infoRow}>
+            <span style={styles.infoLabel}>Password</span>
+            <span style={styles.infoValue}>Loading…</span>
+          </div>
+        ) : (
+          <CredField label="Password" value={password} secret reveal={reveal} onToggle={() => setReveal(v => !v)} />
+        )}
       </div>
 
       {canEdit && (

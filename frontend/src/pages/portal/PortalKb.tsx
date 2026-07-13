@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import DOMPurify from 'dompurify';
 import { portalTokenStore } from '@/auth/PortalAuthContext';
 
 const API_BASE = '/api/v1/portal';
@@ -89,9 +90,19 @@ export function PortalKb() {
             <span style={styles.category}>{article.category}</span>
           </div>
           <h1 style={styles.articleTitle}>{article.title}</h1>
+          {/*
+            article.body is staff-authored HTML (portal_kb.create/update). This
+            is the only dangerouslySetInnerHTML sink in the frontend, so it is
+            the one place that needs real output-side sanitization now that
+            requests are no longer HTML-entity-encoded on input (see the
+            security-posture comment in src/app.js). DOMPurify.sanitize()
+            strips scripts/handlers/etc. while preserving legitimate rich-text
+            formatting (p/b/i/ul/a/h1-h4/…) for every subscriber viewing this
+            public KB article.
+          */}
           <div
             style={styles.body}
-            dangerouslySetInnerHTML={{ __html: article.body ?? '' }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.body ?? '') }}
           />
           <div style={styles.helpful}>
             <span style={styles.helpfulLabel}>Was this helpful?</span>

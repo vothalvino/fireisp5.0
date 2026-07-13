@@ -368,7 +368,8 @@
     "showPassword": "Mostrar",
     "hidePassword": "Ocultar",
     "credentialsError": "Error al cargar las credenciales.",
-    "credentialsForbidden": "No tienes permiso para ver las credenciales PPPoE (requiere el permiso devices.view)."
+    "credentialsForbidden": "No tienes permiso para ver las credenciales PPPoE (requiere el permiso devices.view).",
+    "passwordForbidden": "Permiso insuficiente para ver la contraseña (requiere radius.credentials.view)."
   },
   "invoiceList": {
     "title": "Facturas",

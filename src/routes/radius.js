@@ -26,7 +26,12 @@ const radiusServerService = require('../services/radiusServerService');
 const auditLog = require('../services/auditLog');
 
 const router = Router();
-const ctrl = crudController(Radius);
+// Strip the cleartext PPPoE `password` column from list/get responses.
+// Full-credential access is gated separately by `radius.credentials.view`
+// (see the /contract/:contractId/credentials and /:id/credentials routes
+// below) so a role like `support` can get credentials without also gaining
+// `devices.view`'s broader device-management surface.
+const ctrl = crudController(Radius, { serialize: Radius.sanitize });
 
 router.use(authenticate);
 router.use(orgScope);
@@ -60,11 +65,40 @@ router.get('/mac-move-events', requirePermission('radius.mac_move_events.view'),
   }
 });
 
-// Get RADIUS accounts for a specific contract
+// Get RADIUS accounts for a specific contract. Password-free — see the
+// /credentials sibling below for the full row.
 router.get('/contract/:contractId', requirePermission('devices.view'), async (req, res, next) => {
   try {
-    const accounts = await Radius.findByContract(req.params.contractId);
+    const accounts = await Radius.findByContract(req.params.contractId, req.orgId);
     res.json({ data: accounts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get RADIUS accounts (incl. cleartext password) for a specific contract.
+// Gated by radius.credentials.view — see migration 383 for the grant matrix.
+// Registered directly after its base-route sibling and BEFORE the generic
+// `/:id` CRUD block (radius.js:436-441 documents why literal paths must
+// precede `/:id`).
+router.get('/contract/:contractId/credentials', requirePermission('radius.credentials.view'), async (req, res, next) => {
+  try {
+    const accounts = await Radius.findByContractCredentials(req.params.contractId, req.orgId);
+    res.json({ data: accounts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get a single RADIUS account by id, including cleartext password. Gated by
+// radius.credentials.view — see migration 383 for the grant matrix.
+router.get('/:id/credentials', requirePermission('radius.credentials.view'), async (req, res, next) => {
+  try {
+    const account = await Radius.findCredentialsById(req.params.id, req.orgId);
+    if (!account) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'RADIUS account not found' } });
+    }
+    res.json({ data: account });
   } catch (err) {
     next(err);
   }

@@ -97,6 +97,45 @@ describe('notificationService', () => {
       expect(result.body).toBe('');
     });
 
+    test('HTML-escapes interpolated variables for the email channel', async () => {
+      const template = { id: 4, subject: 'Hi {{name}}', body: 'Dear {{name}} & co, your note: {{note}}' };
+
+      db.query
+        .mockResolvedValueOnce([[template]])  // template lookup
+        .mockResolvedValueOnce([{ insertId: 1 }]);  // email_logs INSERT
+
+      const result = await notificationService.sendNotification({
+        organizationId: 42,
+        clientId: 100,
+        channel: 'email',
+        templateId: 4,
+        recipientEmail: 'client@example.com',
+        variables: { name: "O'Brien <script>", note: 'Tom & Jerry' },
+      });
+
+      expect(result.subject).toBe('Hi O&#x27;Brien &lt;script&gt;');
+      expect(result.body).toBe('Dear O&#x27;Brien &lt;script&gt; & co, your note: Tom &amp; Jerry');
+    });
+
+    test('does NOT HTML-escape interpolated variables for the sms channel (plain text)', async () => {
+      const template = { id: 5, subject: 'SMS', body: 'Hi {{name}}, balance: {{amount}}' };
+
+      db.query
+        .mockResolvedValueOnce([[template]])
+        .mockResolvedValueOnce([{ insertId: 1 }]);
+
+      const result = await notificationService.sendNotification({
+        organizationId: 42,
+        clientId: 100,
+        channel: 'sms',
+        templateId: 5,
+        recipientPhone: '+521234567890',
+        variables: { name: "O'Brien & Sons", amount: '$500' },
+      });
+
+      expect(result.body).toBe('Hi O\'Brien & Sons, balance: $500');
+    });
+
     test('sends without template when templateId is null', async () => {
       db.query
         .mockResolvedValueOnce([{ insertId: 1 }]);  // notifications INSERT only
