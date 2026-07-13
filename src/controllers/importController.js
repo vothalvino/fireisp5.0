@@ -139,8 +139,10 @@ async function importDevices(req, res, next) {
           continue;
         }
         await db.query(
+          // devices.status is ENUM('online','offline','maintenance') — an imported
+          // device has not been polled yet, so it starts 'offline' (database/schema.sql).
           `INSERT INTO devices (organization_id, name, ip_address, type, site_id, mac_address, snmp_community, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'offline')`,
           [req.orgId, row.name, row.ip_address, row.type || 'router',
             row.site_id || null, row.mac_address || null, row.snmp_community || null],
         );
@@ -348,8 +350,10 @@ async function importDevicesFile(req, res, next) {
           continue;
         }
         await db.query(
+          // devices.status is ENUM('online','offline','maintenance') — an imported
+          // device has not been polled yet, so it starts 'offline' (database/schema.sql).
           `INSERT INTO devices (organization_id, name, ip_address, type, site_id, mac_address, snmp_community, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'offline')`,
           [req.orgId, row.name, row.ip_address, row.type || 'router',
             row.site_id || null, row.mac_address || null, row.snmp_community || null],
         );

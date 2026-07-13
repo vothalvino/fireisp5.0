@@ -159,8 +159,13 @@ describe('suspensionService', () => {
       expect(mockConnection.execute.mock.calls[1][0]).toContain("status = 'suspended'");
       expect(mockConnection.execute.mock.calls[1][1]).toEqual([10]);
 
-      // INSERT suspension_logs with 'unsuspend' (includes coa_sent/coa_response)
-      expect(mockConnection.execute.mock.calls[2][0]).toContain('INSERT INTO suspension_logs');
+      // INSERT suspension_logs with the ENUM-legal 'unsuspended' action. (Call [2]
+      // is now the SELECT that recovers the original suspended_at — see
+      // tests/suspensionLogsSchemaContract.test.js for the full column contract.)
+      const insertCall = mockConnection.execute.mock.calls
+        .find(([sql]) => sql.includes('INSERT INTO suspension_logs'));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[0]).toContain("'unsuspended'");
 
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();

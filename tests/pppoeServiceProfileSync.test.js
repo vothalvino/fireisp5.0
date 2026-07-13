@@ -68,7 +68,10 @@ function setupMockDb({ subscribers, profiles = [], walledUsernames = [] }) {
       return Promise.resolve([[]]);
     }
     // 7. walled usernames
-    if (sql.includes('suspension_logs') && sql.includes('walled_garden')) {
+    // The walled-garden lookup no longer keys off a bogus action='walled_garden'
+    // (not an ENUM value) — it matches action='suspended' + a 'walled_garden:'
+    // reason prefix, in which the underscore is LIKE-escaped ('walled\\_garden:%').
+    if (sql.includes('suspension_logs') && sql.includes('walled')) {
       return Promise.resolve([walledUsernames.map(u => ({ username: u }))]);
     }
     // 8. PPPoE service profiles (Phase B)

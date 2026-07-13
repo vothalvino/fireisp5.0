@@ -42,6 +42,16 @@ jobs:
       - name: Spec drift check
         run: node src/scripts/spec-drift.js
 
+      - name: SQL column/ENUM drift check
+        # Every INSERT/UPDATE in src/ must name columns that actually exist on that
+        # table in database/schema.sql, and every literal written to an ENUM column
+        # must be one of its values. The jest suite mocks the DB, so this is the
+        # only thing standing between a mistyped column and a permanent 500.
+        run: node src/scripts/sql-column-check.js
+
+      - name: Offline schema.sql parity check
+        run: node src/scripts/schema-parity-check.js
+
       - name: Security audit
         run: pnpm audit --audit-level=high
 

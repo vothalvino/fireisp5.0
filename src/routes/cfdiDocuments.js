@@ -11,6 +11,7 @@ const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createCfdiDocument, updateCfdiDocument, cancelCfdiDocument } = require('../middleware/schemas/cfdiDocuments');
+const { NotFoundError } = require('../utils/errors');
 const db = require('../config/database');
 
 const router = Router();
@@ -49,14 +50,27 @@ router.get('/:id/related', requirePermission('cfdi_documents.view'), async (req,
 router.post('/:id/cancel', requirePermission('cfdi_documents.update'), validate(cancelCfdiDocument), async (req, res, next) => {
   try {
     const { motivo, folio_sustitucion } = req.body;
+    // cfdi_cancellations requires organization_id + uuid + requested_at (all NOT
+    // NULL) and the user column is requested_by_user_id, not cancelled_by. The
+    // org and the folio fiscal are taken from the CFDI document itself, which
+    // also scopes the cancellation to the caller's organization.
     const [result] = await db.query(
-      `INSERT INTO cfdi_cancellations (cfdi_document_id, motivo, folio_sustitucion, cancelled_by)
-       VALUES (?, ?, ?, ?)`,
-      [req.params.id, motivo, folio_sustitucion || null, req.user.id],
+      `INSERT INTO cfdi_cancellations
+         (cfdi_document_id, organization_id, uuid, motivo, folio_sustitucion,
+          requested_by_user_id, requested_at)
+       SELECT d.id, d.organization_id, d.uuid, ?, ?, ?, NOW()
+       FROM cfdi_documents d
+       WHERE d.id = ? AND d.organization_id = ? AND d.uuid IS NOT NULL`,
+      [motivo, folio_sustitucion || null, req.user.id, req.params.id, req.orgId],
     );
+    if (result.affectedRows === 0) {
+      throw new NotFoundError('CFDI document (or it has not been stamped yet)');
+    }
+    // Column is sat_status ENUM('draft','vigente','cancelado','cancel_pending') —
+    // there is no `status` column and no 'cancelled' value (database/schema.sql).
     await db.query(
-      'UPDATE cfdi_documents SET status = ?, cancelled_at = NOW() WHERE id = ?',
-      ['cancelled', req.params.id],
+      'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ? AND organization_id = ?',
+      ['cancelado', req.params.id, req.orgId],
     );
     const [rows] = await db.query('SELECT * FROM cfdi_cancellations WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });

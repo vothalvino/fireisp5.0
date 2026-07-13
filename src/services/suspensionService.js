@@ -9,6 +9,16 @@ const crypto = require('crypto');
 const dgram = require('dgram');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'suspension' });
+// NOTE: the action values below are written as SQL literals ('suspended',
+// 'unsuspended') rather than interpolated from SUSPENSION_ACTIONS on purpose —
+// the new `node src/scripts/sql-column-check.js` gate can only validate an ENUM
+// value it can see statically in the statement.
+const {
+  SOFT_SUSPEND_REASON_PREFIX,
+  OPEN_WALLED_GARDEN_PREDICATE,
+  triggeredBy,
+  describeTrigger,
+} = require('./suspensionLogConstants');
 
 /**
  * Evaluate suspension rules for an organization and return contracts to act on.
@@ -90,10 +100,26 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
       coaResponse = 'CoA send failed';
     }
 
+    // suspension_logs.client_id is NOT NULL, so the row is built with an
+    // INSERT ... SELECT off `contracts` on the same connection/transaction:
+    // one round trip, and client_id can never disagree with the contract.
     await conn.execute(
-      `INSERT INTO suspension_logs (contract_id, suspension_rule_id, action, performed_by, invoice_id, coa_sent, coa_response, suspended_at)
-       VALUES (?, ?, 'suspend', ?, ?, ?, ?, NOW())`,
-      [contractId, ruleId, userId, invoiceId, coaSent, coaResponse],
+      `INSERT INTO suspension_logs
+         (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
+          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
+       SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
+       FROM contracts c
+       WHERE c.id = ?`,
+      [
+        ruleId,
+        describeTrigger('suspension', ruleId, userId, invoiceId),
+        triggeredBy(userId),
+        userId,
+        coaSent,
+        coaResponse,
+        invoiceId,
+        contractId,
+      ],
     );
 
     await conn.commit();
@@ -144,10 +170,50 @@ async function reconnectContract(contractId, userId, invoiceId) {
       coaResponse = 'CoA send failed';
     }
 
+    // suspended_at is NOT NULL on EVERY row, including this 'unsuspended' one.
+    // Recover the moment the outage actually started from the most recent
+    // 'suspended' row for the contract so the reconnect row carries the real
+    // downtime window (suspended_at → restored_at) instead of a meaningless
+    // "suspended and restored at the same instant". Falls back to NOW() when
+    // there is no prior suspension row (e.g. a contract suspended by hand in
+    // the DB, or logs pruned) — COALESCE(?, NOW()) keeps that in one statement.
+    const [priorRows] = await conn.execute(
+      `SELECT suspended_at FROM suspension_logs
+       WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
+       ORDER BY suspended_at DESC, id DESC LIMIT 1`,
+      [contractId],
+    );
+    const suspendedAt = (Array.isArray(priorRows) && priorRows[0]) ? priorRows[0].suspended_at : null;
+
     await conn.execute(
-      `INSERT INTO suspension_logs (contract_id, action, performed_by, invoice_id, coa_sent, coa_response, restored_at)
-       VALUES (?, 'unsuspend', ?, ?, ?, ?, NOW())`,
-      [contractId, userId, invoiceId, coaSent, coaResponse],
+      `INSERT INTO suspension_logs
+         (contract_id, client_id, action, reason, triggered_by,
+          performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id,
+          suspended_at, restored_at)
+       SELECT c.id, c.client_id, 'unsuspended', ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), NOW()
+       FROM contracts c
+       WHERE c.id = ?`,
+      [
+        describeTrigger('reconnect', null, userId, invoiceId),
+        triggeredBy(userId),
+        userId,
+        coaSent,
+        coaResponse,
+        invoiceId,
+        suspendedAt,
+        contractId,
+      ],
+    );
+
+    // Close the open suspension rows for this contract so `restored_at IS NULL`
+    // keeps meaning "still suspended". Walled-garden rows are deliberately left
+    // open here — walledGardenReconnect (below) closes those once the CoA and
+    // the FreeRADIUS re-sync that actually lift the restriction have run.
+    await conn.execute(
+      `UPDATE suspension_logs SET restored_at = NOW()
+       WHERE contract_id = ? AND action = 'suspended' AND restored_at IS NULL
+         AND (reason IS NULL OR reason NOT LIKE 'walled\\_garden:%')`,
+      [contractId],
     );
 
     await conn.commit();
@@ -162,7 +228,7 @@ async function reconnectContract(contractId, userId, invoiceId) {
   // address list (lazy require — radiusService requires this module too)
   const [walled] = await db.query(
     `SELECT id FROM suspension_logs
-     WHERE contract_id = ? AND action = 'walled_garden' AND restored_at IS NULL LIMIT 1`,
+     WHERE contract_id = ? AND ${OPEN_WALLED_GARDEN_PREDICATE} LIMIT 1`,
     [contractId],
   );
   if (walled.length > 0) {
@@ -208,10 +274,29 @@ async function softSuspendContract(contractId, ruleId, userId, invoiceId, downlo
     coaResponse = JSON.stringify({ action: 'soft_suspend', download_kbps: downloadKbps, upload_kbps: uploadKbps, result: 'CoA send failed' });
   }
 
+  // action = 'suspended' (NOT 'disconnected'): a soft suspension throttles the
+  // subscriber but never cuts the service — they keep authenticating and stay
+  // online at a degraded rate. 'disconnected' would misreport an outage that
+  // did not happen. The ENUM has no dedicated soft-suspend value and we do not
+  // extend it; the flavour lives in `reason` (see suspensionLogConstants).
   await db.query(
-    `INSERT INTO suspension_logs (contract_id, suspension_rule_id, action, performed_by, invoice_id, coa_sent, coa_response, suspended_at)
-     VALUES (?, ?, 'soft_suspend', ?, ?, ?, ?, NOW())`,
-    [contractId, ruleId, userId, invoiceId, coaSent, coaResponse],
+    `INSERT INTO suspension_logs
+       (contract_id, client_id, suspension_rule_id, action, reason, triggered_by,
+        performed_by_user_id, radius_coa_sent, radius_coa_response, related_invoice_id, suspended_at)
+     SELECT c.id, c.client_id, ?, 'suspended', ?, ?, ?, ?, ?, ?, NOW()
+     FROM contracts c
+     WHERE c.id = ?`,
+    [
+      ruleId,
+      `${SOFT_SUSPEND_REASON_PREFIX} ${describeTrigger('soft suspension', ruleId, userId, invoiceId)}`
+      + ` (throttled to ${downloadKbps || '?'}/${uploadKbps || '?'} kbps)`,
+      triggeredBy(userId),
+      userId,
+      coaSent,
+      coaResponse,
+      invoiceId,
+      contractId,
+    ],
   );
 }
 

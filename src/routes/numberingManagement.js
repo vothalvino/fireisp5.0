@@ -8,6 +8,7 @@ const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { ValidationError } = require('../utils/errors');
 
 const router = Router();
 
@@ -233,12 +234,19 @@ router.get('/numbering-blocks', requirePermission('numbering_blocks.view'), asyn
 
 router.post('/numbering-blocks', requirePermission('numbering_blocks.manage'), async (req, res, next) => {
   try {
-    const { block_start, block_end, lada, cnmc_reference, status, notes } = req.body;
+    const { block_start, block_end, lada, status, notes } = req.body;
+
+    // Columns are block_prefix / range_start / range_end (all NOT NULL); there is
+    // no `lada`, `block_start`, `block_end` or `cnmc_reference` column — CNMC is
+    // the Spanish regulator, Mexico's is the IFT (database/schema.sql).
+    if (!lada || !block_start || !block_end) {
+      throw new ValidationError('lada, block_start and block_end are required');
+    }
 
     const [result] = await db.query(
-      `INSERT INTO numbering_blocks (organization_id, block_start, block_end, lada, cnmc_reference, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [req.orgId, block_start, block_end, lada || null, cnmc_reference || null, status || 'active', notes || null],
+      `INSERT INTO numbering_blocks (organization_id, block_prefix, range_start, range_end, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.orgId, lada, block_start, block_end, status || 'active', notes || null],
     );
 
     res.status(201).json({ id: result.insertId });
@@ -266,12 +274,20 @@ router.get('/numbering-blocks/:id', requirePermission('numbering_blocks.view'), 
 router.put('/numbering-blocks/:id', requirePermission('numbering_blocks.manage'), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { block_start, block_end, lada, cnmc_reference, status, notes } = req.body;
+    const { block_start, block_end, lada, status, notes } = req.body;
 
+    // See the POST handler: block_prefix / range_start / range_end are the real
+    // columns and they are NOT NULL, so a partial update must not null them out.
     await db.query(
-      `UPDATE numbering_blocks SET block_start = ?, block_end = ?, lada = ?, cnmc_reference = ?, status = ?, notes = ?, updated_at = NOW()
+      `UPDATE numbering_blocks
+         SET block_prefix = COALESCE(?, block_prefix),
+             range_start = COALESCE(?, range_start),
+             range_end = COALESCE(?, range_end),
+             status = COALESCE(?, status),
+             notes = ?,
+             updated_at = NOW()
        WHERE id = ? AND organization_id = ?`,
-      [block_start, block_end, lada || null, cnmc_reference || null, status || 'active', notes || null, id, req.orgId],
+      [lada || null, block_start || null, block_end || null, status || null, notes || null, id, req.orgId],
     );
 
     res.json({ success: true });

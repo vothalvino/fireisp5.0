@@ -19,6 +19,8 @@
     "admin": "node src/scripts/admin.js",
     "openapi": "node src/scripts/openapi.js",
     "spec:check": "node src/scripts/spec-drift.js",
+    "sql:check": "node src/scripts/sql-column-check.js",
+    "schema:parity": "node src/scripts/schema-parity-check.js",
     "spec:gen": "node src/scripts/gen-route.js",
     "postman": "node src/scripts/postman.js",
     "lint": "eslint src/ --ext .js",

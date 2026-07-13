@@ -223,6 +223,7 @@ async function computeChurnScores(organizationId) {
        COALESCE(
          (SELECT COUNT(*) FROM suspension_logs sl WHERE sl.contract_id IN
            (SELECT id FROM contracts WHERE client_id = cl.id)
+           AND sl.action IN ('suspended','disconnected')
            AND sl.suspended_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)), 0
        ) AS suspensions_30d,
        COALESCE(

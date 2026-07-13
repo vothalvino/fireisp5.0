@@ -139,11 +139,10 @@ async function chargeRecurringProfile(profileId) {
     idempotencyKey,
   });
 
-  // Update last_charged_at
-  await db.query(
-    'UPDATE recurring_payment_profiles SET last_charged_at = NOW() WHERE id = ?',
-    [profileId],
-  );
+  // NOTE: there is no `last_charged_at` column on recurring_payment_profiles
+  // (database/schema.sql). The UPDATE that used to be here threw on every run —
+  // *after* the card had already been charged. The charge is recorded in
+  // payment_transactions, which is where the last charge is read from.
 
   // Schedule retry if charge failed
   if (result.status === 'failed' && result.transaction_id) {

@@ -264,25 +264,28 @@ describe('cfdiService', () => {
       await expect(cfdiService.stamp(1)).rejects.toThrow('No active PAC provider');
     });
 
-    test('records stamp_error status on failure', async () => {
+    test('surfaces the PAC error instead of writing an invalid sat_status', async () => {
+      // cfdi_documents.sat_status is ENUM('draft','vigente','cancelado',
+      // 'cancel_pending') — 'stamp_error' is NOT a value. The UPDATE that used to
+      // run here therefore threw and MASKED the real PAC failure with a DB error.
+      // A document that failed to stamp simply stays 'draft'.
       const doc = { id: 1, organization_id: 42, xml_content: '<cfdi/>' };
       const pac = { id: 1, provider_name: 'finkok', status: 'active', environment: 'sandbox' };
 
-      // Mock callPacStamp to fail (httpRequest will throw since there's no network)
-      // We'll mock the internal behavior by making all three retry attempts fail
       db.query
         .mockResolvedValueOnce([[doc]])   // SELECT document
-        .mockResolvedValueOnce([[pac]])   // SELECT pac_providers
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE stamp_error
+        .mockResolvedValueOnce([[pac]]);  // SELECT pac_providers
 
-      // The stamp function will try callPacStamp which calls httpRequest
-      // which will fail because there's no actual network. This tests the retry path.
-      const result = cfdiService.stamp(1);
-      await expect(result).rejects.toThrow(/PAC stamping failed/);
+      // callPacStamp → httpRequest fails (no network); exercises the retry path.
+      await expect(cfdiService.stamp(1)).rejects.toThrow(/PAC stamping failed/);
 
-      // Verify stamp_error was recorded
-      const lastQueryCall = db.query.mock.calls[db.query.mock.calls.length - 1];
-      expect(lastQueryCall[1]).toContain('stamp_error');
+      const sqlIssued = db.query.mock.calls.map(([sql]) => sql).join('\n');
+      expect(sqlIssued).not.toContain('stamp_error');
+      const wroteSatStatus = db.query.mock.calls.some(
+        ([sql, params]) => /UPDATE cfdi_documents/i.test(sql)
+          && Array.isArray(params) && params.includes('stamp_error'),
+      );
+      expect(wroteSatStatus).toBe(false);
     }, 30000);
 
     test('rejects when circuit breaker is open', async () => {

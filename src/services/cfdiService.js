@@ -158,7 +158,9 @@ async function stamp(cfdiDocumentId) {
   }
 
   const pac = pacs[0];
-  let uuid, signedXml, selloSat, cadenaOriginal;
+  // NOTE: callPacStamp also returns cadenaOriginal, but cfdi_documents has no
+  // column for it (database/schema.sql) — it is reproducible from signed_xml.
+  let uuid, signedXml, selloSat;
 
   // Retry with exponential backoff (up to 3 attempts)
   const MAX_RETRIES = 3;
@@ -169,7 +171,6 @@ async function stamp(cfdiDocumentId) {
       uuid = result.uuid;
       signedXml = result.signedXml || doc.xml_content;
       selloSat = result.selloSat || null;
-      cadenaOriginal = result.cadenaOriginal || null;
       circuitBreaker.recordSuccess();
       lastErr = null;
       break;
@@ -184,23 +185,26 @@ async function stamp(cfdiDocumentId) {
 
   if (lastErr) {
     circuitBreaker.recordFailure();
-    // Record the failure
-    await db.query(
-      'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
-      ['stamp_error', cfdiDocumentId],
-    );
+    // sat_status is ENUM('draft','vigente','cancelado','cancel_pending') — there is
+    // no 'stamp_error' value (database/schema.sql), so the UPDATE that used to be
+    // here threw and *masked* the real PAC error with a DB error. A document that
+    // failed to stamp stays 'draft' (it is not fiscally valid) and the caller gets
+    // the actual CfdiStampingError.
     throw new CfdiStampingError(
       `PAC stamping failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
       { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
     );
   }
 
+  // Real columns: stamp_date (not stamped_at) and sat_seal (not sello_sat). There
+  // is no cadena_original column — the original chain is reproducible from
+  // signed_xml, which is stored (database/schema.sql).
   await db.query(
     `UPDATE cfdi_documents
-     SET uuid = ?, sat_status = ?, stamped_at = NOW(),
-         signed_xml = ?, sello_sat = ?, cadena_original = ?
+     SET uuid = ?, sat_status = ?, stamp_date = NOW(),
+         signed_xml = ?, sat_seal = ?
      WHERE id = ?`,
-    [uuid, 'vigente', signedXml, selloSat, cadenaOriginal, cfdiDocumentId],
+    [uuid, 'vigente', signedXml, selloSat, cfdiDocumentId],
   );
 
   logger.info({ cfdiDocumentId, uuid }, 'CFDI document stamped successfully');
@@ -797,18 +801,21 @@ async function generatePaymentComplement(params) {
   }
 
   // 1. Create cfdi_documents record (tipo P, SubTotal=0, Total=0, Moneda=XXX)
+  // cfdi_documents has no fecha_emision / lugar_expedicion / emisor_* columns —
+  // the issuer (emisor) is the organization, joined via organization_id, and the
+  // issue date is created_at. The receptor columns are receptor_regimen and
+  // receptor_cp (database/schema.sql). The values the caller passes for the
+  // dropped fields are still used to build the XML further down.
   const [insertDocResult] = await db.query(
     `INSERT INTO cfdi_documents
        (organization_id, client_id, serie, folio, tipo_comprobante, uso_cfdi,
-        moneda, tipo_cambio, fecha_emision, lugar_expedicion,
-        emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
-        receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
+        moneda, tipo_cambio,
+        receptor_rfc, receptor_nombre, receptor_cp, receptor_regimen,
         subtotal, total_impuestos, total, sat_status, payment_id)
-     VALUES (?, ?, ?, ?, 'P', 'CP01', 'XXX', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'draft', ?)`,
+     VALUES (?, ?, ?, ?, 'P', 'CP01', 'XXX', ?, ?, ?, ?, ?, 0, 0, 0, 'draft', ?)`,
     [
       organization_id, client_id, serie, folio,
-      tipo_cambio, fecha_emision, lugar_expedicion,
-      emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
+      tipo_cambio,
       receptor_rfc, receptor_nombre, receptor_domicilio_fiscal, receptor_regimen_fiscal,
       payment_id,
     ],

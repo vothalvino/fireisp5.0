@@ -86,9 +86,11 @@ async function allocatePayment(req, res, next) {
       const results = [];
       for (const alloc of allocations) {
         const [result] = await conn.execute(
-          `INSERT INTO payment_allocations (payment_id, invoice_id, amount, currency)
-           VALUES (?, ?, ?, ?)`,
-          [payment_id, alloc.invoice_id, alloc.amount, payment.currency || 'USD'],
+          // payment_allocations has no `currency` column — the currency lives on
+          // the payment and on the invoice (database/schema.sql).
+          `INSERT INTO payment_allocations (payment_id, invoice_id, amount)
+           VALUES (?, ?, ?)`,
+          [payment_id, alloc.invoice_id, alloc.amount],
         );
         results.push({ id: result.insertId, invoice_id: alloc.invoice_id, amount: alloc.amount });
 

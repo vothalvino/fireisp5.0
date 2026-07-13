@@ -121,8 +121,10 @@ describe('checkoutService', () => {
         .mockResolvedValueOnce([[{
           id: 50, invoice_number: 'INV-000050', total: '300.00',
           currency: 'MXN', client_id: 10, organization_id: 1, status: 'issued',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE last_charged_at
+        }]]);
+      // No third query: the `UPDATE recurring_payment_profiles SET last_charged_at`
+      // that used to be here targeted a column that does not exist, so it threw on
+      // every run — *after* the card was charged.
 
       paymentGatewayService.charge.mockResolvedValue({
         transaction_id: 200,
@@ -161,7 +163,6 @@ describe('checkoutService', () => {
         // chargeRecurringProfile(1)
         .mockResolvedValueOnce([[{ id: 1, client_id: 10, payment_gateway_id: 5, gateway_token: 'tok_1', status: 'active', provider: 'stripe', organization_id: 1, gateway_id: 5 }]])
         .mockResolvedValueOnce([[{ id: 50, invoice_number: 'INV-050', total: '300.00', currency: 'MXN', client_id: 10, organization_id: 1, status: 'issued' }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
         // chargeRecurringProfile(2)
         .mockResolvedValueOnce([[{ id: 2, client_id: 20, payment_gateway_id: 5, gateway_token: 'tok_2', status: 'active', provider: 'stripe', organization_id: 1, gateway_id: 5 }]])
         .mockResolvedValueOnce([[]]);  // no invoices for profile 2

@@ -104,7 +104,10 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
     await suspensionService.reconnectContract(100, 999, 500);
 
     expect(mockConnection.beginTransaction).toHaveBeenCalled();
-    expect(mockConnection.execute).toHaveBeenCalledTimes(3);
+    // UPDATE contracts, UPDATE radius, SELECT the original suspended_at (NOT NULL
+    // on the reconnect row too), INSERT the 'unsuspended' log, close the open
+    // suspension row.
+    expect(mockConnection.execute).toHaveBeenCalledTimes(5);
     expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
     expect(mockConnection.commit).toHaveBeenCalled();
   });

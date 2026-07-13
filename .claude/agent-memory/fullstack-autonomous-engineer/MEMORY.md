@@ -26,4 +26,5 @@
 - [MySQL atomic sequence idiom](mysql-atomic-sequence-idiom.md) — INSERT..ON DUPLICATE KEY UPDATE..LAST_INSERT_ID() in one statement is broken on first insert for non-AUTO_INCREMENT tables; use INSERT IGNORE + bare UPDATE instead
 - [Network authz hardening](network-authz-hardening.md) — plan/FK org-scoping (planAvailability.js) + RADIUS status lifecycle on suspend/terminate/cancel; bulk-suspend and ServiceOrder fillable-bypass folded in on follow-up; bulk.js was missing orgScope entirely
 - [Env: node_modules in worktrees](env-node-modules-worktree.md) — worktrees have no local node_modules; `pnpm lint`/`pnpm test` fail on bin resolution, use `npx eslint`/`npx jest` instead (resolves main checkout's node_modules via require() walk-up)
+- [SQL column drift gate](sql-column-drift-gate.md) — sql:check validates every INSERT/UPDATE column+ENUM vs schema.sql; CI gate; found ~16 always-500 statements; KNOWN_SCHEMA_GAPS is a ratchet
 - [gh CLI token scope](gh-cli-token-scope.md) — GH_TOKEN lacks read:org; `gh pr edit`/`--json commits` fail, use `gh api repos/.../pulls/N -X PATCH -F body=@file` (capital -F) to update a PR body instead

@@ -31,7 +31,9 @@ class Quote extends BaseModel {
   static async addItem(data) {
     const db = require('../config/database');
     const [result] = await db.query(
-      `INSERT INTO quote_items (quote_id, description, quantity, unit_price, amount, tax_rate_id)
+      // Column is `total`, not `amount` (database/schema.sql) — the API keeps
+      // accepting `amount` for compatibility.
+      `INSERT INTO quote_items (quote_id, description, quantity, unit_price, total, tax_rate_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [data.quote_id, data.description, data.quantity, data.unit_price, data.amount, data.tax_rate_id || null],
     );

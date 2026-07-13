@@ -141,12 +141,21 @@ router.get('/ddos-protection', requirePermission('ddos_protection.view'), async 
 // POST /ddos-protection
 router.post('/ddos-protection', requirePermission('ddos_protection.create'), validate(createDdosRule), async (req, res, next) => {
   try {
-    const { name, rule_type, target_prefix, action, threshold_pps, threshold_bps, notes } = req.body;
+    const {
+      name, rule_type, target_prefix, action, pps_threshold,
+      bandwidth_threshold_mbps, notes,
+    } = req.body;
+    // Real columns: pps_threshold, bandwidth_threshold_mbps (Mbps — NOT bps) and
+    // status ENUM('inactive','active','auto_triggered','expired'). There is no
+    // threshold_pps / threshold_bps / is_active column (database/schema.sql).
+    // `name` is NOT NULL, so it is required by the validation schema.
     const [result] = await db.query(
       `INSERT INTO ddos_protection_rules
-        (organization_id, name, rule_type, target_prefix, action, threshold_pps, threshold_bps, is_active, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [req.orgId, name || null, rule_type, target_prefix, action, threshold_pps || null, threshold_bps || null, notes || null],
+        (organization_id, name, rule_type, target_prefix, action,
+         pps_threshold, bandwidth_threshold_mbps, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      [req.orgId, name, rule_type, target_prefix, action,
+        pps_threshold ?? null, bandwidth_threshold_mbps ?? null, notes || null],
     );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
@@ -157,24 +166,27 @@ router.post('/ddos-protection', requirePermission('ddos_protection.create'), val
 // PUT /ddos-protection/:id
 router.put('/ddos-protection/:id', requirePermission('ddos_protection.update'), async (req, res, next) => {
   try {
-    const { name, rule_type, target_prefix, action, threshold_pps, threshold_bps, is_active, notes } = req.body;
+    const {
+      name, rule_type, target_prefix, action, pps_threshold,
+      bandwidth_threshold_mbps, status, notes,
+    } = req.body;
     const [result] = await db.query(
       `UPDATE ddos_protection_rules SET
          name = COALESCE(?, name),
          rule_type = COALESCE(?, rule_type),
          target_prefix = COALESCE(?, target_prefix),
          action = COALESCE(?, action),
-         threshold_pps = COALESCE(?, threshold_pps),
-         threshold_bps = COALESCE(?, threshold_bps),
-         is_active = COALESCE(?, is_active),
+         pps_threshold = COALESCE(?, pps_threshold),
+         bandwidth_threshold_mbps = COALESCE(?, bandwidth_threshold_mbps),
+         status = COALESCE(?, status),
          notes = COALESCE(?, notes),
          updated_at = NOW()
        WHERE id = ? AND organization_id = ?`,
       [
         name || null, rule_type || null, target_prefix || null, action || null,
-        threshold_pps !== undefined ? threshold_pps : null,
-        threshold_bps !== undefined ? threshold_bps : null,
-        is_active !== undefined ? (is_active ? 1 : 0) : null,
+        pps_threshold ?? null,
+        bandwidth_threshold_mbps ?? null,
+        status || null,
         notes || null,
         req.params.id, req.orgId,
       ],
@@ -204,7 +216,7 @@ router.delete('/ddos-protection/:id', requirePermission('ddos_protection.delete'
 router.post('/ddos-protection/:id/activate', requirePermission('ddos_protection.update'), async (req, res, next) => {
   try {
     const [result] = await db.query(
-      'UPDATE ddos_protection_rules SET is_active = 1, triggered_at = NOW(), updated_at = NOW() WHERE id = ? AND organization_id = ?',
+      "UPDATE ddos_protection_rules SET status = 'active', triggered_at = NOW(), updated_at = NOW() WHERE id = ? AND organization_id = ?",
       [req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('DDoS protection rule');
@@ -218,7 +230,8 @@ router.post('/ddos-protection/:id/activate', requirePermission('ddos_protection.
 router.post('/ddos-protection/:id/deactivate', requirePermission('ddos_protection.update'), async (req, res, next) => {
   try {
     const [result] = await db.query(
-      'UPDATE ddos_protection_rules SET is_active = 0, deactivated_at = NOW(), updated_at = NOW() WHERE id = ? AND organization_id = ?',
+      // No `deactivated_at` column exists — updated_at records when it was turned off.
+      "UPDATE ddos_protection_rules SET status = 'inactive', updated_at = NOW() WHERE id = ? AND organization_id = ?",
       [req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('DDoS protection rule');
@@ -403,8 +416,9 @@ router.post('/cpe-security-scans', requirePermission('cpe_security_scans.create'
     }
 
     const [result] = await db.query(
+      // Column is `initiated_by`, not `triggered_by` (database/schema.sql).
       `INSERT INTO cpe_security_scans
-        (organization_id, device_id, cpe_device_id, scan_type, status, triggered_by, started_at)
+        (organization_id, device_id, cpe_device_id, scan_type, status, initiated_by, started_at)
        VALUES (?, ?, ?, ?, 'pending', ?, NOW())`,
       [req.orgId, device_id || null, cpe_device_id || null, scan_type, req.user.id],
     );
