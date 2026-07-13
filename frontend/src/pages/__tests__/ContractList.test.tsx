@@ -2,7 +2,7 @@
 // FireISP 5.0 — ContractList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { ContractList } from '../ContractList';
@@ -83,5 +83,57 @@ describe('ContractList page', () => {
     });
     renderContractList();
     await waitFor(() => expect(screen.getByText(/No contracts found/)).toBeInTheDocument());
+  });
+
+  describe('RADIUS credentials modal (split base/credentials fetch)', () => {
+    const radiusAccount = { id: 99, username: 'sub_ada', status: 'active', ip_address: null, ipv6_address: null, auth_method: 'pppoe', mac_address: null, vlan_id: null, profile: null, nas_id: null };
+
+    it('shows the cleartext password after reveal when the credentials fetch succeeds', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/contracts')
+          return Promise.resolve({ data: { data: [contract1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
+        if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+        if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+        if (path === '/radius/contract/{contractId}')
+          return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+        if (path === '/radius/contract/{contractId}/credentials')
+          return Promise.resolve({ data: { data: [{ ...radiusAccount, password: 'topsecret' }] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+
+      renderContractList();
+      await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: /Credentials/ }));
+
+      await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
+      expect(screen.queryByText('topsecret')).not.toBeInTheDocument();
+
+      const showBtn = await screen.findByRole('button', { name: 'Show' });
+      fireEvent.click(showBtn);
+      expect(screen.getByText('topsecret')).toBeInTheDocument();
+    });
+
+    it('shows an insufficient-permission note in place of the password when the credentials fetch 403s, while the account itself stays visible', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/contracts')
+          return Promise.resolve({ data: { data: [contract1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
+        if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+        if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+        if (path === '/radius/contract/{contractId}')
+          return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+        if (path === '/radius/contract/{contractId}/credentials')
+          return Promise.resolve({ data: undefined, error: { error: { code: 'FORBIDDEN' } }, response: { status: 403 } });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+
+      renderContractList();
+      await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: /Credentials/ }));
+
+      // Username / account still visible — only the password field is gated.
+      await waitFor(() => expect(screen.getByText('sub_ada')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText(/Insufficient permission to view the password/)).toBeInTheDocument());
+    });
   });
 });

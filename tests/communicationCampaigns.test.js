@@ -343,6 +343,59 @@ describe('processQueue', () => {
       }),
     );
   });
+
+  test('HTML-escapes merge field VALUES for the email channel without touching the template markup', async () => {
+    mockQuery([[{
+      id: 21,
+      campaign_id: 6,
+      campaign_org_id: 1,
+      campaign_channel: 'email',
+      campaign_template_id: 100,
+      channel: 'email',
+      recipient: 'xss-test@example.com',
+      client_id: 8,
+    }]]);
+    // Template query — body_html is staff-authored markup with a merge field.
+    mockQuery([[{ id: 100, subject: 'Hi {{name}}', body_text: null, body_html: '<p>Hola {{name}} &amp; equipo</p>' }]]);
+    // Client data — name contains HTML-significant characters.
+    mockQuery([[{ id: 8, name: "O'Brien <script>alert(1)</script>" }]]);
+    mockQuery([{ affectedRows: 1 }]);
+    mockQuery([{ affectedRows: 1 }]);
+    mockQuery([{ affectedRows: 0 }]);
+
+    await processQueue();
+
+    expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Hi O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt;',
+        html: '<p>Hola O&#x27;Brien &lt;script&gt;alert(1)&lt;/script&gt; &amp; equipo</p>',
+      }),
+    );
+  });
+
+  test('does NOT HTML-escape merge field VALUES for the sms channel (plain text)', async () => {
+    mockQuery([[{
+      id: 22,
+      campaign_id: 7,
+      campaign_org_id: 1,
+      campaign_channel: 'sms',
+      campaign_template_id: 101,
+      channel: 'sms',
+      recipient: '+521234567890',
+      client_id: 9,
+    }]]);
+    mockQuery([[{ id: 101, subject: null, body_text: 'Hola {{name}} & equipo', body_html: null }]]);
+    mockQuery([[{ id: 9, name: "O'Brien & Sons" }]]);
+    mockQuery([{ affectedRows: 1 }]);
+    mockQuery([{ affectedRows: 1 }]);
+    mockQuery([{ affectedRows: 0 }]);
+
+    await processQueue();
+
+    expect(smsTransport.sendSms).toHaveBeenCalledWith(
+      expect.objectContaining({ body: "Hola O'Brien & Sons & equipo" }),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

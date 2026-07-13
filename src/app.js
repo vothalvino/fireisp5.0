@@ -12,7 +12,6 @@ const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
 const { apiLimiter, authLimiter, passwordResetLimiter, verifyEmailResendLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
-const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
 const { requireFeature } = require('./middleware/featureFlag');
@@ -295,7 +294,21 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(sanitize);
+// Security posture: no blanket input-side HTML-entity-encoding here. This app's
+// output sinks do their own escaping instead — React/JSX auto-escapes all
+// rendered text; the one dangerouslySetInnerHTML sink (PortalKb) runs
+// DOMPurify.sanitize() at render time; cfdiService.escapeXml() escapes CFDI
+// XML output. Every HTML-email builder escapes its interpolated free-text
+// values (client/org names, ticket subjects, outage/maintenance titles,
+// campaign merge-field values, report names) via the shared
+// escapeHtmlForTemplate() helper (src/services/notificationService.js,
+// exported for reuse) — see src/views/emailTemplates.js,
+// src/services/notificationHooks.js, paymentReminderService.js,
+// scheduledReportService.js, and campaignService.js's merge-field
+// substitution. It is never applied to the parallel SMS/plain-text bodies.
+// Encoding on input instead corrupted legitimate data (apostrophes in names,
+// JSON-stringified fields rejected by MySQL's JSON validator) without adding
+// real protection — see the removed src/middleware/sanitize.js.
 app.use(firerelay);
 app.use(requestLogger);
 app.use(metricsMiddleware);
@@ -758,6 +771,17 @@ app.use((err, req, res, _next) => {
   if (err.code === 'ER_NO_REFERENCED_ROW_2' || err.errno === 1452) {
     return res.status(422).json(
       errorBody('FK_VIOLATION', 'Referenced record does not exist'),
+    );
+  }
+
+  // Handle malformed JSON written to a JSON-typed column. Defense-in-depth:
+  // request bodies are no longer HTML-entity-encoded on input (see the
+  // security-posture comment above app.use(firerelay)), so this should not
+  // be reachable via normal client input anymore, but guards any future
+  // caller that sends a non-well-formed JSON string to a JSON column.
+  if (err.code === 'ER_INVALID_JSON_TEXT' || err.errno === 3140) {
+    return res.status(422).json(
+      errorBody('INVALID_JSON', 'One or more fields contain malformed JSON', { detail: err.sqlMessage || err.message }),
     );
   }
 

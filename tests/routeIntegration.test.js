@@ -337,6 +337,32 @@ describe('Client Routes — /api/clients', () => {
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(5);
     });
+
+    // Regression: the global sanitize.js middleware used to HTML-entity-encode
+    // every request-body string before it reached the model, permanently
+    // storing "O&#x27;Brien" for a client named "O'Brien". Now that the
+    // middleware is removed (see src/app.js), the apostrophe must round-trip
+    // through create -> stored value unchanged.
+    test('a client name containing an apostrophe round-trips unchanged', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[]]) // quotaCheck: no row -> unlimited
+        .mockResolvedValueOnce([{ insertId: 6, affectedRows: 1 }]) // INSERT
+        .mockResolvedValueOnce([[{ id: 6, name: "O'Brien & Sons", organization_id: 1, status: 'active' }]]) // findById
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog.log
+
+      const res = await request(app)
+        .post('/api/clients')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: "O'Brien & Sons" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.name).toBe("O'Brien & Sons");
+      // The INSERT itself must have received the raw apostrophe/ampersand,
+      // not HTML-entity-encoded text.
+      const insertCall = db.query.mock.calls.find(([sql]) => /INSERT INTO `clients`/.test(sql));
+      expect(insertCall[1]).toContain("O'Brien & Sons");
+    });
   });
 
   describe('GET /api/clients/:id', () => {
@@ -637,6 +663,56 @@ describe('Import Routes — /api/import', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.imported).toBe(2);
       expect(res.body.data.total).toBe(2);
+    });
+  });
+});
+
+// =============================================================================
+// IFT STATISTICAL REPORTS — /api/v1/ift-statistical-reports
+// =============================================================================
+// Regression coverage for the sanitize.js removal (src/app.js). The old
+// global middleware HTML-entity-encoded every request-body string —
+// including JSON-stringified `subscribers_by_*`/`coverage_localities` fields
+// — turning e.g. `{"100":5}` into `{&quot;100&quot;:5}`, which MySQL's JSON
+// column validator then rejected with an unmapped ER_INVALID_JSON_TEXT / 500
+// (see docs/LIVE-TEST-ADMIN-2026-07.md). This must now succeed end-to-end.
+describe('IFT Statistical Reports — /api/v1/ift-statistical-reports', () => {
+  describe('POST /api/v1/ift-statistical-reports', () => {
+    test('a JSON-stringified subscribers_by_speed_tier field round-trips uncorrupted (no ER_INVALID_JSON_TEXT 500)', async () => {
+      mockAuthUser();
+      const jsonField = JSON.stringify({ '100mbps': 42, '200mbps': 17 });
+
+      db.query
+        .mockResolvedValueOnce([[{ locale: 'MX' }]]) // requireMxLocale: Organization.getLocale
+        .mockResolvedValueOnce([{ insertId: 9, affectedRows: 1 }]) // INSERT
+        .mockResolvedValueOnce([[{ // findByIdIncludingDeleted
+          id: 9,
+          organization_id: 1,
+          report_period: '2026-Q1',
+          period_start: '2026-01-01',
+          period_end: '2026-03-31',
+          subscribers_by_speed_tier: jsonField,
+        }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog.log
+
+      const res = await request(app)
+        .post('/api/v1/ift-statistical-reports')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          report_period: '2026-Q1',
+          period_start: '2026-01-01',
+          period_end: '2026-03-31',
+          subscribers_by_speed_tier: jsonField,
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.subscribers_by_speed_tier).toBe(jsonField);
+      // The value passed to the INSERT must be valid, unencoded JSON text —
+      // JSON.parse must not throw (it would if quotes had been entity-encoded).
+      const insertCall = db.query.mock.calls.find(([sql]) => /INSERT INTO `ift_statistical_reports`/.test(sql));
+      const insertedJsonField = insertCall[1].find((v) => typeof v === 'string' && v.includes('mbps'));
+      expect(() => JSON.parse(insertedJsonField)).not.toThrow();
+      expect(JSON.parse(insertedJsonField)).toEqual({ '100mbps': 42, '200mbps': 17 });
     });
   });
 });

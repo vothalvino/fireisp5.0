@@ -10,6 +10,9 @@ const db = require('../config/database');
 const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
 const logger = require('../utils/logger');
+// invoice.client_name (below) is free-text DB data interpolated raw into the
+// HTML reminder email — escape it (never applied to the parallel SMS body).
+const { escapeHtmlForTemplate: esc } = require('./notificationService');
 
 /**
  * Get reminder settings for an organization. Returns null if not configured.
@@ -179,7 +182,7 @@ async function sendPaymentReminders(organizationId) {
               : `Payment Reminder — Invoice ${invoice.invoice_number}`;
 
             const dueStr = invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : 'N/A';
-            const html = `<p>Dear ${invoice.client_name || 'Client'},</p>`
+            const html = `<p>Dear ${esc(invoice.client_name || 'Client')},</p>`
               + `<p>This is a reminder that invoice <strong>${invoice.invoice_number}</strong> `
               + `for <strong>${invoice.currency} ${parseFloat(invoice.total).toFixed(2)}</strong> `
               + (isOverdue

@@ -8,6 +8,9 @@ const db = require('../config/database');
 const reportService = require('./reportService');
 const emailTransport = require('./emailTransport');
 const logger = require('../utils/logger');
+// schedule.report_def_name (below) is DB-stored text interpolated raw into
+// the HTML report-delivery email — escape it.
+const { escapeHtmlForTemplate: esc } = require('./notificationService');
 
 /**
  * Process all due scheduled reports.
@@ -73,7 +76,7 @@ async function runSchedule(schedule) {
           organizationId: schedule.organization_id,
           to: email,
           subject: `[FireISP] Scheduled Report: ${schedule.report_def_name}`,
-          html: `<p>Your scheduled report <strong>${schedule.report_def_name}</strong> is attached.</p>
+          html: `<p>Your scheduled report <strong>${esc(schedule.report_def_name)}</strong> is attached.</p>
                  <p>Generated: ${new Date().toLocaleString()}</p>`,
           attachments: [{
             filename: `${schedule.report_def_name}-${new Date().toISOString().slice(0, 10)}.${extension}`,

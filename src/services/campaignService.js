@@ -10,21 +10,31 @@ const db = require('../config/database');
 const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
 const logger = require('../utils/logger');
+const { escapeHtmlForTemplate } = require('./notificationService');
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Interpolate {{variable}} placeholders in a template string using a data object.
+ * Interpolate {{variable}} placeholders in a template string using a data
+ * object. `tpl.body_html`/`tpl.subject` are staff-authored HTML/text — only
+ * the substituted VALUES (client columns: name, email, etc. — free-text DB
+ * data) are escaped when `escapeHtml` is set, never the surrounding
+ * template markup itself. Callers pass `escapeHtml: true` for the email
+ * channel only; the SMS channel sends the same interpolated string as
+ * plain text and must NOT have its merge values HTML-escaped.
  * @param {string} template
  * @param {object} data
+ * @param {object} [options]
+ * @param {boolean} [options.escapeHtml=false]
  * @returns {string}
  */
-function interpolate(template, data) {
+function interpolate(template, data, { escapeHtml = false } = {}) {
   if (!template) return '';
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    return data[key] !== undefined && data[key] !== null ? String(data[key]) : '';
+    const raw = data[key] !== undefined && data[key] !== null ? String(data[key]) : '';
+    return escapeHtml ? escapeHtmlForTemplate(raw) : raw;
   });
 }
 
@@ -219,8 +229,9 @@ async function processQueue() {
             if (clientRows[0]) clientData = clientRows[0];
           }
 
-          subject = interpolate(tpl.subject || subject, clientData);
-          body = interpolate(tpl.body_text || tpl.body_html || '', clientData);
+          const escapeHtml = channel === 'email';
+          subject = interpolate(tpl.subject || subject, clientData, { escapeHtml });
+          body = interpolate(tpl.body_text || tpl.body_html || '', clientData, { escapeHtml });
         }
       } else {
         body = '';
