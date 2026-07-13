@@ -177,6 +177,7 @@ describe('Auth Routes — /api/auth', () => {
         role: 'admin',
         organization_id: 1,
         password_hash: 'hashed',
+        email_verified_at: '2026-01-01T00:00:00.000Z',
       });
       User.getOrganizations.mockResolvedValue([
         { id: 1, name: 'Org One', membership_role: 'admin' },
@@ -191,6 +192,35 @@ describe('Auth Routes — /api/auth', () => {
       expect(res.body.data.organizations).toHaveLength(1);
       // password_hash must be stripped
       expect(res.body.data.password_hash).toBeUndefined();
+      // email_verified_at is NOT sensitive — the frontend's EmailVerificationBanner
+      // depends on it passing through unfiltered. Guards against a future
+      // accidental addition to userSanitize.js's SENSITIVE_USER_FIELDS.
+      expect(res.body.data.email_verified_at).toBe('2026-01-01T00:00:00.000Z');
+    });
+
+    test('unverified user — email_verified_at is null, not stripped or omitted', async () => {
+      mockAuthUser();
+      User.findById.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        first_name: 'Test',
+        last_name: 'User',
+        status: 'active',
+        role: 'admin',
+        organization_id: 1,
+        password_hash: 'hashed',
+        email_verified_at: null,
+      });
+      User.getOrganizations.mockResolvedValue([
+        { id: 1, name: 'Org One', membership_role: 'admin' },
+      ]);
+
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('email_verified_at', null);
     });
   });
 

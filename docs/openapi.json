@@ -8792,6 +8792,50 @@
             "description": "No content"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Devices"
+        ],
+        "summary": "Partially update a device (e.g. assign/clear client_id)",
+        "operationId": "patchDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "devices_patchDevice",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/devices/{id}/restore": {

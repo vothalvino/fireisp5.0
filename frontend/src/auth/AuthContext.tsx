@@ -45,7 +45,9 @@ export interface AuthUser {
    *  groups reflect accurately in action buttons. */
   permissions?: string[];
   is_active: boolean;
-  email_verified: boolean;
+  /** Null until the user clicks the link in their verification email.
+   *  Informational only today — nothing gates login or feature access on it. */
+  email_verified_at: string | null;
   twofa_enabled: boolean;
   organizations?: AuthOrganization[];
 }

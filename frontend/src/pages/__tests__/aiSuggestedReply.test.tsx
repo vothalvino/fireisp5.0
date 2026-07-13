@@ -44,7 +44,7 @@ vi.mock('@/api/useGraphQLSubscription', () => ({ useGraphQLSubscription: vi.fn((
 
 const adminUser: AuthUser = {
   id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin',
-  organization_id: 1, is_active: true, email_verified: true, twofa_enabled: false,
+  organization_id: 1, is_active: true, email_verified_at: '2026-01-01T00:00:00.000Z', twofa_enabled: false,
 };
 
 const ticket1 = {
