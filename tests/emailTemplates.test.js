@@ -92,6 +92,15 @@ describe('Email Templates', () => {
       expect(result.html).toContain('https://isp.mx/reset?token=abc123');
       expect(result.html).toContain('1 hour');
     });
+
+    it('HTML-escapes a userName containing markup instead of interpolating it raw', () => {
+      const result = templates.passwordResetEmail({
+        userName: '<script>alert(1)</script>',
+        resetUrl: 'https://isp.mx/reset?token=abc123',
+      });
+      expect(result.html).not.toContain('<script>alert(1)</script>');
+      expect(result.html).toContain('&lt;script&gt;');
+    });
   });
 
   describe('emailVerificationEmail()', () => {
@@ -103,6 +112,15 @@ describe('Email Templates', () => {
       expect(result.subject).toBe('Verify Your Email Address');
       expect(result.html).toContain('New User');
       expect(result.html).toContain('https://isp.mx/verify?token=xyz');
+    });
+
+    it('HTML-escapes a userName containing markup instead of interpolating it raw', () => {
+      const result = templates.emailVerificationEmail({
+        userName: '<img src=x onerror=alert(1)>',
+        verifyUrl: 'https://isp.mx/verify?token=xyz',
+      });
+      expect(result.html).not.toContain('<img src=x onerror=alert(1)>');
+      expect(result.html).toContain('&lt;img');
     });
   });
 

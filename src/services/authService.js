@@ -9,6 +9,9 @@ const config = require('../config');
 const User = require('../models/User');
 const { sanitizeUser } = require('../utils/userSanitize');
 const db = require('../config/database');
+const emailTransport = require('./emailTransport');
+const emailTemplates = require('../views/emailTemplates');
+const logger = require('../utils/logger');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
 
 const SALT_ROUNDS = 12;
@@ -115,6 +118,23 @@ async function register({ firstName, lastName, email, password, organizationId, 
       'INSERT IGNORE INTO organization_users (organization_id, user_id, role) VALUES (?, ?, ?)',
       [organizationId, user.id, role || 'readonly'],
     );
+  }
+
+  // Generate an email-verification token and send it. Best-effort: the account
+  // row already exists at this point, so a transient SMTP/DB failure here must
+  // never surface as a registration failure — log it server-side and let the
+  // user request a fresh link via POST /auth/verify-email/resend.
+  try {
+    const { token } = await generateEmailVerificationToken(user.id);
+    const verifyUrl = `${config.appUrl}/verify-email?token=${token}`;
+    const userName = [firstName, lastName].filter(Boolean).join(' ') || undefined;
+    const template = emailTemplates.emailVerificationEmail({ userName, verifyUrl });
+    const sendResult = await emailTransport.sendEmail({ to: email, subject: template.subject, html: template.html });
+    if (!sendResult || !sendResult.success) {
+      logger.warn(`Verification email failed to send to ${email}: ${sendResult && sendResult.error}`);
+    }
+  } catch (err) {
+    logger.error(`Verification email send threw for new user ${user.id}: ${err.message}`);
   }
 
   return sanitizeUser(user);
@@ -355,7 +375,14 @@ async function requestPasswordReset(email) {
     [tokenHash, user.id],
   );
 
-  return { token, email: user.email, userId: user.id };
+  return {
+    token,
+    email: user.email,
+    userId: user.id,
+    // For the caller (route layer) to build the email greeting without a
+    // second DB round-trip.
+    userName: [user.first_name, user.last_name].filter(Boolean).join(' ') || undefined,
+  };
 }
 
 /**
@@ -558,10 +585,43 @@ async function generateEmailVerificationToken(userId) {
   return { token };
 }
 
+/**
+ * Resend the email-verification link for the currently authenticated user.
+ * No-op fast path when the address is already verified — avoids generating a
+ * fresh token and sending an email that would go straight to an already
+ * confirmed inbox.
+ */
+async function resendVerificationEmail(userId) {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  if (user.email_verified_at) {
+    return { message: 'Email already verified', alreadyVerified: true };
+  }
+
+  const { token } = await generateEmailVerificationToken(user.id);
+  const verifyUrl = `${config.appUrl}/verify-email?token=${token}`;
+  const userName = [user.first_name, user.last_name].filter(Boolean).join(' ') || undefined;
+  const template = emailTemplates.emailVerificationEmail({ userName, verifyUrl });
+
+  try {
+    const sendResult = await emailTransport.sendEmail({ to: user.email, subject: template.subject, html: template.html });
+    if (!sendResult || !sendResult.success) {
+      logger.warn(`Verification email resend failed for ${user.email}: ${sendResult && sendResult.error}`);
+    }
+  } catch (err) {
+    logger.error(`Verification email resend threw for user ${user.id}: ${err.message}`);
+  }
+
+  return { message: 'Verification email sent' };
+}
+
 module.exports = {
   register, login, logout, refreshToken, switchOrganization,
   requestPasswordReset, resetPassword, changePassword,
-  verifyEmail, generateEmailVerificationToken,
+  verifyEmail, generateEmailVerificationToken, resendVerificationEmail,
   // Exported for cookie maxAge calculations in auth routes
   REFRESH_SECONDS,
   ACCESS_SECONDS,

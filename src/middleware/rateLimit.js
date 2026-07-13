@@ -62,6 +62,16 @@ const sessionLimiter = makeLimiter(rl.session, 'Too many session requests, pleas
 /** Auth endpoints — configurable via RATE_LIMIT_AUTH (default 20). */
 const authLimiter = makeLimiter(rl.auth, 'Too many authentication attempts, please try again later');
 
+/**
+ * POST /auth/password-reset/request only — configurable via
+ * RATE_LIMIT_PASSWORD_RESET (default 5). Stacks ON TOP of the shared
+ * authLimiter above (which already covers this route by prefix): this one is
+ * deliberately tighter and scoped to a single route, since sending real email
+ * makes it a mail-bombing / enumeration-timing target distinct from
+ * login/register, which share the looser budget.
+ */
+const passwordResetLimiter = makeLimiter(rl.passwordReset, 'Too many password reset requests, please try again later');
+
 /** Public endpoints — configurable via RATE_LIMIT_PUBLIC (default 60). */
 const publicLimiter = makeLimiter(rl.public);
 
@@ -180,6 +190,7 @@ const tenantApiLimiter = rateLimit({
 module.exports = {
   apiLimiter,
   authLimiter,
+  passwordResetLimiter,
   sessionLimiter,
   isSessionPath,
   publicLimiter,

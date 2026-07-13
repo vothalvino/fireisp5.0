@@ -6,6 +6,8 @@
 // Variables use {{placeholder}} syntax matching message_templates table.
 // =============================================================================
 
+const { escapeHtml } = require('../middleware/sanitize');
+
 /**
  * Base HTML wrapper shared by all templates.
  */
@@ -144,12 +146,17 @@ function paymentReceiptEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function passwordResetEmail(vars) {
-  const { userName, resetUrl, expiresIn } = vars;
+  const { resetUrl, expiresIn } = vars;
+  // userName is user-controlled (first_name/last_name at signup) — escape it
+  // before interpolating into HTML. Do NOT rely on upstream request-body
+  // sanitization here: it is being removed in a separate PR, so this is the
+  // only escaping this value gets before it lands in an email client's DOM.
+  const userName = escapeHtml(String(vars.userName || 'User'));
   const content = `
     <div class="header">
       <h1>Password Reset</h1>
     </div>
-    <p>Hello <strong>${userName || 'User'}</strong>,</p>
+    <p>Hello <strong>${userName}</strong>,</p>
     <p>We received a request to reset your password. Click the button below to set a new password:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${resetUrl || '#'}" class="btn">Reset Password</a>
@@ -167,12 +174,15 @@ function passwordResetEmail(vars) {
 // ---------------------------------------------------------------------------
 
 function emailVerificationEmail(vars) {
-  const { userName, verifyUrl } = vars;
+  const { verifyUrl } = vars;
+  // See passwordResetEmail() above — userName is user-controlled and must be
+  // escaped at the point it enters the HTML, independent of upstream sanitization.
+  const userName = escapeHtml(String(vars.userName || 'User'));
   const content = `
     <div class="header">
       <h1>Verify Your Email</h1>
     </div>
-    <p>Hello <strong>${userName || 'User'}</strong>,</p>
+    <p>Hello <strong>${userName}</strong>,</p>
     <p>Please verify your email address by clicking the button below:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${verifyUrl || '#'}" class="btn">Verify Email</a>

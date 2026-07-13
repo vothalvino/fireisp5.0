@@ -15,6 +15,13 @@ jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
 }));
 
+// register() now sends a verification email (§382 Tier 2) — mock the real
+// transport so tests never attempt a real SMTP connection and don't need to
+// account for its own internal db.query(email_logs) call.
+jest.mock('../src/services/emailTransport', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'test-message-id' }),
+}));
+
 const crypto = require('crypto');
 const db = require('../src/config/database');
 const bcrypt = require('bcryptjs');
@@ -52,7 +59,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[]])  // findByEmail
         .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 1 }])  // User.create INSERT
-        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);  // User.create findById
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])  // User.create findById
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
 
       const result = await authService.register({
         firstName: 'John',
@@ -64,6 +72,11 @@ describe('authService', () => {
       expect(result.email).toBe('john@example.com');
       expect(result.password_hash).toBeUndefined(); // should not include password hash
       expect(bcrypt.hash).toHaveBeenCalledWith('securepassword123', 12);
+      // Verification email sent via the mocked emailTransport (§382 Tier 2)
+      const emailTransport = require('../src/services/emailTransport');
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'john@example.com', subject: 'Verify Your Email Address' }),
+      );
     });
 
     test('throws ConflictError when email already exists', async () => {
@@ -112,7 +125,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 5 }])  // INSERT user
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])  // findById
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // register → INSERT IGNORE organization_users
+        .mockResolvedValueOnce([{ insertId: 1 }])  // register → INSERT IGNORE organization_users
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
       // NB: the newUser fixture has no organization_id, so User.create's
       // syncOrgMembership early-returns — only register's own insert runs here.
 
@@ -141,7 +155,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[]])   // findByEmail
         .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 6 }])  // INSERT
-        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
 
       await authService.register({
         firstName: 'Bob', lastName: 'Brown',
@@ -161,15 +176,17 @@ describe('authService', () => {
         .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 7 }])
-        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]]);
+        .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
 
       await authService.register({
         firstName: 'No', lastName: 'Org',
         email: 'no@org.com', password: 'password123',
       });
 
-      // findByEmail, group-mirror lookup (378), INSERT user, findById
-      expect(db.query).toHaveBeenCalledTimes(4);
+      // findByEmail, group-mirror lookup (378), INSERT user, findById,
+      // generateEmailVerificationToken UPDATE (§382 Tier 2)
+      expect(db.query).toHaveBeenCalledTimes(5);
     });
 
     test('uses "readonly" role for org membership when role not provided', async () => {
@@ -180,7 +197,8 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 3 }]])  // User.resolveGroupMirror: role → system group (378)
         .mockResolvedValueOnce([{ insertId: 8 }])
         .mockResolvedValueOnce([[{ ...newUser, password_hash: '$2a$12$hashedpassword' }]])
-        .mockResolvedValueOnce([{ insertId: 1 }]);  // org_users INSERT
+        .mockResolvedValueOnce([{ insertId: 1 }])  // org_users INSERT
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
 
       await authService.register({
         firstName: 'Def', lastName: 'Role',

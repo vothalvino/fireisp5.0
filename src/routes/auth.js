@@ -11,6 +11,7 @@ const User = require('../models/User');
 const Organization = require('../models/Organization');
 const { sanitizeUser } = require('../utils/userSanitize');
 const config = require('../config');
+const logger = require('../utils/logger');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
 
 const router = Router();
@@ -230,6 +231,33 @@ router.post('/password-reset/request',
   async (req, res, next) => {
     try {
       const result = await authService.requestPasswordReset(req.body.email);
+      // Only a real hit carries a token — the anti-enumeration branch above
+      // returns just { message } with none. Guard on it so we never attempt
+      // to email a non-existent address, and never let the send outcome leak
+      // into the response (that would itself become a new enumeration
+      // side-channel), regardless of whether the email actually went out.
+      if (result.token) {
+        try {
+          const emailTransport = require('../services/emailTransport');
+          const templates = require('../views/emailTemplates');
+          const resetUrl = `${config.appUrl}/reset-password?token=${result.token}`;
+          const template = templates.passwordResetEmail({
+            userName: result.userName,
+            resetUrl,
+            expiresIn: '1 hour',
+          });
+          const sendResult = await emailTransport.sendEmail({
+            to: result.email,
+            subject: template.subject,
+            html: template.html,
+          });
+          if (!sendResult || !sendResult.success) {
+            logger.warn(`Password reset email failed to send to ${result.email}: ${sendResult && sendResult.error}`);
+          }
+        } catch (emailErr) {
+          logger.error(`Password reset email send threw: ${emailErr.message}`);
+        }
+      }
       // Always return success to prevent user enumeration
       res.json({ message: result.message || 'If that email exists, a reset link has been sent' });
     } catch (err) {
@@ -276,6 +304,18 @@ router.post('/verify-email',
     }
   },
 );
+
+// POST /api/auth/verify-email/resend — resend the verification email for the
+// authenticated user. No body required; no-ops quickly if already verified.
+// Self-service like /change-password: no RBAC permission gate, just identity.
+router.post('/verify-email/resend', authenticate, async (req, res, next) => {
+  try {
+    const result = await authService.resendVerificationEmail(req.user.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // POST /api/auth/refresh — rotate access token using refresh token
 // Accepts the refresh token from the httpOnly cookie (browser SPA) or

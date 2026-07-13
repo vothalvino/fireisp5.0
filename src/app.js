@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
-const { apiLimiter, authLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, passwordResetLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { sanitize } = require('./middleware/sanitize');
 const { requestId } = require('./middleware/requestId');
@@ -316,6 +316,12 @@ for (const sub of ['/login', '/register', '/password-reset', '/change-password',
   app.use(`/api/auth${sub}`, authLimiter);
   app.use(`/api/v1/auth${sub}`, authLimiter);
 }
+// /password-reset/request additionally gets its own tighter, route-scoped
+// budget (RATE_LIMIT_PASSWORD_RESET, default 5/window) stacked on top of the
+// shared authLimiter above — see passwordResetLimiter's doc comment in
+// middleware/rateLimit.js for why this one route warrants a stricter cap.
+app.use('/api/auth/password-reset/request', passwordResetLimiter);
+app.use('/api/v1/auth/password-reset/request', passwordResetLimiter);
 // Session-keepalive endpoints get their own per-IP bucket (RATE_LIMIT_SESSION,
 // default 240/window, failures-only counting) and are skipped by apiLimiter
 // above (see isSessionPath). Sharing the general bucket meant a busy dashboard

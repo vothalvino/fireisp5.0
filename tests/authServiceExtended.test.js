@@ -17,8 +17,15 @@ jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
 }));
 
+// resendVerificationEmail sends real transactional email (§382 Tier 2) — mock
+// the transport so tests never attempt a real SMTP connection.
+jest.mock('../src/services/emailTransport', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'test-message-id' }),
+}));
+
 const db = require('../src/config/database');
 const bcrypt = require('bcryptjs');
+const emailTransport = require('../src/services/emailTransport');
 const authService = require('../src/services/authService');
 
 describe('authService — extended flows', () => {
@@ -66,8 +73,22 @@ describe('authService — extended flows', () => {
       expect(bcrypt.hash).toHaveBeenCalledWith('newpassword123', 12);
     });
 
-    test('throws on invalid/expired token', async () => {
-      db.query.mockResolvedValueOnce([[]]);  // no matching token
+    test('single-use — clears reset_token_hash/reset_token_expires on success so the same token cannot be redeemed twice', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1 }]])  // SELECT by token hash
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE password
+        .mockResolvedValueOnce([{ affectedRows: 0 }]);  // DELETE sessions
+
+      await authService.resetPassword('valid-token-hex', 'newpassword123');
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('reset_token_hash = NULL, reset_token_expires = NULL'),
+        expect.arrayContaining(['$hashed$', 1]),
+      );
+    });
+
+    test('throws on invalid/expired token (the lookup query enforces reset_token_expires > NOW(), so an expired token returns zero rows same as an invalid one)', async () => {
+      db.query.mockResolvedValueOnce([[]]);  // no matching token / expired
 
       await expect(
         authService.resetPassword('bad-token', 'newpassword123'),
@@ -151,6 +172,41 @@ describe('authService — extended flows', () => {
       const result = await authService.generateEmailVerificationToken(1);
       expect(result.token).toBeDefined();
       expect(result.token.length).toBe(64);  // 32 bytes hex
+    });
+  });
+
+  // =========================================================================
+  // resendVerificationEmail
+  // =========================================================================
+  describe('resendVerificationEmail', () => {
+    test('no-op fast path when already verified — does not generate a new token or send an email', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 1, email: 'test@example.com', email_verified_at: '2026-01-01 00:00:00' }]]);  // User.findById
+
+      const result = await authService.resendVerificationEmail(1);
+
+      expect(result.alreadyVerified).toBe(true);
+      expect(db.query).toHaveBeenCalledTimes(1);  // only the findById lookup
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    test('generates a fresh token and emails it when not yet verified', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, email: 'test@example.com', first_name: 'Test', last_name: 'User', email_verified_at: null }]])  // User.findById
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // generateEmailVerificationToken UPDATE
+
+      const result = await authService.resendVerificationEmail(1);
+
+      expect(result.message).toContain('Verification email sent');
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'test@example.com', subject: 'Verify Your Email Address' }),
+      );
+    });
+
+    test('throws NotFoundError when the user does not exist', async () => {
+      db.query.mockResolvedValueOnce([[]]);  // User.findById — no row
+
+      await expect(authService.resendVerificationEmail(999)).rejects.toThrow('User');
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
   });
 });
