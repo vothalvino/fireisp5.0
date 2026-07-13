@@ -14,11 +14,13 @@ import { DeviceDetail } from '../DeviceDetail';
 
 const mockApiGet = vi.fn();
 const mockApiPatch = vi.fn();
+const mockApiPost = vi.fn();
+const mockApiPut = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
-    POST: vi.fn(),
-    PUT: vi.fn(),
+    POST: (...args: unknown[]) => mockApiPost(...args),
+    PUT: (...args: unknown[]) => mockApiPut(...args),
     PATCH: (...args: unknown[]) => mockApiPatch(...args),
     DELETE: vi.fn(),
   },
@@ -339,6 +341,182 @@ describe('DeviceDetail page', () => {
       );
       // Edit mode stays open — the picked value isn't silently discarded
       expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // RF Thresholds tab (migration 388) — AP/PTP-only conditional tab editing
+  // the serving sector's signal_min_dbm / link_capacity_min_mbps via the
+  // existing /wireless/ap-sectors CRUD.
+  // ---------------------------------------------------------------------------
+  describe('RF Thresholds tab (migration 388)', () => {
+    const apDevice = { ...device, id: 42, type: 'ptmp_ap' };
+
+    it('is NOT shown for a non-AP/PTP device (e.g. a router)', async () => {
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole('button', { name: 'RF Thresholds' })).not.toBeInTheDocument();
+    });
+
+    it('IS shown for a ptmp_ap device, and fetches the sector filtered by device_id when opened', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: apDevice }, error: undefined });
+        if (path === '/wireless/ap-sectors') return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      expect(screen.getByRole('button', { name: 'RF Thresholds' })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'RF Thresholds' }));
+
+      await waitFor(() =>
+        expect(mockApiGet).toHaveBeenCalledWith(
+          '/wireless/ap-sectors',
+          expect.objectContaining({ params: { query: { device_id: 42 } } }),
+        ),
+      );
+    });
+
+    it('is also shown for a ptp device (not just ptmp_ap)', async () => {
+      const ptpDevice = { ...device, id: 42, type: 'ptp' };
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: ptpDevice }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      expect(screen.getByRole('button', { name: 'RF Thresholds' })).toBeInTheDocument();
+    });
+
+    it('no existing sector: pre-fills blank inputs and Save POSTs a new sector config with device_id', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: apDevice }, error: undefined });
+        if (path === '/wireless/ap-sectors') return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      mockApiPost.mockResolvedValue({ data: { data: { id: 1, device_id: 42, signal_min_dbm: -60, link_capacity_min_mbps: 25 } }, error: undefined });
+
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'RF Thresholds' }));
+      await waitFor(() => expect(mockApiGet).toHaveBeenCalledWith('/wireless/ap-sectors', expect.anything()));
+
+      const signalInput = await screen.findByPlaceholderText('-75');
+      expect((signalInput as HTMLInputElement).value).toBe('');
+
+      await userEvent.type(signalInput, '-60');
+      const capacityInput = screen.getByPlaceholderText('e.g. 20');
+      await userEvent.type(capacityInput, '25');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() =>
+        expect(mockApiPost).toHaveBeenCalledWith(
+          '/wireless/ap-sectors',
+          expect.objectContaining({ body: { device_id: 42, signal_min_dbm: -60, link_capacity_min_mbps: 25 } }),
+        ),
+      );
+      await waitFor(() => expect(screen.getByText('Saved.')).toBeInTheDocument());
+    });
+
+    it('an existing sector: pre-fills the current values and Save PUTs the update', async () => {
+      const existingSector = { id: 9, device_id: 42, signal_min_dbm: -65, link_capacity_min_mbps: '15.00' };
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: apDevice }, error: undefined });
+        if (path === '/wireless/ap-sectors') return Promise.resolve({ data: { data: [existingSector] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      mockApiPut.mockResolvedValue({ data: { data: { ...existingSector, signal_min_dbm: -55 } }, error: undefined });
+
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'RF Thresholds' }));
+
+      const signalInput = await screen.findByPlaceholderText('-75') as HTMLInputElement;
+      await waitFor(() => expect(signalInput.value).toBe('-65'));
+      const capacityInput = screen.getByPlaceholderText('e.g. 20') as HTMLInputElement;
+      // DECIMAL(8,2) round-trips as the exact string the API returned
+      // ("15.00", not "15") — the form doesn't reformat it, only Number()s
+      // it on submit.
+      expect(capacityInput.value).toBe('15.00');
+
+      await userEvent.clear(signalInput);
+      await userEvent.type(signalInput, '-55');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() =>
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/wireless/ap-sectors/{id}',
+          expect.objectContaining({
+            params: { path: { id: 9 } },
+            body: { signal_min_dbm: -55, link_capacity_min_mbps: 15 },
+          }),
+        ),
+      );
+    });
+
+    it('clearing an input to blank sends an explicit null (not omitted) so a set override can be reverted to default', async () => {
+      const existingSector = { id: 9, device_id: 42, signal_min_dbm: -65, link_capacity_min_mbps: '15.00' };
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: apDevice }, error: undefined });
+        if (path === '/wireless/ap-sectors') return Promise.resolve({ data: { data: [existingSector] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      mockApiPut.mockResolvedValue({ data: { data: { ...existingSector, signal_min_dbm: null } }, error: undefined });
+
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'RF Thresholds' }));
+
+      const signalInput = await screen.findByPlaceholderText('-75') as HTMLInputElement;
+      await waitFor(() => expect(signalInput.value).toBe('-65'));
+      await userEvent.clear(signalInput);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() =>
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/wireless/ap-sectors/{id}',
+          expect.objectContaining({ body: { signal_min_dbm: null, link_capacity_min_mbps: 15 } }),
+        ),
+      );
+    });
+
+    it('a save error shows the failure message instead of a fabricated success', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: apDevice }, error: undefined });
+        if (path === '/wireless/ap-sectors') return Promise.resolve({ data: { data: [] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      mockApiPost.mockResolvedValue({ data: null, error: { error: { message: 'Device must be of type ptmp_ap, ptp, outdoor_cpe, or indoor_cpe' } } });
+
+      renderDetail();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'RF Thresholds' }));
+      await screen.findByPlaceholderText('-75');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() =>
+        expect(screen.getByText('Device must be of type ptmp_ap, ptp, outdoor_cpe, or indoor_cpe')).toBeInTheDocument(),
+      );
+      expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
     });
   });
 });

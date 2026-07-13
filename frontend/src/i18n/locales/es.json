@@ -123,6 +123,7 @@
     "nocDashboard": "🖥 Panel NOC",
     "workOrders": "🔧 Órdenes de Trabajo",
     "devices": "🖧 Dispositivos",
+    "wireless": "📶 Inalámbrico / WISP",
     "inventory": "📦 Inventario",
     "warehouses": "🏭 Almacenes",
     "inventoryManagement": "📋 Gestión de Inventario",
@@ -438,7 +439,14 @@
       "escalationEnabled": "Auto-escalación habilitada",
       "escalationEnabledHint": "Si está desactivado, este contrato nunca creará automáticamente un ticket para técnico, sin importar la falla detectada.",
       "escalateOnDisconnect": "Escalar por desconexión (el cliente tiene UPS)",
-      "escalateOnDisconnectHint": "Actívalo solo para clientes con respaldo de energía (UPS) — de lo contrario, los cortes de luz normales generarán tickets de técnico innecesarios."
+      "escalateOnDisconnectHint": "Actívalo solo para clientes con respaldo de energía (UPS) — de lo contrario, los cortes de luz normales generarán tickets de técnico innecesarios.",
+      "opticalMinDbm": "Ajuste del umbral óptico de fibra (dBm)",
+      "opticalMinDbmHint": "Ajuste excepcional solo para este cliente — déjalo en blanco para usar el umbral estándar (-27 dBm).",
+      "wirelessSignalMinDbm": "Ajuste del umbral de señal inalámbrica (dBm)",
+      "wirelessSignalMinDbmHint": "Ajuste excepcional solo para este cliente — déjalo en blanco para usar el valor por defecto del sector que lo sirve, o -75 dBm si el sector no tiene uno configurado.",
+      "wirelessLinkCapacityMinMbps": "Ajuste del umbral de capacidad del enlace inalámbrico (Mbps)",
+      "wirelessLinkCapacityMinMbpsHint": "Ajuste excepcional solo para este cliente — déjalo en blanco para usar el valor por defecto del sector que lo sirve. No existe un valor por defecto general, así que la verificación de capacidad reportará 'desconocido' hasta que se configure un umbral aquí o en el sector.",
+      "wirelessLinkCapacityPlaceholder": "ej. 20"
     }
   },
   "invoiceList": {
@@ -3393,7 +3401,19 @@
       "snmpMetrics": "Métricas SNMP",
       "configBackups": "Respaldos Config.",
       "workOrders": "Órdenes de Trabajo",
-      "outages": "Interrupciones"
+      "outages": "Interrupciones",
+      "rfThresholds": "Umbrales RF"
+    },
+    "rfThresholds": {
+      "introExisting": "Umbrales de diagnóstico por defecto para los clientes que sirve este sector. Un ajuste específico en el contrato del cliente siempre tiene prioridad sobre estos valores.",
+      "introNew": "Este equipo AP/PTP aún no tiene una configuración de sector. Define un umbral abajo y Guarda para crear una — el resto de los parámetros RF del sector se pueden completar después desde Gestión Inalámbrica.",
+      "signalMinDbm": "Umbral de Señal (dBm)",
+      "signalMinDbmHint": "Señal mínima saludable del CPE para los clientes de este sector. Deja en blanco para usar el valor por defecto general (-75 dBm).",
+      "linkCapacityMinMbps": "Umbral de Capacidad del Enlace (Mbps)",
+      "linkCapacityMinMbpsHint": "Tasa de enlace RF negociada mínima aceptable (TX/RX) para los clientes de este sector. Déjalo en blanco — no hay valor por defecto general, así que la verificación de capacidad reportará 'desconocido' hasta que se configure un umbral aquí o en el contrato del cliente.",
+      "linkCapacityPlaceholder": "ej. 20",
+      "saved": "Guardado.",
+      "saveFailed": "No se pudieron guardar los umbrales RF del sector."
     },
     "snmp": {
       "empty": "No se encontraron métricas SNMP.",

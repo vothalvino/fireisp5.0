@@ -3,6 +3,7 @@
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { ContractList } from '../ContractList';
@@ -12,8 +13,12 @@ import { ContractList } from '../ContractList';
 // ---------------------------------------------------------------------------
 
 const mockApiGet = vi.fn();
+const mockApiPut = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: (...args: unknown[]) => mockApiGet(...args) },
+  api: {
+    GET: (...args: unknown[]) => mockApiGet(...args),
+    PUT: (...args: unknown[]) => mockApiPut(...args),
+  },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
@@ -127,6 +132,88 @@ describe('ContractList page', () => {
 
       expect((screen.getByLabelText('Auto-escalation enabled') as HTMLInputElement).checked).toBe(false);
       expect((screen.getByLabelText('Escalate on disconnection (client has UPS)') as HTMLInputElement).checked).toBe(true);
+    });
+  });
+
+  describe('Edit Contract modal — diagnostic threshold overrides (migration 388)', () => {
+    it('pre-fills blank when the contract has no overrides set, and Save omits nothing — sends explicit null for every blank field', async () => {
+      mockApiPut.mockResolvedValue({ data: { data: contract1 }, error: undefined });
+      renderContractList();
+      await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+      await waitFor(() => expect(screen.getByText('📝 Edit Contract #1')).toBeInTheDocument());
+
+      const optical = screen.getByLabelText('Fiber optical threshold override (dBm)') as HTMLInputElement;
+      const wirelessSignal = screen.getByLabelText('Wireless signal threshold override (dBm)') as HTMLInputElement;
+      const capacity = screen.getByLabelText('Wireless link-capacity threshold override (Mbps)') as HTMLInputElement;
+      expect(optical.value).toBe('');
+      expect(wirelessSignal.value).toBe('');
+      expect(capacity.value).toBe('');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() =>
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/contracts/{id}',
+          expect.objectContaining({
+            body: expect.objectContaining({
+              optical_min_dbm: null,
+              wireless_signal_min_dbm: null,
+              wireless_link_capacity_min_mbps: null,
+            }),
+          }),
+        ),
+      );
+    });
+
+    it('pre-fills existing override values from the contract and round-trips an edited value as a number', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/contracts')
+          return Promise.resolve({
+            data: {
+              data: [{ ...contract1, optical_min_dbm: -30, wireless_signal_min_dbm: -68, wireless_link_capacity_min_mbps: '15.00' }],
+              meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+            },
+            error: undefined,
+          });
+        if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+        if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      mockApiPut.mockResolvedValue({ data: { data: contract1 }, error: undefined });
+
+      renderContractList();
+      await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+      await waitFor(() => expect(screen.getByText('📝 Edit Contract #1')).toBeInTheDocument());
+
+      const optical = screen.getByLabelText('Fiber optical threshold override (dBm)') as HTMLInputElement;
+      const wirelessSignal = screen.getByLabelText('Wireless signal threshold override (dBm)') as HTMLInputElement;
+      const capacity = screen.getByLabelText('Wireless link-capacity threshold override (Mbps)') as HTMLInputElement;
+      expect(optical.value).toBe('-30');
+      expect(wirelessSignal.value).toBe('-68');
+      // DECIMAL(8,2) round-trips as the exact string the API returned
+      // ("15.00", not "15") — the form doesn't reformat it, only Number()s
+      // it on submit.
+      expect(capacity.value).toBe('15.00');
+
+      await userEvent.clear(optical);
+      await userEvent.type(optical, '-35');
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() =>
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/contracts/{id}',
+          expect.objectContaining({
+            body: expect.objectContaining({
+              optical_min_dbm: -35,
+              wireless_signal_min_dbm: -68,
+              wireless_link_capacity_min_mbps: 15,
+            }),
+          }),
+        ),
+      );
     });
   });
 

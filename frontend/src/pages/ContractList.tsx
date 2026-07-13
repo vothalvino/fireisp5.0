@@ -35,6 +35,13 @@ interface Contract {
   notes: string | null;
   escalation_enabled: boolean | number | null;
   escalate_on_disconnect: boolean | number | null;
+  // Migration 388 — per-contract diagnostic-threshold overrides. Blank =
+  // use the serving sector's default, else the org-wide code constant
+  // (link-capacity has no org-wide default at all).
+  optical_min_dbm: number | null;
+  wireless_signal_min_dbm: number | null;
+  // DECIMAL(8,2) — may come back as a numeric string.
+  wireless_link_capacity_min_mbps: string | number | null;
 }
 
 // A provisioned PPPoE / RADIUS account belonging to a contract.  The base
@@ -218,6 +225,12 @@ interface UpdateContractBody {
   facturar?: boolean;
   escalation_enabled?: boolean;
   escalate_on_disconnect?: boolean;
+  // Migration 388 — always sent explicitly (including `null`, never
+  // omitted) so a blank input can clear a previously-set override back to
+  // "use default"; omitting the key would leave the DB column unchanged.
+  optical_min_dbm?: number | null;
+  wireless_signal_min_dbm?: number | null;
+  wireless_link_capacity_min_mbps?: number | null;
 }
 
 async function updateContract(id: number, body: UpdateContractBody): Promise<void> {
@@ -652,6 +665,10 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
     // contract explicitly has it off; escalate_on_disconnect defaults OFF.
     escalation_enabled: contract.escalation_enabled == null ? true : !!contract.escalation_enabled,
     escalate_on_disconnect: !!contract.escalate_on_disconnect,
+    // Migration 388 — rare-case per-contract overrides; blank = use default.
+    optical_min_dbm: contract.optical_min_dbm != null ? String(contract.optical_min_dbm) : '',
+    wireless_signal_min_dbm: contract.wireless_signal_min_dbm != null ? String(contract.wireless_signal_min_dbm) : '',
+    wireless_link_capacity_min_mbps: contract.wireless_link_capacity_min_mbps != null ? String(contract.wireless_link_capacity_min_mbps) : '',
   });
   const [error, setError] = useState('');
 
@@ -669,6 +686,18 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
         escalation_enabled: form.escalation_enabled,
         escalate_on_disconnect: form.escalate_on_disconnect,
         end_date: form.end_date || null,
+        // Migration 388: always send these 3 keys explicitly (never omit),
+        // converting a blank input to `null` — this is a deliberate
+        // departure from the "omit if blank" convention every other field
+        // on this form uses (e.g. price_override below). These fields exist
+        // specifically to toggle between "explicit value" and "inherit
+        // default", and omitting the key on blank would leave a
+        // previously-set override stuck forever (validate()/BaseModel.update
+        // treat undefined as "don't touch", but forward an explicit null
+        // through to SET column = NULL).
+        optical_min_dbm: form.optical_min_dbm === '' ? null : Number(form.optical_min_dbm),
+        wireless_signal_min_dbm: form.wireless_signal_min_dbm === '' ? null : Number(form.wireless_signal_min_dbm),
+        wireless_link_capacity_min_mbps: form.wireless_link_capacity_min_mbps === '' ? null : Number(form.wireless_link_capacity_min_mbps),
       };
       if (form.start_date) body.start_date = form.start_date;
       if (form.billing_day) body.billing_day = Math.min(28, Math.max(1, Number(form.billing_day)));
@@ -784,6 +813,54 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
             {t('contractList.editModal.escalateOnDisconnect')}
           </label>
           <p style={modalStyles.hint}>{t('contractList.editModal.escalateOnDisconnectHint')}</p>
+
+          {/* Migration 388 — rare-case per-client threshold overrides. Blank
+              = use the serving sector's default, else the org-wide code
+              constant (link-capacity has no org-wide default at all). */}
+          <label style={modalStyles.label}>
+            {t('contractList.editModal.opticalMinDbm')}
+            <input
+              style={modalStyles.input}
+              type="number"
+              step="1"
+              min={-100}
+              max={0}
+              placeholder="-27"
+              value={form.optical_min_dbm}
+              onChange={e => setField('optical_min_dbm', e.target.value)}
+            />
+          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.opticalMinDbmHint')}</p>
+
+          <label style={modalStyles.label}>
+            {t('contractList.editModal.wirelessSignalMinDbm')}
+            <input
+              style={modalStyles.input}
+              type="number"
+              step="1"
+              min={-100}
+              max={0}
+              placeholder="-75"
+              value={form.wireless_signal_min_dbm}
+              onChange={e => setField('wireless_signal_min_dbm', e.target.value)}
+            />
+          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.wirelessSignalMinDbmHint')}</p>
+
+          <label style={modalStyles.label}>
+            {t('contractList.editModal.wirelessLinkCapacityMinMbps')}
+            <input
+              style={modalStyles.input}
+              type="number"
+              step="0.1"
+              min={0.1}
+              max={10000}
+              placeholder={t('contractList.editModal.wirelessLinkCapacityPlaceholder')}
+              value={form.wireless_link_capacity_min_mbps}
+              onChange={e => setField('wireless_link_capacity_min_mbps', e.target.value)}
+            />
+          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.wirelessLinkCapacityMinMbpsHint')}</p>
 
           {error && <p style={modalStyles.error}>{error}</p>}
 

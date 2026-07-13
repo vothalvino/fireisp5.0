@@ -209,7 +209,12 @@ async function createApSector(body: ApSectorBody): Promise<void> {
 }
 
 async function updateApSector(id: number, body: Partial<ApSectorBody>): Promise<void> {
-  const res = await api.PATCH('/wireless/ap-sectors/{id}' as never, {
+  // PUT, not PATCH: src/routes/wirelessManagement.js only registers
+  // `router.put('/ap-sectors/:id', ...)` — a PATCH request 404s with no
+  // matching route (no method-override middleware is mounted). Pre-existing
+  // bug, fixed here since this page's save action is being touched anyway
+  // (migration 388 adds the RF-threshold fields to this same body).
+  const res = await api.PUT('/wireless/ap-sectors/{id}' as never, {
     params: { path: { id } },
     body: body as never,
   } as never);
@@ -246,7 +251,9 @@ async function createChannelPlan(body: ChannelPlanBody): Promise<void> {
 }
 
 async function updateChannelPlan(id: number, body: Partial<ChannelPlanBody>): Promise<void> {
-  const res = await api.PATCH('/wireless/channel-plans/{id}' as never, {
+  // PUT, not PATCH — see updateApSector's comment above (same pre-existing
+  // route-mismatch bug, same fix).
+  const res = await api.PUT('/wireless/channel-plans/{id}' as never, {
     params: { path: { id } },
     body: body as never,
   } as never);
@@ -296,7 +303,9 @@ async function createInterference(body: InterferenceBody): Promise<void> {
 }
 
 async function updateInterference(id: number, body: Partial<InterferenceBody>): Promise<void> {
-  const res = await api.PATCH('/wireless/channel-interference/{id}' as never, {
+  // PUT, not PATCH — see updateApSector's comment above (same pre-existing
+  // route-mismatch bug, same fix).
+  const res = await api.PUT('/wireless/channel-interference/{id}' as never, {
     params: { path: { id } },
     body: body as never,
   } as never);
