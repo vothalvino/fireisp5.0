@@ -13,7 +13,22 @@ const { createWebhook, updateWebhook } = require('../middleware/schemas/webhooks
 const webhookService = require('../services/webhookService');
 
 const router = Router();
-const ctrl = crudController(Webhook);
+
+// Never expose the webhook's HMAC signing secret in any response body. Per
+// src/models/Webhook.js, secret_encrypted is stored AS-IS with "no
+// encryption layer applied" — i.e. it is genuinely plaintext, not merely
+// unencrypted-when-misconfigured like other *_encrypted columns. The UI only
+// needs to know whether a secret is configured, not its value. Mirrors
+// src/routes/paymentGateways.js's redact.
+function redactWebhook(row) {
+  if (!row || typeof row !== 'object') return row;
+  const rest = { ...row };
+  const hasSecret = Boolean(rest.secret_encrypted);
+  delete rest.secret_encrypted;
+  return { ...rest, has_secret: hasSecret };
+}
+
+const ctrl = crudController(Webhook, { serialize: redactWebhook });
 
 router.use(authenticate);
 router.use(orgScope);

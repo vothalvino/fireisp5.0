@@ -17,6 +17,7 @@ const auditLog = require('../services/auditLog');
 const { pubsub } = require('../services/pubsub');
 const topologyContextService = require('../services/topologyContextService');
 const { assertDeviceClientFk } = require('../services/deviceAuthz');
+const { redactDevice } = require('../utils/deviceSanitize');
 const logger = require('../utils/logger').child({ service: 'routes/devices' });
 
 const router = Router();
@@ -24,6 +25,7 @@ const router = Router();
 const ctrl = crudController(Device, {
   cacheResource: 'devices',
   beforeUpdate: (_old, req) => assertDeviceClientFk(req.body, req.orgId),
+  serialize: redactDevice,
 });
 
 router.use(authenticate);
@@ -65,7 +67,7 @@ router.put('/:id', requirePermission('devices.update'), validate(updateDevice), 
     }
     topologyContextService.invalidate(record.id, 'device')
       .catch(err => logger.warn({ err: err.message, deviceId: record.id }, 'topology invalidate failed on device update'));
-    res.json({ data: record });
+    res.json({ data: redactDevice(record) });
   } catch (err) { next(err); }
 });
 router.patch('/:id', requirePermission('devices.update'), validate(patchDevice), ctrl.partialUpdate);
@@ -85,7 +87,7 @@ router.post('/:id/restore', requirePermission('devices.update'), async (req, res
     topologyContextService.invalidate(record.id, 'device')
       .catch(err => logger.warn({ err: err.message, deviceId: record.id }, 'topology invalidate failed on device restore'));
     await bustCache(req.orgId, 'devices');
-    res.json({ data: record });
+    res.json({ data: redactDevice(record) });
   } catch (err) { next(err); }
 });
 

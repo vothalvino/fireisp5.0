@@ -42,6 +42,8 @@ const sampleScan = {
   cidr_ranges: '["192.168.1.0/24"]',
   snmp_version: 'v2c',
   snmp_community: 'public',
+  snmp_v3_auth_key_encrypted: 'PLAINTEXT_AUTH_KEY',
+  snmp_v3_priv_key_encrypted: 'PLAINTEXT_PRIV_KEY',
   snmp_port: 161,
   timeout_ms: 3000,
   concurrency: 50,
@@ -121,6 +123,21 @@ describe('Discovery Scan routes', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  test('GET /api/v1/discovery-scans never leaks the encrypted SNMPv3 columns', async () => {
+    const res = await request(app)
+      .get('/api/v1/discovery-scans')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(200);
+    res.body.data.forEach((row) => {
+      expect(row).not.toHaveProperty('snmp_v3_auth_key_encrypted');
+      expect(row).not.toHaveProperty('snmp_v3_priv_key_encrypted');
+    });
+    expect(JSON.stringify(res.body)).not.toContain('PLAINTEXT');
+    expect(res.body.data[0]).toMatchObject({ has_snmp_v3_auth_key: true, has_snmp_v3_priv_key: true });
+  });
+
   test('GET /api/v1/discovery-scans/:id returns single scan', async () => {
     const res = await request(app)
       .get('/api/v1/discovery-scans/1')
@@ -129,6 +146,9 @@ describe('Discovery Scan routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveProperty('id', 1);
+    expect(res.body.data).not.toHaveProperty('snmp_v3_auth_key_encrypted');
+    expect(res.body.data).not.toHaveProperty('snmp_v3_priv_key_encrypted');
+    expect(res.body.data).toMatchObject({ has_snmp_v3_auth_key: true, has_snmp_v3_priv_key: true });
   });
 
   test('POST /api/v1/discovery-scans creates a scan', async () => {

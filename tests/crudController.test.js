@@ -329,6 +329,99 @@ describe('crudController', () => {
   });
 
   // =========================================================================
+  // serialize option
+  // =========================================================================
+  // Underpins every route that strips a secret column from a response (e.g.
+  // src/routes/paymentGateways.js, src/routes/nas.js, src/routes/devices.js).
+  // Every handler that can return a record — list, get, create, update,
+  // partialUpdate, restore — must run it through `serialize` before it
+  // reaches res.json(); an untested path here is a silent secret leak on
+  // whichever route relies on it.
+  describe('serialize option', () => {
+    // Strip a `secret` field and flag it as a boolean — mirrors the shape of
+    // every real redact*() helper in the routes layer.
+    const redact = (row) => {
+      if (!row) return row;
+      const { secret, ...rest } = row;
+      return { ...rest, has_secret: Boolean(secret) };
+    };
+
+    test('list: serializes every row', async () => {
+      const rows = [{ id: 1, name: 'A', secret: 'shh-1' }, { id: 2, name: 'B', secret: null }];
+      db.query
+        .mockResolvedValueOnce([rows])
+        .mockResolvedValueOnce([[{ total: 2 }]]);
+
+      const ctrlWithSerialize = crudController(TestEntity, { serialize: redact });
+      const { req, res, next } = mockReqRes();
+      await ctrlWithSerialize.list(req, res, next);
+
+      const sent = res.json.mock.calls[0][0];
+      expect(sent.data).toEqual([
+        { id: 1, name: 'A', has_secret: true },
+        { id: 2, name: 'B', has_secret: false },
+      ]);
+      sent.data.forEach((row) => expect(row).not.toHaveProperty('secret'));
+    });
+
+    test('get: serializes the single record', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 1, name: 'A', secret: 'shh' }]]);
+
+      const ctrlWithSerialize = crudController(TestEntity, { serialize: redact });
+      const { req, res, next } = mockReqRes();
+      await ctrlWithSerialize.get(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: { id: 1, name: 'A', has_secret: true } });
+    });
+
+    test('create: serializes the 201 response (write still receives the raw body)', async () => {
+      db.query
+        .mockResolvedValueOnce([{ insertId: 10 }])
+        .mockResolvedValueOnce([[{ id: 10, name: 'New', secret: 'shh-new' }]]);
+
+      const ctrlWithSerialize = crudController(TestEntity, { serialize: redact });
+      const { req, res, next } = mockReqRes({ body: { name: 'New', secret: 'shh-new' } });
+      await ctrlWithSerialize.create(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: { id: 10, name: 'New', has_secret: true } });
+    });
+
+    test('update: serializes the response', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'Old', secret: 'shh' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([[{ id: 1, name: 'Updated', secret: 'shh' }]]);
+
+      const ctrlWithSerialize = crudController(TestEntity, { serialize: redact });
+      const { req, res, next } = mockReqRes({ body: { name: 'Updated' } });
+      await ctrlWithSerialize.update(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: { id: 1, name: 'Updated', has_secret: true } });
+    });
+
+    test('restore: serializes the response', async () => {
+      jest.spyOn(TestEntity, 'restore').mockResolvedValue({ id: 9, name: 'Back', secret: 'shh' });
+
+      const ctrlWithSerialize = crudController(TestEntity, { serialize: redact });
+      const { req, res, next } = mockReqRes({ params: { id: '9' } });
+      await ctrlWithSerialize.restore(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: { id: 9, name: 'Back', has_secret: true } });
+      TestEntity.restore.mockRestore();
+    });
+
+    test('defaults to identity when no serialize option is given', async () => {
+      const record = { id: 1, name: 'Test', secret: 'still-here' };
+      db.query.mockResolvedValueOnce([[record]]);
+
+      const { req, res, next } = mockReqRes(); // `ctrl` from outer scope — no serialize
+      await ctrl.get(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith({ data: record });
+    });
+  });
+
+  // =========================================================================
   // afterRestore hook
   // =========================================================================
   describe('afterRestore hook', () => {
