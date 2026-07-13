@@ -4,7 +4,6 @@
 
 const { Router } = require('express');
 const Device = require('../models/Device');
-const Client = require('../models/Client');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -17,22 +16,10 @@ const db = require('../config/database');
 const auditLog = require('../services/auditLog');
 const { pubsub } = require('../services/pubsub');
 const topologyContextService = require('../services/topologyContextService');
-const { ValidationError } = require('../utils/errors');
+const { assertDeviceClientFk } = require('../services/deviceAuthz');
 const logger = require('../utils/logger').child({ service: 'routes/devices' });
 
 const router = Router();
-
-// devices.client_id is a cross-tenant FK (links an ONU/CPE device row to the
-// customer it serves). validate() only checks type/min — without this an
-// org-A caller could link a device to an org-B client id. Mirrors
-// assertServiceOrderFks (src/routes/serviceOrders.js). client_id === null is
-// always allowed (clears/unassigns the link) since there is no org to check.
-async function assertDeviceClientFk(body, orgId) {
-  if (body.client_id !== undefined && body.client_id !== null) {
-    const client = await Client.findById(body.client_id, orgId);
-    if (!client) throw new ValidationError('client_id does not belong to this organization');
-  }
-}
 
 const ctrl = crudController(Device, {
   cacheResource: 'devices',

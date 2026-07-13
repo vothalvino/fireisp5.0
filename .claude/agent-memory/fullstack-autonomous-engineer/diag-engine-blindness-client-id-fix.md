@@ -123,6 +123,49 @@ section until it was run. Always regenerate after touching a
 `src/middleware/schemas/*.js` file — don't reason your way out of it from the
 path-body-typing angle alone.
 
+## Adversarial-review round (same PR, 2 confirmed findings)
+
+1. **HIGH — `discoveryScans.js`'s onboard route bypassed the new client_id
+   guard entirely, plus a pre-existing organization_id cross-tenant hole.**
+   `POST /:id/results/:resultId/onboard` (src/routes/discoveryScans.js)
+   builds a `Device.create()` payload from `...req.body` with no
+   `validate()` schema and no org guard. Once this PR made `client_id`
+   fillable, an org-A caller with `discovery_scans.update` could set
+   `client_id` to any org-B client id — Device.create would silently accept
+   it, completely bypassing the `assertDeviceClientFk` invariant this PR
+   established on `/devices`. Separately (pre-existing, independent of this
+   PR): the old field order was `{ organization_id: req.orgId, ...,
+   ...req.body }` — spreading `req.body` LAST meant a caller-supplied
+   `organization_id` in the body silently overrode the caller's own org,
+   letting an org-A caller create a device that belongs entirely to org B.
+
+   **Fix:** extracted `assertDeviceClientFk` out of `src/routes/devices.js`
+   into a new shared module `src/services/deviceAuthz.js` (follows the
+   `assertPlanSelectable` precedent — see
+   `src/services/planAvailability.js` — of promoting a route-local FK guard
+   to `src/services/` once a second route needs it; do NOT export
+   route-to-route). Both `devices.js` and `discoveryScans.js` now import it.
+   Reordered `deviceData` in the onboard handler so `...req.body` is spread
+   **before** the explicit `organization_id: req.orgId` (and added the
+   `assertDeviceClientFk` call before `Device.create`) — in a JS object
+   literal, a key's LAST occurrence wins, so putting the server-authoritative
+   field after the spread is what makes it actually authoritative. This is a
+   general pattern worth checking anywhere `{ organization_id: req.orgId,
+   ...req.body }` (fixed order) appears — grep for that shape elsewhere if
+   auditing other routes.
+
+2. **LOW — silent wrong data: direct ONU lookup was missing
+   `deleted_at IS NULL`.** `_resolveOnuDeviceId`'s direct `devices.client_id`
+   lookup (src/services/diagnosticEngineService.js) had no soft-delete
+   filter, unlike its own bridge fallback and `_resolveCpeDeviceId`. A
+   soft-deleted (replaced/decommissioned) ONU that still had `client_id` set
+   would short-circuit the resolver and report stale optical metrics as the
+   customer's live status, never falling through to the bridge to find the
+   real replacement device. One-line fix (`AND deleted_at IS NULL`); this is
+   an easy class of bug to reintroduce when copy-pasting one resolver
+   variant to write another — the two resolvers in this file should be kept
+   in lockstep on which soft-delete/status filters they apply.
+
 ## Flagged, not fixed (out of scope for this PR, reported to the user)
 
 - `supportConversationService._generateResponse` (line ~118) looks up

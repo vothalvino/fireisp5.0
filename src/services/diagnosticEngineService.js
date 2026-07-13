@@ -71,7 +71,7 @@ function getWirelessService() {
 async function _resolveOnuDeviceId(clientId, orgId) {
   const [direct] = await db.query(
     `SELECT id FROM devices
-      WHERE client_id = ? AND organization_id = ? AND type = 'onu'
+      WHERE client_id = ? AND organization_id = ? AND type = 'onu' AND deleted_at IS NULL
       ORDER BY id DESC LIMIT 1`,
     [clientId, orgId],
   );

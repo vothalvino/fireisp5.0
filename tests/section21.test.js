@@ -877,6 +877,39 @@ describe('diagnosticEngineService', () => {
     expect(checkNames).not.toContain('cpe_signal');
   });
 
+  test('_resolveOnuDeviceId excludes a soft-deleted direct-linked ONU and falls through to the bridge', async () => {
+    // Adversarial-review finding: the direct lookup was missing
+    // `AND deleted_at IS NULL`, unlike the bridge fallback and
+    // _resolveCpeDeviceId. A soft-deleted (replaced/decommissioned) ONU
+    // that still has client_id set would otherwise short-circuit the
+    // resolver and report stale optical metrics as the customer's live
+    // status. The mock stands in for a real MySQL server filtering that row
+    // out via `deleted_at IS NULL` by returning no rows for the direct
+    // lookup; the SQL-text assertion after the call proves the filter is
+    // actually present in the query the code sends (not just that the mock
+    // happens to return nothing).
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && !/cpe_devices/i.test(sql)) {
+        return Promise.resolve([[], undefined]); // soft-deleted direct link filtered out
+      }
+      if (/FROM cpe_devices/i.test(sql) && /JOIN devices/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 456 }], undefined]); // live replacement ONU via bridge
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('onu_signal');
+    expect(checkNames).not.toContain('cpe_signal');
+
+    const directQueryCall = db.query.mock.calls.find(
+      ([sql]) => /FROM devices\b/i.test(sql) && !/cpe_devices/i.test(sql),
+    );
+    expect(directQueryCall).toBeDefined();
+    expect(directQueryCall[0]).toMatch(/deleted_at IS NULL/);
+  });
+
   test('_resolveCpeDeviceId never returns a bridged device whose devices.type is onu', async () => {
     // The original misclassification bug: cpe_devices.device_id has no
     // server-side type guard, so nothing stopped a cpe_devices row from
