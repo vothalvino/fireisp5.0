@@ -36,7 +36,7 @@ const adminUser: AuthUser = {
   role: 'admin',
   organization_id: 1,
   is_active: true,
-  email_verified: true,
+  email_verified_at: '2026-01-01T00:00:00.000Z',
   twofa_enabled: false,
 };
 
@@ -47,7 +47,7 @@ const techUser: AuthUser = {
   role: 'technician',
   organization_id: 1,
   is_active: true,
-  email_verified: true,
+  email_verified_at: '2026-01-01T00:00:00.000Z',
   twofa_enabled: false,
 };
 
