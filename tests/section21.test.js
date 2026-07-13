@@ -710,12 +710,104 @@ describe('diagnosticEngineService', () => {
     expect(result.confidence).toBe(0);
   });
 
-  test('runDiagnostic unknown accessType infers from radius (no session)', async () => {
-    const radiusService = require('../src/services/radiusService');
-    radiusService.getSessionByClientId.mockResolvedValueOnce(null);
+  test('runDiagnostic unknown accessType with no resolvable device falls through to the generic result', async () => {
+    // Neither an ONU nor a CPE device resolves (default mock returns no
+    // rows for everything) — access type genuinely cannot be determined, so
+    // this must land on the generic 'unknown symptom' path, never a guess.
     const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
     expect(result).toBeDefined();
     expect(result.checks).toBeInstanceOf(Array);
+    expect(result.checks.map((c) => c.name)).toEqual(['generic_check']);
+  });
+
+  test('runDiagnostic infers fiber access type from a resolved ONU device, never from a RADIUS session', async () => {
+    // item 2 of the third adversarial review: a RADIUS/PPPoE session says
+    // nothing about access type (fixed-wireless subscribers have one too).
+    // Even with NO RADIUS session at all, an ONU device alone must be
+    // enough to correctly infer 'fiber' and run the fiber diagnostic.
+    const radiusService = require('../src/services/radiusService');
+    radiusService.getSessionByClientId.mockResolvedValue(null);
+
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('onu_signal');
+    expect(checkNames).not.toContain('cpe_signal');
+  });
+
+  test('runDiagnostic infers wireless access type from a resolved CPE device even when a RADIUS session exists', async () => {
+    // The regression this guards: once getSessionByClientId started working,
+    // EVERY wireless customer with a RADIUS session was misclassified as
+    // fiber (onu/olt checks all 'unknown', real wireless signal never
+    // checked). A live session must never be read as a fiber signal.
+    const radiusService = require('../src/services/radiusService');
+    radiusService.getSessionByClientId.mockResolvedValue({ framedipaddress: '10.0.0.5', sessionActive: true });
+
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[], undefined]); // no ONU for this client
+      }
+      if (/FROM cpe_devices/i.test(sql) && /JOIN contracts/i.test(sql)) {
+        return Promise.resolve([[{ device_id: 77 }], undefined]); // wireless CPE found
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'unknown' });
+    const checkNames = result.checks.map((c) => c.name);
+    expect(checkNames).toContain('cpe_signal');
+    expect(checkNames).not.toContain('onu_signal');
+  });
+
+  test('onu_signal reports unknown (not a fabricated error) when optical telemetry was never polled', async () => {
+    // item 1 of the third adversarial review: onu_optical_metrics is never
+    // written (ftth_onu_optical_poll is not implemented) — rx_power_dbm is
+    // ALWAYS null in production. A NULL reading must never collapse into a
+    // fabricated 'error' (which would dispatch a technician to a healthy
+    // customer) or count as a 'known' check inflating confidence.
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      if (/FROM onu_details/i.test(sql)) {
+        return Promise.resolve([[{
+          onu_state: 'online', olt_port_id: null, rx_power_dbm: null, tx_power_dbm: null,
+        }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'fiber' });
+    const onuCheck = result.checks.find((c) => c.name === 'onu_signal');
+    expect(onuCheck.status).toBe('unknown');
+    expect(onuCheck.detail).toMatch(/optical polling not yet implemented/i);
+    expect(result.cause).not.toMatch(/onu_signal/);
+  });
+
+  test('onu_signal reports a real error when optical telemetry IS present and below threshold', async () => {
+    // Confirms the fix didn't just silence the check entirely — a genuine
+    // low-signal reading must still surface as 'error'.
+    db.query.mockImplementation((sql) => {
+      if (/FROM devices\b/i.test(sql) && /type = 'onu'/i.test(sql)) {
+        return Promise.resolve([[{ id: 55 }], undefined]);
+      }
+      if (/FROM onu_details/i.test(sql)) {
+        return Promise.resolve([[{
+          onu_state: 'online', olt_port_id: null, rx_power_dbm: -30, tx_power_dbm: 2,
+        }], undefined]);
+      }
+      return Promise.resolve([[], undefined]);
+    });
+
+    const result = await diagService.runDiagnostic({ orgId: 1, clientId: 10, symptom: 'slow', accessType: 'fiber' });
+    const onuCheck = result.checks.find((c) => c.name === 'onu_signal');
+    expect(onuCheck.status).toBe('error');
   });
 
   test('result has all required fields', async () => {

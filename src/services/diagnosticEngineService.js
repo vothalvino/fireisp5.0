@@ -129,12 +129,31 @@ async function _getWirelessSignal(deviceId, orgId) {
 async function runDiagnostic({ orgId, clientId, conversationId, symptom, accessType }) {
   let resolvedAccessType = accessType || 'unknown';
 
-  // If access type is unknown, try to infer from RADIUS session
+  // HIGH — item 2 of the third adversarial review: a RADIUS/PPPoE session
+  // says nothing about ACCESS TYPE — fixed-wireless PtMP subscribers
+  // authenticate via RADIUS too (that's what activated this bug: the line
+  // was dead on `main`, since getSessionByClientId didn't exist and always
+  // threw, keeping 'unknown'; once it started working, every wireless
+  // customer with a session got misclassified as fiber and ran the fiber
+  // diagnostic — onu/olt checks all 'unknown', "no critical issues
+  // detected", and their real wireless signal was never checked at all).
+  //
+  // Infer from the actual DEVICE type instead, using the same discriminators
+  // the rest of this file already relies on: devices.type='onu' (via
+  // _resolveOnuDeviceId) means fiber; indoor_cpe/outdoor_cpe (via
+  // _resolveCpeDeviceId) means wireless. If neither resolves, we genuinely
+  // don't know the access type — 'unknown', never a guess. An explicit
+  // caller-supplied accessType (validated by the route) always wins and
+  // never reaches this inference at all.
   if (resolvedAccessType === 'unknown') {
     try {
-      const rs = getRadiusService();
-      const session = rs ? await rs.getSessionByClientId(clientId, orgId) : null;
-      resolvedAccessType = session ? 'fiber' : 'unknown';
+      const onuDeviceId = await _resolveOnuDeviceId(clientId, orgId);
+      if (onuDeviceId) {
+        resolvedAccessType = 'fiber';
+      } else {
+        const cpeDeviceId = await _resolveCpeDeviceId(clientId, orgId);
+        resolvedAccessType = cpeDeviceId ? 'wireless' : 'unknown';
+      }
     } catch {
       // keep 'unknown'
     }
@@ -189,13 +208,30 @@ async function _diagSlowFiber(clientId, orgId) {
   }
 
   // Check 2: ONU/ONT signal level from FTTH
+  //
+  // HIGH — item 1 of the third adversarial review: onu_optical_metrics is
+  // NEVER written by anything in this codebase (ftth_onu_optical_poll is
+  // logged as "not yet implemented" in taskRunner.js — there is no dedicated
+  // poller), so rx_power_dbm/tx_power_dbm are ALWAYS null on every real
+  // deployment. `rx_power_dbm !== null && rx_power_dbm > -27` collapsed that
+  // permanent NULL into "below threshold" — a fabricated optical fault for
+  // 100% of fiber customers, reported as a 'known' check (inflating
+  // confidence), triggering "a technician visit may be required", and
+  // persisted to ai_diagnostic_runs. Missing telemetry is 'unknown', never
+  // 'error' — it must not count as a known check either.
   try {
     const deviceId = await _resolveOnuDeviceId(clientId, orgId);
     const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
     if (!onu) {
       checks.push({ name: 'onu_signal', status: 'unknown', detail: 'ONU device not found' });
+    } else if (onu.rx_power_dbm === null) {
+      checks.push({
+        name: 'onu_signal',
+        status: 'unknown',
+        detail: 'Optical telemetry unavailable (ONU optical polling not yet implemented)',
+      });
     } else {
-      const rxOk = onu.rx_power_dbm !== null && onu.rx_power_dbm > -27;
+      const rxOk = onu.rx_power_dbm > -27;
       checks.push({
         name: 'onu_signal',
         status: rxOk ? 'ok' : 'error',
@@ -300,13 +336,26 @@ async function _diagSlowWireless(clientId, orgId) {
   const checks = [];
 
   // Check 1: CPE signal level
+  //
+  // wireless_client_sessions.signal_dbm IS actively written (unlike
+  // onu_optical_metrics) but is nullable and can legitimately be NULL for a
+  // real observation (see wirelessService.recordClientSessions: `s.signal_dbm
+  // || null`) — same NULL-means-bad inversion as the ONU checks, just a
+  // narrower window. A missing reading on an existing session is 'unknown',
+  // not a fabricated 'warning'.
   try {
     const deviceId = await _resolveCpeDeviceId(clientId, orgId);
     const signal = deviceId ? await _getWirelessSignal(deviceId, orgId) : null;
     if (!signal) {
       checks.push({ name: 'cpe_signal', status: 'unknown', detail: 'CPE device not found' });
+    } else if (signal.signal_dbm === null) {
+      checks.push({
+        name: 'cpe_signal',
+        status: 'unknown',
+        detail: 'Signal telemetry unavailable for this CPE observation',
+      });
     } else {
-      const signalOk = signal.signal_dbm !== null && signal.signal_dbm > -75;
+      const signalOk = signal.signal_dbm > -75;
       checks.push({
         name: 'cpe_signal',
         status: signalOk ? 'ok' : 'warning',
@@ -654,18 +703,27 @@ async function _diagDisconnects(clientId, orgId, accessType) {
       checks.push({ name: 'signal_stability', status: 'unknown', detail: 'CPE data unavailable' });
     }
   } else {
+    // Same onu_optical_metrics-never-written NULL-means-bad inversion as the
+    // onu_signal check above — a NULL reading here must be 'unknown', not a
+    // fabricated 'warning'.
     try {
       const deviceId = await _resolveOnuDeviceId(clientId, orgId);
       const onu = deviceId ? await _getOnuStatus(deviceId, orgId) : null;
-      if (onu) {
-        const rxOk = onu.rx_power_dbm !== null && onu.rx_power_dbm > -27;
+      if (!onu) {
+        checks.push({ name: 'onu_signal_stability', status: 'unknown', detail: 'ONU not found' });
+      } else if (onu.rx_power_dbm === null) {
+        checks.push({
+          name: 'onu_signal_stability',
+          status: 'unknown',
+          detail: 'Optical telemetry unavailable (ONU optical polling not yet implemented)',
+        });
+      } else {
+        const rxOk = onu.rx_power_dbm > -27;
         checks.push({
           name: 'onu_signal_stability',
           status: rxOk ? 'ok' : 'warning',
           detail: `ONU RX: ${onu.rx_power_dbm} dBm, Status: ${onu.onu_state}`,
         });
-      } else {
-        checks.push({ name: 'onu_signal_stability', status: 'unknown', detail: 'ONU not found' });
       }
     } catch {
       checks.push({ name: 'onu_signal_stability', status: 'unknown', detail: 'ONU data unavailable' });
