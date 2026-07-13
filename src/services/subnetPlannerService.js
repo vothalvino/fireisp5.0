@@ -5,7 +5,6 @@
 // =============================================================================
 
 const db = require('../config/database');
-const { computeUsableCount } = require('./poolUtilizationService');
 
 /**
  * Expand a compressed IPv6 address to full 8-group notation.
@@ -208,12 +207,8 @@ async function detectConflicts(orgId) {
  * @returns {Promise<{assigned: number, total: number, percent: number}>}
  */
 async function getUtilization(poolId) {
-  // ip_pools has no `subnet_size` column — pool capacity is derived from
-  // network/subnet_mask/ip_version (and, for IPv6, default_prefix_len) via
-  // poolUtilizationService.computeUsableCount, the same helper the pool
-  // threshold-alert job uses, so the two never disagree on pool size.
   const [[pool]] = await db.query(
-    'SELECT network, subnet_mask, ip_version, default_prefix_len FROM ip_pools WHERE id = ? AND deleted_at IS NULL',
+    'SELECT network, subnet_size FROM ip_pools WHERE id = ? AND deleted_at IS NULL',
     [poolId],
   );
   if (!pool) return { assigned: 0, total: 0, percent: 0 };
@@ -223,7 +218,7 @@ async function getUtilization(poolId) {
     [poolId],
   );
 
-  const total = computeUsableCount(pool);
+  const total = pool.subnet_size || 0;
   const percent = total > 0 ? Math.round((assigned / total) * 100) : 0;
   return { assigned, total, percent };
 }

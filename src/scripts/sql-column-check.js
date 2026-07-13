@@ -66,6 +66,22 @@ const NOT_AN_ALIAS = new Set(['set', 'join', 'inner', 'left', 'right', 'cross', 
 // table/column not listed here, fails the build.
 //
 // Removing an entry from this list is how you close the gap.
+// SWEEP_FOLLOWUP — shared pointer used by every entry below that came out of
+// reverting the §21/peripheral SELECT-column sweep (see PR #390's "Follow-up:
+// adversarial review response" section). A second adversarial review found 10
+// of the sweep's ~30 SELECT fixes were silent-wrong-data defects: the
+// statements were previously throwing (caught by a try/catch → safe 'unknown'
+// fallback), and the sweep's fix turned some of those safe failures into
+// confidently-wrong answers (e.g. a cross-tenant AI-provider leak, a
+// fabricated "online" RADIUS session). Rather than ship the whole batch
+// unreviewed, the sweep was reverted out of PR #390 wholesale and will be
+// re-applied — each statement re-verified against the real schema AND
+// checked for the "is it RIGHT, not just does it run" bar — in a follow-up PR
+// (§21 SQL drift sweep). Until that lands, these statements are back to their
+// pre-sweep state on `main`: broken, but safely caught and degrading to an
+// 'unknown'/empty result rather than 500ing or lying.
+const SWEEP_FOLLOWUP = 'reverted pending the §21 SQL drift sweep follow-up PR — real fix + adversarial review in progress there, not a migration gap.';
+
 const KNOWN_SCHEMA_GAPS = [
   {
     file: 'src/services/authService.js',
@@ -75,12 +91,306 @@ const KNOWN_SCHEMA_GAPS = [
        + '/auth/reset-password and /auth/verify-email 500 on every call. Needs a migration '
        + 'adding these four columns to `users` (or a password_resets table).',
   },
+  {
+    file: 'src/controllers/exportController.js',
+    table: 'payments',
+    columns: ['reference'],
+    why: `CSV export of payments references a non-existent column. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/portal.js',
+    table: 'invoices',
+    columns: ['discount_amount', 'period_start', 'period_end'],
+    why: 'subscriber-portal invoice list/detail — real period fields live on billing_periods, '
+       + `not invoices. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/portal.js',
+    table: 'invoice_items',
+    columns: ['tax_rate'],
+    why: `subscriber-portal invoice detail. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/portal.js',
+    table: 'plans',
+    columns: ['billing_cycle_months'],
+    why: `subscriber-portal plan display. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/portal.js',
+    table: 'cfdi_documents',
+    columns: ['stamp_status', 'deleted_at'],
+    why: 'subscriber-portal CFDI list — real column is sat_status, and cfdi_documents has no '
+       + `soft delete. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/portal.js',
+    table: 'payments',
+    columns: ['reference'],
+    why: `subscriber-portal payment history. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/routes/webhookSecurity.js',
+    table: 'webhook_deliveries',
+    columns: ['organization_id'],
+    why: `webhook delivery log is scoped via its parent webhook, not its own column. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/automationService.js',
+    table: 'snmp_metrics',
+    columns: ['value', 'metric', 'recorded_at'],
+    why: 'checkRemediationCondition — snmp_metrics is a WIDE table (one column per metric, e.g. '
+       + 'cpu_usage) not a narrow EAV table; this is item 4 of the second adversarial review '
+       + `(evaluates one arbitrary device org-wide, ignores condition_duration_minutes). ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/configBackupService.js',
+    table: 'devices',
+    columns: ['device_type'],
+    why: `config-backup device filter. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/cpeInventoryService.js',
+    table: 'contracts',
+    columns: ['device_id'],
+    why: `CPE auto-link. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'contracts',
+    columns: ['data_cap_status', 'qos_policy_id'],
+    why: `data-cap and QoS-policy diagnostics — neither concept has real storage yet. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'cpe_devices',
+    columns: ['signal_dbm', 'noise_floor', 'ccq', 'client_id', 'access_point_id', 'model', 'last_seen'],
+    why: 'wireless/CPE diagnostics — real telemetry lives on wireless_client_sessions/devices, '
+       + 'not directly on cpe_devices; item 8 (TR-069 vs ONU device resolution) and the AP-inventory '
+       + `gap are also tracked here. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'clients',
+    columns: ['suspended'],
+    why: 'diagnostic suspension check — real state lives on contracts/suspension_logs, not a '
+       + `clients.suspended column. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/kbService.js',
+    table: 'ai_providers',
+    columns: ['is_enabled'],
+    why: 'CRITICAL — item 1 of the second adversarial review: this lookup is also missing its '
+       + 'organization_id filter (cross-tenant AI-provider leak — decrypts and uses ANOTHER '
+       + 'org\'s api_key). Real column is `enabled`. Fix in the §21 SQL drift sweep follow-up '
+       + 'PR must copy supportConversationService.getOrgProviderId\'s (correct, kept) shape.',
+  },
+  {
+    file: 'src/services/nocAiService.js',
+    table: 'cpe_devices',
+    columns: ['name', 'signal_dbm'],
+    why: `NOC AI device summary. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/portalServiceRequestService.js',
+    table: 'plans',
+    columns: ['billing_cycle_months'],
+    why: `portal service-request plan display. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/portalServiceRequestService.js',
+    table: 'invoices',
+    columns: ['period_start', 'period_end'],
+    why: `portal service-request proration — real period fields live on billing_periods. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/reportService.js',
+    table: 'olt_ports',
+    columns: ['current_onu_count', 'max_onu_count'],
+    why: `FTTH capacity report. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/serviceHealthService.js',
+    table: 'connection_logs',
+    columns: ['session_time', 'radius_id'],
+    why: 'CRITICAL/HIGH — item 2 of the second adversarial review: getRadiusSession fabricates '
+       + '`online: true` from account state instead of a live-session check, and that snapshot '
+       + `feeds the customer-facing LLM prompt. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/serviceHealthService.js',
+    table: 'snmp_profile_oids',
+    columns: ['oid_name'],
+    why: `SNMP metrics snapshot — real column is metric_column. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/serviceHealthService.js',
+    table: 'snmp_metrics',
+    columns: ['value_gauge', 'value_counter', 'value_string', 'profile_oid_id'],
+    why: `snmp_metrics is a WIDE table (one column per metric type), not this narrow shape. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/subnetPlannerService.js',
+    table: 'ip_pools',
+    columns: ['subnet_size'],
+    why: `pool sizing — should reuse poolUtilizationService.computeUsableCount. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportBillingModule.js',
+    table: 'clients',
+    columns: ['balance'],
+    why: 'MEDIUM — item 6 area of the second adversarial review (billing module); real balance '
+       + `comes from ClientBalanceLedger.signedAmountSql, not a clients.balance column. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportBillingModule.js',
+    table: 'contracts',
+    columns: ['next_billing_date'],
+    why: 'MEDIUM — item 6 of the second adversarial review: next-due messaging must use the '
+       + `invoice's real due_date, not a generation-date field that doesn't exist on contracts. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportBillingModule.js',
+    table: 'plans',
+    columns: ['speed_download', 'speed_upload', 'is_active'],
+    why: `AI support plan-upgrade quoting. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportBillingModule.js',
+    table: 'invoices',
+    columns: ['uuid', 'folio', 'cfdi_status'],
+    why: `CFDI receipt lookup — real fields live on cfdi_documents, not invoices. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportContextService.js',
+    table: 'clients',
+    columns: ['plan_id'],
+    why: `AI support context — plan is on contracts, not clients. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportGeneralModule.js',
+    table: 'plans',
+    columns: ['static_ip_available'],
+    why: 'item 8 area of the second adversarial review: static-IP eligibility answering a '
+       + `per-plan question with an org-wide fact. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportGeneralModule.js',
+    table: 'coverage_zones',
+    columns: ['coverage_type'],
+    why: `AI support coverage check. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/topologyMapService.js',
+    table: 'service_areas',
+    columns: ['coordinates', 'coverage_type'],
+    why: `topology map service-area layer. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/topologyMapService.js',
+    table: 'coverage_zones',
+    columns: ['geojson'],
+    why: 'topology map coverage layer — real column is boundary (a spatial type, needs '
+       + `ST_AsGeoJSON()). ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/webhookService.js',
+    table: 'webhooks',
+    columns: ['name'],
+    why: `webhook delivery notification text. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/wirelessService.js',
+    table: 'devices',
+    columns: ['hostname'],
+    why: `real column is \`name\`, 8 call sites across wireless provisioning/inventory. ${SWEEP_FOLLOWUP}`,
+  },
 ];
 
 function isKnownGap(st, column) {
   return KNOWN_SCHEMA_GAPS.some(
     (g) => g.file === st.file && g.table === st.table && g.columns.includes(column),
   );
+}
+
+// -----------------------------------------------------------------------------
+// KNOWN MISSING TABLES — same ratchet as KNOWN_SCHEMA_GAPS above, but for a
+// FROM/JOIN target that was never created at all (not a column typo — the
+// whole table doesn't exist in schema.sql). Column-level checks against these
+// are already skipped for free (an unresolved table has no `schema.columns`
+// to check against); this list only silences the table-existence error
+// itself, so the ratchet still fails on any NEW missing-table reference.
+// -----------------------------------------------------------------------------
+const KNOWN_MISSING_TABLES = [
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'onu_devices',
+    why: `real table is onu_details/onu_optical_metrics. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'olt_pon_ports',
+    why: `real table is olt_ports. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'access_points',
+    why: 'no dedicated AP-inventory table exists — item 8 area of the second adversarial '
+       + `review. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'alerts',
+    why: 'real table is alert_events (joined with alert_rules for name/severity). item 7 of '
+       + 'the second adversarial review: an unresolved device must report \'unknown\', never a '
+       + `clean bill of health, when this is fixed for real. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/diagnosticEngineService.js',
+    table: 'qos_policies',
+    why: `no QoS-policy-assignment table exists yet. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/nocAiService.js',
+    table: 'alerts',
+    why: `real table is alert_events. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/nocAiService.js',
+    table: 'olt_pon_ports',
+    why: `real table is olt_ports. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/nocAiService.js',
+    table: 'wireless_devices',
+    why: `real table is devices (generic, joined via cpe_devices.device_id). ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/reportService.js',
+    table: 'jobs',
+    why: `no jobs table exists — report references a queue concept that isn't modeled. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportBillingModule.js',
+    table: 'payment_references',
+    why: 'no OXXO/payment-reference tracking table exists yet — item 8 area of the second '
+       + `adversarial review. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportContextService.js',
+    table: 'client_billing_summaries',
+    why: `never existed — real balance comes from ClientBalanceLedger.signedAmountSql. ${SWEEP_FOLLOWUP}`,
+  },
+  {
+    file: 'src/services/supportGeneralModule.js',
+    table: 'organization_settings',
+    why: 'real table is organizations (settings are columns on it, or organization_configs '
+       + `depending on the setting). ${SWEEP_FOLLOWUP}`,
+  },
+];
+
+function isKnownMissingTable(file, table) {
+  return KNOWN_MISSING_TABLES.some((g) => g.file === file && g.table === table);
 }
 
 // -----------------------------------------------------------------------------
@@ -1000,7 +1310,11 @@ function extractSelectRefs(rawSql, file, line, tables) {
   // `client_billing_summaries` (never existed) went unnoticed.
   for (const table of new Set(parsed.aliases.values())) {
     if (!tables.has(table) && !EXTERNAL_TABLES.has(table)) {
-      result.errors.push(`${file}:${line}  SELECT — table "${table}" does not exist in database/schema.sql`);
+      if (isKnownMissingTable(file, table)) {
+        result.gaps.push(`${file}:${line}  SELECT — table "${table}" does not exist in database/schema.sql`);
+      } else {
+        result.errors.push(`${file}:${line}  SELECT — table "${table}" does not exist in database/schema.sql`);
+      }
     }
   }
 
@@ -1160,6 +1474,10 @@ function run({ verbose = false, log = console.log } = {}) {
       log(`  ${g.file} → ${g.table}.{${g.columns.join(', ')}}`);
       log(`    ${g.why}`);
     }
+    for (const g of KNOWN_MISSING_TABLES) {
+      log(`  ${g.file} → table "${g.table}" (does not exist)`);
+      log(`    ${g.why}`);
+    }
   }
 
   if (RUNTIME_GUARDED_SELECT_EXCEPTIONS.length > 0) {
@@ -1195,5 +1513,5 @@ if (require.main === module) {
 module.exports = {
   run, parseSchema, scanLiterals, extractFromLiteral, parseSetClause, literalValue,
   extractSelectRefs, parseFromJoinList, scanColumnRefs,
-  KNOWN_SCHEMA_GAPS, RUNTIME_GUARDED_SELECT_EXCEPTIONS,
+  KNOWN_SCHEMA_GAPS, RUNTIME_GUARDED_SELECT_EXCEPTIONS, KNOWN_MISSING_TABLES,
 };

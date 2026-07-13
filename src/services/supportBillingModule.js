@@ -6,7 +6,6 @@
 // =============================================================================
 'use strict';
 const db = require('../config/database');
-const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const logger = require('../utils/logger').child({ service: 'supportBillingModule' });
 
 // ---------------------------------------------------------------------------
@@ -65,18 +64,11 @@ async function _balanceQuery(context) {
       };
     }
 
-    // clients has no `balance` column — the running balance is derived from
-    // client_balance_ledger via ClientBalanceLedger.signedAmountSql, the
-    // single source of truth also used by the statement PDF and the GraphQL
-    // resolver (a second, ad-hoc computation here would risk disagreeing
-    // with those — see the model's own comment on why that happened before).
     const [rows] = await db.query(
-      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
-         FROM client_balance_ledger
-        WHERE client_id = ?`,
+      'SELECT balance FROM clients WHERE id = ?',
       [context?.customer?.id],
     );
-    const bal = rows[0] ? parseFloat(rows[0].balance).toFixed(2) : 'N/A';
+    const bal = rows[0]?.balance ?? 'N/A';
     return {
       response: `Tu saldo actual es $${bal} MXN.`,
       requiresConfirmation: false,
@@ -106,17 +98,12 @@ async function _nextDueDate(context) {
       };
     }
 
-    // contracts has no `next_billing_date` column — the next scheduled charge
-    // is billing_periods.scheduled_at on that contract's pending period (see
-    // billingService.js's period-creation flow, which sets scheduled_at from
-    // contract.billing_day).
     const [rows] = await db.query(
-      `SELECT bp.scheduled_at AS next_billing_date
+      `SELECT c.next_billing_date
          FROM contracts c
          JOIN clients cl ON cl.id = c.client_id
-         JOIN billing_periods bp ON bp.contract_id = c.id AND bp.status = 'pending'
         WHERE cl.id = ?
-        ORDER BY bp.scheduled_at ASC LIMIT 1`,
+        ORDER BY c.id DESC LIMIT 1`,
       [context?.customer?.id],
     );
     const date = rows[0]?.next_billing_date ?? null;
@@ -141,9 +128,7 @@ async function _nextDueDate(context) {
 async function _planUpgrade(context, messageContent, orgId) {
   try {
     const [plans] = await db.query(
-      // Real columns: download_speed_mbps/upload_speed_mbps and status='active'
-      // (no speed_download/speed_upload/is_active columns).
-      'SELECT name, price, download_speed_mbps AS speed_download, upload_speed_mbps AS speed_upload FROM plans WHERE organization_id = ? AND status = \'active\' LIMIT 10',
+      'SELECT name, price, speed_download, speed_upload FROM plans WHERE organization_id = ? AND is_active = 1 LIMIT 10',
       [orgId || context?.customer?.orgId],
     );
     const planText = plans.length > 0
@@ -216,33 +201,48 @@ async function _cancellationFlow(context) {
   };
 }
 
-// eslint-disable-next-line no-unused-vars -- kept for DISPATCH signature parity
 async function _oxxoReference(context) {
-  // There is no `payment_references` table, or any other store of
-  // outstanding OXXO barcode references, anywhere in the schema — generating
-  // and tracking a pending cash-payment reference is not yet implemented.
-  // The (unconditionally reached) "no pending references" response below is
-  // the honest, always-correct answer today; it used to be reached only via a
-  // query that could never succeed.
-  return {
-    response: 'No tienes referencias OXXO pendientes. Si deseas generar una, por favor visita tu portal de cliente.',
-    requiresConfirmation: false,
-    actionType: 'oxxo_reference',
-    actionData: {},
-  };
+  try {
+    const [rows] = await db.query(
+      `SELECT reference_number, amount, expiry_date
+         FROM payment_references
+        WHERE client_id = ? AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1`,
+      [context?.customer?.id],
+    );
+    if (rows.length === 0) {
+      return {
+        response: 'No tienes referencias OXXO pendientes. Si deseas generar una, por favor visita tu portal de cliente.',
+        requiresConfirmation: false,
+        actionType: 'oxxo_reference',
+        actionData: {},
+      };
+    }
+    const ref = rows[0];
+    return {
+      response: `Tu referencia OXXO es: ${ref.reference_number}\nMonto: $${ref.amount} MXN\nVigente hasta: ${ref.expiry_date ? new Date(ref.expiry_date).toLocaleDateString('es-MX') : 'N/A'}`,
+      requiresConfirmation: false,
+      actionType: 'oxxo_reference',
+      actionData: { reference: ref },
+    };
+  } catch (err) {
+    logger.warn({ err }, 'billingModule: oxxoReference query failed');
+    return {
+      response: 'No pude recuperar tu referencia OXXO en este momento.',
+      requiresConfirmation: false,
+      actionType: 'oxxo_reference',
+      actionData: {},
+    };
+  }
 }
 
 async function _cfdiReceipt(context) {
   try {
-    // invoices has neither `uuid` nor `folio`/`cfdi_status` — those belong to
-    // the linked cfdi_documents row (invoice_number is the invoice's own
-    // folio-like field; sat_status='vigente' is "successfully stamped").
     const [rows] = await db.query(
-      `SELECT cd.uuid, i.invoice_number AS folio, i.total, i.created_at
-         FROM invoices i
-         JOIN cfdi_documents cd ON cd.invoice_id = i.id
-        WHERE i.client_id = ? AND cd.sat_status = 'vigente'
-        ORDER BY i.created_at DESC LIMIT 3`,
+      `SELECT uuid, folio, total, created_at
+         FROM invoices
+        WHERE client_id = ? AND cfdi_status = 'stamped'
+        ORDER BY created_at DESC LIMIT 3`,
       [context?.customer?.id],
     );
     if (rows.length === 0) {
@@ -273,9 +273,8 @@ async function _cfdiReceipt(context) {
 
 async function _overchargeReview(context, messageContent) {
   try {
-    // invoices has no `folio` column — invoice_number is the real one.
     const [rows] = await db.query(
-      `SELECT id, invoice_number AS folio, total, created_at
+      `SELECT id, folio, total, created_at
          FROM invoices
         WHERE client_id = ?
         ORDER BY created_at DESC LIMIT 1`,
@@ -304,9 +303,7 @@ async function _overchargeReview(context, messageContent) {
 async function _planList(context, messageContent, orgId) {
   try {
     const [plans] = await db.query(
-      // Real columns: download_speed_mbps/upload_speed_mbps and status='active'
-      // (no speed_download/speed_upload/is_active columns).
-      'SELECT name, price, download_speed_mbps AS speed_download, upload_speed_mbps AS speed_upload FROM plans WHERE organization_id = ? AND status = \'active\' LIMIT 10',
+      'SELECT name, price, speed_download, speed_upload FROM plans WHERE organization_id = ? AND is_active = 1 LIMIT 10',
       [orgId || context?.customer?.orgId],
     );
     if (plans.length === 0) {

@@ -13,6 +13,7 @@
 const {
   run, parseSchema, scanLiterals, extractFromLiteral, literalValue,
   extractSelectRefs, RUNTIME_GUARDED_SELECT_EXCEPTIONS,
+  KNOWN_SCHEMA_GAPS, KNOWN_MISSING_TABLES,
 } = require('../src/scripts/sql-column-check');
 
 /** Build a minimal {table -> {columns, enums, generated}} map for extractSelectRefs tests. */
@@ -345,24 +346,39 @@ describe('sql-column-check: the repository is clean', () => {
   });
 
   test('the known schema gaps are exactly the ones we have signed off on', () => {
-    // If this fails, either a gap was closed (delete it from KNOWN_SCHEMA_GAPS)
-    // or a NEW un-fixable-in-code bug appeared and needs a migration. Both the
-    // INSERT/UPDATE and SELECT sides of the same users.reset_token_hash /
-    // reset_token_expires / email_verified_at / email_verify_token_hash gap
-    // show up here — there is still no storage for password reset / email
-    // verification anywhere in the schema.
-    expect(result.gaps.map((g) => g.split('  ')[1])).toEqual([
-      'UPDATE users.reset_token_hash',
-      'UPDATE users.reset_token_expires',
-      'SELECT users.reset_token_hash',
-      'SELECT users.reset_token_expires',
-      'UPDATE users.reset_token_hash',
-      'UPDATE users.reset_token_expires',
-      'SELECT users.email_verify_token_hash',
-      'UPDATE users.email_verified_at',
-      'UPDATE users.email_verify_token_hash',
-      'UPDATE users.email_verify_token_hash',
-    ]);
+    // If this fails, either a gap was closed (delete it from KNOWN_SCHEMA_GAPS /
+    // KNOWN_MISSING_TABLES — the ratchet should only ever shrink) or a NEW
+    // un-fixable-in-code bug appeared and needs a migration or a follow-up PR.
+    //
+    // A literal hit-by-hit array here would just pin directory-walk order
+    // (which file src/**/*.js visits first alphabetically) — no real signal.
+    // Instead this asserts the two things that DO carry signal: every
+    // declared gap/missing-table entry still fires at least once (so nobody
+    // can quietly fix the code without shrinking the list), and the total hit
+    // count is exact (so a NEW undeclared gap cannot sneak in silently).
+    const hitKeys = new Set(result.gaps.map((g) => g.split('  ')[1]));
+
+    for (const g of KNOWN_SCHEMA_GAPS) {
+      for (const col of g.columns) {
+        const hit = ['SELECT', 'UPDATE', 'INSERT'].some((kind) => hitKeys.has(`${kind} ${g.table}.${col}`));
+        expect(hit).toBe(true);
+      }
+    }
+    for (const g of KNOWN_MISSING_TABLES) {
+      expect(hitKeys.has(`SELECT — table "${g.table}" does not exist in database/schema.sql`)).toBe(true);
+    }
+
+    expect(result.gaps).toHaveLength(128);
+  });
+
+  test('the known missing tables are all first-party (not radacct or a real EXTERNAL_TABLES entry)', () => {
+    // Guards against masking a genuinely external table as a "gap" by mistake.
+    for (const g of KNOWN_MISSING_TABLES) {
+      expect(g.table).not.toBe('radacct');
+      expect(g.table).not.toBe('information_schema');
+      expect(typeof g.why).toBe('string');
+      expect(g.why.length).toBeGreaterThan(0);
+    }
   });
 
   test('the one runtime-guarded SELECT exception is exactly the one we verified by hand', () => {

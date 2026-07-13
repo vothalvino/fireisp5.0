@@ -123,19 +123,15 @@ async function getCustomerLocations(orgId) {
  * @param {number} orgId
  */
 async function getCoverageData(orgId) {
-  // Both tables store the polygon as a native MySQL POLYGON column named
-  // `boundary` (no `coordinates`/`geojson`/`coverage_type` columns exist) —
-  // ST_AsGeoJSON() converts it to the GeoJSON string the map frontend needs,
-  // matching the pattern already used by coverageZoneService.js.
   const [serviceAreas] = await db.query(
-    `SELECT id, name, ST_AsGeoJSON(boundary) AS coordinates, status
+    `SELECT id, name, coordinates, status, coverage_type
      FROM service_areas
      WHERE organization_id = ? AND deleted_at IS NULL`,
     [orgId],
   );
 
   const [coverageZones] = await db.query(
-    `SELECT id, name, ST_AsGeoJSON(boundary) AS geojson, zone_type, color
+    `SELECT id, name, geojson, zone_type, color
      FROM coverage_zones
      WHERE organization_id = ? AND deleted_at IS NULL`,
     [orgId],

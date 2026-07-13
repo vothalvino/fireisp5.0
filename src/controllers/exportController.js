@@ -106,7 +106,7 @@ async function exportPayments(req, res, next) {
   try {
     const [rows] = await db.query(
       `SELECT p.id, p.client_id, cl.name,
-              p.amount, p.currency, p.payment_method, p.payment_date, p.reference_number, p.status, p.created_at
+              p.amount, p.currency, p.payment_method, p.payment_date, p.reference, p.status, p.created_at
        FROM payments p
        LEFT JOIN clients cl ON cl.id = p.client_id
        WHERE p.organization_id = ?

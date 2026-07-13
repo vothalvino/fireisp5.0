@@ -29,16 +29,13 @@ const logger = require('../utils/logger').child({ service: 'serviceHealthService
  */
 async function getRadiusSession(contractId) {
   try {
-    // connection_logs has no `radius_id` column — it already carries
-    // `contract_id` directly (the same key `radius.contract_id` uses), so no
-    // join is needed at all. Column is `session_duration`, not `session_time`.
     const [rows] = await db.query(
       `SELECT r.username, r.status,
               cl.ip_address, cl.session_id,
-              cl.bytes_in, cl.bytes_out, cl.session_duration
+              cl.bytes_in, cl.bytes_out, cl.session_time
        FROM radius r
        LEFT JOIN connection_logs cl
-              ON cl.contract_id = r.contract_id
+              ON cl.radius_id = r.id
              AND cl.event_type = 'start'
        WHERE r.contract_id = ? AND r.status = 'active'
        ORDER BY cl.id DESC
@@ -51,7 +48,7 @@ async function getRadiusSession(contractId) {
       online:      row.status === 'active',
       username:    row.username,
       ip:          row.ip_address,
-      sessionTime: row.session_duration,
+      sessionTime: row.session_time,
       bytesIn:     row.bytes_in,
       bytesOut:    row.bytes_out,
     };
@@ -68,13 +65,12 @@ async function getRadiusSession(contractId) {
  */
 async function getLastConnectionLog(contractId) {
   try {
-    // connection_logs.contract_id is direct — no join to radius needed (see
-    // getRadiusSession above for the same fix).
     const [rows] = await db.query(
-      `SELECT event_type, ip_address, terminate_cause, created_at
-       FROM connection_logs
-       WHERE contract_id = ?
-       ORDER BY id DESC
+      `SELECT cl.event_type, cl.ip_address, cl.terminate_cause, cl.created_at
+       FROM connection_logs cl
+       JOIN radius r ON r.id = cl.radius_id
+       WHERE r.contract_id = ?
+       ORDER BY cl.id DESC
        LIMIT 1`,
       [contractId],
     );
@@ -97,70 +93,24 @@ async function getSnmpMetrics(deviceIds) {
   const safeIds = deviceIds.map(Number).filter(n => Number.isFinite(n) && n > 0);
   if (!safeIds.length) return [];
   try {
-    // snmp_metrics is a WIDE table — one column per metric (cpu_usage,
-    // signal_dbm, …) — not a narrow (device, oid, value) table, so it has no
-    // profile_oid_id/value_gauge/value_counter/value_string columns. The
-    // per-OID -> per-column mapping lives on snmp_profile_oids.metric_column
-    // ("Target column in snmp_metrics", per its own schema comment), scoped
-    // through devices.snmp_profile_id -> snmp_profiles. Resolve that mapping,
-    // then pluck each configured OID's value out of the device's latest wide
-    // row by column name — read as a plain JS property (never interpolated
-    // into SQL), and guarded so a stale/garbage metric_column just yields no
-    // value instead of throwing.
     const placeholders = safeIds.map(() => '?').join(', ');
-    const [deviceRows] = await db.query(
-      `SELECT id AS device_id, snmp_profile_id FROM devices
-       WHERE id IN (${placeholders}) AND snmp_profile_id IS NOT NULL`,
-      safeIds,
-    );
-    if (!deviceRows.length) return [];
-
-    const profileIds = [...new Set(deviceRows.map((d) => d.snmp_profile_id))];
-    const profilePlaceholders = profileIds.map(() => '?').join(', ');
-    const [oidRows] = await db.query(
-      `SELECT profile_id, label AS oid_name, metric_column FROM snmp_profile_oids
-       WHERE profile_id IN (${profilePlaceholders}) AND status = 'active' AND deleted_at IS NULL`,
-      profileIds,
-    );
-    if (!oidRows.length) return [];
-    const oidsByProfile = new Map();
-    for (const oid of oidRows) {
-      if (!oidsByProfile.has(oid.profile_id)) oidsByProfile.set(oid.profile_id, []);
-      oidsByProfile.get(oid.profile_id).push(oid);
-    }
-
-    const metricPlaceholders = safeIds.map(() => '?').join(', ');
-    const [metricRows] = await db.query(
-      `SELECT * FROM snmp_metrics
-       WHERE device_id IN (${metricPlaceholders})
-         AND polled_at >= NOW() - INTERVAL 15 MINUTE
+    const [rows] = await db.query(
+      `SELECT sm.device_id, spo.oid_name, sm.value_gauge, sm.value_counter, sm.value_string, sm.polled_at
+       FROM snmp_metrics sm
+       JOIN snmp_profile_oids spo ON spo.id = sm.profile_oid_id
+       WHERE sm.device_id IN (${placeholders})
+         AND sm.polled_at >= NOW() - INTERVAL 15 MINUTE
          -- 15-minute window: SNMP poller default interval is ≤5 min; 15 min
          -- gives 3 poll cycles of headroom before data is considered stale.
-       ORDER BY device_id, polled_at DESC`,
+       ORDER BY sm.device_id, spo.oid_name, sm.polled_at DESC`,
       safeIds,
     );
-    const latestByDevice = new Map();
-    for (const row of metricRows) {
-      if (!latestByDevice.has(row.device_id)) latestByDevice.set(row.device_id, row);
-    }
-
-    const results = [];
-    for (const device of deviceRows) {
-      const latest = latestByDevice.get(device.device_id);
-      if (!latest) continue;
-      for (const oid of oidsByProfile.get(device.snmp_profile_id) || []) {
-        if (!Object.prototype.hasOwnProperty.call(latest, oid.metric_column)) continue;
-        const value = latest[oid.metric_column];
-        if (value === null || value === undefined) continue;
-        results.push({
-          deviceId: device.device_id,
-          oidName: oid.oid_name,
-          value,
-          polledAt: latest.polled_at,
-        });
-      }
-    }
-    return results;
+    return rows.map(r => ({
+      deviceId:  r.device_id,
+      oidName:   r.oid_name,
+      value:     r.value_gauge ?? r.value_counter ?? r.value_string,
+      polledAt:  r.polled_at,
+    }));
   } catch (err) {
     logger.warn({ deviceIds, err: err.message }, 'serviceHealthService: SNMP metrics query failed');
     return [];

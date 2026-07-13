@@ -32,7 +32,7 @@ async function createRequest({ clientId, organizationId, requestType, payload = 
   // Resolve the client's active contract
   const [contracts] = await db.query(
     `SELECT c.id, c.plan_id, c.status, c.start_date,
-            p.name AS plan_name, p.price, p.billing_cycle
+            p.name AS plan_name, p.price, p.billing_cycle_months
      FROM contracts c
      JOIN plans p ON p.id = c.plan_id
      WHERE c.client_id = ? AND c.status = 'active' AND c.deleted_at IS NULL
@@ -60,13 +60,11 @@ async function createRequest({ clientId, organizationId, requestType, payload = 
       throw new ValidationError('Client is already on this plan');
     }
 
-    // Find the current billing period. invoices has no period_start/
-    // period_end columns — those live on billing_periods; the most recent
-    // 'invoiced' period is the one the customer is actually being charged for
-    // (the nearest equivalent of "an invoice exists for this period").
+    // Find the current billing period
     const [periods] = await db.query(
-      `SELECT period_start, period_end FROM billing_periods
-       WHERE contract_id = ? AND status = 'invoiced'
+      `SELECT period_start, period_end FROM invoices
+       WHERE contract_id = ? AND status IN ('issued','overdue','paid')
+         AND deleted_at IS NULL
        ORDER BY period_start DESC LIMIT 1`,
       [contract.id],
     );

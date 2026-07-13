@@ -11,7 +11,6 @@
 // =============================================================================
 
 const db     = require('../config/database');
-const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const logger = require('../utils/logger').child({ service: 'supportContextService' });
 
 // ---------------------------------------------------------------------------
@@ -23,6 +22,7 @@ const PRIVATE_IP_RE = /\b(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|
 // Lazy-require helpers (avoid circular dependency chains)
 // ---------------------------------------------------------------------------
 
+function getBillingService() { return require('./billingService'); }
 function getRadiusService()  { return require('./radiusService'); }
 function getAlertService()   { return require('./alertService'); }
 
@@ -74,15 +74,8 @@ async function enrichContext({ orgId, clientId }) {
   // ── 1. CRM record ──────────────────────────────────────────────────────────
   let customer = null;
   try {
-    // clients has no `plan_id` column — a client's plan is on their active
-    // contract (and a client may have more than one contract; the active
-    // one's plan is the relevant one for support context).
     const [rows] = await db.query(
-      `SELECT cl.id, cl.name, cl.email, cl.phone, cl.status, c.plan_id
-         FROM clients cl
-         LEFT JOIN contracts c ON c.client_id = cl.id AND c.status = 'active' AND c.deleted_at IS NULL
-        WHERE cl.id = ? AND cl.organization_id = ?
-        ORDER BY c.id DESC LIMIT 1`,
+      'SELECT id, name, email, phone, status, plan_id FROM clients WHERE id = ? AND organization_id = ?',
       [clientId, orgId],
     );
     if (rows.length > 0) {
@@ -99,32 +92,31 @@ async function enrichContext({ orgId, clientId }) {
   }
 
   // ── 2. Billing summary ─────────────────────────────────────────────────────
-  // billingService.getBillingSummary was never defined (this branch never ran)
-  // and client_billing_summaries was never a real table (the "fallback" —
-  // actually the only code path ever reached — always threw). The running
-  // balance and next-due date are computed the same way supportBillingModule.js
-  // does: client_balance_ledger (single source of truth; see
-  // ClientBalanceLedger.signedAmountSql) and billing_periods.scheduled_at.
   let billing = null;
   try {
-    const [balRows] = await db.query(
-      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
-         FROM client_balance_ledger
-        WHERE client_id = ? AND organization_id <=> ?`,
-      [clientId, orgId],
-    );
-    const [dueRows] = await db.query(
-      `SELECT bp.scheduled_at AS next_due_date
-         FROM billing_periods bp
-         JOIN contracts c ON c.id = bp.contract_id
-        WHERE c.client_id = ? AND c.organization_id = ? AND bp.status = 'pending'
-        ORDER BY bp.scheduled_at ASC LIMIT 1`,
-      [clientId, orgId],
-    );
-    billing = {
-      balance: balRows[0] ? parseFloat(balRows[0].balance) : null,
-      nextDue: dueRows[0]?.next_due_date ?? null,
-    };
+    const billingService = getBillingService();
+
+    if (typeof billingService.getBillingSummary === 'function') {
+      const summary = await billingService.getBillingSummary(clientId, orgId);
+      if (summary) {
+        billing = {
+          balance: summary.balance ?? null,
+          nextDue: summary.next_due_date || summary.nextDue || null,
+        };
+      }
+    } else {
+      // Fallback: direct table query
+      const [brows] = await db.query(
+        'SELECT balance, next_due_date FROM client_billing_summaries WHERE client_id = ?',
+        [clientId],
+      );
+      if (brows.length > 0) {
+        billing = {
+          balance: brows[0].balance ?? null,
+          nextDue: brows[0].next_due_date || null,
+        };
+      }
+    }
   } catch (err) {
     logger.warn({ err: err.message, clientId }, 'supportContextService: failed to fetch billing summary');
   }

@@ -75,29 +75,17 @@ const RUNBOOK_TEMPLATES = {
  * @returns {Promise<object>}
  */
 async function explainAlert(orgId, alertId, providerId) {
-  // Real table is alert_events, which has neither alert_type, severity nor a
-  // free-text message — severity/description live on the parent alert_rule,
-  // and the "message" is reconstructed from the metric/value/threshold that
-  // fired. There is no alert_type taxonomy in the schema, so `context.alertType`
-  // is the rule's metric name (the closest real identifying field) — the
-  // typeMap lookup in _deterministicAlertExplain below will generally miss and
-  // fall through to its generic (still correct) summary, rather than this
-  // guessing at a categorization that was never actually built.
   const [alertRows] = await db.query(
-    `SELECT ae.*, ar.name AS rule_name, ar.severity, ar.metric AS rule_metric, ar.description
-       FROM alert_events ae
-       JOIN alert_rules ar ON ar.id = ae.alert_rule_id
-      WHERE ae.id = ? AND ae.organization_id = ?`,
+    'SELECT * FROM alerts WHERE id = ? AND organization_id = ?',
     [alertId, orgId],
   );
   if (alertRows.length === 0) throw new NotFoundError('Alert');
 
   const alert = alertRows[0];
   const context = {
-    alertType: alert.rule_metric,
+    alertType: alert.alert_type,
     severity: alert.severity,
-    message: alert.description
-      || `${alert.rule_name}: ${alert.metric} = ${alert.current_value} (threshold ${alert.threshold_value})`,
+    message: alert.message,
     deviceId: alert.device_id,
   };
 
@@ -175,13 +163,10 @@ function _deterministicAlertExplain(context) {
 async function capacityWarning(orgId, providerId) {
   let overloadedPorts = [];
   try {
-    // Real table is olt_ports (not olt_pon_ports), keyed by olt_device_id,
-    // with onu_count/max_onus (not client_count/max_clients) and port_no
-    // (not port_number).
     const [rows] = await db.query(
-      `SELECT olt_device_id AS device_id, port_no AS port_number, onu_count AS client_count, max_onus AS max_clients
-         FROM olt_ports
-        WHERE organization_id = ? AND max_onus > 0 AND onu_count > max_onus * 0.8`,
+      `SELECT device_id, port_number, client_count, max_clients
+         FROM olt_pon_ports
+        WHERE organization_id = ? AND client_count > max_clients * 0.8`,
       [orgId],
     );
     overloadedPorts = rows;
@@ -222,27 +207,13 @@ async function capacityWarning(orgId, providerId) {
 async function detectInterference(orgId, providerId) {
   let affectedDevices = [];
   try {
-    // There is no `wireless_devices` table. Noise floor is AP-side SNMP
-    // telemetry (snmp_metrics.noise_floor_dbm, which has no organization_id
-    // of its own — scoped through devices); "channel" has no dedicated
-    // column, so ap_sector_configs.frequency_mhz is used as the closest real
-    // identifying value. Most recent (15 min) reading per device.
     const [rows] = await db.query(
-      `SELECT sm.device_id, asc_cfg.frequency_mhz AS channel, sm.noise_floor_dbm AS noise_floor
-         FROM snmp_metrics sm
-         JOIN devices d ON d.id = sm.device_id
-         LEFT JOIN ap_sector_configs asc_cfg ON asc_cfg.device_id = sm.device_id
-        WHERE d.organization_id = ? AND sm.noise_floor_dbm > -70
-          AND sm.polled_at >= NOW() - INTERVAL 15 MINUTE
-        ORDER BY sm.polled_at DESC`,
+      `SELECT device_id, channel, noise_floor
+         FROM wireless_devices
+        WHERE organization_id = ? AND noise_floor > -70`,
       [orgId],
     );
-    const seen = new Set();
-    affectedDevices = rows.filter((r) => {
-      if (seen.has(r.device_id)) return false;
-      seen.add(r.device_id);
-      return true;
-    });
+    affectedDevices = rows;
   } catch {
     // wireless_devices may not exist
   }
@@ -280,28 +251,13 @@ async function detectInterference(orgId, providerId) {
 async function alignmentDrift(orgId, providerId) {
   let driftedCpes = [];
   try {
-    // cpe_devices has neither `name` nor `signal_dbm` — signal is observed
-    // wireless-client-session telemetry (wireless_client_sessions, keyed on
-    // devices.id via cpe_devices.device_id), and the identifying label falls
-    // back to the CPE's equipment model when it has no assigned device name.
-    // Recent (24h) sessions only, de-duplicated to the latest reading per CPE.
     const [rows] = await db.query(
-      `SELECT cd.id, COALESCE(d.name, cd.model_name) AS name, wcs.signal_dbm
-         FROM cpe_devices cd
-         JOIN wireless_client_sessions wcs ON wcs.client_device_id = cd.device_id
-         LEFT JOIN devices d ON d.id = cd.device_id
-        WHERE cd.organization_id = ? AND cd.device_id IS NOT NULL
-          AND wcs.signal_dbm < -80
-          AND wcs.last_seen_at >= NOW() - INTERVAL 24 HOUR
-        ORDER BY wcs.last_seen_at DESC`,
+      `SELECT id, name, signal_dbm
+         FROM cpe_devices
+        WHERE organization_id = ? AND signal_dbm < -80`,
       [orgId],
     );
-    const seen = new Set();
-    driftedCpes = rows.filter((r) => {
-      if (seen.has(r.id)) return false;
-      seen.add(r.id);
-      return true;
-    });
+    driftedCpes = rows;
   } catch {
     // cpe_devices may not exist
   }
@@ -350,11 +306,9 @@ async function shiftSummary(orgId, providerId) {
   } catch { /* ignore */ }
 
   try {
-    // Real table is alert_events; status is ENUM('triggered','acknowledged',
-    // 'resolved') — there is no 'active' value. "Active" = not yet resolved.
     const [rows] = await db.query(
-      "SELECT COUNT(*) AS cnt FROM alert_events WHERE organization_id = ? AND status != 'resolved'",
-      [orgId],
+      'SELECT COUNT(*) AS cnt FROM alerts WHERE organization_id = ? AND status = ?',
+      [orgId, 'active'],
     );
     activeAlerts = rows[0]?.cnt ?? 0;
   } catch { /* ignore */ }

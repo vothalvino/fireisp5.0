@@ -12,7 +12,6 @@
 
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'automationService' });
-const { SNMP_METRICS } = require('./alertService');
 
 // Lazily required to avoid circular deps at module load
 let _suspensionService = null;
@@ -461,30 +460,19 @@ async function evaluateRemediationRules(organizationId) {
 }
 
 async function checkRemediationCondition(organizationId, rule) {
-  // snmp_metrics is a WIDE table (one column per metric: cpu_usage,
-  // memory_usage, signal_strength, …) — there is no generic `metric`/`value`
-  // pair column, so `rule.condition_metric` names WHICH COLUMN to read, not a
-  // row to filter on. `condition_metric` is an admin-supplied free-form
-  // string (remediationRules.js validates only length, not content) so it
-  // MUST be checked against the same fixed whitelist alertService.js uses
-  // before being interpolated into a backtick-quoted identifier — never
-  // build a dynamic column reference from unvalidated input.
-  if (!SNMP_METRICS.has(rule.condition_metric)) {
-    logger.warn({ organizationId, metric: rule.condition_metric }, 'Remediation rule references an unknown/disallowed metric column');
-    return false;
-  }
-
+  // Check snmp_metrics for the condition metric
   const [rows] = await db.query(
-    `SELECT m.\`${rule.condition_metric}\` AS metric_value, d.id AS device_id
+    `SELECT m.value AS metric_value, d.id AS device_id
      FROM snmp_metrics m
      JOIN devices d ON d.id = m.device_id
      WHERE d.organization_id = ?
-     ORDER BY m.polled_at DESC
+       AND m.metric = ?
+     ORDER BY m.recorded_at DESC
      LIMIT 1`,
-    [organizationId],
+    [organizationId, rule.condition_metric],
   );
 
-  if (!rows.length || rows[0].metric_value === null) return false;
+  if (!rows.length) return false;
 
   const val = parseFloat(rows[0].metric_value);
   const threshold = rule.condition_threshold !== null ? parseFloat(rule.condition_threshold) : null;
