@@ -12,3 +12,17 @@
 # (exit-code 1, blocking) began failing only once Trivy's DB picked up this CVE.
 # Remove this entry once autocannon ships a release whose uuid resolves to >=11.1.1.
 CVE-2026-41907
+
+# CVE-2026-34743 — liblzma5 (xz/LZMA library) 5.4.1-1, a Debian bookworm OS package in the
+# node:24-bookworm-slim runtime base image. CVSS MEDIUM (5.3); Trivy rates it HIGH via the
+# Debian security feed, so the blocking push-to-main scan (severity HIGH,CRITICAL) flags it
+# even though the PR report scan is non-blocking. It IS fixable, so ignore-unfixed doesn't
+# suppress it and the Dockerfile's `apt-get upgrade` patches it as soon as Debian ships the
+# fixed liblzma5 binary — but there is a lag window where Trivy's DB knows a fix exists before
+# the bookworm repo publishes it, during which the merge-to-main scan goes red (observed on the
+# #405–#407 merges; self-healed by #408 once the patched package landed). This entry keeps that
+# repo-lag window from blocking merges. Purely an OS-layer issue, not application code; no
+# runtime code path uses liblzma directly.
+# Remove this entry once the runtime image has stably carried the fixed liblzma5 for a while
+# (i.e. no red container-scan recurrence) — it is inert while the installed package is patched.
+CVE-2026-34743
