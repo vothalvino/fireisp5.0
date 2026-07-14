@@ -175,6 +175,19 @@ describe('dispatchCampaign', () => {
     // Check the INSERT call contains 'campaign_messages'
     const insertCall = db.query.mock.calls[2];
     expect(insertCall[0]).toContain('campaign_messages');
+    // Bulk insert must use explicit per-row placeholder groups (buildBulkValues),
+    // never the pool.query()-only "VALUES ?" array-expansion form — that form
+    // throws at runtime under db.query()'s execute()-based prepared statements.
+    expect(insertCall[0]).not.toContain('VALUES ?');
+    const expectedPlaceholders = Array(2).fill(`(${Array(7).fill('?').join(', ')})`).join(', ');
+    expect(insertCall[0]).toContain(`VALUES ${expectedPlaceholders}`);
+    // Flat, positionally-ordered params: 2 rows x 7 cols
+    // (organization_id, campaign_id, client_id, recipient, channel, status, queued_at)
+    expect(insertCall[1]).toHaveLength(14);
+    expect(insertCall[1].slice(0, 6)).toEqual([1, 1, 1, 'a@example.com', 'email', 'queued']);
+    expect(insertCall[1][6]).toBeInstanceOf(Date);
+    expect(insertCall[1].slice(7, 13)).toEqual([1, 1, 2, 'b@example.com', 'email', 'queued']);
+    expect(insertCall[1][13]).toBeInstanceOf(Date);
     // Check the UPDATE sets status = 'sending'
     const updateCall = db.query.mock.calls[3];
     expect(updateCall[0]).toContain('sending');
