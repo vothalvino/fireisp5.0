@@ -11,6 +11,7 @@ const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
 const logger = require('../utils/logger');
 const { escapeHtmlForTemplate } = require('./notificationService');
+const { buildBulkValues } = require('../utils/sqlBuild');
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -159,11 +160,16 @@ async function dispatchCampaign(campaignId, organizationId) {
     now,
   ]);
 
+  // db.query() runs prepared statements (mysql2 execute()), which cannot
+  // expand a single `?` bound to a 2-D array of rows the way pool.query()
+  // can — buildBulkValues() builds the equivalent explicit per-row
+  // placeholder groups instead. See src/utils/sqlBuild.js header comment.
+  const { placeholders, values } = buildBulkValues(insertValues);
   await db.query(
     `INSERT INTO campaign_messages
        (organization_id, campaign_id, client_id, recipient, channel, status, queued_at)
-     VALUES ?`,
-    [insertValues],
+     VALUES ${placeholders}`,
+    values,
   );
 
   await db.query(

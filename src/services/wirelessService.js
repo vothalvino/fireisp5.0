@@ -16,7 +16,7 @@
 // =============================================================================
 
 const db = require('../config/database');
-const { buildInsert, buildUpdate } = require('../utils/sqlBuild');
+const { buildInsert, buildUpdate, buildBulkValues } = require('../utils/sqlBuild');
 const logger = require('../utils/logger').child({ service: 'wirelessService' });
 
 // ---------------------------------------------------------------------------
@@ -341,13 +341,18 @@ async function recordClientSessions(orgId, sessions) {
     s.last_seen_at || new Date(),
   ]);
 
+  // db.query() runs prepared statements (mysql2 execute()), which cannot
+  // expand a single `?` bound to a 2-D array of rows the way pool.query()
+  // can — buildBulkValues() builds the equivalent explicit per-row
+  // placeholder groups instead. See src/utils/sqlBuild.js header comment.
+  const { placeholders, values } = buildBulkValues(rows);
   const [result] = await db.query(
     `INSERT INTO wireless_client_sessions
        (organization_id, device_id, client_device_id, mac_address, ip_address,
         signal_dbm, noise_floor_dbm, snr_db, ccq_pct, tx_rate_mbps, rx_rate_mbps,
         distance_m, connected_at, last_seen_at)
-     VALUES ?`,
-    [rows],
+     VALUES ${placeholders}`,
+    values,
   );
   logger.debug({ orgId, count: result.affectedRows }, 'wireless client sessions recorded');
   return result.affectedRows;

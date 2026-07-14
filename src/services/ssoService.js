@@ -160,6 +160,15 @@ async function saveGroupMappings(ssoConfigId, mappings) {
     );
     if (mappings.length > 0) {
       const values = mappings.map(m => [ssoConfigId, m.idp_group, m.fireisp_role]);
+      // NOTE: this is `conn.query()` (the raw mysql2 PoolConnection's real
+      // text-protocol query method), NOT `db.query()`/`db.queryReplica()`
+      // from src/config/database.js — those wrap mysql2's `execute()`
+      // (prepared statements), which cannot expand a single `?` bound to a
+      // 2-D array of rows into `(a,b),(c,d),...` the way `query()` can.
+      // `conn.query()` here supports the bulk `VALUES ?` array form
+      // correctly; do not "fix" this to buildBulkValues() or route it
+      // through db.query() — either change would be a regression for a
+      // site that was never actually broken.
       await conn.query(
         'INSERT INTO organization_sso_group_mappings (sso_config_id, idp_group, fireisp_role) VALUES ?',
         [values],
