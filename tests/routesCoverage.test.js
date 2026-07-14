@@ -53,6 +53,18 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const Quote = require('../src/models/Quote');
+// jest.mock('../src/models/Quote') (below) automocks methods declared
+// directly on the class body, but drops BaseModel's inherited accessor
+// properties entirely (fillable/tableName are `static get` on BaseModel,
+// not own methods on Quote, and the automocked class doesn't extend
+// BaseModel) — Quote.fillable/.tableName read back as `undefined` unless
+// restored here. routes/quotes.js's auto-number POST /quotes path filters
+// req.body by Quote.fillable when building its own INSERT, so it needs a
+// real array to iterate, not undefined. jest.resetAllMocks() (see
+// beforeEach) only resets mock functions, not plain properties, so this
+// only needs to run once.
+Quote.fillable = ['organization_id', 'client_id', 'contract_id', 'quote_number', 'subtotal', 'tax_amount', 'total', 'currency', 'tax_rate', 'tax_rate_id', 'valid_until', 'status', 'notes'];
+Quote.tableName = 'quotes';
 const Invoice = require('../src/models/Invoice');
 const Payment = require('../src/models/Payment');
 const Client = require('../src/models/Client');
@@ -1088,11 +1100,20 @@ describe('Quote Routes — /api/quotes', () => {
   });
 
   describe('POST /api/quotes (auto-numbering, migration 389)', () => {
-    test('auto-assigns quote_number via billingService.nextQuoteNumber when omitted', async () => {
+    // Regression: an earlier version of this handler drew the number in its
+    // OWN short-lived transaction (its own db.getConnection()), committed
+    // it, and only THEN called the generic ctrl.create() — which inserts
+    // via a completely separate, non-transactional connection. If that
+    // insert failed, the already-committed number was burned permanently
+    // (a gap), diverging from nextInvoiceNumber's documented contract. The
+    // fix runs the number-advance and the quotes INSERT on the SAME
+    // connection/transaction, exactly like POST /quotes/generate below.
+    test('auto-assigns quote_number and inserts the quote on the SAME connection/transaction', async () => {
       mockAuthUser();
       const conn = mockConnection();
       billingService.nextQuoteNumber.mockResolvedValue('QUO-000050');
-      Quote.create.mockResolvedValue({ id: 40, quote_number: 'QUO-000050', client_id: 5, status: 'draft' });
+      conn.execute.mockResolvedValueOnce([{ insertId: 40, affectedRows: 1 }]); // INSERT INTO quotes
+      Quote.findByIdIncludingDeleted.mockResolvedValue({ id: 40, quote_number: 'QUO-000050', client_id: 5, status: 'draft' });
 
       const res = await request(app)
         .post('/api/quotes')
@@ -1100,9 +1121,38 @@ describe('Quote Routes — /api/quotes', () => {
         .send({ client_id: 5 });
 
       expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ id: 40, quote_number: 'QUO-000050' });
+
+      // nextQuoteNumber and the INSERT must run on the exact same conn.
       expect(billingService.nextQuoteNumber).toHaveBeenCalledWith(conn, 1);
-      expect(Quote.create).toHaveBeenCalledWith(expect.objectContaining({ quote_number: 'QUO-000050' }));
+      const insertCall = conn.execute.mock.calls.find((c) => /INSERT INTO quotes/.test(c[0]));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toContain('QUO-000050');
       expect(conn.commit).toHaveBeenCalled();
+      expect(conn.rollback).not.toHaveBeenCalled();
+
+      // The old buggy path inserted via the generic, separately-connected
+      // Quote.create() — must never be used for the auto-number branch.
+      expect(Quote.create).not.toHaveBeenCalled();
+    });
+
+    test('rolls back — never commits the drawn number — when the quote INSERT fails', async () => {
+      mockAuthUser();
+      const conn = mockConnection();
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000051');
+      conn.execute.mockRejectedValueOnce(new Error('insert failed')); // INSERT INTO quotes fails
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5 });
+
+      expect(res.status).toBe(500);
+      // The number-advance ran on this same conn, so rolling it back undoes
+      // that UPDATE too — a failed create never durably burns a number.
+      expect(billingService.nextQuoteNumber).toHaveBeenCalledWith(conn, 1);
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.commit).not.toHaveBeenCalled();
     });
 
     test('honors an explicit quote_number and never calls nextQuoteNumber', async () => {

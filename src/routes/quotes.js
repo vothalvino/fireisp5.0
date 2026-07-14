@@ -13,6 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createQuote, updateQuote, createQuoteItem } = require('../middleware/schemas/quotes');
 const db = require('../config/database');
 const billingService = require('../services/billingService');
+const auditLog = require('../services/auditLog');
 
 const router = Router();
 const ctrl = crudController(Quote);
@@ -24,26 +25,66 @@ router.get('/', requirePermission('quotes.view'), ctrl.list);
 router.get('/:id', requirePermission('quotes.view'), ctrl.get);
 // Auto-assign quote_number (migration 389's organization_quote_sequences,
 // mirroring how invoice_number is never required from the caller) when the
-// request didn't supply one. Runs its own short-lived transaction — a
-// numbering gap on a rare downstream INSERT failure is acceptable (the
-// sequence only guarantees no duplicates, same contract nextInvoiceNumber
-// documents); an explicit quote_number is still honored as-is.
+// request didn't supply one. The number-advance and the quote INSERT run on
+// the SAME connection/transaction — nextQuoteNumber's advance commits or
+// rolls back together with the row it was drawn for, so a failed INSERT
+// (bad FK, pool exhaustion, DB blip) never permanently burns a sequence
+// value. (An earlier version of this handler ran the advance in its own
+// short-lived transaction and then called the generic, separately-connected
+// ctrl.create — that let a failed create burn a number for nothing, unlike
+// nextInvoiceNumber's documented contract and POST /quotes/generate below,
+// which have always shared one transaction for both writes.)
+//
+// When an explicit quote_number IS supplied there's no sequence to protect,
+// so the plain crudController path (ctrl.create) is used unchanged.
 router.post('/', requirePermission('quotes.create'), validate(createQuote), async (req, res, next) => {
   try {
-    if (!req.body.quote_number) {
-      const conn = await db.getConnection();
-      try {
-        await conn.beginTransaction();
-        req.body.quote_number = await billingService.nextQuoteNumber(conn, req.orgId);
-        await conn.commit();
-      } catch (err) {
-        await conn.rollback();
-        throw err;
-      } finally {
-        conn.release();
-      }
+    if (req.body.quote_number) {
+      return ctrl.create(req, res, next);
     }
-    return ctrl.create(req, res, next);
+
+    if (req.orgId) req.body.organization_id = req.orgId;
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      req.body.quote_number = await billingService.nextQuoteNumber(conn, req.orgId);
+
+      // Same fillable-filtering INSERT BaseModel.create() would run, but on
+      // the transaction's own connection instead of the pool — Quote.fillable
+      // stays the single source of truth for which columns are writable.
+      const filtered = {};
+      for (const key of Quote.fillable) {
+        if (req.body[key] !== undefined) filtered[key] = req.body[key];
+      }
+      const cols = Object.keys(filtered);
+      const placeholders = cols.map(() => '?').join(', ');
+      const [result] = await conn.execute(
+        `INSERT INTO quotes (${cols.map((c) => `\`${c}\``).join(', ')}) VALUES (${placeholders})`,
+        Object.values(filtered),
+      );
+
+      await conn.commit();
+
+      const record = await Quote.findByIdIncludingDeleted(result.insertId);
+
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'create',
+        tableName: Quote.tableName,
+        recordId: record.id,
+        newValues: req.body,
+      });
+
+      return res.status(201).json({ data: record });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }
