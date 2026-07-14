@@ -1196,12 +1196,21 @@ function _buildResult(checks, defaultRecommendation, contract) {
   // signal-quality fault and shouldn't be reported as one.
   const qualityEscalated = escalatingChecks.some(c => Object.prototype.hasOwnProperty.call(QUALITY_ESCALATE, c.name));
 
+  // Significant checks that the `cause` string should name: every 'error'
+  // check PLUS any escalating check. An escalating check can be a mere
+  // 'warning' (e.g. cpe_link_capacity below the sector/contract Mbps floor,
+  // which escalates but is not an 'error') — counting only errorChecks made
+  // cause read 'No critical issues detected' on a run that was simultaneously
+  // creating a technician ticket. Union + dedupe so a check that is both an
+  // error and escalating is named once, preserving field order.
+  const significantNames = [...new Set([...errorChecks, ...escalatingChecks].map(c => c.name))];
+
   return {
     checks,
     cause: blind
       ? 'Unable to determine specific cause — manual review required'
-      : errorChecks.length > 0
-        ? `Issues detected: ${errorChecks.map(c => c.name).join(', ')}`
+      : significantNames.length > 0
+        ? `Issues detected: ${significantNames.join(', ')}`
         : 'No critical issues detected',
     recommendation: blind ? 'Please contact technical support for assistance.' : defaultRecommendation,
     autoFixAvailable: 0,

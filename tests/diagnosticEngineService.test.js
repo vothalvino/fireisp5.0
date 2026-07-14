@@ -726,6 +726,11 @@ describe('diagnosticEngineService.generateSupportResponse', () => {
       // on its own even though cpe_signal itself is healthy.
       expect(result.escalate).toBe(true);
       expect(result.escalationReason).toBe('Signal/optical quality degraded — technician recommended');
+      // The internal cause must name the warning-level check that drove
+      // escalation — it must NOT read 'No critical issues detected' on a run
+      // that is simultaneously creating a technician ticket.
+      expect(result.diagnosticResult.cause).toContain('cpe_link_capacity');
+      expect(result.diagnosticResult.cause).not.toContain('No critical issues detected');
       // The customer-facing reply names the check that actually drove
       // escalation — cpe_link_capacity, not cpe_signal (which is 'ok' here).
       expect(result.reply).toContain('la capacidad del enlace inalámbrico');
