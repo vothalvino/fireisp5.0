@@ -102,6 +102,25 @@ router.delete('/:id/items/:itemId', requirePermission('purchase_orders.update'),
 // ---------------------------------------------------------------------------
 
 // POST /purchase-orders/:id/receive
+//
+// Body:
+//   received_date?  string   — defaults to today when the PO becomes fully 'received'
+//   notes?          string   — copied onto each inventory_transactions row this call writes
+//   items?          Array<{ id: number, quantity_received: number }>
+//                   Optional partial-receive instructions. `quantity_received` is the
+//                   CUMULATIVE total now received for that line (e.g. "3 of 5 have
+//                   arrived so far"), not a delta — matches reading a packing slip
+//                   against the PO. Lines omitted from `items` are left unchanged.
+//                   A value below the line's current quantity_received is clamped up
+//                   (no support for reversing a receipt in Phase 1).
+//                   Omitting `items` entirely preserves the original full-receive
+//                   behavior: every line is received in full.
+//
+// Runs inside a single DB transaction — a mid-loop failure leaves neither stock
+// nor the PO's status changed — and, for every line that actually gains
+// quantity, writes an inventory_transactions row (type 'receive', reference =
+// the PO number) so PO-driven stock increases show up in the stock-movement
+// ledger exactly like a manual receive does.
 router.post('/:id/receive', requirePermission('purchase_orders.receive'), validate(receivePo), async (req, res, next) => {
   try {
     const po = await PurchaseOrder.findById(parseInt(req.params.id, 10), req.orgId);
@@ -109,39 +128,94 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
     if (po.status === 'cancelled') return res.status(400).json({ error: { code: 'INVALID_STATUS', message: 'Cannot receive a cancelled purchase order' } });
     if (po.status === 'received') return res.status(400).json({ error: { code: 'ALREADY_RECEIVED', message: 'Purchase order already fully received' } });
 
-    // Get line items
-    const items = await PurchaseOrder.getItems(po.id);
-
-    // Update each line item quantity_received = quantity_ordered
-    for (const item of items) {
-      if (!item.inventory_item_id) continue;
-      const qty = item.quantity_ordered;
-
-      // Upsert inventory_stock for this item in the PO's warehouse
-      const warehouseId = po.warehouse_id;
-      if (warehouseId) {
-        const [existing] = await db.query(
-          'SELECT id, quantity FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND deleted_at IS NULL',
-          [item.inventory_item_id, warehouseId],
-        );
-        if (existing.length > 0) {
-          await db.query('UPDATE inventory_stock SET quantity = quantity + ? WHERE id = ?', [qty, existing[0].id]);
-        } else {
-          await db.query(
-            'INSERT INTO inventory_stock (item_id, warehouse_id, quantity) VALUES (?, ?, ?)',
-            [item.inventory_item_id, warehouseId, qty],
-          );
-        }
+    // Validate optional partial-receive overrides up front (before opening a
+    // transaction) so a malformed body 422s cleanly instead of mid-loop.
+    let overrides = null;
+    if (req.body.items !== undefined) {
+      if (!Array.isArray(req.body.items)) {
+        return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'items must be an array of { id, quantity_received }' } });
       }
-      await db.query('UPDATE purchase_order_items SET quantity_received = quantity_ordered WHERE id = ?', [item.id]);
+      overrides = new Map();
+      for (const entry of req.body.items) {
+        const lineId = Number(entry && entry.id);
+        const qty = Number(entry && entry.quantity_received);
+        if (!Number.isInteger(lineId) || !Number.isFinite(qty) || qty < 0) {
+          return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Each items[] entry needs a numeric id and a non-negative quantity_received' } });
+        }
+        overrides.set(lineId, qty);
+      }
     }
 
-    // Update PO status and received_date
-    const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
-    await db.query(
-      'UPDATE purchase_orders SET status = ?, received_date = ? WHERE id = ?',
-      ['received', receivedDate, po.id],
-    );
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [lineItems] = await conn.query(
+        'SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY id',
+        [po.id],
+      );
+
+      let anyReceived = false;
+      let allFullyReceived = lineItems.length > 0;
+
+      for (const item of lineItems) {
+        const currentReceived = item.quantity_received;
+        const target = overrides
+          ? Math.min(Math.max(overrides.get(item.id) ?? currentReceived, currentReceived), item.quantity_ordered)
+          : item.quantity_ordered;
+        const delta = target - currentReceived;
+
+        if (delta > 0) {
+          if (item.inventory_item_id && po.warehouse_id) {
+            const [existing] = await conn.query(
+              'SELECT id FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND aisle IS NULL AND col IS NULL AND shelf IS NULL AND deleted_at IS NULL',
+              [item.inventory_item_id, po.warehouse_id],
+            );
+            let stockId;
+            if (existing.length > 0) {
+              stockId = existing[0].id;
+              await conn.query('UPDATE inventory_stock SET quantity = quantity + ? WHERE id = ?', [delta, stockId]);
+            } else {
+              const [ins] = await conn.query(
+                'INSERT INTO inventory_stock (item_id, warehouse_id, quantity) VALUES (?, ?, ?)',
+                [item.inventory_item_id, po.warehouse_id, delta],
+              );
+              stockId = ins.insertId;
+            }
+            await conn.query(
+              `INSERT INTO inventory_transactions
+                 (stock_id, transaction_type, quantity, unit_price, reference, notes, performed_by)
+               VALUES (?, 'receive', ?, ?, ?, ?, ?)`,
+              [stockId, delta, item.unit_cost, po.po_number, req.body.notes || null, req.user?.id || null],
+            );
+          }
+          await conn.query('UPDATE purchase_order_items SET quantity_received = ? WHERE id = ?', [target, item.id]);
+        }
+
+        if (target > 0) anyReceived = true;
+        if (target < item.quantity_ordered) allFullyReceived = false;
+      }
+
+      const newStatus = lineItems.length === 0
+        ? po.status
+        : allFullyReceived ? 'received' : anyReceived ? 'partial' : po.status;
+      const receivedDate = newStatus === 'received'
+        ? (req.body.received_date || new Date().toISOString().slice(0, 10))
+        : po.received_date;
+
+      await conn.query(
+        'UPDATE purchase_orders SET status = ?, received_date = ? WHERE id = ?',
+        [newStatus, receivedDate, po.id],
+      );
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
     const updatedPo = await PurchaseOrder.findById(po.id, req.orgId);
     res.json({ data: updatedPo });
   } catch (err) { next(err); }

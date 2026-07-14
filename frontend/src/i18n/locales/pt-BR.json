@@ -213,7 +213,10 @@
       "admin": "Administração",
       "fieldWork": "Trabalho de campo",
       "inventory": "Inventário"
-    }
+    },
+    "vendors": "🏬 Fornecedores",
+    "purchaseOrders": "📑 Pedidos de Compra",
+    "cpeInventory": "📶 Inventário CPE"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -3939,5 +3942,153 @@
     "cityField": "Cidade",
     "stateField": "Estado",
     "zipCodeField": "CEP"
+  },
+  "vendors": {
+    "title": "Fornecedores",
+    "total": "fornecedores",
+    "newVendor": "Novo Fornecedor",
+    "newTitle": "Novo Fornecedor",
+    "editTitle": "Editar Fornecedor",
+    "loading": "Carregando fornecedores…",
+    "loadError": "Falha ao carregar fornecedores. Tente novamente.",
+    "noItems": "Nenhum fornecedor encontrado.",
+    "deleteFailed": "Falha ao excluir o fornecedor.",
+    "deleteConfirmTitle": "Confirmar exclusão",
+    "deleteConfirmMessage": "Excluir o fornecedor \"{{name}}\"? Esta ação não pode ser desfeita.",
+    "filters": {
+      "status": "Status:",
+      "all": "Todos"
+    },
+    "status": {
+      "active": "Ativo",
+      "inactive": "Inativo"
+    },
+    "table": {
+      "name": "Nome",
+      "contactName": "Nome do Contato",
+      "email": "E-mail",
+      "phone": "Telefone",
+      "paymentTerms": "Condições de Pagamento",
+      "currency": "Moeda",
+      "status": "Status",
+      "actions": "Ações"
+    },
+    "form": {
+      "name": "Nome",
+      "contactName": "Nome do Contato",
+      "email": "E-mail",
+      "phone": "Telefone",
+      "website": "Site",
+      "address": "Endereço",
+      "taxId": "CNPJ / ID Fiscal",
+      "paymentTerms": "Condições de Pagamento",
+      "currency": "Moeda",
+      "status": "Status",
+      "notes": "Observações",
+      "genericError": "Ocorreu um erro"
+    },
+    "actions": {
+      "edit": "Editar",
+      "delete": "Excluir",
+      "cancel": "Cancelar",
+      "save": "Salvar Alterações",
+      "saving": "Salvando…",
+      "create": "Criar Fornecedor"
+    }
+  },
+  "purchaseOrders": {
+    "title": "Pedidos de Compra",
+    "total": "pedidos de compra",
+    "newPo": "Novo Pedido de Compra",
+    "newTitle": "Novo Pedido de Compra",
+    "loading": "Carregando pedidos de compra…",
+    "loadError": "Falha ao carregar os pedidos de compra. Tente novamente.",
+    "noItems": "Nenhum pedido de compra encontrado.",
+    "deleteFailed": "Falha ao excluir o pedido de compra.",
+    "deleteConfirmMessage": "Excluir o pedido de compra \"{{number}}\"? Esta ação não pode ser desfeita.",
+    "filters": {
+      "status": "Status:",
+      "all": "Todos"
+    },
+    "table": {
+      "poNumber": "N.º do Pedido",
+      "vendor": "Fornecedor",
+      "warehouse": "Armazém",
+      "orderDate": "Data do Pedido",
+      "total": "Total",
+      "status": "Status",
+      "actions": "Ações"
+    },
+    "form": {
+      "poNumber": "N.º do Pedido",
+      "vendor": "Fornecedor",
+      "selectVendor": "— selecionar fornecedor —",
+      "warehouse": "Armazém",
+      "selectWarehouse": "— selecionar armazém —",
+      "orderDate": "Data do Pedido",
+      "expectedDate": "Data Esperada",
+      "reference": "Referência",
+      "notes": "Observações",
+      "genericError": "Ocorreu um erro"
+    },
+    "actions": {
+      "cancel": "Cancelar",
+      "create": "Criar Pedido de Compra",
+      "creating": "Criando…",
+      "delete": "Excluir"
+    }
+  },
+  "purchaseOrderDetail": {
+    "breadcrumb": "Pedidos de Compra",
+    "loading": "Carregando…",
+    "loadingItems": "Carregando itens…",
+    "notFound": "Pedido de compra não encontrado.",
+    "vendorLabel": "Fornecedor:",
+    "notesLabel": "Observações:",
+    "lineItems": "Itens",
+    "noItems": "Ainda não há itens. Adicione um abaixo.",
+    "meta": {
+      "status": "Status",
+      "warehouse": "Armazém",
+      "total": "Total",
+      "subtotal": "Subtotal",
+      "tax": "Imposto",
+      "orderDate": "Data do Pedido",
+      "expectedDate": "Data Esperada",
+      "receivedDate": "Data de Recebimento",
+      "reference": "Referência"
+    },
+    "table": {
+      "description": "Descrição",
+      "quantityOrdered": "Pedido",
+      "quantityReceived": "Recebido",
+      "unitCost": "Custo Unitário",
+      "totalCost": "Custo Total"
+    },
+    "form": {
+      "inventoryItem": "Item de Inventário",
+      "selectItem": "— opcional: vincular a um item de inventário —",
+      "description": "Descrição",
+      "quantityOrdered": "Quantidade",
+      "unitCost": "Custo Unitário"
+    },
+    "actions": {
+      "add": "Adicionar Item",
+      "adding": "Adicionando…",
+      "receive": "Receber",
+      "cancel": "Cancelar"
+    },
+    "receiveModal": {
+      "title": "Receber Pedido de Compra",
+      "receiveNow": "Receber Agora",
+      "hint": "As quantidades usam o total restante por padrão. Reduza um valor para receber um envio parcial — o pedido ficará como \"parcial\" até que cada linha seja totalmente recebida.",
+      "confirm": "Confirmar Recebimento",
+      "receiving": "Recebendo…",
+      "genericError": "Ocorreu um erro"
+    },
+    "toasts": {
+      "itemAdded": "Item adicionado.",
+      "received": "Pedido de compra recebido — estoque atualizado."
+    }
   }
 }

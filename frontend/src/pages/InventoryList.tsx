@@ -478,13 +478,29 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
   const [error, setError] = useState('');
   const qc = useQueryClient();
 
+  // Transaction types that can legally create a NEW inventory_stock row (the
+  // backend upserts item_id+warehouse_id for these — see POST
+  // /inventory/transactions). Anything else (assign_to_job, sell_to_client,
+  // transfer_out) can only move stock that already exists somewhere.
+  const CAN_CREATE_STOCK = ['receive', 'adjustment'];
+
   const mutation = useMutation({
     mutationFn: () => {
       const body: Record<string, unknown> = {
-        stock_id: parseInt(stockId, 10),
         transaction_type: txType,
         quantity: parseFloat(quantity),
       };
+      if (stockId) {
+        // Existing stock location — move/adjust it directly.
+        body.stock_id = parseInt(stockId, 10);
+      } else {
+        // No stock row exists yet for this item at the chosen warehouse. Send
+        // item_id + warehouse_id instead — the backend creates the stock row
+        // (starting at 0) before applying the transaction, so a brand-new item
+        // can receive its first-ever stock through this same modal.
+        body.item_id = item.id;
+        body.warehouse_id = parseInt(warehouseId, 10);
+      }
       if (unitPrice) body.unit_price = parseFloat(unitPrice);
       if (reference) body.reference = reference;
       if (notes) body.notes = notes;
@@ -500,8 +516,12 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!stockId) {
-      setError('Please select a warehouse (stock location).');
+    if (!preselectedStockId && !stockId && !warehouseId) {
+      setError('Please select a warehouse.');
+      return;
+    }
+    if (!stockId && !CAN_CREATE_STOCK.includes(txType)) {
+      setError('This item has no stock at that warehouse yet. Use "Receive" or "Adjustment" to add first-time stock before recording other movements.');
       return;
     }
     setError('');
@@ -543,6 +563,11 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
                   <option key={w.id} value={String(w.id)}>{w.name}</option>
                 ))}
               </select>
+              {warehouseId && !stockId && (
+                <p style={{ margin: '-0.5rem 0 0.75rem', fontSize: '0.75rem', color: '#6b7280' }}>
+                  This item has no stock at this warehouse yet — a "Receive" or "Adjustment" transaction will create it.
+                </p>
+              )}
             </>
           )}
 

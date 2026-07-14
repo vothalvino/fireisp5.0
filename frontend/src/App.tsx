@@ -62,6 +62,9 @@ import { CreditNoteList } from '@/pages/CreditNoteList';
 import { ExpenseList } from '@/pages/ExpenseList';
 import { InventoryList } from '@/pages/InventoryList';
 import { WarehouseList } from '@/pages/WarehouseList';
+import { VendorList } from '@/pages/VendorList';
+import { PurchaseOrderList } from '@/pages/PurchaseOrderList';
+import { PurchaseOrderDetail } from '@/pages/PurchaseOrderDetail';
 import { CoverageZoneMap } from '@/pages/CoverageZoneMap';
 import { RadiusSessions } from '@/pages/RadiusSessions';
 import { SessionAccounting } from '@/pages/SessionAccounting';
@@ -244,6 +247,9 @@ export function App() {
               <Route element={<Layout />}>
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="warehouses" element={<WarehouseList />} />
+                <Route path="vendors" element={<VendorList />} />
+                <Route path="purchase-orders" element={<PurchaseOrderList />} />
+                <Route path="purchase-orders/:id" element={<PurchaseOrderDetail />} />
                 <Route path="radius-sessions" element={<RadiusSessions />} />
                 <Route path="subscriber-certificates" element={<SubscriberCertificateList />} />
                 <Route path="session-accounting" element={<SessionAccounting />} />

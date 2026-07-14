@@ -55,6 +55,10 @@ const updatePoItem = {
 const receivePo = {
   received_date: { type: 'string', required: false },
   notes: { type: 'string', required: false },
+  // Optional partial-receive instructions: [{ id, quantity_received }]. Shape
+  // of each entry is validated by the route handler (this middleware only
+  // confirms the top-level field is an array — see validate()'s 'array' type).
+  items: { type: 'array', required: false },
 };
 
 module.exports = { createPurchaseOrder, updatePurchaseOrder, createPoItem, updatePoItem, receivePo };
