@@ -3,6 +3,7 @@
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { QuoteList } from '../QuoteList';
@@ -15,11 +16,15 @@ vi.mock('react-router-dom', async () => {
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
+// GenerateQuoteModal (opened by "New Quote") also fetches the product/add-on
+// catalog via the raw authedFetch, not the typed `api` client — mock it too.
+const mockAuthedFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [] }) });
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
     POST: (...args: unknown[]) => mockApiPost(...args),
   },
+  authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
@@ -82,12 +87,22 @@ describe('QuoteList page', () => {
   });
 
   // Regression: "New Quote" used to open a modal where the user typed
-  // subtotal/tax/total by hand. It now creates a minimal draft (client +
-  // quote number + optional valid-until/tax-rate/notes) and navigates
-  // straight to QuoteDetail to build line items — mirroring how invoices are
-  // built (header first, then items), the same "create header, then
-  // navigate" flow the PR brief asked for.
-  it('New Quote creates a draft and navigates to its detail page', async () => {
+  // subtotal/tax/total by hand (then, briefly, a minimal draft-only modal
+  // requiring a hand-typed quote number). It now opens GenerateQuoteModal —
+  // the same all-at-once client + line-items builder invoices use — and
+  // quote_number is auto-assigned server-side (migration 389), so the
+  // create flow genuinely mirrors "make an invoice."
+  it('New Quote opens GenerateQuoteModal, submits to /quotes/generate, and navigates to the new quote', async () => {
+    const user = userEvent.setup();
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/quotes')
+        return Promise.resolve({ data: { data: [quote1], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      if (path === '/contracts')
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
     mockApiPost.mockResolvedValue({
       data: { data: { id: 42, client_id: 10, quote_number: 'QUO-000042', status: 'draft' } },
       error: undefined,
@@ -97,32 +112,33 @@ describe('QuoteList page', () => {
     await waitFor(() => expect(screen.getByText('🧮 Quotes')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('+ New Quote'));
-    await waitFor(() => expect(screen.getByRole('dialog', { name: 'New quote' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Generate Quote' })).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText(/Client/), { target: { value: '10' } });
-    fireEvent.change(screen.getByPlaceholderText('e.g. QUO-000001'), { target: { value: 'QUO-000042' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create Quote' }));
+    // Pick the client, add a custom item (no product catalog needed here),
+    // fill it in, and submit — mirroring GenerateInvoiceModal's flow exactly.
+    // (The Client <label> isn't associated with its <select> — same
+    // pre-existing gap as GenerateInvoiceModal, which this modal clones — so
+    // find the select by its placeholder option rather than getByLabelText.
+    // Must wait for the clients query to resolve before changing the select,
+    // or the option doesn't exist yet and the change is silently dropped.)
+    await screen.findByRole('option', { name: 'María García' });
+    const clientSelect = screen.getByText('— select client —').closest('select')!;
+    fireEvent.change(clientSelect, { target: { value: '10' } });
+    await user.click(screen.getByTitle('Add Custom item'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Site survey'), { target: { value: 'Site survey' } });
+    fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '2' } });
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '75' } });
+    await user.click(screen.getByRole('button', { name: 'Generate' }));
 
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
-      '/quotes',
-      expect.objectContaining({ body: expect.objectContaining({ client_id: 10, quote_number: 'QUO-000042' }) }),
+      '/quotes/generate',
+      expect.objectContaining({
+        body: expect.objectContaining({
+          client_id: 10,
+          items: [expect.objectContaining({ type: 'custom', description: 'Site survey', quantity: 2, unit_price: 75 })],
+        }),
+      }),
     ));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/quotes/42'));
-  });
-
-  it('New Quote modal requires a quote number before submitting', async () => {
-    renderQuoteList();
-    await waitFor(() => expect(screen.getByText('🧮 Quotes')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByText('+ New Quote'));
-    await waitFor(() => expect(screen.getByRole('dialog', { name: 'New quote' })).toBeInTheDocument());
-
-    // quote_number is HTML-required (there is no server-side auto-generated
-    // sequence for quotes, unlike invoices) — the browser blocks submission
-    // before our own onSubmit guard even runs.
-    fireEvent.change(screen.getByLabelText(/Client/), { target: { value: '10' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create Quote' }));
-
-    expect(mockApiPost).not.toHaveBeenCalled();
   });
 });

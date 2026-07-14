@@ -507,16 +507,34 @@ POST /api/suspension-rules
 
 ## Quotes Workflow
 
-Quotes are built the same way as invoices — a draft header, then line items
-added one at a time — and require an explicit approval step before they can
-become an invoice.
+Quotes are built the same way as invoices: pick a client, add contract /
+product / custom line items, and submit everything at once. `quote_number`
+is auto-assigned (`QUO-######`, atomic per-organization sequence — same
+mechanism as `invoice_number`), and an explicit approval step gates whether
+a quote can become an invoice.
 
-1. **Create a draft quote** — `POST /api/quotes` (`client_id` + a unique
-   `quote_number`; there is no auto-generated sequence for quotes the way
-   there is for invoices, so `quote_number` is required)
-2. **Add line items** — `POST /api/quotes/:id/items` for each item
-   (`description`, `quantity`, `unit_price`); `quote_items.total` is a
-   generated column (`quantity * unit_price`) computed by the database
+1. **Generate the quote** — `POST /api/quotes/generate`
+   (`{ client_id, items: [...] }`, mirrors `POST /api/invoices/generate`'s
+   flexible format). Each item is `{ type: 'contract'|'product'|'custom', ... }`:
+   - `contract` — `{ type: 'contract', contract_id }`, priced at the
+     contract's current plan price (`price_override` or the plan's price).
+     Unlike invoice generation, this never touches `billing_periods` — a
+     quote is only an estimate and may never be accepted.
+   - `product` / `custom` — `{ type, description, quantity, unit_price }`
+     (the product-vs-custom distinction is a frontend-only label; the
+     product catalog lookup that fills in `description`/`unit_price` happens
+     client-side against `GET /plans/addons/catalog`).
+   The response is the created quote (`status: 'draft'`, `quote_number`
+   auto-assigned, `subtotal`/`tax_amount`/`total` computed from the org's
+   default tax rate as a **fraction** — `subtotal * tax_rate`, never `* 100`).
+   `requirePermission('quotes.create')`.
+2. **Add more line items later** (optional) — `POST /api/quotes/:id/items`
+   for a single item (`description`, `quantity`, `unit_price`);
+   `quote_items.total` is a generated column (`quantity * unit_price`)
+   computed by the database. Used by the quote detail page to extend an
+   already-created quote; `POST /api/quotes` (plain create, no items) also
+   auto-assigns `quote_number` when omitted, for callers that don't need the
+   full generate flow.
 3. **Approve or reject** — `POST /api/quotes/:id/approve` or
    `POST /api/quotes/:id/reject` (requires `quotes.update`; any user who can
    edit quotes can decide one — there is no separate approval permission).
@@ -528,22 +546,13 @@ become an invoice.
    invoice's `invoice_items` and the invoice is returned.
 
 ```http
-POST /api/quotes
+POST /api/quotes/generate
 {
   "client_id": 5,
-  "quote_number": "QUO-000042",
-  "valid_until": "2026-08-01",
-  "tax_rate": 0.16
-}
-```
-
-```http
-POST /api/quotes/42/items
-{
-  "description": "Installation fee",
-  "quantity": 1,
-  "unit_price": 500,
-  "amount": 500
+  "items": [
+    { "type": "contract", "contract_id": 12 },
+    { "type": "custom", "description": "Site survey", "quantity": 1, "unit_price": 500 }
+  ]
 }
 ```
 

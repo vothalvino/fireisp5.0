@@ -22,7 +22,32 @@ router.use(orgScope);
 
 router.get('/', requirePermission('quotes.view'), ctrl.list);
 router.get('/:id', requirePermission('quotes.view'), ctrl.get);
-router.post('/', requirePermission('quotes.create'), validate(createQuote), ctrl.create);
+// Auto-assign quote_number (migration 389's organization_quote_sequences,
+// mirroring how invoice_number is never required from the caller) when the
+// request didn't supply one. Runs its own short-lived transaction — a
+// numbering gap on a rare downstream INSERT failure is acceptable (the
+// sequence only guarantees no duplicates, same contract nextInvoiceNumber
+// documents); an explicit quote_number is still honored as-is.
+router.post('/', requirePermission('quotes.create'), validate(createQuote), async (req, res, next) => {
+  try {
+    if (!req.body.quote_number) {
+      const conn = await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        req.body.quote_number = await billingService.nextQuoteNumber(conn, req.orgId);
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
+    return ctrl.create(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
 router.put('/:id', requirePermission('quotes.update'), validate(updateQuote), ctrl.update);
 router.delete('/:id', requirePermission('quotes.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('quotes.update'), ctrl.restore);
@@ -42,6 +67,163 @@ router.post('/:id/items', requirePermission('quotes.update'), validate(createQuo
   try {
     const item = await Quote.addItem({ quote_id: req.params.id, ...req.body });
     res.status(201).json({ data: item });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Generate a quote with line items in one shot — mirrors POST
+// /invoices/generate's FLEXIBLE format ({ client_id, items: [...] }) as
+// closely as a quote (an unbilled estimate) can. This is the real "create a
+// quote like an invoice" flow: the frontend's GenerateQuoteModal is a clone
+// of GenerateInvoiceModal (same client/contract/product-catalog pickers,
+// same three item types), submitting everything here at once instead of the
+// per-item POST /:id/items above (which still exists for adding items to an
+// already-created quote from QuoteDetail).
+//
+// Deliberately does NOT reuse billingService.generateBillingPeriod() for
+// 'contract' items — that function has side effects (creates or reuses a
+// REAL billing_periods row, later marked 'invoiced' when an actual invoice
+// is generated). A quote is just an estimate that may never be accepted, so
+// resolving its price here is read-only: contract + plan lookup only, same
+// price fallback (`contract.price_override || plan.price`) invoice
+// generation uses, no billing_periods write.
+//
+// 'product' and 'custom' items are handled identically to
+// POST /invoices/generate (the type tag is a frontend/UX distinction only —
+// both trust the client-supplied description/quantity/unit_price; the
+// product catalog lookup that fills those in happens client-side against the
+// same GET /plans/addons/catalog GenerateInvoiceModal already uses).
+router.post('/generate', requirePermission('quotes.create'), async (req, res, next) => {
+  try {
+    const { client_id, items } = req.body;
+
+    if (!client_id || !Array.isArray(items) || items.length === 0) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'client_id and a non-empty items array are required',
+        },
+      });
+    }
+
+    // Validate client belongs to org
+    const [clientRows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [client_id, req.orgId],
+    );
+    if (!clientRows[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Client not found' } });
+    }
+
+    // Pre-process items (read-only — no billing_periods writes for a quote)
+    const lineItems = [];
+    let currency = 'USD';
+    let subtotal = 0;
+    const contractIds = new Set(); // distinct contracts referenced by contract-charge items
+
+    for (const item of items) {
+      const type = item.type;
+
+      if (type === 'contract') {
+        if (!item.contract_id) {
+          return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'contract_id is required for contract-charge items' } });
+        }
+        const [contractRows] = await db.query(
+          'SELECT * FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+          [item.contract_id, req.orgId],
+        );
+        if (!contractRows[0]) {
+          return res.status(404).json({ error: { code: 'NOT_FOUND', message: `Contract ${item.contract_id} not found` } });
+        }
+        const contract = contractRows[0];
+        contractIds.add(contract.id);
+
+        // No deleted_at filter: an existing contract can be quoted against
+        // its plan even when that plan has been archived (mirrors invoice
+        // generation's identical comment).
+        const [planRows] = await db.query('SELECT * FROM plans WHERE id = ?', [contract.plan_id]);
+        if (!planRows[0]) {
+          return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Plan not found for contract' } });
+        }
+        const plan = planRows[0];
+
+        const price = parseFloat(contract.price_override || plan.price);
+        currency = plan.currency || 'USD';
+
+        lineItems.push({
+          description: `${plan.name} (Contract #${contract.id})`,
+          quantity: 1,
+          unit_price: price,
+        });
+        subtotal += price;
+      } else if (type === 'product' || type === 'custom') {
+        if (!item.description || String(item.description).trim() === '') {
+          return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'description is required for product/custom items' } });
+        }
+        const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
+        const up = Math.max(parseFloat(item.unit_price) || 0, 0);
+        const amount = Math.round(qty * up * 100) / 100;
+        lineItems.push({ description: String(item.description).trim(), quantity: qty, unit_price: up });
+        subtotal += amount;
+      } else {
+        return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown item type: ${type}` } });
+      }
+    }
+
+    // Link the quote to a contract only when every contract-charge line
+    // points at the SAME single contract (mirrors invoice generation).
+    const quoteContractId = contractIds.size === 1 ? [...contractIds][0] : null;
+
+    // Same default-tax-rate lookup + fraction math as POST /invoices/generate
+    // — tax_rate is a FRACTION (e.g. 0.1600 = 16%), never multiplied by an
+    // extra 100.
+    const [taxRates] = await db.query(
+      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
+      [req.orgId],
+    );
+    const taxRate = taxRates[0];
+    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    subtotal = Math.round(subtotal * 100) / 100;
+    const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Atomic per-org sequence (migration 389, mirroring migration 381) —
+      // race-free under concurrent quote generation for the same org.
+      const quoteNumber = await billingService.nextQuoteNumber(conn, req.orgId);
+
+      const [quoteResult] = await conn.execute(
+        `INSERT INTO quotes
+           (organization_id, client_id, contract_id, quote_number, subtotal, tax_amount,
+            total, currency, tax_rate, tax_rate_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        [req.orgId, client_id, quoteContractId, quoteNumber, subtotal, taxAmount, total,
+          currency, taxPct, taxRate?.id || null],
+      );
+      const quoteId = quoteResult.insertId;
+
+      // No per-item tax_rate_id (NULL = inherit from the parent quote),
+      // matching POST /invoices/generate's invoice_items INSERT exactly.
+      for (const li of lineItems) {
+        await conn.execute(
+          'INSERT INTO quote_items (quote_id, description, quantity, unit_price) VALUES (?, ?, ?, ?)',
+          [quoteId, li.description, li.quantity, li.unit_price],
+        );
+      }
+
+      await conn.commit();
+      const quote = await Quote.findById(quoteId, req.orgId);
+      return res.status(201).json({ data: quote });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }

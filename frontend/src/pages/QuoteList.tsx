@@ -5,12 +5,14 @@
 //   • Status filter
 //   • Paginated table (number, client, total, valid-until, status), each row
 //     linking to /quotes/:id (QuoteDetail) — mirrors InvoiceList.
-//   • "New Quote" creates a minimal draft quote (client + valid_until +
-//     notes) then navigates straight to QuoteDetail to build line items,
-//     the same "create header, then build" flow as invoices, adapted to
-//     quotes' per-item POST (quotes have no bulk "generate" endpoint).
+//   • "New Quote" opens GenerateQuoteModal — a clone of GenerateInvoiceModal
+//     (client + contract/product/custom line items, submitted all at once to
+//     POST /quotes/generate) — then navigates straight to QuoteDetail. This
+//     is the real "create a quote like an invoice" flow; quote_number is
+//     auto-assigned (migration 389's organization_quote_sequences), same as
+//     invoice_number.
 //   • Delete (soft-delete).
-// Editing quote metadata, approving/rejecting, adding line items, and
+// Editing quote metadata, approving/rejecting, adding more line items, and
 // converting to an invoice all live on QuoteDetail now — not here — mirroring
 // how InvoiceList has no per-row Edit/actions beyond bulk-void; those live on
 // InvoiceDetail.
@@ -21,11 +23,10 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { extractApiError } from '@/components/ClientFormModal';
+import { GenerateQuoteModal, type GeneratedQuote } from '@/components/GenerateQuoteModal';
 import {
   styles,
   modalStyles,
-  RequiredMark,
   fmtMoney,
   fmtDate,
   capitalize,
@@ -60,17 +61,6 @@ interface Client {
   name: string;
 }
 
-interface CreateQuoteBody {
-  client_id: number;
-  // The quote_number column is NOT NULL with no server-side default/sequence
-  // (unlike invoices' atomic nextInvoiceNumber()) — must be required here,
-  // not left to "auto-generate" like the old form's placeholder implied.
-  quote_number: string;
-  valid_until?: string;
-  tax_rate?: number;
-  notes?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -96,12 +86,6 @@ async function fetchClients(): Promise<Client[]> {
   return (res.data as unknown as { data: Client[] }).data;
 }
 
-async function createQuote(body: CreateQuoteBody): Promise<Quote> {
-  const { data, error: e } = await api.POST('/quotes', { body: body as never });
-  if (e) throw new Error(extractApiError(e, 'Failed to create quote'));
-  return (data as unknown as { data: Quote }).data;
-}
-
 async function deleteQuote(id: number): Promise<void> {
   const res = await api.DELETE('/quotes/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete quote');
@@ -124,128 +108,6 @@ function StatusBadge({ status }: { status: string }) {
     <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600, textTransform: 'capitalize' }}>
       {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Create Quote modal — mirrors invoices' "create header, then build" flow:
-// just enough to create a draft quote (client + quote number + optional
-// valid-until/tax-rate/notes). Line items, metadata edits, approve/reject
-// and convert-to-invoice all happen on QuoteDetail after creation — the
-// caller navigates there on success.
-// ---------------------------------------------------------------------------
-
-interface CreateQuoteModalProps {
-  clients: Client[];
-  onClose: () => void;
-  onCreated: (quote: Quote) => void;
-}
-
-function CreateQuoteModal({ clients, onClose, onCreated }: CreateQuoteModalProps) {
-  const [form, setForm] = useState({
-    client_id: '',
-    quote_number: '',
-    valid_until: '',
-    tax_rate: '',
-    notes: '',
-  });
-  const [error, setError] = useState('');
-
-  function setField(name: keyof typeof form, value: string) {
-    setForm(prev => ({ ...prev, [name]: value }));
-  }
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const body: CreateQuoteBody = {
-        client_id: Number(form.client_id),
-        quote_number: form.quote_number.trim(),
-      };
-      if (form.valid_until) body.valid_until = form.valid_until;
-      if (form.tax_rate !== '') body.tax_rate = Number(form.tax_rate);
-      if (form.notes) body.notes = form.notes;
-      return createQuote(body);
-    },
-    onSuccess: (quote) => {
-      onCreated(quote);
-      onClose();
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.client_id) {
-      setError('Client is required.');
-      return;
-    }
-    if (!form.quote_number.trim()) {
-      setError('Quote number is required.');
-      return;
-    }
-    setError('');
-    mutation.mutate();
-  }
-
-  return (
-    <div style={modalStyles.backdrop} onClick={onClose}>
-      <div
-        style={modalStyles.panel}
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="New quote"
-      >
-        <div style={modalStyles.header}>
-          <h2 style={modalStyles.title}>🧮 New Quote</h2>
-          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={modalStyles.form}>
-          <label style={modalStyles.label}>
-            Client <RequiredMark />
-            <select
-              style={modalStyles.select}
-              value={form.client_id}
-              onChange={e => setField('client_id', e.target.value)}
-              required
-            >
-              <option value="">— select client —</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
-
-          <label style={modalStyles.label}>
-            Quote Number <RequiredMark />
-            <input style={modalStyles.input} type="text" maxLength={50} value={form.quote_number} onChange={e => setField('quote_number', e.target.value)} placeholder="e.g. QUO-000001" required />
-          </label>
-
-          <label style={modalStyles.label}>
-            Valid Until
-            <input style={modalStyles.input} type="date" value={form.valid_until} onChange={e => setField('valid_until', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Tax Rate (0–1, e.g. 0.16)
-            <input style={modalStyles.input} type="number" min={0} max={1} step="0.0001" value={form.tax_rate} onChange={e => setField('tax_rate', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Notes
-            <input style={modalStyles.input} type="text" maxLength={5000} value={form.notes} onChange={e => setField('notes', e.target.value)} />
-          </label>
-
-          {error && <p style={modalStyles.error}>{error}</p>}
-
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
-            <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Creating…' : 'Create Quote'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -400,10 +262,9 @@ export function QuoteList() {
       </div>
 
       {showNew && (
-        <CreateQuoteModal
-          clients={clients}
+        <GenerateQuoteModal
           onClose={() => setShowNew(false)}
-          onCreated={(quote) => {
+          onGenerated={(quote: GeneratedQuote) => {
             queryClient.invalidateQueries({ queryKey: ['quotes'] });
             navigate(`/quotes/${quote.id}`);
           }}

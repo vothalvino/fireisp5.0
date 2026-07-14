@@ -6790,6 +6790,42 @@
         }
       }
     },
+    "/quotes/generate": {
+      "post": {
+        "tags": [
+          "Quotes"
+        ],
+        "summary": "Generate a quote with line items (client_id + items[], mirrors /invoices/generate)",
+        "operationId": "generateQuote",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "client_id + items[]",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quote",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/quotes/{id}/convert-to-invoice": {
       "post": {
         "tags": [

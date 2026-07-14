@@ -1087,6 +1087,167 @@ describe('Quote Routes — /api/quotes', () => {
     });
   });
 
+  describe('POST /api/quotes (auto-numbering, migration 389)', () => {
+    test('auto-assigns quote_number via billingService.nextQuoteNumber when omitted', async () => {
+      mockAuthUser();
+      const conn = mockConnection();
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000050');
+      Quote.create.mockResolvedValue({ id: 40, quote_number: 'QUO-000050', client_id: 5, status: 'draft' });
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5 });
+
+      expect(res.status).toBe(201);
+      expect(billingService.nextQuoteNumber).toHaveBeenCalledWith(conn, 1);
+      expect(Quote.create).toHaveBeenCalledWith(expect.objectContaining({ quote_number: 'QUO-000050' }));
+      expect(conn.commit).toHaveBeenCalled();
+    });
+
+    test('honors an explicit quote_number and never calls nextQuoteNumber', async () => {
+      mockAuthUser();
+      Quote.create.mockResolvedValue({ id: 41, quote_number: 'CUSTOM-1', client_id: 5, status: 'draft' });
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, quote_number: 'CUSTOM-1' });
+
+      expect(res.status).toBe(201);
+      expect(billingService.nextQuoteNumber).not.toHaveBeenCalled();
+      expect(Quote.create).toHaveBeenCalledWith(expect.objectContaining({ quote_number: 'CUSTOM-1' }));
+    });
+  });
+
+  describe('POST /api/quotes/generate', () => {
+    test('success — generates a quote from a contract item, stamps contract_id, and auto-numbers it', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '299.00', currency: 'MXN' }]]);
+        return Promise.resolve([[]]); // tax_rates (no default)
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000042');
+      Quote.findById.mockResolvedValue({ id: 30, quote_number: 'QUO-000042', status: 'draft' });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 30, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      expect(quoteInsert).toBeDefined();
+      // columns: (organization_id, client_id, contract_id, quote_number, …)
+      expect(quoteInsert[1][2]).toBe(7);
+      expect(quoteInsert[1][3]).toBe('QUO-000042');
+    });
+
+    test('success — generates a quote from a custom item (no contract needed)', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000043');
+      Quote.findById.mockResolvedValue({ id: 31 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 31, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'custom', description: 'Site survey', quantity: 1, unit_price: 150 }] });
+
+      expect(res.status).toBe(201);
+      const itemInsert = conn.execute.mock.calls.find(c => /INSERT INTO quote_items/.test(c[0]));
+      expect(itemInsert).toBeDefined();
+      expect(itemInsert[1]).toEqual([31, 'Site survey', 1, 150]);
+    });
+
+    // Regression: tax_rate is a FRACTION (DECIMAL(5,4); 0.1600 = 16%) — this
+    // fails if the formula regresses to `* taxPct) / 100` (the historical
+    // 100x-tax bug class).
+    test('computes tax correctly from a fraction tax_rates.rate — no 100x bug', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '500.00', currency: 'MXN' }]]);
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[{ id: 1, rate: '0.1600', is_default: true }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000044');
+      Quote.findById.mockResolvedValue({ id: 32 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 32, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      // columns: (…, quote_number, subtotal, tax_amount, total, …)
+      expect(quoteInsert[1][4]).toBe(500); // subtotal
+      expect(quoteInsert[1][5]).toBe(80);  // tax_amount
+      expect(quoteInsert[1][6]).toBe(580); // total
+    });
+
+    test('returns 404 when client not found', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[]]);
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 999, items: [{ type: 'custom', description: 'x', quantity: 1, unit_price: 10 }] });
+
+      expect(res.status).toBe(404);
+    });
+
+    test('returns 404 when a referenced contract is not found', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 999 }] });
+
+      expect(res.status).toBe(404);
+    });
+
+    test('returns 422 when items is missing or empty', async () => {
+      mockAuthUser();
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [] });
+
+      expect(res.status).toBe(422);
+    });
+  });
+
   describe('POST /api/quotes/:id/approve', () => {
     test('success — sets status to accepted', async () => {
       mockAuthUser();
