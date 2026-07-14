@@ -466,6 +466,73 @@
     "loading": "Cargando…",
     "error": "Error al cargar facturas."
   },
+  "quoteDetail": {
+    "breadcrumb": "Cotizaciones",
+    "loading": "Cargando…",
+    "loadingItems": "Cargando artículos…",
+    "notFound": "Cotización no encontrada.",
+    "clientLabel": "Cliente:",
+    "notesLabel": "Notas:",
+    "lineItems": "Artículos",
+    "noItems": "Aún no hay artículos. Agregue uno abajo.",
+    "convertGuard": "Solo las cotizaciones aceptadas se pueden convertir en factura.",
+    "meta": {
+      "status": "Estado",
+      "total": "Total",
+      "subtotal": "Subtotal",
+      "tax": "Impuesto",
+      "currency": "Moneda",
+      "validUntil": "Válida hasta",
+      "issueDate": "Fecha de emisión",
+      "created": "Creado",
+      "contract": "Contrato"
+    },
+    "table": {
+      "description": "Descripción",
+      "qty": "Cant.",
+      "unitPrice": "Precio unitario",
+      "total": "Total"
+    },
+    "form": {
+      "description": "Descripción",
+      "quantity": "Cantidad",
+      "unitPrice": "Precio unitario"
+    },
+    "actions": {
+      "downloadPdf": "Descargar PDF",
+      "edit": "Editar",
+      "approve": "Aprobar",
+      "approving": "Aprobando…",
+      "reject": "Rechazar",
+      "rejecting": "Rechazando…",
+      "convert": "Convertir en factura",
+      "converting": "Convirtiendo…",
+      "cancel": "Cancelar",
+      "save": "Guardar cambios",
+      "saving": "Guardando…",
+      "add": "Agregar artículo",
+      "adding": "Agregando…"
+    },
+    "editTitle": "Editar cotización",
+    "editFields": {
+      "quoteNumber": "Número de cotización",
+      "validUntil": "Válida hasta",
+      "currency": "Moneda",
+      "taxRate": "Tasa de impuesto (0–1, p. ej. 0.16)",
+      "subtotal": "Subtotal",
+      "taxAmount": "Impuesto",
+      "total": "Total",
+      "notes": "Notas"
+    },
+    "toasts": {
+      "itemAdded": "Artículo agregado.",
+      "approved": "Cotización aprobada.",
+      "rejected": "Cotización rechazada.",
+      "converted": "Cotización convertida en factura.",
+      "updated": "Cotización actualizada.",
+      "errorPrefix": "Error"
+    }
+  },
   "paymentMethods": {
     "cash": "Efectivo",
     "check": "Cheque",

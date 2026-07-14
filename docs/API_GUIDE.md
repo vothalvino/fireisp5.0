@@ -505,6 +505,58 @@ POST /api/suspension-rules
 
 ---
 
+## Quotes Workflow
+
+Quotes are built the same way as invoices — a draft header, then line items
+added one at a time — and require an explicit approval step before they can
+become an invoice.
+
+1. **Create a draft quote** — `POST /api/quotes` (`client_id` + a unique
+   `quote_number`; there is no auto-generated sequence for quotes the way
+   there is for invoices, so `quote_number` is required)
+2. **Add line items** — `POST /api/quotes/:id/items` for each item
+   (`description`, `quantity`, `unit_price`); `quote_items.total` is a
+   generated column (`quantity * unit_price`) computed by the database
+3. **Approve or reject** — `POST /api/quotes/:id/approve` or
+   `POST /api/quotes/:id/reject` (requires `quotes.update`; any user who can
+   edit quotes can decide one — there is no separate approval permission).
+   Both are lenient: a quote can be approved/rejected from any status,
+   including re-deciding an already-accepted or already-rejected quote.
+4. **Convert to invoice** — `POST /api/quotes/:id/convert-to-invoice` only
+   succeeds once the quote's status is `accepted`; otherwise it returns
+   `409 QUOTE_NOT_ACCEPTED`. On success the quote's items are copied to a new
+   invoice's `invoice_items` and the invoice is returned.
+
+```http
+POST /api/quotes
+{
+  "client_id": 5,
+  "quote_number": "QUO-000042",
+  "valid_until": "2026-08-01",
+  "tax_rate": 0.16
+}
+```
+
+```http
+POST /api/quotes/42/items
+{
+  "description": "Installation fee",
+  "quantity": 1,
+  "unit_price": 500,
+  "amount": 500
+}
+```
+
+```http
+POST /api/quotes/42/approve
+```
+
+```http
+POST /api/quotes/42/convert-to-invoice
+```
+
+---
+
 ## CFDI 4.0 Workflow (Mexico)
 
 FireISP supports Mexican fiscal compliance with CFDI 4.0 electronic invoicing.

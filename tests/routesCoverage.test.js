@@ -1087,8 +1087,62 @@ describe('Quote Routes — /api/quotes', () => {
     });
   });
 
+  describe('POST /api/quotes/:id/approve', () => {
+    test('success — sets status to accepted', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'accepted' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/approve')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ status: 'accepted' });
+      expect(Quote.update).toHaveBeenCalledWith('1', { status: 'accepted' }, 1);
+    });
+
+    test('returns 404 when quote not found or not in this org', async () => {
+      mockAuthUser();
+      const { NotFoundError } = require('../src/utils/errors');
+      Quote.update.mockRejectedValue(new NotFoundError('quotes'));
+
+      const res = await request(app)
+        .post('/api/quotes/999/approve')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /api/quotes/:id/reject', () => {
+    test('success — sets status to rejected', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'rejected' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/reject')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ status: 'rejected' });
+      expect(Quote.update).toHaveBeenCalledWith('1', { status: 'rejected' }, 1);
+    });
+
+    test('can re-decide an already-accepted quote back to rejected', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'rejected' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/reject')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('rejected');
+    });
+  });
+
   describe('POST /api/quotes/:id/convert-to-invoice', () => {
-    test('success — converts quote to invoice', async () => {
+    test('success — converts an accepted quote to invoice', async () => {
       mockAuthUser();
       const conn = mockConnection();
       // billingService is jest.mock()'d whole-module in this file, so
@@ -1099,7 +1153,7 @@ describe('Quote Routes — /api/quotes', () => {
         .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
         .mockResolvedValue([{ insertId: 1, affectedRows: 1 }]); // item insert + quote update
 
-      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
+      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status: 'accepted' }]]);
       Invoice.findById.mockResolvedValue({ id: 50, total: '116.00' });
 
       const res = await request(app)
@@ -1122,7 +1176,7 @@ describe('Quote Routes — /api/quotes', () => {
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // item insert
         .mockRejectedValueOnce(new Error('update failed')); // quote status update fails
 
-      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
+      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status: 'accepted' }]]);
 
       const res = await request(app)
         .post('/api/quotes/1/convert-to-invoice')
@@ -1146,6 +1200,25 @@ describe('Quote Routes — /api/quotes', () => {
 
       expect(res.status).toBe(404);
     });
+
+    // Regression: this route used to convert (and silently flip to 'accepted')
+    // regardless of status — a 'draft' or even 'rejected' quote could become an
+    // invoice with no approval step at all. The approve/reject endpoints above
+    // are now the only door in.
+    test.each(['draft', 'sent', 'rejected', 'expired'])(
+      'returns 409 when quote status is %s (not yet approved)',
+      async (status) => {
+        mockAuthUser();
+        db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status }]]);
+
+        const res = await request(app)
+          .post('/api/quotes/1/convert-to-invoice')
+          .set('Authorization', `Bearer ${authToken}`);
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('QUOTE_NOT_ACCEPTED');
+      },
+    );
   });
 });
 

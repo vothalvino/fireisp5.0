@@ -466,6 +466,73 @@
     "loading": "Loading…",
     "error": "Failed to load invoices."
   },
+  "quoteDetail": {
+    "breadcrumb": "Quotes",
+    "loading": "Loading…",
+    "loadingItems": "Loading items…",
+    "notFound": "Quote not found.",
+    "clientLabel": "Client:",
+    "notesLabel": "Notes:",
+    "lineItems": "Line Items",
+    "noItems": "No line items yet. Add one below.",
+    "convertGuard": "Only accepted quotes can be converted to an invoice.",
+    "meta": {
+      "status": "Status",
+      "total": "Total",
+      "subtotal": "Subtotal",
+      "tax": "Tax",
+      "currency": "Currency",
+      "validUntil": "Valid Until",
+      "issueDate": "Issue Date",
+      "created": "Created",
+      "contract": "Contract"
+    },
+    "table": {
+      "description": "Description",
+      "qty": "Qty",
+      "unitPrice": "Unit Price",
+      "total": "Total"
+    },
+    "form": {
+      "description": "Description",
+      "quantity": "Quantity",
+      "unitPrice": "Unit Price"
+    },
+    "actions": {
+      "downloadPdf": "Download PDF",
+      "edit": "Edit",
+      "approve": "Approve",
+      "approving": "Approving…",
+      "reject": "Reject",
+      "rejecting": "Rejecting…",
+      "convert": "Convert to Invoice",
+      "converting": "Converting…",
+      "cancel": "Cancel",
+      "save": "Save Changes",
+      "saving": "Saving…",
+      "add": "Add Item",
+      "adding": "Adding…"
+    },
+    "editTitle": "Edit Quote",
+    "editFields": {
+      "quoteNumber": "Quote Number",
+      "validUntil": "Valid Until",
+      "currency": "Currency",
+      "taxRate": "Tax Rate (0–1, e.g. 0.16)",
+      "subtotal": "Subtotal",
+      "taxAmount": "Tax",
+      "total": "Total",
+      "notes": "Notes"
+    },
+    "toasts": {
+      "itemAdded": "Line item added.",
+      "approved": "Quote approved.",
+      "rejected": "Quote rejected.",
+      "converted": "Quote converted to invoice.",
+      "updated": "Quote updated.",
+      "errorPrefix": "Error"
+    }
+  },
   "paymentMethods": {
     "cash": "Cash",
     "check": "Check",

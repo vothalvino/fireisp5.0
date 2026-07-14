@@ -6795,7 +6795,7 @@
         "tags": [
           "Quotes"
         ],
-        "summary": "Convert quote to invoice",
+        "summary": "Convert an accepted quote to an invoice",
         "operationId": "convertQuoteToInvoice",
         "security": [
           {
@@ -6815,6 +6815,78 @@
         "responses": {
           "201": {
             "description": "Invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quotes/{id}/approve": {
+      "post": {
+        "tags": [
+          "Quotes"
+        ],
+        "summary": "Approve a quote (sets status to accepted)",
+        "operationId": "approveQuote",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quote",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quotes/{id}/reject": {
+      "post": {
+        "tags": [
+          "Quotes"
+        ],
+        "summary": "Reject a quote (sets status to rejected)",
+        "operationId": "rejectQuote",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quote",
             "content": {
               "application/json": {
                 "schema": {

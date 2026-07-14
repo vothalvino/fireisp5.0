@@ -47,6 +47,29 @@ router.post('/:id/items', requirePermission('quotes.update'), validate(createQuo
   }
 });
 
+// Approve a quote — any user with quotes.update (no dedicated approval
+// permission; see PR brief) can accept a quote in any status, including
+// re-deciding an already accepted/rejected one. Org-scoped + soft-delete
+// guarded via BaseModel.update (WHERE organization_id = ? AND deleted_at IS NULL).
+router.post('/:id/approve', requirePermission('quotes.update'), async (req, res, next) => {
+  try {
+    const updated = await Quote.update(req.params.id, { status: 'accepted' }, req.orgId);
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reject a quote — same permission and leniency as approve (see above).
+router.post('/:id/reject', requirePermission('quotes.update'), async (req, res, next) => {
+  try {
+    const updated = await Quote.update(req.params.id, { status: 'rejected' }, req.orgId);
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Convert quote to invoice
 router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requirePermission('invoices.create'), async (req, res, next) => {
   try {
@@ -58,6 +81,19 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Quote not found' } });
     }
     const quote = quotes[0];
+
+    // Only an approved (accepted) quote may become an invoice — approve/reject
+    // (above) is the gate. A quote already converted has no separate "converted"
+    // status to detect (quotes carries no invoice_id back-reference), so this is
+    // the only guard available without a migration.
+    if (quote.status !== 'accepted') {
+      return res.status(409).json({
+        error: {
+          code: 'QUOTE_NOT_ACCEPTED',
+          message: `Only accepted quotes can be converted to an invoice (current status: ${quote.status}).`,
+        },
+      });
+    }
 
     const conn = await db.getConnection();
     try {
