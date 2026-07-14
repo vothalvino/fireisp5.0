@@ -13713,4 +13713,21 @@ CREATE TABLE IF NOT EXISTS organization_order_sequences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Atomic per-organization service-order-number counter (migration 384) — replaces the collision-prone COUNT(*)+1 pattern';
 
+-- ---------------------------------------------------------------------------
+-- Table: organization_quote_sequences (migration 389)
+-- Purpose: Atomic per-organization QUO-###### counter — quotes had no
+--          auto-numbering at all before this. Keyed directly on
+--          organization_id (sentinel 0 = NULL/single-tenant bucket) so
+--          nextQuoteNumber() can advance it atomically, mirroring
+--          organization_invoice_sequences (migration 381).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_quote_sequences (
+    organization_id BIGINT UNSIGNED NOT NULL COMMENT 'Owning tenant organisation; sentinel 0 = the NULL/single-tenant-deployment bucket (quotes.organization_id IS NULL) since primary keys cannot de-duplicate NULL',
+    next_number     BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Next QUO-###### sequence value to hand out; advanced atomically by billingService.nextQuoteNumber()',
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (organization_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Atomic per-organization quote-number counter (migration 389) — mirrors organization_invoice_sequences (migration 381)';
+
 SET FOREIGN_KEY_CHECKS = 1;

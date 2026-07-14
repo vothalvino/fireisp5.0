@@ -3,20 +3,30 @@
 // =============================================================================
 // Standalone page at /quotes. Lists sales quotes with:
 //   • Status filter
-//   • Paginated table (number, client, total, valid-until, status)
-//   • "New Quote" create modal, per-row Edit, Delete (soft-delete) and
-//     Convert-to-Invoice for non-cancelled quotes.
+//   • Paginated table (number, client, total, valid-until, status), each row
+//     linking to /quotes/:id (QuoteDetail) — mirrors InvoiceList.
+//   • "New Quote" opens GenerateQuoteModal — a clone of GenerateInvoiceModal
+//     (client + contract/product/custom line items, submitted all at once to
+//     POST /quotes/generate) — then navigates straight to QuoteDetail. This
+//     is the real "create a quote like an invoice" flow; quote_number is
+//     auto-assigned (migration 389's organization_quote_sequences), same as
+//     invoice_number.
+//   • Delete (soft-delete).
+// Editing quote metadata, approving/rejecting, adding more line items, and
+// converting to an invoice all live on QuoteDetail now — not here — mirroring
+// how InvoiceList has no per-row Edit/actions beyond bulk-void; those live on
+// InvoiceDetail.
 // All mutations go through the typed `api` client + React Query.
 // =============================================================================
 
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { GenerateQuoteModal, type GeneratedQuote } from '@/components/GenerateQuoteModal';
 import {
   styles,
   modalStyles,
-  RequiredMark,
   fmtMoney,
   fmtDate,
   capitalize,
@@ -51,18 +61,6 @@ interface Client {
   name: string;
 }
 
-interface QuoteBody {
-  client_id: number;
-  quote_number?: string;
-  valid_until?: string;
-  subtotal?: number;
-  tax_rate?: number;
-  tax_amount?: number;
-  total?: number;
-  notes?: string;
-  status?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -88,30 +86,9 @@ async function fetchClients(): Promise<Client[]> {
   return (res.data as unknown as { data: Client[] }).data;
 }
 
-async function createQuote(body: QuoteBody): Promise<void> {
-  const res = await api.POST('/quotes', { body: body as never });
-  if (res.error) throw new Error('Failed to create quote');
-}
-
-async function updateQuote(id: number, body: Partial<QuoteBody>): Promise<void> {
-  const res = await api.PUT('/quotes/{id}', {
-    params: { path: { id } },
-    body: body as never,
-  });
-  if (res.error) throw new Error('Failed to update quote');
-}
-
 async function deleteQuote(id: number): Promise<void> {
   const res = await api.DELETE('/quotes/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete quote');
-}
-
-async function convertQuote(id: number): Promise<void> {
-  const res = await api.POST('/quotes/{id}/convert-to-invoice', {
-    params: { path: { id } },
-    body: {} as never,
-  });
-  if (res.error) throw new Error('Failed to convert quote');
 }
 
 // ---------------------------------------------------------------------------
@@ -131,153 +108,6 @@ function StatusBadge({ status }: { status: string }) {
     <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600, textTransform: 'capitalize' }}>
       {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Quote form modal (create + edit)
-// ---------------------------------------------------------------------------
-
-interface QuoteModalProps {
-  quote: Quote | null;
-  clients: Client[];
-  onClose: () => void;
-  onSaved: () => void;
-}
-
-function QuoteModal({ quote, clients, onClose, onSaved }: QuoteModalProps) {
-  const isEdit = quote !== null;
-  const [form, setForm] = useState({
-    client_id: quote?.client_id != null ? String(quote.client_id) : '',
-    quote_number: quote?.quote_number ?? '',
-    valid_until: quote?.valid_until ? quote.valid_until.split('T')[0] : '',
-    subtotal: quote?.subtotal != null ? String(quote.subtotal) : '',
-    tax_rate: quote?.tax_rate != null ? String(quote.tax_rate) : '',
-    tax_amount: quote?.tax_amount != null ? String(quote.tax_amount) : '',
-    total: quote?.total != null ? String(quote.total) : '',
-    notes: quote?.notes ?? '',
-    status: quote?.status ?? 'draft',
-  });
-  const [error, setError] = useState('');
-
-  function setField(name: string, value: unknown) {
-    setForm(prev => ({ ...prev, [name]: value }));
-  }
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const body: QuoteBody = {
-        client_id: Number(form.client_id),
-        status: form.status,
-      };
-      if (form.quote_number) body.quote_number = form.quote_number;
-      if (form.valid_until) body.valid_until = form.valid_until;
-      if (form.subtotal) body.subtotal = Number(form.subtotal);
-      if (form.tax_rate) body.tax_rate = Number(form.tax_rate);
-      if (form.tax_amount) body.tax_amount = Number(form.tax_amount);
-      if (form.total) body.total = Number(form.total);
-      if (form.notes) body.notes = form.notes;
-      return isEdit ? updateQuote(quote.id, body) : createQuote(body);
-    },
-    onSuccess: () => {
-      onSaved();
-      onClose();
-    },
-    onError: () => setError('Failed to save quote. Check all fields and try again.'),
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.client_id) {
-      setError('Client is required.');
-      return;
-    }
-    setError('');
-    mutation.mutate();
-  }
-
-  return (
-    <div style={modalStyles.backdrop} onClick={onClose}>
-      <div
-        style={modalStyles.panel}
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={isEdit ? `Edit quote ${quote.quote_number ?? quote.id}` : 'New quote'}
-      >
-        <div style={modalStyles.header}>
-          <h2 style={modalStyles.title}>{isEdit ? `📝 Edit Quote #${quote.id}` : '🧮 New Quote'}</h2>
-          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={modalStyles.form}>
-          <label style={modalStyles.label}>
-            Client <RequiredMark />
-            <select
-              style={modalStyles.select}
-              value={form.client_id}
-              onChange={e => setField('client_id', e.target.value)}
-              required
-              disabled={isEdit}
-            >
-              <option value="">— select client —</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
-
-          <label style={modalStyles.label}>
-            Quote Number
-            <input style={modalStyles.input} type="text" maxLength={50} value={form.quote_number} onChange={e => setField('quote_number', e.target.value)} placeholder="auto-generated if blank" />
-          </label>
-
-          <label style={modalStyles.label}>
-            Valid Until
-            <input style={modalStyles.input} type="date" value={form.valid_until} onChange={e => setField('valid_until', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Subtotal
-            <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.subtotal} onChange={e => setField('subtotal', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Tax Rate (0–1, e.g. 0.16)
-            <input style={modalStyles.input} type="number" min={0} max={1} step="0.0001" value={form.tax_rate} onChange={e => setField('tax_rate', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Tax Amount
-            <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.tax_amount} onChange={e => setField('tax_amount', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Total
-            <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.total} onChange={e => setField('total', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Notes
-            <input style={modalStyles.input} type="text" maxLength={5000} value={form.notes} onChange={e => setField('notes', e.target.value)} />
-          </label>
-
-          <label style={modalStyles.label}>
-            Status
-            <select style={modalStyles.select} value={form.status} onChange={e => setField('status', e.target.value)}>
-              {STATUSES.map(s => <option key={s} value={s}>{capitalize(s)}</option>)}
-            </select>
-          </label>
-
-          {error && <p style={modalStyles.error}>{error}</p>}
-
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
-            <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Quote'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -310,17 +140,15 @@ function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel }: ConfirmDi
 // QuoteList component
 // ---------------------------------------------------------------------------
 
-type Confirmable =
-  | { type: 'delete'; id: number }
-  | { type: 'convert'; id: number };
+type Confirmable = { type: 'delete'; id: number };
 
 export function QuoteList() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
-  const [editQuote, setEditQuote] = useState<Quote | null>(null);
   const [confirm, setConfirm] = useState<Confirmable | null>(null);
 
   const quotesQ = useQuery({
@@ -339,18 +167,6 @@ export function QuoteList() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['quotes'] }),
   });
 
-  const convertMutation = useMutation({
-    mutationFn: (id: number) => convertQuote(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quotes'] });
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-    },
-  });
-
-  function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ['quotes'] });
-  }
-
   function handleFilterChange(value: string) {
     setStatusFilter(value);
     setPage(1);
@@ -358,8 +174,7 @@ export function QuoteList() {
 
   function handleConfirm() {
     if (!confirm) return;
-    if (confirm.type === 'delete') deleteMutation.mutate(confirm.id);
-    else convertMutation.mutate(confirm.id);
+    deleteMutation.mutate(confirm.id);
     setConfirm(null);
   }
 
@@ -388,7 +203,7 @@ export function QuoteList() {
         )}
       </div>
 
-      {(deleteMutation.isError || convertMutation.isError) && (
+      {deleteMutation.isError && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>Action failed. Please try again.</p>
       )}
 
@@ -409,32 +224,27 @@ export function QuoteList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {quotes.map(q => {
-                    const canConvert = q.status !== 'rejected' && q.status !== 'expired';
-                    return (
-                      <tr key={q.id} style={styles.tr}>
-                        <td style={styles.td}>#{q.id}</td>
-                        <td style={{ ...styles.td, fontWeight: 500 }}>{q.quote_number || '—'}</td>
-                        <td style={styles.td}>
-                          <Link to={`/clients/${q.client_id}`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}>
-                            {clientName(q.client_id)}
-                          </Link>
-                        </td>
-                        <td style={styles.td}>{fmtMoney(q.total, q.currency ?? 'USD')}</td>
-                        <td style={styles.td}>{fmtDate(q.valid_until)}</td>
-                        <td style={styles.td}><StatusBadge status={q.status} /></td>
-                        <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                          <button style={styles.actionBtn} onClick={() => setEditQuote(q)} title="Edit this quote">✏️ Edit</button>
-                          {canConvert && (
-                            <button style={{ ...styles.actionBtn, color: '#065f46' }} onClick={() => setConfirm({ type: 'convert', id: q.id })} title="Convert to invoice">
-                              ➜ Invoice
-                            </button>
-                          )}
-                          <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setConfirm({ type: 'delete', id: q.id })} title="Delete this quote">🗑 Delete</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {quotes.map(q => (
+                    <tr key={q.id} style={styles.tr}>
+                      <td style={styles.td}>#{q.id}</td>
+                      <td style={{ ...styles.td, fontWeight: 500 }}>
+                        <Link to={`/quotes/${q.id}`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 600 }}>
+                          {q.quote_number || `#${q.id}`}
+                        </Link>
+                      </td>
+                      <td style={styles.td}>
+                        <Link to={`/clients/${q.client_id}`} style={{ color: 'var(--link)', textDecoration: 'none', fontWeight: 500 }}>
+                          {clientName(q.client_id)}
+                        </Link>
+                      </td>
+                      <td style={styles.td}>{fmtMoney(q.total, q.currency ?? 'USD')}</td>
+                      <td style={styles.td}>{fmtDate(q.valid_until)}</td>
+                      <td style={styles.td}><StatusBadge status={q.status} /></td>
+                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                        <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setConfirm({ type: 'delete', id: q.id })} title="Delete this quote">🗑 Delete</button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -452,21 +262,18 @@ export function QuoteList() {
       </div>
 
       {showNew && (
-        <QuoteModal quote={null} clients={clients} onClose={() => setShowNew(false)} onSaved={invalidate} />
-      )}
-
-      {editQuote && (
-        <QuoteModal quote={editQuote} clients={clients} onClose={() => setEditQuote(null)} onSaved={invalidate} />
+        <GenerateQuoteModal
+          onClose={() => setShowNew(false)}
+          onGenerated={(quote: GeneratedQuote) => {
+            queryClient.invalidateQueries({ queryKey: ['quotes'] });
+            navigate(`/quotes/${quote.id}`);
+          }}
+        />
       )}
 
       {confirm && (
         <ConfirmDialog
-          message={
-            confirm.type === 'delete'
-              ? 'Delete this quote? It will be soft-deleted and removed from the list.'
-              : 'Convert this quote to an invoice? The quote will be marked as accepted.'
-          }
-          confirmLabel={confirm.type === 'convert' ? 'Convert' : undefined}
+          message="Delete this quote? It will be soft-deleted and removed from the list."
           onConfirm={handleConfirm}
           onCancel={() => setConfirm(null)}
         />

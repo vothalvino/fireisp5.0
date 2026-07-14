@@ -439,7 +439,10 @@ function generateSpec() {
         get: { tags: ['Quotes'], summary: 'List quote line items', operationId: 'listQuoteItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('QuoteItem[]') },
         post: { tags: ['Quotes'], summary: 'Add quote line item', operationId: 'addQuoteItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('quotes_createQuoteItem'), responses: r201('QuoteItem') },
       },
-      '/quotes/{id}/convert-to-invoice': { post: { tags: ['Quotes'], summary: 'Convert quote to invoice', operationId: 'convertQuoteToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r201('Invoice') } },
+      '/quotes/generate': { post: { tags: ['Quotes'], summary: 'Generate a quote with line items (client_id + items[], mirrors /invoices/generate)', operationId: 'generateQuote', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_id + items[]'), responses: r201('Quote') } },
+      '/quotes/{id}/convert-to-invoice': { post: { tags: ['Quotes'], summary: 'Convert an accepted quote to an invoice', operationId: 'convertQuoteToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r201('Invoice') } },
+      '/quotes/{id}/approve': { post: { tags: ['Quotes'], summary: 'Approve a quote (sets status to accepted)', operationId: 'approveQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
+      '/quotes/{id}/reject': { post: { tags: ['Quotes'], summary: 'Reject a quote (sets status to rejected)', operationId: 'rejectQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
 
       // ---- Billing ----
       '/billing/generate-period': { post: { tags: ['Billing'], summary: 'Generate billing period for a contract', operationId: 'generatePeriod', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('BillingPeriod') } },

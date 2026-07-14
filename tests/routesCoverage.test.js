@@ -53,6 +53,18 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const Quote = require('../src/models/Quote');
+// jest.mock('../src/models/Quote') (below) automocks methods declared
+// directly on the class body, but drops BaseModel's inherited accessor
+// properties entirely (fillable/tableName are `static get` on BaseModel,
+// not own methods on Quote, and the automocked class doesn't extend
+// BaseModel) — Quote.fillable/.tableName read back as `undefined` unless
+// restored here. routes/quotes.js's auto-number POST /quotes path filters
+// req.body by Quote.fillable when building its own INSERT, so it needs a
+// real array to iterate, not undefined. jest.resetAllMocks() (see
+// beforeEach) only resets mock functions, not plain properties, so this
+// only needs to run once.
+Quote.fillable = ['organization_id', 'client_id', 'contract_id', 'quote_number', 'subtotal', 'tax_amount', 'total', 'currency', 'tax_rate', 'tax_rate_id', 'valid_until', 'status', 'notes'];
+Quote.tableName = 'quotes';
 const Invoice = require('../src/models/Invoice');
 const Payment = require('../src/models/Payment');
 const Client = require('../src/models/Client');
@@ -1087,8 +1099,261 @@ describe('Quote Routes — /api/quotes', () => {
     });
   });
 
+  describe('POST /api/quotes (auto-numbering, migration 389)', () => {
+    // Regression: an earlier version of this handler drew the number in its
+    // OWN short-lived transaction (its own db.getConnection()), committed
+    // it, and only THEN called the generic ctrl.create() — which inserts
+    // via a completely separate, non-transactional connection. If that
+    // insert failed, the already-committed number was burned permanently
+    // (a gap), diverging from nextInvoiceNumber's documented contract. The
+    // fix runs the number-advance and the quotes INSERT on the SAME
+    // connection/transaction, exactly like POST /quotes/generate below.
+    test('auto-assigns quote_number and inserts the quote on the SAME connection/transaction', async () => {
+      mockAuthUser();
+      const conn = mockConnection();
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000050');
+      conn.execute.mockResolvedValueOnce([{ insertId: 40, affectedRows: 1 }]); // INSERT INTO quotes
+      Quote.findByIdIncludingDeleted.mockResolvedValue({ id: 40, quote_number: 'QUO-000050', client_id: 5, status: 'draft' });
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ id: 40, quote_number: 'QUO-000050' });
+
+      // nextQuoteNumber and the INSERT must run on the exact same conn.
+      expect(billingService.nextQuoteNumber).toHaveBeenCalledWith(conn, 1);
+      const insertCall = conn.execute.mock.calls.find((c) => /INSERT INTO quotes/.test(c[0]));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toContain('QUO-000050');
+      expect(conn.commit).toHaveBeenCalled();
+      expect(conn.rollback).not.toHaveBeenCalled();
+
+      // The old buggy path inserted via the generic, separately-connected
+      // Quote.create() — must never be used for the auto-number branch.
+      expect(Quote.create).not.toHaveBeenCalled();
+    });
+
+    test('rolls back — never commits the drawn number — when the quote INSERT fails', async () => {
+      mockAuthUser();
+      const conn = mockConnection();
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000051');
+      conn.execute.mockRejectedValueOnce(new Error('insert failed')); // INSERT INTO quotes fails
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5 });
+
+      expect(res.status).toBe(500);
+      // The number-advance ran on this same conn, so rolling it back undoes
+      // that UPDATE too — a failed create never durably burns a number.
+      expect(billingService.nextQuoteNumber).toHaveBeenCalledWith(conn, 1);
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.commit).not.toHaveBeenCalled();
+    });
+
+    test('honors an explicit quote_number and never calls nextQuoteNumber', async () => {
+      mockAuthUser();
+      Quote.create.mockResolvedValue({ id: 41, quote_number: 'CUSTOM-1', client_id: 5, status: 'draft' });
+
+      const res = await request(app)
+        .post('/api/quotes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, quote_number: 'CUSTOM-1' });
+
+      expect(res.status).toBe(201);
+      expect(billingService.nextQuoteNumber).not.toHaveBeenCalled();
+      expect(Quote.create).toHaveBeenCalledWith(expect.objectContaining({ quote_number: 'CUSTOM-1' }));
+    });
+  });
+
+  describe('POST /api/quotes/generate', () => {
+    test('success — generates a quote from a contract item, stamps contract_id, and auto-numbers it', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '299.00', currency: 'MXN' }]]);
+        return Promise.resolve([[]]); // tax_rates (no default)
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000042');
+      Quote.findById.mockResolvedValue({ id: 30, quote_number: 'QUO-000042', status: 'draft' });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 30, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      expect(quoteInsert).toBeDefined();
+      // columns: (organization_id, client_id, contract_id, quote_number, …)
+      expect(quoteInsert[1][2]).toBe(7);
+      expect(quoteInsert[1][3]).toBe('QUO-000042');
+    });
+
+    test('success — generates a quote from a custom item (no contract needed)', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000043');
+      Quote.findById.mockResolvedValue({ id: 31 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 31, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'custom', description: 'Site survey', quantity: 1, unit_price: 150 }] });
+
+      expect(res.status).toBe(201);
+      const itemInsert = conn.execute.mock.calls.find(c => /INSERT INTO quote_items/.test(c[0]));
+      expect(itemInsert).toBeDefined();
+      expect(itemInsert[1]).toEqual([31, 'Site survey', 1, 150]);
+    });
+
+    // Regression: tax_rate is a FRACTION (DECIMAL(5,4); 0.1600 = 16%) — this
+    // fails if the formula regresses to `* taxPct) / 100` (the historical
+    // 100x-tax bug class).
+    test('computes tax correctly from a fraction tax_rates.rate — no 100x bug', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '500.00', currency: 'MXN' }]]);
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[{ id: 1, rate: '0.1600', is_default: true }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000044');
+      Quote.findById.mockResolvedValue({ id: 32 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 32, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      // columns: (…, quote_number, subtotal, tax_amount, total, …)
+      expect(quoteInsert[1][4]).toBe(500); // subtotal
+      expect(quoteInsert[1][5]).toBe(80);  // tax_amount
+      expect(quoteInsert[1][6]).toBe(580); // total
+    });
+
+    test('returns 404 when client not found', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValue([[]]);
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 999, items: [{ type: 'custom', description: 'x', quantity: 1, unit_price: 10 }] });
+
+      expect(res.status).toBe(404);
+    });
+
+    test('returns 404 when a referenced contract is not found', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[]]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 999 }] });
+
+      expect(res.status).toBe(404);
+    });
+
+    test('returns 422 when items is missing or empty', async () => {
+      mockAuthUser();
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [] });
+
+      expect(res.status).toBe(422);
+    });
+  });
+
+  describe('POST /api/quotes/:id/approve', () => {
+    test('success — sets status to accepted', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'accepted' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/approve')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ status: 'accepted' });
+      expect(Quote.update).toHaveBeenCalledWith('1', { status: 'accepted' }, 1);
+    });
+
+    test('returns 404 when quote not found or not in this org', async () => {
+      mockAuthUser();
+      const { NotFoundError } = require('../src/utils/errors');
+      Quote.update.mockRejectedValue(new NotFoundError('quotes'));
+
+      const res = await request(app)
+        .post('/api/quotes/999/approve')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /api/quotes/:id/reject', () => {
+    test('success — sets status to rejected', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'rejected' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/reject')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ status: 'rejected' });
+      expect(Quote.update).toHaveBeenCalledWith('1', { status: 'rejected' }, 1);
+    });
+
+    test('can re-decide an already-accepted quote back to rejected', async () => {
+      mockAuthUser();
+      Quote.update.mockResolvedValue({ id: 1, status: 'rejected' });
+
+      const res = await request(app)
+        .post('/api/quotes/1/reject')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('rejected');
+    });
+  });
+
   describe('POST /api/quotes/:id/convert-to-invoice', () => {
-    test('success — converts quote to invoice', async () => {
+    test('success — converts an accepted quote to invoice', async () => {
       mockAuthUser();
       const conn = mockConnection();
       // billingService is jest.mock()'d whole-module in this file, so
@@ -1099,7 +1364,7 @@ describe('Quote Routes — /api/quotes', () => {
         .mockResolvedValueOnce([[{ description: 'Item 1', quantity: 1, unit_price: 100, total: 100, tax_rate_id: 1 }]]) // select quote items
         .mockResolvedValue([{ insertId: 1, affectedRows: 1 }]); // item insert + quote update
 
-      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
+      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status: 'accepted' }]]);
       Invoice.findById.mockResolvedValue({ id: 50, total: '116.00' });
 
       const res = await request(app)
@@ -1122,7 +1387,7 @@ describe('Quote Routes — /api/quotes', () => {
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // item insert
         .mockRejectedValueOnce(new Error('update failed')); // quote status update fails
 
-      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test' }]]);
+      db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status: 'accepted' }]]);
 
       const res = await request(app)
         .post('/api/quotes/1/convert-to-invoice')
@@ -1146,6 +1411,25 @@ describe('Quote Routes — /api/quotes', () => {
 
       expect(res.status).toBe(404);
     });
+
+    // Regression: this route used to convert (and silently flip to 'accepted')
+    // regardless of status — a 'draft' or even 'rejected' quote could become an
+    // invoice with no approval step at all. The approve/reject endpoints above
+    // are now the only door in.
+    test.each(['draft', 'sent', 'rejected', 'expired'])(
+      'returns 409 when quote status is %s (not yet approved)',
+      async (status) => {
+        mockAuthUser();
+        db.query.mockResolvedValue([[{ id: 1, client_id: 5, contract_id: 10, subtotal: '100.00', tax_amount: '16.00', total: '116.00', currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: 'Test', status }]]);
+
+        const res = await request(app)
+          .post('/api/quotes/1/convert-to-invoice')
+          .set('Authorization', `Bearer ${authToken}`);
+
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('QUOTE_NOT_ACCEPTED');
+      },
+    );
   });
 });
 

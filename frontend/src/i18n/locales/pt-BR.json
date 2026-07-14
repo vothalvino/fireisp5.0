@@ -466,6 +466,73 @@
     "loading": "Carregando…",
     "error": "Falha ao carregar faturas."
   },
+  "quoteDetail": {
+    "breadcrumb": "Orçamentos",
+    "loading": "Carregando…",
+    "loadingItems": "Carregando itens…",
+    "notFound": "Orçamento não encontrado.",
+    "clientLabel": "Cliente:",
+    "notesLabel": "Notas:",
+    "lineItems": "Itens",
+    "noItems": "Ainda não há itens. Adicione um abaixo.",
+    "convertGuard": "Somente orçamentos aceitos podem ser convertidos em fatura.",
+    "meta": {
+      "status": "Status",
+      "total": "Total",
+      "subtotal": "Subtotal",
+      "tax": "Imposto",
+      "currency": "Moeda",
+      "validUntil": "Válido até",
+      "issueDate": "Data de emissão",
+      "created": "Criado em",
+      "contract": "Contrato"
+    },
+    "table": {
+      "description": "Descrição",
+      "qty": "Qtd.",
+      "unitPrice": "Preço unitário",
+      "total": "Total"
+    },
+    "form": {
+      "description": "Descrição",
+      "quantity": "Quantidade",
+      "unitPrice": "Preço unitário"
+    },
+    "actions": {
+      "downloadPdf": "Baixar PDF",
+      "edit": "Editar",
+      "approve": "Aprovar",
+      "approving": "Aprovando…",
+      "reject": "Rejeitar",
+      "rejecting": "Rejeitando…",
+      "convert": "Converter em fatura",
+      "converting": "Convertendo…",
+      "cancel": "Cancelar",
+      "save": "Salvar alterações",
+      "saving": "Salvando…",
+      "add": "Adicionar item",
+      "adding": "Adicionando…"
+    },
+    "editTitle": "Editar orçamento",
+    "editFields": {
+      "quoteNumber": "Número do orçamento",
+      "validUntil": "Válido até",
+      "currency": "Moeda",
+      "taxRate": "Taxa de imposto (0–1, ex. 0.16)",
+      "subtotal": "Subtotal",
+      "taxAmount": "Imposto",
+      "total": "Total",
+      "notes": "Notas"
+    },
+    "toasts": {
+      "itemAdded": "Item adicionado.",
+      "approved": "Orçamento aprovado.",
+      "rejected": "Orçamento rejeitado.",
+      "converted": "Orçamento convertido em fatura.",
+      "updated": "Orçamento atualizado.",
+      "errorPrefix": "Erro"
+    }
+  },
   "paymentMethods": {
     "cash": "Dinheiro",
     "check": "Cheque",

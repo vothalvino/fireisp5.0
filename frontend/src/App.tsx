@@ -57,6 +57,7 @@ import { UserList } from '@/pages/UserList';
 import { CfdiList } from '@/pages/CfdiList';
 import { PlanList } from '@/pages/PlanList';
 import { QuoteList } from '@/pages/QuoteList';
+import { QuoteDetail } from '@/pages/QuoteDetail';
 import { CreditNoteList } from '@/pages/CreditNoteList';
 import { ExpenseList } from '@/pages/ExpenseList';
 import { InventoryList } from '@/pages/InventoryList';
@@ -310,6 +311,7 @@ export function App() {
                 <Route path="cfdi" element={<CfdiList />} />
                 <Route path="plans" element={<PlanList />} />
                 <Route path="quotes" element={<QuoteList />} />
+                <Route path="quotes/:id" element={<QuoteDetail />} />
                 <Route path="credit-notes" element={<CreditNoteList />} />
                 <Route path="expenses" element={<ExpenseList />} />
                 <Route path="promotions" element={<PromotionList />} />

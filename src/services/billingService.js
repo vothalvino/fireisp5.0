@@ -78,6 +78,38 @@ async function nextInvoiceNumber(conn, orgId) {
 }
 
 /**
+ * Atomically allocate the next sequential quote number for an organization,
+ * e.g. QUO-000123. Mirrors {@link nextInvoiceNumber} exactly — same
+ * `organization_quote_sequences` table shape (migration 389, mirroring
+ * migration 381), same INSERT IGNORE + UPDATE ... LAST_INSERT_ID(...) idiom
+ * for the same reason (a single `ON DUPLICATE KEY UPDATE` does not reliably
+ * run its LAST_INSERT_ID() expression on a fresh insert into a table with no
+ * AUTO_INCREMENT column — see nextInvoiceNumber's doc comment above).
+ *
+ * @param {object} conn - An active connection/transaction (must expose
+ *   `.query`/`.execute`) — meant to run inside the caller's own transaction
+ *   so the quote INSERT and the counter advance commit or roll back together.
+ * @param {number|null} orgId
+ * @returns {Promise<string>} e.g. "QUO-000123"
+ */
+async function nextQuoteNumber(conn, orgId) {
+  const bucket = orgId ?? 0;
+  await conn.execute(
+    'INSERT IGNORE INTO organization_quote_sequences (organization_id, next_number) VALUES (?, 1)',
+    [bucket],
+  );
+  await conn.execute(
+    `UPDATE organization_quote_sequences
+        SET next_number = LAST_INSERT_ID(next_number) + 1
+      WHERE organization_id = ?`,
+    [bucket],
+  );
+  const [[{ id }]] = await conn.query('SELECT LAST_INSERT_ID() AS id');
+  const next = Number(id);
+  return `QUO-${String(next).padStart(6, '0')}`;
+}
+
+/**
  * Check if a contract is currently within its free trial period.
  *
  * @param {object} contract - Contract row with start_date
@@ -650,5 +682,5 @@ module.exports = {
   releaseInvoiceAllocations,
   voidInvoiceById,
   isContractInTrial, calculateOverageCharges,
-  nextInvoiceNumber,
+  nextInvoiceNumber, nextQuoteNumber,
 };

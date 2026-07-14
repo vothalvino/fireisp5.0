@@ -180,6 +180,89 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // nextQuoteNumber (migration 389 — atomic per-org sequence, mirrors
+  // nextInvoiceNumber/migration 381 exactly; quotes had NO auto-numbering at
+  // all before this)
+  // =========================================================================
+  describe('nextQuoteNumber', () => {
+    test('first-ever call for an org: INSERT IGNORE seeds the row, UPDATE advances it, returns QUO-000001', async () => {
+      mockConnection.execute
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // INSERT IGNORE actually inserted (no prior row)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE next_number
+      mockConnection.query.mockResolvedValueOnce([[{ id: 1 }]]);
+
+      const result = await billingService.nextQuoteNumber(mockConnection, 42);
+
+      expect(result).toBe('QUO-000001');
+      expect(mockConnection.execute).toHaveBeenCalledTimes(2);
+
+      const insertIgnoreCall = mockConnection.execute.mock.calls[0];
+      expect(insertIgnoreCall[0]).toContain('INSERT IGNORE INTO organization_quote_sequences');
+      expect(insertIgnoreCall[1]).toEqual([42]);
+
+      const updateCall = mockConnection.execute.mock.calls[1];
+      expect(updateCall[0]).toContain('UPDATE organization_quote_sequences');
+      expect(updateCall[0]).toContain('LAST_INSERT_ID(next_number)');
+      expect(updateCall[1]).toEqual([42]);
+
+      expect(mockConnection.query).toHaveBeenCalledWith('SELECT LAST_INSERT_ID() AS id');
+    });
+
+    test('increments across repeated calls for the same org (no gaps, no reuse)', async () => {
+      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      mockConnection.query
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        .mockResolvedValueOnce([[{ id: 2 }]])
+        .mockResolvedValueOnce([[{ id: 3 }]]);
+
+      const first = await billingService.nextQuoteNumber(mockConnection, 42);
+      const second = await billingService.nextQuoteNumber(mockConnection, 42);
+      const third = await billingService.nextQuoteNumber(mockConnection, 42);
+
+      expect([first, second, third]).toEqual(['QUO-000001', 'QUO-000002', 'QUO-000003']);
+    });
+
+    test('uses sentinel 0 (not NULL) for a null orgId — single-tenant deployment bucket', async () => {
+      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      mockConnection.query.mockResolvedValueOnce([[{ id: 7 }]]);
+
+      const result = await billingService.nextQuoteNumber(mockConnection, null);
+
+      expect(result).toBe('QUO-000007');
+      expect(mockConnection.execute.mock.calls[0][1]).toEqual([0]);
+      expect(mockConnection.execute.mock.calls[1][1]).toEqual([0]);
+    });
+
+    test('numbers beyond 999999 grow longer instead of truncating', async () => {
+      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      mockConnection.query.mockResolvedValueOnce([[{ id: 1000000 }]]);
+
+      const result = await billingService.nextQuoteNumber(mockConnection, 1);
+
+      expect(result).toBe('QUO-1000000');
+    });
+
+    test('never queries the quotes table — immune to the COUNT(*)-based reuse bug', async () => {
+      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      mockConnection.query
+        .mockResolvedValueOnce([[{ id: 4 }]])
+        .mockResolvedValueOnce([[{ id: 5 }]]);
+
+      const afterFirstQuote = await billingService.nextQuoteNumber(mockConnection, 9);
+      const afterSoftDeleteAndSecondQuote = await billingService.nextQuoteNumber(mockConnection, 9);
+
+      expect(afterFirstQuote).toBe('QUO-000004');
+      expect(afterSoftDeleteAndSecondQuote).toBe('QUO-000005'); // NOT reused as QUO-000004
+      expect(afterFirstQuote).not.toBe(afterSoftDeleteAndSecondQuote);
+
+      for (const call of mockConnection.execute.mock.calls) {
+        expect(call[0]).not.toMatch(/FROM quotes/i);
+        expect(call[0]).toContain('organization_quote_sequences');
+      }
+    });
+  });
+
+  // =========================================================================
   // generateInvoice
   // =========================================================================
   describe('generateInvoice', () => {
