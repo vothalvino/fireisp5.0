@@ -98,7 +98,10 @@ async function fetchClients(): Promise<Client[]> {
 
 async function fetchOpenInvoices(clientId: number): Promise<OpenInvoice[]> {
   const res = await api.GET('/clients/{id}/open-invoices', { params: { path: { id: clientId } } });
-  if (res.error) return [];
+  // Throw instead of returning [] — a swallowed failure renders exactly like
+  // "this client has no open invoices", and the payment would then silently
+  // record as unallocated credit instead of paying the intended invoices.
+  if (res.error) throw new Error('Failed to load open invoices');
   return (res.data as unknown as { data: OpenInvoice[] }).data ?? [];
 }
 
@@ -174,11 +177,17 @@ export function RecordPaymentModal({
   const { data: clients = [], isError: clientsError } = useQuery({
     queryKey: ['clients-slim'], queryFn: fetchClients, enabled: !lockedClientId,
   });
-  const { data: openInvoices = [], isLoading: loadingInvoices } = useQuery({
+  const { data: openInvoices = [], isLoading: loadingInvoices, isError: invoicesError, refetch: refetchInvoices } = useQuery({
     queryKey: ['client-open-invoices', numericClientId],
     queryFn: () => fetchOpenInvoices(numericClientId!),
     enabled: numericClientId != null,
   });
+
+  // Once a payment row exists (create succeeded but applying it failed), its
+  // amount/client/etc. are persisted — editing them here would silently
+  // diverge the form from the saved payment (the retry only re-attempts the
+  // allocation, it never re-sends the money fields).
+  const paymentLocked = createdId != null;
 
   const setField = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -188,6 +197,9 @@ export function RecordPaymentModal({
   const primedForClient = useRef<number | null>(null);
   useEffect(() => {
     if (numericClientId == null || loadingInvoices) return;
+    // Don't mark this client primed on a failed fetch — a later successful
+    // refetch must still get its one priming pass.
+    if (invoicesError) return;
     if (primedForClient.current === numericClientId) return;
     primedForClient.current = numericClientId;
 
@@ -207,7 +219,7 @@ export function RecordPaymentModal({
     const firstCurrency = openInvoices[0]?.currency;
     if (firstCurrency) setField('currency', firstCurrency);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [numericClientId, loadingInvoices, openInvoices, lockedInvoiceId]);
+  }, [numericClientId, loadingInvoices, invoicesError, openInvoices, lockedInvoiceId]);
 
   function toggleInvoice(id: number) {
     const next = new Set(checkedIds);
@@ -330,17 +342,22 @@ export function RecordPaymentModal({
             <input style={{ ...inputStyle, background: 'var(--bg-body)', color: 'var(--text-muted)' }}
               value={lockedClientName ?? `Client #${lockedClientId}`} disabled />
           ) : (
-            <select style={inputStyle} value={clientId} onChange={e => selectClient(e.target.value)} required>
+            <select style={inputStyle} value={clientId} onChange={e => selectClient(e.target.value)} required disabled={paymentLocked}>
               <option value="">{t('recordPayment.selectClient')}</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          )}
+          {paymentLocked && (
+            <div style={{ ...errorBox, background: 'var(--bg-body)', color: 'var(--text-secondary)' }}>
+              {t('recordPayment.paymentAlreadyRecorded')}
+            </div>
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
             <div>
               <label style={labelStyle}>{t('recordPayment.amount')} *</label>
               <input type="number" step="0.01" min="0.01" style={inputStyle}
-                value={form.amount} onChange={e => setField('amount', e.target.value)} required />
+                value={form.amount} onChange={e => setField('amount', e.target.value)} required disabled={paymentLocked} />
               {showExcessHint && (
                 <p style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
                   {t('recordPayment.excessCreditHint')}
@@ -350,26 +367,26 @@ export function RecordPaymentModal({
             <div>
               <label style={labelStyle}>{t('recordPayment.currency')}</label>
               <input type="text" maxLength={3} style={inputStyle}
-                value={form.currency} onChange={e => setField('currency', e.target.value.toUpperCase())} required />
+                value={form.currency} onChange={e => setField('currency', e.target.value.toUpperCase())} required disabled={paymentLocked} />
             </div>
           </div>
 
           <label style={labelStyle}>{t('recordPayment.paymentMethod')}</label>
-          <select style={inputStyle} value={form.payment_method} onChange={e => setField('payment_method', e.target.value)}>
+          <select style={inputStyle} value={form.payment_method} onChange={e => setField('payment_method', e.target.value)} disabled={paymentLocked}>
             {PAYMENT_METHODS.map(m => <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>)}
           </select>
 
           <label style={labelStyle}>{t('recordPayment.status')}</label>
-          <select style={inputStyle} value={form.status} onChange={e => setField('status', e.target.value)}>
+          <select style={inputStyle} value={form.status} onChange={e => setField('status', e.target.value)} disabled={paymentLocked}>
             {STATUSES.map(s => <option key={s} value={s}>{t(`recordPayment.statusValues.${s}`)}</option>)}
           </select>
 
           <label style={labelStyle}>{t('recordPayment.paymentDate')}</label>
-          <input type="date" style={inputStyle} value={form.payment_date} onChange={e => setField('payment_date', e.target.value)} required />
+          <input type="date" style={inputStyle} value={form.payment_date} onChange={e => setField('payment_date', e.target.value)} required disabled={paymentLocked} />
 
           <label style={labelStyle}>{t('recordPayment.reference')}</label>
           <input type="text" style={inputStyle} value={form.reference} onChange={e => setField('reference', e.target.value)}
-            placeholder={t('recordPayment.referencePlaceholder')} />
+            placeholder={t('recordPayment.referencePlaceholder')} disabled={paymentLocked} />
 
           <label style={labelStyle}>{t('recordPayment.invoicesHeading')}</label>
           {numericClientId == null && (
@@ -382,7 +399,16 @@ export function RecordPaymentModal({
               {t('recordPayment.loadingInvoices')}
             </p>
           )}
-          {numericClientId != null && !loadingInvoices && openInvoices.length === 0 && (
+          {numericClientId != null && !loadingInvoices && invoicesError && (
+            <p style={{ fontSize: '0.78rem', color: 'var(--danger, #c0392b)', margin: '4px 0 0' }}>
+              {t('recordPayment.loadInvoicesError')}{' '}
+              <button type="button" onClick={() => refetchInvoices()}
+                style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>
+                {t('recordPayment.retryLoadInvoices')}
+              </button>
+            </p>
+          )}
+          {numericClientId != null && !loadingInvoices && !invoicesError && openInvoices.length === 0 && (
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
               {t('recordPayment.noOpenInvoices')}
             </p>
@@ -426,7 +452,7 @@ export function RecordPaymentModal({
           <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>{t('recordPayment.cancel')}</button>
             <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? t('recordPayment.submitting') : t('recordPayment.submit')}
+              {submitting ? t('recordPayment.submitting') : (paymentLocked ? t('recordPayment.retryApply') : t('recordPayment.submit'))}
             </button>
           </div>
         </form>

@@ -588,7 +588,11 @@ export function InvoiceDetail() {
               </button>
               <button
                 onClick={() => setShowPayment(true)}
-                disabled={invoice.status === 'paid' || invoice.status === 'void'}
+                // Only payable statuses — a draft/cancelled invoice never
+                // appears in the payment modal's checklist, so opening it from
+                // one just records unallocatable credit.
+                disabled={!['issued', 'sent', 'overdue'].includes(invoice.status)}
+                title={!['issued', 'sent', 'overdue'].includes(invoice.status) ? 'Only issued, sent, or overdue invoices can receive payments' : undefined}
                 style={actionBtn('var(--accent)')}
               >
                 💳 Record Payment

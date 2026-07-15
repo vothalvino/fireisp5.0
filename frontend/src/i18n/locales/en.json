@@ -615,7 +615,11 @@
     "partiallyPaid": "partially paid",
     "remainingCredit": "Remaining credit: {{amount}}",
     "recordedAsCredit": "Recorded as an unallocated credit on the client's account.",
-    "done": "Done"
+    "done": "Done",
+    "paymentAlreadyRecorded": "The payment is already recorded — retrying only re-applies it to the selected invoices. Amount and details can no longer change.",
+    "loadInvoicesError": "Could not load this client’s open invoices.",
+    "retryLoadInvoices": "Retry",
+    "retryApply": "Retry Applying Payment"
   },
   "ticketList": {
     "title": "Tickets",

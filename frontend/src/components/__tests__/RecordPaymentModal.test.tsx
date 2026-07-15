@@ -170,4 +170,49 @@ describe('RecordPaymentModal', () => {
     expect(allocCall).toBeUndefined();
     expect(await screen.findByText(/unallocated credit/i)).toBeInTheDocument();
   });
+
+  // Regression: once the payment row exists (create succeeded, allocate
+  // failed), its amount/details are persisted — the form must LOCK those
+  // fields so a retry can't silently diverge from the saved payment, and the
+  // retry must not create a second payment.
+  it('locks the money fields after a failed allocation and retries without re-creating the payment', async () => {
+    setupApi();
+    let allocAttempts = 0;
+    (authedFetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith('/api/v1/payments')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 99 } }) });
+      }
+      if (url.includes('/allocate-auto')) {
+        allocAttempts += 1;
+        if (allocAttempts === 1) {
+          return Promise.resolve({ ok: false, json: () => Promise.resolve({ error: { message: 'allocation failed' } }) });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: { allocations: [{ id: 1, invoice_id: 10, invoice_number: 'INV-10', amount: 40, fully_paid: true }], remaining_credit: 0 } }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+    });
+
+    renderModal();
+    await screen.findByText('INV-10');
+    fireEvent.click(screen.getByRole('button', { name: /Record Payment/i }));
+
+    // First attempt: create ok, allocate fails — modal stays on the form,
+    // money fields locked, submit relabeled to the retry action.
+    await screen.findByText('allocation failed');
+    const amountInput = document.querySelector('input[type="number"]') as HTMLInputElement;
+    expect(amountInput).toBeDisabled();
+    expect(await screen.findByText(/already recorded/i)).toBeInTheDocument();
+    const retryBtn = screen.getByRole('button', { name: /Retry Applying Payment/i });
+
+    fireEvent.click(retryBtn);
+    await screen.findByText(/INV-10/); // success panel line
+
+    const createCalls = (authedFetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .filter((c) => String(c[0]).endsWith('/api/v1/payments'));
+    expect(createCalls).toHaveLength(1); // payment created exactly once
+    expect(allocAttempts).toBe(2);       // allocation retried
+  });
 });

@@ -615,7 +615,11 @@
     "partiallyPaid": "paga parcialmente",
     "remainingCredit": "Crédito restante: {{amount}}",
     "recordedAsCredit": "Registrado como crédito não alocado na conta do cliente.",
-    "done": "Concluído"
+    "done": "Concluído",
+    "paymentAlreadyRecorded": "O pagamento já está registrado; tentar novamente apenas o reaplica às faturas selecionadas. O valor e os dados não podem mais ser alterados.",
+    "loadInvoicesError": "Não foi possível carregar as faturas pendentes deste cliente.",
+    "retryLoadInvoices": "Tentar novamente",
+    "retryApply": "Tentar aplicar o pagamento novamente"
   },
   "ticketList": {
     "title": "Tickets",
