@@ -52,6 +52,8 @@ interface PoItem {
   inventory_item_id: number | null;
   item_name?: string | null;
   sku?: string | null;
+  // Inventory Phase 3 (migration 391) — MySQL TINYINT(1) round-trips as 0/1.
+  serial_required?: number | boolean;
   description: string;
   quantity_ordered: number;
   quantity_received: number;
@@ -131,10 +133,12 @@ async function updatePo(id: number, body: UpdatePoBody): Promise<void> {
 
 interface ReceiveItemInput { id: number; quantity_received: number }
 
-async function receivePo(id: number, items: ReceiveItemInput[]): Promise<PurchaseOrder> {
+async function receivePo(id: number, items: ReceiveItemInput[], serials?: Record<number, string[]>): Promise<PurchaseOrder> {
+  const body: { items: ReceiveItemInput[]; serials?: Record<number, string[]> } = { items };
+  if (serials && Object.keys(serials).length > 0) body.serials = serials;
   const res = await api.POST('/purchase-orders/{id}/receive' as never, {
     params: { path: { id } as never },
-    body: { items } as never,
+    body: body as never,
   } as never);
   if ((res as { error?: unknown }).error) {
     throw new Error(extractApiError((res as { error: unknown }).error, 'Failed to receive purchase order'));
@@ -268,26 +272,52 @@ interface ReceiveModalProps {
   onReceived: () => void;
 }
 
+// Parses a textarea's raw text into one serial per non-blank line.
+function parseSerials(raw: string): string[] {
+  return raw.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
 function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
   const { t } = useTranslation();
   const [quantities, setQuantities] = useState<Record<number, string>>(
     Object.fromEntries(items.map(i => [i.id, String(i.quantity_ordered - i.quantity_received)])),
   );
+  // Inventory Phase 3 (migration 391) — one serial per line, only rendered
+  // for lines whose item has serial_required ON.
+  const [serialText, setSerialText] = useState<Record<number, string>>({});
   const [error, setError] = useState('');
+
+  function receiveNowFor(item: PoItem): number {
+    const remaining = item.quantity_ordered - item.quantity_received;
+    return Math.min(Math.max(Number(quantities[item.id] ?? remaining), 0), remaining);
+  }
+
+  // A line blocks submit when it's serial_required, receiving something this
+  // pass, and the serial count doesn't exactly match that delta.
+  const serialMismatches = items.filter(item => {
+    if (!item.serial_required) return false;
+    const receiveNow = receiveNowFor(item);
+    if (receiveNow <= 0) return false;
+    return parseSerials(serialText[item.id] ?? '').length !== receiveNow;
+  });
+  const canSubmit = serialMismatches.length === 0;
 
   const mutation = useMutation({
     mutationFn: () => {
+      const serials: Record<number, string[]> = {};
       const payload: ReceiveItemInput[] = items.map(item => {
-        const remaining = item.quantity_ordered - item.quantity_received;
         // The input is a per-shipment "receive now" delta (defaults to the full
         // remaining amount). The backend's quantity_received is the CUMULATIVE
         // total received, so add the delta to what's already on the line —
         // otherwise a second receive re-sends the delta as an absolute total and
         // silently under-counts (or no-ops) the stock that just arrived.
-        const receiveNow = Math.min(Math.max(Number(quantities[item.id] ?? remaining), 0), remaining);
+        const receiveNow = receiveNowFor(item);
+        if (item.serial_required && receiveNow > 0) {
+          serials[item.id] = parseSerials(serialText[item.id] ?? '');
+        }
         return { id: item.id, quantity_received: item.quantity_received + receiveNow };
       });
-      return receivePo(po.id, payload);
+      return receivePo(po.id, payload, serials);
     },
     onSuccess: () => { onReceived(); onClose(); },
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('purchaseOrderDetail.receiveModal.genericError')),
@@ -296,12 +326,13 @@ function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (!canSubmit) return;
     mutation.mutate();
   }
 
   return (
     <div style={modalStyles.backdrop} role="dialog" aria-modal="true" aria-label={t('purchaseOrderDetail.receiveModal.title')}>
-      <div style={{ ...modalStyles.panel, maxWidth: 620 }}>
+      <div style={{ ...modalStyles.panel, maxWidth: 640 }}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>{t('purchaseOrderDetail.receiveModal.title')}</h3>
           <button type="button" style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
@@ -320,6 +351,9 @@ function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
             <tbody>
               {items.map(item => {
                 const remaining = item.quantity_ordered - item.quantity_received;
+                const receiveNow = receiveNowFor(item);
+                const serialCount = parseSerials(serialText[item.id] ?? '').length;
+                const mismatch = !!item.serial_required && receiveNow > 0 && serialCount !== receiveNow;
                 return (
                   <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={{ padding: '6px 8px' }}>{item.description}</td>
@@ -336,6 +370,22 @@ function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
                         value={quantities[item.id] ?? String(remaining)}
                         onChange={e => setQuantities(q => ({ ...q, [item.id]: e.target.value }))}
                       />
+                      {!!item.serial_required && receiveNow > 0 && (
+                        <div style={{ textAlign: 'left', marginTop: 6 }}>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 2 }}>
+                            {t('purchaseOrderDetail.receiveModal.serialsLabel', { count: receiveNow })}
+                          </label>
+                          <textarea
+                            style={{ ...inputStyle, marginBottom: 0, width: 220, minHeight: 60, fontFamily: 'monospace', fontSize: '0.78rem' }}
+                            placeholder={t('purchaseOrderDetail.receiveModal.serialsPlaceholder')}
+                            value={serialText[item.id] ?? ''}
+                            onChange={e => setSerialText(s => ({ ...s, [item.id]: e.target.value }))}
+                          />
+                          <div style={{ fontSize: '0.72rem', color: mismatch ? '#dc2626' : 'var(--text-muted)' }}>
+                            {t('purchaseOrderDetail.receiveModal.serialsCount', { entered: serialCount, needed: receiveNow })}
+                          </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -345,11 +395,16 @@ function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
           <p style={{ margin: '0 0 1rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             {t('purchaseOrderDetail.receiveModal.hint')}
           </p>
+          {!canSubmit && (
+            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#dc2626' }}>
+              {t('purchaseOrderDetail.receiveModal.serialsMismatchError')}
+            </p>
+          )}
           <div style={modalStyles.actions}>
             <button type="button" onClick={onClose} style={crudStyles.btnSecondary} disabled={mutation.isPending}>
               {t('purchaseOrderDetail.actions.cancel')}
             </button>
-            <button type="submit" style={crudStyles.btnPrimary} disabled={mutation.isPending}>
+            <button type="submit" style={crudStyles.btnPrimary} disabled={mutation.isPending || !canSubmit}>
               {mutation.isPending ? t('purchaseOrderDetail.receiveModal.receiving') : t('purchaseOrderDetail.receiveModal.confirm')}
             </button>
           </div>

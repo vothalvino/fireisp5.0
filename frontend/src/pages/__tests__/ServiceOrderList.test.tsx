@@ -36,8 +36,12 @@ const inProcessOrder = {
   client_name: 'Beta LLC', lead_name: null,
 };
 
+// Inventory Phase 3 (migration 391) — Equipment modal lookups
+const equipmentItem = { id: 3, name: 'ONU-X', sku: 'ONU-X-1' };
+const inStockUnit = { id: 77, serial_number: 'SN-INSTOCK-1' };
+
 function mockResponses(orders: unknown[] = [newOrder, inProcessOrder]) {
-  mockApiGet.mockImplementation((path: string) => {
+  mockApiGet.mockImplementation((path: string, opts?: { params?: { query?: Record<string, unknown> } }) => {
     if (path === '/clients') {
       return Promise.resolve({ data: { data: [] }, error: undefined });
     }
@@ -46,6 +50,15 @@ function mockResponses(orders: unknown[] = [newOrder, inProcessOrder]) {
     }
     if (path === '/plans') {
       return Promise.resolve({ data: { data: [{ id: 2, name: 'Basic 50Mbps', price: '399.00' }] }, error: undefined });
+    }
+    if (path === '/inventory/items') {
+      return Promise.resolve({ data: { data: [equipmentItem] }, error: undefined });
+    }
+    if (path === '/cpe-management/devices') {
+      const query = opts?.params?.query ?? {};
+      if ('contract_id' in query) return Promise.resolve({ data: { data: [] }, error: undefined }); // nothing assigned yet
+      if ('lifecycle_state' in query) return Promise.resolve({ data: { data: [inStockUnit] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
     }
     return Promise.resolve({
       data: { data: orders, meta: { total: orders.length, page: 1, limit: 25, totalPages: 1 } },
@@ -222,5 +235,66 @@ describe('ServiceOrderList page', () => {
       expect.objectContaining({ params: { path: { id: 10 } } }),
     ));
     confirmSpy.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------
+  // D — Equipment modal (Inventory Phase 3, migration 391)
+  // ---------------------------------------------------------------------
+  describe('Equipment modal', () => {
+    it('only shows the Equipment button once a contract is linked', async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument());
+      // newOrder (contract_id: null) has no Equipment button; inProcessOrder
+      // (contract_id: 900) does.
+      expect(screen.getAllByText('Equipment')).toHaveLength(1);
+    });
+
+    it('picks an in-stock serial and submits a rent install', async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText('Beta LLC')).toBeInTheDocument());
+      fireEvent.click(screen.getByText('Equipment'));
+
+      const dialog = within(await screen.findByRole('dialog', { name: /Equipment/i }));
+      // Wait for the product catalog lookup to populate the <option> before
+      // selecting it — setting .value to an option that doesn't exist yet is
+      // silently ignored by the DOM.
+      await waitFor(() => expect(dialog.getByText('ONU-X (ONU-X-1)')).toBeInTheDocument());
+      fireEvent.change(dialog.getByLabelText('Product'), { target: { value: '3' } });
+
+      await waitFor(() => expect(dialog.getByText('SN-INSTOCK-1')).toBeInTheDocument());
+      fireEvent.change(dialog.getByLabelText('Serial'), { target: { value: '77' } });
+
+      // Rent is the default ownership — submit without touching the radios.
+      fireEvent.click(dialog.getByText('Install Equipment'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+        '/cpe-management/devices/install',
+        expect.objectContaining({
+          body: { contract_id: 900, service_order_id: 11, ownership: 'rented', cpe_device_id: 77 },
+        }),
+      ));
+    });
+
+    it('types a new serial and submits a sold install', async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText('Beta LLC')).toBeInTheDocument());
+      fireEvent.click(screen.getByText('Equipment'));
+
+      const dialog = within(await screen.findByRole('dialog', { name: /Equipment/i }));
+      await waitFor(() => expect(dialog.getByText('ONU-X (ONU-X-1)')).toBeInTheDocument());
+      fireEvent.change(dialog.getByLabelText('Product'), { target: { value: '3' } });
+      fireEvent.click(dialog.getByText('Type a new serial'));
+      fireEvent.change(dialog.getByLabelText('New serial number'), { target: { value: 'SN-BOX-99' } });
+      fireEvent.click(dialog.getByText('Sold (raises an invoice)'));
+
+      fireEvent.click(dialog.getByText('Install Equipment'));
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+        '/cpe-management/devices/install',
+        expect.objectContaining({
+          body: { contract_id: 900, service_order_id: 11, ownership: 'sold', new_serial: 'SN-BOX-99', inventory_item_id: 3 },
+        }),
+      ));
+    });
   });
 });

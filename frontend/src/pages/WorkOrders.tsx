@@ -317,6 +317,110 @@ function MaterialsPanel({ workOrderId }: { workOrderId: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Pickup checklist panel (Inventory Phase 3, migration 391) — shown inline
+// for work_type='pickup' orders instead of MaterialsPanel. Lists outstanding
+// RENTED equipment for the order's contract (sold devices never appear —
+// they're the client's property) and lets a technician resolve each unit as
+// returned-to-stock or damaged/RMA. The work order auto-completes on the
+// backend once every listed unit is resolved.
+// ---------------------------------------------------------------------------
+
+interface PickupUnit {
+  id: number;
+  serial_number: string;
+  item_name: string | null;
+  sku: string | null;
+  lifecycle_state: string;
+}
+
+async function fetchPickupItems(workOrderId: number): Promise<PickupUnit[]> {
+  const res = await api.GET('/work-orders/{id}/pickup-items' as never, {
+    params: { path: { id: workOrderId } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load pickup checklist');
+  return ((res as { data: unknown }).data as { data: PickupUnit[] }).data ?? [];
+}
+
+async function resolvePickupUnit(workOrderId: number, cpeDeviceId: number, disposition: 'returned' | 'rma'): Promise<void> {
+  const resp = await authedFetch(`/api/v1/work-orders/${workOrderId}/pickup-items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cpe_device_id: cpeDeviceId, disposition }),
+  });
+  if (!resp.ok) throw new Error(await errorMessage(resp, 'Failed to resolve pickup item'));
+}
+
+function PickupChecklistPanel({ workOrderId }: { workOrderId: number }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+
+  const itemsQ = useQuery({
+    queryKey: ['workOrders', workOrderId, 'pickupItems'],
+    queryFn: () => fetchPickupItems(workOrderId),
+  });
+
+  const resolveMut = useMutation({
+    mutationFn: ({ cpeDeviceId, disposition }: { cpeDeviceId: number; disposition: 'returned' | 'rma' }) =>
+      resolvePickupUnit(workOrderId, cpeDeviceId, disposition),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workOrders', workOrderId, 'pickupItems'] });
+      // The work order may have just auto-completed — refresh the list/status too.
+      qc.invalidateQueries({ queryKey: ['workOrders'] });
+    },
+  });
+
+  return (
+    <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)' }}>
+      <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.pickup.title')}</strong>
+      {itemsQ.isLoading ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{t('common.loading')}</p>
+      ) : (itemsQ.data ?? []).length === 0 ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 8 }}>{t('workOrders.pickup.none')}</p>
+      ) : (
+        <table style={{ ...styles.table, marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th style={styles.th}>{t('workOrders.pickup.serial')}</th>
+              <th style={styles.th}>{t('workOrders.pickup.product')}</th>
+              <th style={styles.th}>{t('common.actions', 'Actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(itemsQ.data ?? []).map(unit => (
+              <tr key={unit.id}>
+                <td style={{ ...styles.td, fontFamily: 'monospace' }}>{unit.serial_number}</td>
+                <td style={styles.td}>{unit.item_name ?? t('workOrders.none')}</td>
+                <td style={styles.td}>
+                  <button
+                    style={{ ...styles.btnPrimary, marginRight: 4 }}
+                    disabled={resolveMut.isPending}
+                    onClick={() => resolveMut.mutate({ cpeDeviceId: unit.id, disposition: 'returned' })}
+                  >
+                    {t('workOrders.pickup.returned')}
+                  </button>
+                  <button
+                    style={styles.btnDanger}
+                    disabled={resolveMut.isPending}
+                    onClick={() => resolveMut.mutate({ cpeDeviceId: unit.id, disposition: 'rma' })}
+                  >
+                    {t('workOrders.pickup.rma')}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {resolveMut.isError && (
+        <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: 8 }}>
+          {(resolveMut.error as Error)?.message ?? t('common.error', 'Something went wrong')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -538,12 +642,18 @@ export function WorkOrders() {
                           )}
                           {wo.status === 'in_progress' && (
                             <>
-                              <button
-                                style={{ ...styles.btnPrimary, marginRight: 4 }}
-                                onClick={() => patchMut.mutate({ id: wo.id, body: { status: 'completed' } })}
-                              >
-                                Complete
-                              </button>
+                              {/* Pickup orders complete themselves once every
+                                  outstanding unit below is resolved — a blind
+                                  status flip here would leave equipment
+                                  unaccounted for, so no manual Complete button. */}
+                              {wo.work_type !== 'pickup' && (
+                                <button
+                                  style={{ ...styles.btnPrimary, marginRight: 4 }}
+                                  onClick={() => patchMut.mutate({ id: wo.id, body: { status: 'completed' } })}
+                                >
+                                  Complete
+                                </button>
+                              )}
                               <button
                                 style={styles.btnDanger}
                                 onClick={() => patchMut.mutate({ id: wo.id, body: { status: 'cancelled' } })}
@@ -557,7 +667,9 @@ export function WorkOrders() {
                       {expandedId === wo.id && (
                         <tr key={`${wo.id}-materials`}>
                           <td colSpan={8} style={{ padding: 0 }}>
-                            <MaterialsPanel workOrderId={wo.id} />
+                            {wo.work_type === 'pickup'
+                              ? <PickupChecklistPanel workOrderId={wo.id} />
+                              : <MaterialsPanel workOrderId={wo.id} />}
                           </td>
                         </tr>
                       )}

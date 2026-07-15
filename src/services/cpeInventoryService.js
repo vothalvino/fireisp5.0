@@ -20,7 +20,12 @@ const logger = require('../utils/logger').child({ service: 'cpeInventoryService'
 // Valid transitions
 const TRANSITIONS = {
   in_stock:  ['assigned'],
-  assigned:  ['active', 'returned', 'in_stock'],
+  // 'rma' added to 'assigned' (Inventory Phase 3, migration 391): a pickup
+  // can find a unit damaged before it was ever activated (installed but
+  // never came online / picked back up mid-install) — that unit was never
+  // 'active', so completePickupUnit's rma disposition needs a direct
+  // assigned -> rma path, not a detour through 'returned'.
+  assigned:  ['active', 'returned', 'in_stock', 'rma'],
   active:    ['returned', 'rma'],
   returned:  ['in_stock', 'rma'],
   rma:       ['in_stock'],

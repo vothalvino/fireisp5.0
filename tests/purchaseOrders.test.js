@@ -187,18 +187,40 @@ describe('POST /api/v1/purchase-orders/:id/receive', () => {
     });
   }
 
-  function buildConn(lineItems) {
+  function buildConn(lineItems, { serialRequiredByItemId = {}, existingSerials = [] } = {}) {
     const stockRows = new Map(); // item_id:warehouse_id -> { id, quantity }
     let nextStockId = 100;
+    let nextDeviceId = 900;
+    const createdDevices = [];
+    const takenSerials = new Set(existingSerials);
     const conn = {
       beginTransaction: jest.fn().mockResolvedValue(undefined),
       commit: jest.fn().mockResolvedValue(undefined),
       rollback: jest.fn().mockResolvedValue(undefined),
       release: jest.fn(),
-      query: jest.fn((sql) => {
+      _createdDevices: createdDevices,
+      query: jest.fn((sql, params) => {
         if (typeof sql !== 'string') return Promise.resolve([[]]);
         if (sql.includes('SELECT * FROM purchase_order_items WHERE po_id')) {
           return Promise.resolve([lineItems]);
+        }
+        // Inventory Phase 3 (migration 391): serial_required lookup per item.
+        if (sql.includes('SELECT serial_required FROM inventory_items WHERE id')) {
+          const itemId = params[0];
+          const required = !!serialRequiredByItemId[itemId];
+          return Promise.resolve([[{ serial_required: required ? 1 : 0 }]]);
+        }
+        // Inventory Phase 3: duplicate-serial guard (_assertSerialNotTaken).
+        if (sql.includes('SELECT id FROM cpe_devices WHERE serial_number')) {
+          const serial = params[0];
+          return Promise.resolve([takenSerials.has(serial) ? [{ id: 1 }] : []]);
+        }
+        // Inventory Phase 3: per-serial unit creation (createTrackedUnits).
+        if (sql.includes('INSERT INTO cpe_devices')) {
+          const id = nextDeviceId++;
+          createdDevices.push({ id, serial_number: params[1], inventory_item_id: params[2] });
+          takenSerials.add(params[1]);
+          return Promise.resolve([{ insertId: id }]);
         }
         if (sql.includes('SELECT id FROM inventory_stock WHERE item_id')) {
           // key doesn't matter for these tests — single item/warehouse combo
@@ -342,6 +364,96 @@ describe('POST /api/v1/purchase-orders/:id/receive', () => {
       .send({});
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('ALREADY_RECEIVED');
+  });
+
+  // ---------------------------------------------------------------------
+  // Inventory Phase 3 (migration 391) — serial-tracked receive
+  // ---------------------------------------------------------------------
+
+  it('422s and writes nothing when a serial_required line is missing serials', async () => {
+    mockAuthQuery();
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 3, quantity_received: 0 }],
+      { serialRequiredByItemId: { 1: true } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({}); // no serials at all — delta is 3, needs exactly 3
+
+    expect(res.status).toBe(422);
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn.rollback).toHaveBeenCalled();
+    // No stock/PO-item writes happened before the validation threw.
+    const calls = conn.query.mock.calls.map(c => c[0]);
+    expect(calls.some(sql => sql.includes('UPDATE inventory_stock'))).toBe(false);
+    expect(calls.some(sql => sql.includes('UPDATE purchase_order_items SET quantity_received'))).toBe(false);
+    expect(conn._createdDevices.length).toBe(0);
+  });
+
+  it('422s when the serials count does not match the delta (wrong count, not just missing)', async () => {
+    mockAuthQuery();
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 3, quantity_received: 0 }],
+      { serialRequiredByItemId: { 1: true } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ serials: { 1: ['SN-A', 'SN-B'] } }); // 2 serials for a delta of 3
+
+    expect(res.status).toBe(422);
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn._createdDevices.length).toBe(0);
+  });
+
+  it('creates one cpe_devices row per serial, atomically with the stock increment and ledger row', async () => {
+    mockAuthQuery();
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 2, quantity_received: 0, unit_cost: '50.0000' }],
+      { serialRequiredByItemId: { 1: true } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ serials: { 1: ['SN-100', 'SN-101'] } });
+
+    expect(res.status).toBe(200);
+    expect(conn.commit).toHaveBeenCalled();
+    expect(conn._createdDevices.map(d => d.serial_number)).toEqual(['SN-100', 'SN-101']);
+    expect(conn._createdDevices.every(d => d.inventory_item_id === 1)).toBe(true);
+    const calls = conn.query.mock.calls.map(c => c[0]);
+    // No pre-existing stock row for this item/warehouse in this test, so the
+    // route's existing Phase 1 upsert takes the INSERT branch, not UPDATE.
+    expect(calls.some(sql => sql.includes('INSERT INTO inventory_stock'))).toBe(true);
+    expect(calls.some(sql => sql.includes('INSERT INTO inventory_transactions'))).toBe(true);
+  });
+
+  it('does not require serials for a non-serial_required line even with an inventory_item_id', async () => {
+    mockAuthQuery();
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 5, quantity_received: 0 }],
+      { serialRequiredByItemId: { 1: false } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({}); // no serials — fine, item is not serial_required
+
+    expect(res.status).toBe(200);
+    expect(conn._createdDevices.length).toBe(0);
   });
 });
 

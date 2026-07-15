@@ -21,7 +21,11 @@
     "next": "Next",
     "none": "(none)",
     "id": "ID",
-    "unassigned": "— unassigned —"
+    "unassigned": "— unassigned —",
+    "select": "select",
+    "all": "All",
+    "actions": "Actions",
+    "error": "Something went wrong"
   },
   "clientPicker": {
     "label": "Client",
@@ -2467,7 +2471,8 @@
       "lifecycle": "Lifecycle",
       "subscribers": "Subscriber Link",
       "swap": "Swap Device",
-      "depreciation": "Depreciation"
+      "depreciation": "Depreciation",
+      "register": "Register"
     },
     "lifecycle": {
       "title": "Lifecycle State",
@@ -2527,6 +2532,31 @@
       },
       "notConfigured": "No depreciation data. Set purchase cost, date, and method on the device.",
       "error": "Failed to load depreciation."
+    },
+    "register": {
+      "formTitle": "Register a Serial",
+      "item": "Product",
+      "serialNumber": "Serial Number",
+      "warehouse": "Warehouse",
+      "manufacturer": "Manufacturer",
+      "modelName": "Model",
+      "incrementStock": "This is a brand-new unit (increase stock by 1)",
+      "incrementStockHint": "Leave unchecked for catch-up registration of stock that already exists on hand — it will not change the quantity.",
+      "submit": "Register Serial",
+      "error": "Failed to register serial",
+      "success": "Serial registered.",
+      "filterState": "State",
+      "filterItem": "Product",
+      "colSerial": "Serial",
+      "colProduct": "Product",
+      "colState": "State",
+      "colClient": "Client",
+      "colOwnership": "Ownership",
+      "empty": "No serialized units found.",
+      "ownership": {
+        "rented": "Rented",
+        "sold": "Sold"
+      }
     }
   },
   "wirelessManagement": {
@@ -2884,7 +2914,8 @@
       "maintenance": "Maintenance",
       "repair": "Repair",
       "survey": "Survey",
-      "other": "Other"
+      "other": "Other",
+      "pickup": "Pickup"
     },
     "status": {
       "pending": "Pending",
@@ -2892,6 +2923,14 @@
       "inProgress": "In Progress",
       "completed": "Completed",
       "cancelled": "Cancelled"
+    },
+    "pickup": {
+      "title": "Equipment Pickup Checklist",
+      "none": "No outstanding equipment.",
+      "serial": "Serial",
+      "product": "Product",
+      "returned": "Returned to Stock",
+      "rma": "Damaged / RMA"
     }
   },
   "ticketDetail": {
@@ -3062,6 +3101,11 @@
       "reference": "Reference",
       "performedBy": "Performed By",
       "noRows": "No stock movements found"
+    },
+    "serialRequired": {
+      "label": "Serial Tracking",
+      "hint": "Track this product by individual serial number",
+      "badge": "Serialized"
     }
   },
   "productPicker": {
@@ -3971,7 +4015,27 @@
     "close": "Close",
     "invoiceCreatedModalTitle": "Installation Invoice Created",
     "invoiceCreatedHint": "An installation-fee invoice was created for this order.",
-    "viewInvoice": "View invoice"
+    "viewInvoice": "View invoice",
+    "equipment": "Equipment",
+    "equipmentModalTitle": "Equipment",
+    "equipmentAssigned": "Assigned equipment",
+    "equipmentProduct": "Product",
+    "equipmentSelectProduct": "select product",
+    "equipmentExistingSerial": "Pick in-stock serial",
+    "equipmentNewSerial": "Type a new serial",
+    "equipmentSerial": "Serial",
+    "equipmentSelectSerial": "select serial",
+    "equipmentSelectProductFirst": "select a product first",
+    "equipmentNewSerialLabel": "New serial number",
+    "equipmentNewSerialPlaceholder": "Read from the box",
+    "equipmentOwnership": "Rent or buy",
+    "equipmentRented": "Rented (no invoice)",
+    "equipmentSold": "Sold (raises an invoice)",
+    "equipmentInstall": "Install Equipment",
+    "equipmentPickSerial": "Select a serial",
+    "equipmentEnterSerial": "Enter a serial number",
+    "equipmentPickProduct": "Select a product",
+    "equipmentInstallFailed": "Failed to install equipment"
   },
   "leads": {
     "addressField": "Address",
@@ -4120,11 +4184,26 @@
       "hint": "Quantities default to the full remaining amount. Lower a value to receive a partial shipment — the order will be marked \"partial\" until every line is fully received.",
       "confirm": "Confirm Receive",
       "receiving": "Receiving…",
-      "genericError": "An error occurred"
+      "genericError": "An error occurred",
+      "serialsLabel": "Serial numbers ({{count}} needed)",
+      "serialsPlaceholder": "One serial per line",
+      "serialsCount": "{{entered}} of {{needed}} entered",
+      "serialsMismatchError": "Enter exactly the right number of serial numbers for every serial-tracked line before receiving."
     },
     "toasts": {
       "itemAdded": "Line item added.",
       "received": "Purchase order received — stock updated."
+    }
+  },
+  "clientDetail": {
+    "assignedEquipment": {
+      "title": "Assigned Equipment",
+      "serial": "Serial",
+      "product": "Product",
+      "state": "State",
+      "ownership": "Ownership",
+      "ownership_rented": "Rented",
+      "ownership_sold": "Sold"
     }
   }
 }

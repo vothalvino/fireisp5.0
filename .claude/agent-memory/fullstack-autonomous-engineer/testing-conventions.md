@@ -185,3 +185,11 @@ grep -c "CREATE TABLE" database/schema.sql
 grep -oE 'all [0-9]+ tables' README.md
 ```
 Both numbers must match, and both differ from the "Database Tables" list's last row number.
+
+## Frontend: `pnpm test -- <file>` does not filter to that file
+
+In this repo's frontend, `pnpm test` is `vitest run` with no passthrough args wired — `pnpm test -- src/pages/__tests__/X.test.tsx` silently runs the ENTIRE suite (100+ files), not just `X`. Use `npx vitest run <file> [<file>...]` directly to target specific files while iterating; save the bare `pnpm test` (full suite) for the Finalize gate.
+
+## jsdom: setting a `<select>`'s value to an `<option>` that hasn't rendered yet is a silent no-op
+
+`fireEvent.change(select, { target: { value: '3' } })` when the options come from an async `useQuery` with no `enabled` gate (or one that hasn't resolved yet) does NOT throw and does NOT update `select.value` — the DOM just ignores setting a value with no matching option, exactly like a real browser. The test then hangs/times out on some LATER assertion that depended on the (never-fired) onChange, with no error pointing back at the real cause. Always `await waitFor(() => expect(getByText(theExpectedOptionLabel)).toBeInTheDocument())` (or equivalent) before firing `change` on any select whose options are populated by a query. See [[inventory-phase3-serialized-equipment]] (`ServiceOrderList.tsx`'s EquipmentModal tests) for a worked example.

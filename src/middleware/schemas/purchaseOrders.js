@@ -59,6 +59,12 @@ const receivePo = {
   // of each entry is validated by the route handler (this middleware only
   // confirms the top-level field is an array — see validate()'s 'array' type).
   items: { type: 'array', required: false },
+  // Inventory Phase 3 (migration 391): { [lineItemId]: string[] } — serial
+  // numbers for a line whose inventory_items.serial_required is ON. There is
+  // no 'object' rule in validate() (see src/middleware/validate.js), so shape
+  // and per-line count==quantity-received enforcement both happen in the
+  // route handler, before any write.
+  serials: { type: 'object', required: false },
 };
 
 module.exports = { createPurchaseOrder, updatePurchaseOrder, createPoItem, updatePoItem, receivePo };

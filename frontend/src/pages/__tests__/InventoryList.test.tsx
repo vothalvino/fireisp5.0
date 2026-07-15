@@ -103,6 +103,45 @@ describe('InventoryList — Record Transaction modal (first-time stock)', () => 
 });
 
 // =============================================================================
+// Item form — serial_required toggle (Inventory Phase 3, §14.2 cont'd)
+// =============================================================================
+describe('InventoryList — New Item modal serial_required toggle', () => {
+  it('sends serial_required: true when the toggle is checked, false by default', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('MikroTik RB750Gr3')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('+ New Item'));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'New Inventory Item' })).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. MikroTik RB750Gr3'), { target: { value: 'ONU-X' } });
+    const toggle = screen.getByRole('checkbox');
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Item' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/inventory/items'),
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const call = mockAuthedFetch.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('/inventory/items'));
+    const body = JSON.parse((call?.[1] as { body: string }).body);
+    expect(body.serial_required).toBe(true);
+  });
+
+  it('shows a "Serialized" badge in the list for items with serial_required on', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/inventory/items?'))
+        return jsonResponse({ data: [{ ...item1, serial_required: 1 }], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } });
+      return jsonResponse({ data: [] });
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('MikroTik RB750Gr3')).toBeInTheDocument());
+    expect(screen.getByText('Serialized')).toBeInTheDocument();
+  });
+});
+
+// =============================================================================
 // Stock modal — negative quantity rendering (Inventory Phase 2, §14.2)
 // =============================================================================
 // Negative stock is now an allowed state (automatic sale drawdown never

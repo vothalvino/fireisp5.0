@@ -232,4 +232,63 @@ describe('PurchaseOrderDetail page', () => {
       }),
     ));
   });
+
+  // -------------------------------------------------------------------------
+  // Inventory Phase 3 (migration 391) — serial-tracked receive
+  // -------------------------------------------------------------------------
+  describe('serial_required line', () => {
+    const serialItem = { ...item1, quantity_ordered: 2, quantity_received: 0, serial_required: 1 };
+
+    it('shows serial number inputs and blocks submit until the count matches the receive quantity', async () => {
+      setupMocks('sent', [serialItem]);
+      renderDetail();
+      fireEvent.click(await screen.findByRole('button', { name: /Receive/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Receive Purchase Order' });
+      // Serial textarea appears because this line is serial_required and receiving > 0.
+      const serialBox = within(dialog).getByPlaceholderText('One serial per line');
+      expect(serialBox).toBeInTheDocument();
+
+      const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm Receive' });
+      // 2 needed, 0 entered yet — mismatch, submit is blocked.
+      expect(confirmBtn).toBeDisabled();
+      expect(within(dialog).getByText(/Enter exactly the right number/)).toBeInTheDocument();
+
+      // Only one serial entered for a quantity of 2 — still blocked.
+      fireEvent.change(serialBox, { target: { value: 'SN-100' } });
+      expect(confirmBtn).toBeDisabled();
+
+      fireEvent.click(confirmBtn); // no-op while disabled/blocked
+      expect(mockApiPost).not.toHaveBeenCalledWith('/purchase-orders/{id}/receive', expect.anything());
+    });
+
+    it('submits serials keyed by line id once the count matches', async () => {
+      setupMocks('sent', [serialItem]);
+      renderDetail();
+      fireEvent.click(await screen.findByRole('button', { name: /Receive/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Receive Purchase Order' });
+      const serialBox = within(dialog).getByPlaceholderText('One serial per line');
+      fireEvent.change(serialBox, { target: { value: 'SN-100\nSN-101' } });
+
+      const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm Receive' });
+      expect(confirmBtn).not.toBeDisabled();
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+        '/purchase-orders/{id}/receive',
+        expect.objectContaining({
+          body: { items: [{ id: 1, quantity_received: 2 }], serials: { 1: ['SN-100', 'SN-101'] } },
+        }),
+      ));
+    });
+
+    it('does not render serial inputs for a non-serial-tracked line', async () => {
+      renderDetail(); // default setupMocks uses item1, no serial_required
+      fireEvent.click(await screen.findByRole('button', { name: /Receive/ }));
+      const dialog = await screen.findByRole('dialog', { name: 'Receive Purchase Order' });
+      expect(within(dialog).queryByPlaceholderText('One serial per line')).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Confirm Receive' })).not.toBeDisabled();
+    });
+  });
 });

@@ -14,6 +14,8 @@ const {
   createPoItem, updatePoItem, receivePo,
 } = require('../middleware/schemas/purchaseOrders');
 const db = require('../config/database');
+const inventorySerialService = require('../services/inventorySerialService');
+const { ValidationError } = require('../utils/errors');
 
 const router = Router();
 const ctrl = crudController(PurchaseOrder);
@@ -115,6 +117,17 @@ router.delete('/:id/items/:itemId', requirePermission('purchase_orders.update'),
 //                   (no support for reversing a receipt in Phase 1).
 //                   Omitting `items` entirely preserves the original full-receive
 //                   behavior: every line is received in full.
+//   serials?        { [lineItemId: number]: string[] }
+//                   Inventory Phase 3 (migration 391): required when a line's
+//                   inventory_items.serial_required is ON — the array length
+//                   MUST equal that line's incremental delta THIS call (not
+//                   the cumulative total), matching quantity_received's own
+//                   "packing slip" semantics. Validated in a pass over every
+//                   line BEFORE any write; a 422 here leaves the PO/stock/
+//                   cpe_devices completely untouched. One cpe_devices row
+//                   (in_stock, linked to the line's inventory_item_id) is
+//                   minted per serial, in the SAME transaction as the stock
+//                   increment below.
 //
 // Runs inside a single DB transaction — a mid-loop failure leaves neither stock
 // nor the PO's status changed — and, for every line that actually gains
@@ -155,15 +168,48 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
         [po.id],
       );
 
-      let anyReceived = false;
-      let allFullyReceived = lineItems.length > 0;
+      // Resolve serial_required per referenced inventory item (a small extra
+      // query per distinct item, not joined into the line-items SELECT above
+      // so the pre-391 query shape/behavior for non-serialized POs is
+      // byte-for-byte unchanged). Missing/unknown resolves to "not required"
+      // — real FK-backed rows always resolve to a real 0/1.
+      const serialRequiredByItemId = new Map();
+      for (const item of lineItems) {
+        if (!item.inventory_item_id || serialRequiredByItemId.has(item.inventory_item_id)) continue;
+        const [rows] = await conn.query(
+          'SELECT serial_required FROM inventory_items WHERE id = ?',
+          [item.inventory_item_id],
+        );
+        serialRequiredByItemId.set(item.inventory_item_id, !!(rows[0] && rows[0].serial_required));
+      }
 
+      // ---- Pass 1: compute every line's delta + validate serial counts BEFORE any write ----
+      const planned = new Map(); // po_item.id -> { target, delta }
+      const bodySerials = req.body.serials && typeof req.body.serials === 'object' ? req.body.serials : {};
       for (const item of lineItems) {
         const currentReceived = item.quantity_received;
         const target = overrides
           ? Math.min(Math.max(overrides.get(item.id) ?? currentReceived, currentReceived), item.quantity_ordered)
           : item.quantity_ordered;
         const delta = target - currentReceived;
+        planned.set(item.id, { target, delta });
+
+        if (delta > 0 && item.inventory_item_id && po.warehouse_id && serialRequiredByItemId.get(item.inventory_item_id)) {
+          const provided = bodySerials[item.id] ?? bodySerials[String(item.id)];
+          if (!Array.isArray(provided) || provided.length !== delta) {
+            throw new ValidationError(
+              `Line ${item.id} is a serial-tracked item — provide exactly ${delta} serial number(s) in serials[${item.id}] (got ${Array.isArray(provided) ? provided.length : 0})`,
+            );
+          }
+        }
+      }
+
+      let anyReceived = false;
+      let allFullyReceived = lineItems.length > 0;
+
+      // ---- Pass 2: apply ----
+      for (const item of lineItems) {
+        const { target, delta } = planned.get(item.id);
 
         if (delta > 0) {
           if (item.inventory_item_id && po.warehouse_id) {
@@ -188,6 +234,15 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
                VALUES (?, 'receive', ?, ?, ?, ?, ?)`,
               [stockId, delta, item.unit_cost, po.po_number, req.body.notes || null, req.user?.id || null],
             );
+
+            if (serialRequiredByItemId.get(item.inventory_item_id)) {
+              const provided = bodySerials[item.id] ?? bodySerials[String(item.id)];
+              await inventorySerialService.createTrackedUnits(conn.query.bind(conn), {
+                orgId: req.orgId,
+                itemId: item.inventory_item_id,
+                serials: provided,
+              });
+            }
           }
           await conn.query('UPDATE purchase_order_items SET quantity_received = ? WHERE id = ?', [target, item.id]);
         }

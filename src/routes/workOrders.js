@@ -11,8 +11,10 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createWorkOrder, updateWorkOrder, patchWorkOrder } = require('../middleware/schemas/workOrders');
+const { pickupDisposition } = require('../middleware/schemas/inventorySerials');
 const db = require('../config/database');
 const User = require('../models/User');
+const inventorySerialService = require('../services/inventorySerialService');
 
 // A work order may only be assigned to someone who could actually work it, i.e.
 // a user authorized to update work orders (`work_orders.update`). This is the
@@ -298,6 +300,39 @@ router.delete('/:id/materials/:matId', requirePermission('work_order_materials.d
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Material not found' });
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Equipment pickup checklist (Inventory Phase 3, migration 391) — completing
+// a work_type='pickup' order asks per outstanding-rented-unit disposition.
+// ---------------------------------------------------------------------------
+
+// GET /work-orders/:id/pickup-items — the outstanding rented-equipment
+// checklist for this pickup order (computed live from cpe_devices; sold
+// devices are the client's property and never appear here).
+router.get('/:id/pickup-items', requirePermission('work_orders.view'), async (req, res, next) => {
+  try {
+    const result = await inventorySerialService.getPickupChecklist(parseInt(req.params.id, 10), req.orgId);
+    res.json({ data: result.units, meta: { work_order_id: result.workOrder.id, contract_id: result.workOrder.contract_id, status: result.workOrder.status } });
+  } catch (err) { next(err); }
+});
+
+// POST /work-orders/:id/pickup-items — resolve one unit's disposition
+// (returned -> back in stock +1, ledger 'return'; rma -> no stock change).
+// The work order auto-completes once every outstanding rented unit on its
+// contract has been resolved.
+router.post('/:id/pickup-items', requirePermission('work_orders.update'), validate(pickupDisposition), async (req, res, next) => {
+  try {
+    const device = await inventorySerialService.completePickupUnit({
+      workOrderId: parseInt(req.params.id, 10),
+      cpeDeviceId: req.body.cpe_device_id,
+      disposition: req.body.disposition,
+      notes: req.body.notes || null,
+      orgId: req.orgId,
+      performedBy: req.user?.id || null,
+    });
+    res.json({ data: device });
   } catch (err) { next(err); }
 });
 

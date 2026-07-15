@@ -6,6 +6,10 @@ const createInventoryItem = {
   name: { type: 'string', required: true, min: 1, max: 255 },
   sku: { type: 'string', max: 100 },
   category: { type: 'string', enum: ['antenna', 'cable', 'router', 'switch', 'onu', 'olt', 'cpe', 'connector', 'power_supply', 'enclosure', 'tool', 'other'] },
+  // Inventory Phase 3 (migration 391) — per-serial tracking toggle. Default
+  // OFF at the DB level; omitting this field entirely preserves every
+  // existing pure-quantity Phase 1/2 flow unchanged.
+  serial_required: { type: 'boolean' },
   manufacturer: { type: 'string', max: 100 },
   model: { type: 'string', max: 100 },
   description: { type: 'string', max: 5000 },
@@ -21,6 +25,10 @@ const updateInventoryItem = {
   name: { type: 'string', min: 1, max: 255 },
   sku: { type: 'string', max: 100 },
   category: { type: 'string', enum: ['antenna', 'cable', 'router', 'switch', 'onu', 'olt', 'cpe', 'connector', 'power_supply', 'enclosure', 'tool', 'other'] },
+  // Inventory Phase 3 (migration 391) — per-serial tracking toggle. Default
+  // OFF at the DB level; omitting this field entirely preserves every
+  // existing pure-quantity Phase 1/2 flow unchanged.
+  serial_required: { type: 'boolean' },
   manufacturer: { type: 'string', max: 100 },
   model: { type: 'string', max: 100 },
   description: { type: 'string', max: 5000 },

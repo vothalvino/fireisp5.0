@@ -1687,6 +1687,14 @@ function generateSpec() {
         get: { tags: ['CPE Management'], summary: 'Get computed depreciation/book value for a CPE device', operationId: 'getCpeDepreciation', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CpeDepreciation') },
       },
 
+      // ---- Inventory Phase 3 (migration 391) — serialized equipment ----
+      '/cpe-management/devices/register': {
+        post: { tags: ['CPE Management'], summary: 'Manually register a serialized unit (legacy devices / catch-up for stock that predates serial_required)', operationId: 'registerCpeSerial', security: [{ bearerAuth: [] }], requestBody: jsonBody('inventorySerials_registerSerial'), responses: r201('CpeDevice') },
+      },
+      '/cpe-management/devices/install': {
+        post: { tags: ['CPE Management'], summary: 'Install a serialized unit on a contract — picks an in-stock serial or registers a new one, decrements stock (rent: ledger only; sold: real invoice line)', operationId: 'installCpeEquipment', security: [{ bearerAuth: [] }], requestBody: jsonBody('inventorySerials_installEquipment'), responses: r201('CpeInstallResult') },
+      },
+
       // ---- CPE Profiles §8.2 ----
       '/cpe-profiles': {
         get: { tags: ['CPE Profiles'], summary: 'List CPE provisioning profiles', operationId: 'listCpeProfiles', security: [{ bearerAuth: [] }], responses: r200('CpeProfile[]') },
@@ -2160,6 +2168,10 @@ function generateSpec() {
       },
       '/work-orders/{id}/materials/{matId}': {
         delete: { tags: ['Work Orders'], summary: 'Remove a material log entry', operationId: 'deleteWorkOrderMaterial', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'matId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r204() },
+      },
+      '/work-orders/{id}/pickup-items': {
+        get: { tags: ['Work Orders'], summary: 'Get the outstanding rented-equipment checklist for a pickup work order (Inventory Phase 3, migration 391)', operationId: 'getWorkOrderPickupItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CpeDevice[]') },
+        post: { tags: ['Work Orders'], summary: 'Resolve one unit\'s pickup disposition (returned -> back in stock; rma -> no stock change)', operationId: 'completeWorkOrderPickupItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('inventorySerials_pickupDisposition'), responses: r200('CpeDevice') },
       },
       '/work-orders/{id}/attachments': {
         get: { tags: ['Work Orders'], summary: 'List work order attachments', operationId: 'listWorkOrderAttachments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrderAttachment[]') },

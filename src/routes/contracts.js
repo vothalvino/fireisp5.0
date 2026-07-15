@@ -13,6 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
 const db = require('../config/database');
 const suspensionService = require('../services/suspensionService');
+const inventorySerialService = require('../services/inventorySerialService');
 const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
 const routerProvisioningService = require('../services/routerProvisioningService');
@@ -193,6 +194,12 @@ async function updateContractHandler(req, res, next) {
           [record.id],
         );
         suspensionService.sendRadiusDisconnect(record.id).catch(() => {});
+        // Inventory Phase 3 (migration 391): if this contract still has
+        // rented equipment out (ownership='rented', assigned/active), auto-
+        // create a technician pickup follow-up — idempotent, and never lets
+        // a failure here block the status change that already committed.
+        inventorySerialService.ensurePickupWorkOrder(record.id, { orgId: req.orgId, performedBy: req.user?.id || null })
+          .catch(err => logger.error({ err: err.message, contractId: record.id }, 'Failed to auto-create equipment pickup work order'));
       }
     }
 
@@ -558,6 +565,9 @@ router.post('/:id/terminate', requirePermission('contracts.update'), async (req,
     );
     // Fire RADIUS disconnect best-effort (don't fail the terminate if CoA fails)
     suspensionService.sendRadiusDisconnect(parseInt(req.params.id, 10)).catch(() => {});
+    // Inventory Phase 3 (migration 391) — see updateContractHandler's identical hook.
+    inventorySerialService.ensurePickupWorkOrder(record.id, { orgId: req.orgId, performedBy: req.user?.id || null })
+      .catch(err => logger.error({ err: err.message, contractId: record.id }, 'Failed to auto-create equipment pickup work order'));
     await auditLog.log({
       userId: req.user?.id,
       organizationId: req.orgId,
