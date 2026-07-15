@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const CreditNote = require('../models/CreditNote');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -23,6 +24,22 @@ router.get('/:id', requirePermission('credit_notes.view'), ctrl.get);
 router.post('/', requirePermission('credit_notes.create'), validate(createCreditNote), async (req, res, next) => {
   try {
     req.body.organization_id = req.orgId;
+    // Default currency when the caller omits one: prefer the linked
+    // invoice's own currency (a credit note against an invoice should be
+    // denominated the same way that invoice is), otherwise the org's
+    // currency — never a hardcoded 'USD'. An explicitly-set currency in the
+    // request always wins.
+    if (!req.body.currency) {
+      let invoiceCurrency = null;
+      if (req.body.invoice_id) {
+        const [[invoiceRow]] = await db.query(
+          'SELECT currency FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+          [req.body.invoice_id, req.orgId],
+        );
+        invoiceCurrency = invoiceRow?.currency || null;
+      }
+      req.body.currency = invoiceCurrency || await Organization.getCurrency(req.orgId);
+    }
     const creditNote = await CreditNote.create(req.body);
 
     // Credit client balance ledger
@@ -30,7 +47,7 @@ router.post('/', requirePermission('credit_notes.create'), validate(createCredit
       await db.query(
         `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
          VALUES (?, ?, 'credit', ?, ?, 'credit_note', ?, ?)`,
-        [creditNote.client_id, req.orgId, creditNote.total, creditNote.currency || 'USD',
+        [creditNote.client_id, req.orgId, creditNote.total, creditNote.currency,
           creditNote.id, `Credit Note ${creditNote.credit_note_number || creditNote.id}`],
       );
     }

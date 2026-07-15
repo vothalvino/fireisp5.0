@@ -423,11 +423,12 @@ describe('supportConversationService', () => {
     // supportContextService.enrichContext — db.query for client lookup
     // (real column is plan_id on the JOINed active contract, not on clients)
     db.query.mockResolvedValueOnce([[{ id: 10, name: 'Test', email: 'x@x.com', status: 'active', plan_id: 1, phone: '123' }], undefined]);
-    // enrichContext's billing summary — client_balance_ledger + billing_periods
-    // (billingService.getBillingSummary was never a real function; enrichContext
-    // queries the ledger/periods directly now — see supportContextService.js)
-    db.query.mockResolvedValueOnce([[{ balance: '0.00' }], undefined]);
-    db.query.mockResolvedValueOnce([[], undefined]);
+    // enrichContext's billing summary is now computeClientBalance() — invoices +
+    // payments, NOT client_balance_ledger (billingService.getBillingSummary was
+    // never a real function; see clientBalanceService.js / supportContextService.js)
+    db.query.mockResolvedValueOnce([[{ id: 1, total: '50.00', currency: 'MXN', balance_due: '50.00' }], undefined]); // getInvoicesWithBalance
+    db.query.mockResolvedValueOnce([[], undefined]); // payments (none unallocated)
+    db.query.mockResolvedValueOnce([[], undefined]); // billing_periods next-due lookup
     const radiusService = require('../src/services/radiusService');
     radiusService.getSessionByClientId.mockResolvedValueOnce(null);
     const alertService = require('../src/services/alertService');
@@ -551,17 +552,29 @@ describe('supportBillingModule', () => {
   const billingModule = require('../src/services/supportBillingModule');
   const mockCtx = {
     customer: { id: 10 },
-    billing: { balance: 150, nextDue: '2026-07-01' },
+    billing: { balance: 150, currency: 'MXN', nextDue: '2026-07-01' },
     connection: null,
     alerts: [],
   };
 
   beforeEach(() => jest.resetAllMocks());
 
-  test('handle balance query returns balance from context', async () => {
+  test('handle balance query returns the computed balance + currency from context', async () => {
     const result = await billingModule.handle('billing', mockCtx, 'cual es mi saldo', 1);
     expect(result.response).toContain('150');
+    expect(result.response).toContain('MXN');
     expect(result.requiresConfirmation).toBe(false);
+    expect(result.actionType).toBe('balance_query');
+  });
+
+  test('handle balance query falls back to computeClientBalance when context has none', async () => {
+    const ctxNoBilling = { customer: { id: 10 }, billing: null, connection: null, alerts: [] };
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, total: '75.00', currency: 'MXN', balance_due: '75.00' }], undefined]) // getInvoicesWithBalance
+      .mockResolvedValueOnce([[], undefined]); // payments
+    const result = await billingModule.handle('billing', ctxNoBilling, 'cual es mi saldo', 1);
+    expect(result.response).toContain('75.00');
+    expect(result.response).toContain('MXN');
     expect(result.actionType).toBe('balance_query');
   });
 

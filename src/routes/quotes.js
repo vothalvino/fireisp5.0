@@ -5,6 +5,7 @@
 const { Router } = require('express');
 const Quote = require('../models/Quote');
 const Invoice = require('../models/Invoice');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -191,7 +192,10 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
 
     // Pre-process items (read-only — no billing_periods writes for a quote)
     const lineItems = [];
-    let currency = 'USD';
+    // Default to the organization's currency (not a hardcoded 'USD') — mirrors
+    // POST /invoices/generate's identical fix. A contract-charge item's plan
+    // currency, when present, still wins below.
+    let currency = await Organization.getCurrency(req.orgId);
     let subtotal = 0;
     const contractIds = new Set(); // distinct contracts referenced by contract-charge items
 
@@ -222,7 +226,7 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
         const plan = planRows[0];
 
         const price = parseFloat(contract.price_override || plan.price);
-        currency = plan.currency || 'USD';
+        currency = plan.currency || currency;
 
         lineItems.push({
           description: `${plan.name} (Contract #${contract.id})`,

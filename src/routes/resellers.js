@@ -34,6 +34,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { NotFoundError, ValidationError } = require('../utils/errors');
+const Organization = require('../models/Organization');
 const db = require('../config/database');
 
 const router = Router();
@@ -279,7 +280,10 @@ router.get('/:id/plan-prices', requirePermission('reseller_plan_prices.view'), a
 router.post('/:id/plan-prices', requirePermission('reseller_plan_prices.manage'), validate(planPriceSchema), async (req, res, next) => {
   try {
     await getResellerOrThrow(req.params.id, req.orgId);
-    const { plan_id, custom_price, currency = 'USD', is_active = true, notes } = req.body;
+    const { plan_id, custom_price, is_active = true, notes } = req.body;
+    // Default to the organization's currency (not a hardcoded 'USD') when
+    // the caller omits one — an explicitly-set currency always wins.
+    const currency = req.body.currency || await Organization.getCurrency(req.orgId);
 
     await db.query(
       `INSERT INTO reseller_plan_prices (reseller_id, plan_id, custom_price, currency, is_active, notes)
@@ -539,8 +543,11 @@ router.put('/:id/billing-entity', requirePermission('reseller_billing_entities.m
     const {
       legal_name, tax_id, address, city, state, country, zip_code,
       phone, email, invoice_prefix, invoice_footer,
-      bank_name, bank_account, bank_clabe, currency = 'USD', is_active = true,
+      bank_name, bank_account, bank_clabe, is_active = true,
     } = req.body;
+    // Default to the organization's currency (not a hardcoded 'USD') when
+    // the caller omits one — an explicitly-set currency always wins.
+    const currency = req.body.currency || await Organization.getCurrency(req.orgId);
 
     await db.query(
       `INSERT INTO reseller_billing_entities

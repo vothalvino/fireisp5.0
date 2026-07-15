@@ -34,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
 } from '@/components/ClientFormModal';
@@ -157,10 +158,15 @@ export function RecordPaymentModal({
 }: RecordPaymentModalProps) {
   const { t } = useTranslation();
   const TODAY = new Date().toISOString().split('T')[0];
+  // Prime the currency field from the active organization (GET /auth/me's
+  // organization_currency) instead of a hardcoded 'MXN' — the priming effect
+  // below still overrides it with the client's actual open-invoice currency
+  // once known, which is the more specific/accurate source for THIS payment.
+  const orgCurrency = useOrgCurrency();
 
   const [clientId, setClientId] = useState(lockedClientId ? String(lockedClientId) : '');
   const [form, setForm] = useState({
-    amount: '', currency: 'MXN', payment_method: 'cash', status: 'completed',
+    amount: '', currency: orgCurrency, payment_method: 'cash', status: 'completed',
     payment_date: TODAY, reference: '',
   });
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());

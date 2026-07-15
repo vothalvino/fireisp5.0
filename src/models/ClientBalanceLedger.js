@@ -4,6 +4,13 @@
 
 const BaseModel = require('./BaseModel');
 
+// NOTE: this table is a HISTORY / audit trail (the Ledger tab, the statement
+// PDF, GET /clients/:id/balance-ledger, GraphQL Client.ledger) — it is NOT
+// the source of a client's current account balance. Not every money path
+// writes a ledger entry consistently, so its running total can drift from
+// reality (e.g. an invoice generated with no matching debit row). The
+// headline "Account Balance" shown anywhere in the product is computed live
+// from invoices + payments by src/services/clientBalanceService.js instead.
 class ClientBalanceLedger extends BaseModel {
   static get tableName() { return 'client_balance_ledger'; }
 

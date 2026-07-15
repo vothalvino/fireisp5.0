@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Payment = require('../models/Payment');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -43,6 +44,13 @@ router.get('/:id', requirePermission('payments.view'), ctrl.get);
 router.post('/', requirePermission('payments.create'), validate(createPayment), async (req, res, next) => {
   try {
     req.body.organization_id = req.orgId;
+    // Default to the organization's currency when the caller doesn't send
+    // one — otherwise payments.currency's own column default ('USD') would
+    // silently win regardless of the org's real currency. An explicitly-set
+    // currency in the request always wins.
+    if (!req.body.currency) {
+      req.body.currency = await Organization.getCurrency(req.orgId);
+    }
     const payment = await Payment.create(req.body);
 
     // Update client balance ledger

@@ -29,6 +29,7 @@ interface DashboardData {
     };
   } | null;
   balance: number;
+  balance_currency: string;
   next_due_date: string | null;
   session: {
     status: string;
@@ -142,7 +143,7 @@ export function PortalDashboard() {
               fontSize: '2rem', fontWeight: 700,
               color: overview.balance > 0 ? '#dc2626' : '#16a34a',
             }}>
-              ${overview.balance.toFixed(2)}
+              {overview.balance_currency} {overview.balance.toFixed(2)}
             </div>
             <p style={styles.muted}>Outstanding balance</p>
             {overview.next_due_date && (

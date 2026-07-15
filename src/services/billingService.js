@@ -251,7 +251,9 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
     // Get the effective price (override or plan price; use trial_price if in trial)
     const inTrial = isContractInTrial(contract, plan);
     const price = inTrial ? parseFloat(plan.trial_price || 0) : (contract.price_override || plan.price);
-    const currency = plan.currency || 'USD';
+    // Default to the organization's currency (not a hardcoded 'USD') when the
+    // plan itself has none set.
+    const currency = plan.currency || await Organization.getCurrency(orgId);
 
     // Get applicable tax rate
     const [taxRates] = await conn.execute(
@@ -303,7 +305,7 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
         await conn.execute(
           `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount)
            VALUES (?, ?, ?, ?, ?)`,
-          [invoiceId, `Data overage — ${overage.overage_gb} GB @ ${plan.currency || 'USD'} ${plan.overage_price_per_gb}/GB`,
+          [invoiceId, `Data overage — ${overage.overage_gb} GB @ ${currency} ${plan.overage_price_per_gb}/GB`,
             overage.overage_gb, parseFloat(plan.overage_price_per_gb), overage.amount],
         );
         // Update invoice totals for overage
@@ -541,10 +543,11 @@ function calculateProration({ oldPrice, newPrice, changeDate, periodStart, perio
  */
 async function recordPaymentCredit(payment, orgId) {
   logger.info({ paymentId: payment.id, clientId: payment.client_id, amount: payment.amount }, 'Recording payment credit');
+  const currency = payment.currency || await Organization.getCurrency(orgId);
   await db.query(
     `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
      VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,
-    [payment.client_id, orgId, payment.amount, payment.currency || 'USD', payment.id, 'Payment ' + (payment.reference_number || payment.id)],
+    [payment.client_id, orgId, payment.amount, currency, payment.id, 'Payment ' + (payment.reference_number || payment.id)],
   );
 }
 

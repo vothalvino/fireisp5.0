@@ -490,6 +490,28 @@ describe('POST /api/v1/resellers/:id/plan-prices', () => {
       .send({ custom_price: 24.99 });
     expect(res.status).toBe(422);
   });
+
+  it('defaults currency to the organization currency (not a hardcoded USD) when omitted', async () => {
+    const res = await request(app)
+      .post('/api/v1/resellers/1/plan-prices')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ plan_id: 2, custom_price: 24.99 });
+    expect(res.status).toBe(201);
+    const insertCall = db.query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO reseller_plan_prices'));
+    expect(insertCall[1]).toContain('MXN'); // mockDb()'s organizations row has no currency -> Organization.getCurrency's own 'MXN' fallback
+  });
+
+  it('an explicitly-set currency always wins over the org default', async () => {
+    const res = await request(app)
+      .post('/api/v1/resellers/1/plan-prices')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ plan_id: 2, custom_price: 24.99, currency: 'EUR' });
+    expect(res.status).toBe(201);
+    const insertCall = db.query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO reseller_plan_prices'));
+    expect(insertCall[1]).toContain('EUR');
+  });
 });
 
 describe('DELETE /api/v1/resellers/:id/plan-prices/:ppId', () => {
@@ -677,6 +699,17 @@ describe('PUT /api/v1/resellers/:id/billing-entity', () => {
       .send({ legal_name: 'Acme Corp SA', tax_id: 'ACM123', currency: 'USD' });
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveProperty('legal_name');
+  });
+
+  it('defaults currency to the organization currency (not a hardcoded USD) when omitted', async () => {
+    const res = await request(app)
+      .put('/api/v1/resellers/1/billing-entity')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ legal_name: 'Acme Corp SA', tax_id: 'ACM123' });
+    expect(res.status).toBe(200);
+    const upsertCall = db.query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO reseller_billing_entities'));
+    expect(upsertCall[1]).toContain('MXN'); // mockDb()'s organizations row has no currency -> Organization.getCurrency's own 'MXN' fallback
   });
 
   it('returns 422 when legal_name is missing', async () => {

@@ -895,8 +895,10 @@ describe('Payment Routes — /api/payments', () => {
   describe('POST /api/payments', () => {
     test('creates a payment via custom handler and returns 201', async () => {
       mockAuthUser();
-      // Payment.create: INSERT → findById
+      // No `currency` in the request — POST /payments now defaults it from
+      // Organization.getCurrency(req.orgId) before Payment.create().
       db.query
+        .mockResolvedValueOnce([[{ currency: 'MXN' }]])                    // Organization.getCurrency
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])        // INSERT
         .mockResolvedValueOnce([[{ ...mockPayment, id: 2 }]])              // findById
         // billingService.recordPaymentCredit: INSERT into ledger
