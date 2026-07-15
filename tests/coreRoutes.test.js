@@ -791,8 +791,11 @@ describe('Invoice Routes — /api/invoices', () => {
     test('adds an invoice line item and returns 201', async () => {
       mockAuthUser();
       const newItem = { id: 5, invoice_id: 1, description: 'Static IP', quantity: 1, unit_price: 50, amount: 50 };
-      // Invoice.addItem calls db.query twice: INSERT then SELECT
+      // The route org-verifies + void-guards the invoice first (migration
+      // 390 hardening), THEN Invoice.addItem calls db.query twice: INSERT
+      // then SELECT.
       db.query
+        .mockResolvedValueOnce([[{ id: 1, status: 'issued' }]])
         .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }])
         .mockResolvedValueOnce([[newItem]]);
 

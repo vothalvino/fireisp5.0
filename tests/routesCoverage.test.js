@@ -1613,6 +1613,10 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
   describe('POST /api/invoices/:id/items', () => {
     test('success — adds an invoice item', async () => {
       mockAuthUser();
+      // The plain (non-inventory) path org-verifies and void-guards the
+      // invoice before writing (migration 390 hardening) — needs a status
+      // row to resolve.
+      db.query.mockResolvedValue([[{ id: 1, status: 'issued' }]]);
       Invoice.addItem.mockResolvedValue({ id: 2, description: 'Setup Fee' });
 
       const res = await request(app)

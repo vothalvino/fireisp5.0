@@ -310,6 +310,9 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
   it('does not open a transaction for a plain (non-inventory) line item', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, status: 'issued' }]]);
+      }
       if (typeof sql === 'string' && sql.includes('INSERT INTO invoice_items')) {
         return Promise.resolve([{ insertId: 501 }]);
       }
@@ -327,6 +330,97 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
 
     expect(res.status).toBe(201);
     expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  it('returns 422 when quantity is fractional and inventory_item_id is set', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/invoices/42/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Router', quantity: 1.5, unit_price: 500, amount: 750, inventory_item_id: 7 });
+
+    expect(res.status).toBe(422);
+    // Fails before ever opening a transaction — no wasted DB round-trip.
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  it('allows a fractional quantity on a free-text (non-inventory) line item', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, status: 'issued' }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('INSERT INTO invoice_items')) {
+        return Promise.resolve([{ insertId: 501 }]);
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM invoice_items WHERE id')) {
+        return Promise.resolve([[{ id: 501, description: 'Labor (1.5 hrs)' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/invoices/42/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Labor (1.5 hrs)', quantity: 1.5, unit_price: 100, amount: 150 });
+
+    expect(res.status).toBe(201);
+  });
+
+  it('returns 422 INVOICE_VOID when adding a plain line item to a void invoice', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, status: 'void' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/invoices/42/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Setup Fee', quantity: 1, unit_price: 50, amount: 50 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    const insertCall = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO invoice_items'));
+    expect(insertCall).toBeUndefined();
+  });
+
+  it('returns 422 INVOICE_VOID when adding an inventory-linked line item to a void invoice', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, client_id: 77, invoice_number: 'INV-000005', status: 'void' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/invoices/42/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Router', quantity: 1, unit_price: 500, amount: 500, inventory_item_id: 7 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_VOID');
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
+    // Never even reached the inventory-item org-ownership lookup.
+    expect(conn.execute.mock.calls.some(c => c[0].includes('FROM inventory_items WHERE id'))).toBe(false);
   });
 });
 
@@ -378,6 +472,44 @@ describe('POST /api/v1/quotes/:id/items — inventory_item_id', () => {
       .send({ description: 'Router', quantity: 1, unit_price: 500, amount: 500, inventory_item_id: 999 });
 
     expect(res.status).toBe(422);
+  });
+
+  it('returns 422 when quantity is fractional and inventory_item_id is set', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/quotes/9/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Router', quantity: 1.5, unit_price: 500, amount: 750, inventory_item_id: 7 });
+
+    expect(res.status).toBe(422);
+    // Fails before the org-ownership lookup even runs.
+    expect(db.query.mock.calls.some(c => typeof c[0] === 'string' && c[0].includes('FROM inventory_items WHERE id'))).toBe(false);
+  });
+
+  it('allows a fractional quantity on a free-text (non-inventory) line item', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('INSERT INTO quote_items')) {
+        return Promise.resolve([{ insertId: 62 }]);
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM quote_items WHERE id')) {
+        return Promise.resolve([[{ id: 62, description: 'Labor (1.5 hrs)' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/quotes/9/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Labor (1.5 hrs)', quantity: 1.5, unit_price: 100, amount: 150 });
+
+    expect(res.status).toBe(201);
   });
 });
 
@@ -442,6 +574,72 @@ describe('POST /api/v1/quotes/:id/convert-to-invoice — carries inventory_item_
 
     const stockUpdateCalls = conn.execute.mock.calls.filter(c => c[0].includes('UPDATE inventory_stock SET quantity'));
     expect(stockUpdateCalls).toHaveLength(1);
+
+    // The back-reference is stamped in the SAME transaction as the invoice
+    // insert (migration 390) — this is what makes a retry detectable.
+    const quoteUpdateCall = conn.execute.mock.calls.find(c => c[0].includes('UPDATE quotes SET status'));
+    expect(quoteUpdateCall[1]).toEqual(['accepted', 50, '1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/quotes/:id/convert-to-invoice — idempotency (converted_invoice_id)
+// ---------------------------------------------------------------------------
+describe('POST /api/v1/quotes/:id/convert-to-invoice — idempotency', () => {
+  it('returns 409 CONVERSION_EXISTS on a second convert and never opens a transaction (no double drawdown)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM quotes WHERE id')) {
+        return Promise.resolve([[{
+          id: 1, client_id: 5, contract_id: null, subtotal: '500.00', tax_amount: '80.00', total: '580.00',
+          currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: null, status: 'accepted',
+          converted_invoice_id: 50,
+        }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT id, invoice_number FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 50, invoice_number: 'INV-000009' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/quotes/1/convert-to-invoice')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONVERSION_EXISTS');
+    expect(res.body.error.message).toMatch(/INV-000009/);
+    expect(res.body.error.message).toMatch(/50/);
+
+    // No transaction opened at all — so no second invoice INSERT, no second
+    // drawdownForSale call, no second inventory_transactions ledger row.
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  it('reports the existing invoice id even if that invoice row cannot be re-fetched', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM quotes WHERE id')) {
+        return Promise.resolve([[{
+          id: 1, client_id: 5, status: 'accepted', converted_invoice_id: 999,
+        }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT id, invoice_number FROM invoices WHERE id')) {
+        return Promise.resolve([[]]); // invoice since deleted/not found
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/quotes/1/convert-to-invoice')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONVERSION_EXISTS');
+    expect(res.body.error.message).toMatch(/999/);
+    expect(db.getConnection).not.toHaveBeenCalled();
   });
 });
 

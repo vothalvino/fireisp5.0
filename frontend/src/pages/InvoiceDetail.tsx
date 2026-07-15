@@ -384,21 +384,36 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('');
+  const [formError, setFormError] = useState('');
 
   const { data: catalog = [] } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+  // inventory_item_id-linked lines must carry a WHOLE-number quantity — the
+  // backend 422s otherwise (migration 390: DECIMAL(10,2) line qty vs INT
+  // stock/ledger). Free-text lines keep the usual step=0.01.
+  const selectedAddon = catalog.find(a => String(a.id) === productId);
+  const isInventoryLinked = !!selectedAddon?.inventory_item_id;
 
   function selectProduct(id: string) {
     setProductId(id);
+    setFormError('');
     const addon = catalog.find(a => String(a.id) === id);
     if (addon) {
       setDescription(addon.name);
       setUnitPrice(addonPrice(addon));
+      if (addon.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
+        setQuantity('1');
+      }
     }
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setFormError('');
     const selected = catalog.find(a => String(a.id) === productId);
+    if (selected?.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
+      setFormError(t('invoiceDetail.addItem.integerQuantityRequired'));
+      return;
+    }
     onAdd({
       description,
       quantity,
@@ -438,7 +453,12 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
       </div>
       <div style={{ flex: '1 1 90px' }}>
         <label style={labelStyle} htmlFor="invoice-item-quantity">{t('invoiceDetail.addItem.quantity')}</label>
-        <input id="invoice-item-quantity" style={inputStyle} type="number" min="0.01" step="0.01" required value={quantity} onChange={e => setQuantity(e.target.value)} />
+        <input
+          id="invoice-item-quantity" style={inputStyle} type="number"
+          min={isInventoryLinked ? '1' : '0.01'}
+          step={isInventoryLinked ? '1' : '0.01'}
+          required value={quantity} onChange={e => setQuantity(e.target.value)}
+        />
       </div>
       <div style={{ flex: '1 1 120px' }}>
         <label style={labelStyle} htmlFor="invoice-item-unit-price">{t('invoiceDetail.addItem.unitPrice')}</label>
@@ -447,7 +467,7 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
       <button type="submit" style={submitBtn} disabled={pending}>
         {pending ? t('invoiceDetail.addItem.adding') : t('invoiceDetail.addItem.add')}
       </button>
-      {error && <p style={{ ...errorBox, flexBasis: '100%' }}>{error}</p>}
+      {(formError || error) && <p style={{ ...errorBox, flexBasis: '100%' }}>{formError || error}</p>}
     </form>
   );
 }

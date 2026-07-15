@@ -479,6 +479,7 @@
     "lineItems": "Itens",
     "noItems": "Ainda não há itens. Adicione um abaixo.",
     "convertGuard": "Somente orçamentos aceitos podem ser convertidos em fatura.",
+    "convertedTo": "Convertido em fatura:",
     "meta": {
       "status": "Status",
       "total": "Total",
@@ -499,7 +500,8 @@
     "form": {
       "description": "Descrição",
       "quantity": "Quantidade",
-      "unitPrice": "Preço unitário"
+      "unitPrice": "Preço unitário",
+      "integerQuantityRequired": "A quantidade deve ser um número inteiro para produtos vinculados ao estoque."
     },
     "actions": {
       "downloadPdf": "Baixar PDF",
@@ -3074,7 +3076,8 @@
       "quantity": "Quantidade",
       "unitPrice": "Preço Unitário",
       "add": "Adicionar Item",
-      "adding": "Adicionando…"
+      "adding": "Adicionando…",
+      "integerQuantityRequired": "A quantidade deve ser um número inteiro para produtos vinculados ao estoque."
     },
     "toasts": {
       "itemAdded": "Item de linha adicionado."

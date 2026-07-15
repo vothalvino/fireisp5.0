@@ -112,6 +112,19 @@ router.get('/:id/items', requirePermission('quotes.view'), async (req, res, next
 router.post('/:id/items', requirePermission('quotes.update'), validate(createQuoteItem), async (req, res, next) => {
   try {
     if (req.body.inventory_item_id) {
+      // Integer-quantity guard: quote_items.quantity is DECIMAL(10,2) but
+      // inventory_stock/inventory_transactions move whole units, so a
+      // fractional quantity here (e.g. 1.5) would silently round on
+      // drawdown when this line is later carried into an invoice via
+      // POST /:id/convert-to-invoice. Free-text/service lines (no
+      // inventory_item_id) keep fractional quantities — this check only
+      // fires for inventory-linked lines.
+      if (!Number.isInteger(req.body.quantity)) {
+        throw new ValidationError(
+          'quantity must be a whole number for inventory-linked line items',
+          [{ field: 'quantity', message: 'Quantity must be an integer when inventory_item_id is set' }],
+        );
+      }
       // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
       // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
       const [[invItem]] = await db.query(
@@ -324,10 +337,30 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
     }
     const quote = quotes[0];
 
+    // Idempotency guard (migration 390's converted_invoice_id back-reference):
+    // a quote that already converted must reject a retry/double-click 409
+    // instead of creating a duplicate invoice and re-running drawdownForSale
+    // per linked line — checked BEFORE the status gate below because the
+    // terminal write further down leaves status at 'accepted', so status
+    // alone can never distinguish "never converted" from "already converted".
+    if (quote.converted_invoice_id) {
+      const [existing] = await db.query(
+        'SELECT id, invoice_number FROM invoices WHERE id = ?',
+        [quote.converted_invoice_id],
+      );
+      const existingInvoice = existing[0];
+      return res.status(409).json({
+        error: {
+          code: 'CONVERSION_EXISTS',
+          message: existingInvoice
+            ? `This quote was already converted to invoice ${existingInvoice.invoice_number} (id ${existingInvoice.id}).`
+            : `This quote was already converted to invoice id ${quote.converted_invoice_id}.`,
+        },
+      });
+    }
+
     // Only an approved (accepted) quote may become an invoice — approve/reject
-    // (above) is the gate. A quote already converted has no separate "converted"
-    // status to detect (quotes carries no invoice_id back-reference), so this is
-    // the only guard available without a migration.
+    // (above) is the gate.
     if (quote.status !== 'accepted') {
       return res.status(409).json({
         error: {
@@ -391,10 +424,13 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
         }
       }
 
-      // Mark quote as accepted
+      // Mark quote as accepted and record the back-reference — SAME
+      // transaction as the invoice INSERT above, so a crash/rollback between
+      // the two is impossible: either both the invoice and this stamp exist,
+      // or neither does (migration 390's idempotency fix).
       await conn.execute(
-        'UPDATE quotes SET status = ? WHERE id = ?',
-        ['accepted', req.params.id],
+        'UPDATE quotes SET status = ?, converted_invoice_id = ? WHERE id = ?',
+        ['accepted', invoiceId, req.params.id],
       );
 
       await conn.commit();

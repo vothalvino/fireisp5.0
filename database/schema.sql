@@ -1128,6 +1128,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     tax_rate_id  BIGINT UNSIGNED NULL COMMENT 'Tax rate configuration used; NULL = manual / legacy rate',
     notes        TEXT            NULL,
     status       ENUM('draft', 'sent', 'accepted', 'rejected', 'expired') NOT NULL DEFAULT 'draft',
+    converted_invoice_id BIGINT UNSIGNED NULL COMMENT 'Invoice this quote was converted to, if any — set atomically by POST /quotes/:id/convert-to-invoice; a second conversion attempt is rejected with 409 CONVERSION_EXISTS (migration 390)',
     created_by   BIGINT UNSIGNED NULL,
     created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1142,6 +1143,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     KEY idx_quotes_status (status),
     KEY idx_quotes_tax_rate_id (tax_rate_id),
     KEY idx_quotes_deleted_at (deleted_at),
+    KEY idx_quotes_converted_invoice (converted_invoice_id),
     CONSTRAINT fk_quotes_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_client FOREIGN KEY (client_id)
@@ -1151,7 +1153,9 @@ CREATE TABLE IF NOT EXISTS quotes (
     CONSTRAINT fk_quotes_tax_rate FOREIGN KEY (tax_rate_id)
         REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_quotes_created_by FOREIGN KEY (created_by)
-        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_quotes_converted_invoice FOREIGN KEY (converted_invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Note: the legacy `jobs` field-work table was consolidated into `work_orders`

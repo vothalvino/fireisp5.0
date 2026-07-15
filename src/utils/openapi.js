@@ -393,7 +393,19 @@ function generateSpec() {
       ...crudPaths('invoices', 'Invoices', 'Invoice'),
       '/invoices/{id}/items': {
         get: { tags: ['Invoices'], summary: 'List invoice line items', operationId: 'listInvoiceItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('InvoiceItem[]') },
-        post: { tags: ['Invoices'], summary: 'Add invoice line item', operationId: 'addInvoiceItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('invoices_addInvoiceItem'), responses: r201('InvoiceItem') },
+        post: {
+          tags: ['Invoices'],
+          summary: 'Add invoice line item; inventory_item_id-linked lines draw down stock atomically',
+          operationId: 'addInvoiceItem',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: jsonBody('invoices_addInvoiceItem'),
+          responses: {
+            ...r201('InvoiceItem'),
+            404: { description: 'Invoice not found' },
+            422: { description: 'Validation error, cross-organization inventory_item_id, fractional quantity on an inventory-linked line (INTEGER required), or the invoice is void (INVOICE_VOID)' },
+          },
+        },
       },
       '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
@@ -439,10 +451,34 @@ function generateSpec() {
       ...crudPaths('quotes', 'Quotes', 'Quote'),
       '/quotes/{id}/items': {
         get: { tags: ['Quotes'], summary: 'List quote line items', operationId: 'listQuoteItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('QuoteItem[]') },
-        post: { tags: ['Quotes'], summary: 'Add quote line item', operationId: 'addQuoteItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('quotes_createQuoteItem'), responses: r201('QuoteItem') },
+        post: {
+          tags: ['Quotes'],
+          summary: 'Add quote line item',
+          operationId: 'addQuoteItem',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: jsonBody('quotes_createQuoteItem'),
+          responses: {
+            ...r201('QuoteItem'),
+            422: { description: 'Validation error, cross-organization inventory_item_id, or fractional quantity on an inventory-linked line (INTEGER required)' },
+          },
+        },
       },
       '/quotes/generate': { post: { tags: ['Quotes'], summary: 'Generate a quote with line items (client_id + items[], mirrors /invoices/generate)', operationId: 'generateQuote', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_id + items[]'), responses: r201('Quote') } },
-      '/quotes/{id}/convert-to-invoice': { post: { tags: ['Quotes'], summary: 'Convert an accepted quote to an invoice', operationId: 'convertQuoteToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r201('Invoice') } },
+      '/quotes/{id}/convert-to-invoice': {
+        post: {
+          tags: ['Quotes'],
+          summary: 'Convert an accepted quote to an invoice (idempotent — a quote can only ever convert once)',
+          operationId: 'convertQuoteToInvoice',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: {
+            ...r201('Invoice'),
+            404: { description: 'Quote not found' },
+            409: { description: 'Quote is not accepted (QUOTE_NOT_ACCEPTED), or has already been converted to an invoice — see quotes.converted_invoice_id (CONVERSION_EXISTS)' },
+          },
+        },
+      },
       '/quotes/{id}/approve': { post: { tags: ['Quotes'], summary: 'Approve a quote (sets status to accepted)', operationId: 'approveQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
       '/quotes/{id}/reject': { post: { tags: ['Quotes'], summary: 'Reject a quote (sets status to rejected)', operationId: 'rejectQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
 

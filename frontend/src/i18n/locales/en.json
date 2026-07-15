@@ -479,6 +479,7 @@
     "lineItems": "Line Items",
     "noItems": "No line items yet. Add one below.",
     "convertGuard": "Only accepted quotes can be converted to an invoice.",
+    "convertedTo": "Converted to invoice:",
     "meta": {
       "status": "Status",
       "total": "Total",
@@ -499,7 +500,8 @@
     "form": {
       "description": "Description",
       "quantity": "Quantity",
-      "unitPrice": "Unit Price"
+      "unitPrice": "Unit Price",
+      "integerQuantityRequired": "Quantity must be a whole number for inventory-linked products."
     },
     "actions": {
       "downloadPdf": "Download PDF",
@@ -3074,7 +3076,8 @@
       "quantity": "Quantity",
       "unitPrice": "Unit Price",
       "add": "Add Item",
-      "adding": "Adding…"
+      "adding": "Adding…",
+      "integerQuantityRequired": "Quantity must be a whole number for inventory-linked products."
     },
     "toasts": {
       "itemAdded": "Line item added."

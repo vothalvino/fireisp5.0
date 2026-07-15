@@ -479,6 +479,7 @@
     "lineItems": "Artículos",
     "noItems": "Aún no hay artículos. Agregue uno abajo.",
     "convertGuard": "Solo las cotizaciones aceptadas se pueden convertir en factura.",
+    "convertedTo": "Convertida en factura:",
     "meta": {
       "status": "Estado",
       "total": "Total",
@@ -499,7 +500,8 @@
     "form": {
       "description": "Descripción",
       "quantity": "Cantidad",
-      "unitPrice": "Precio unitario"
+      "unitPrice": "Precio unitario",
+      "integerQuantityRequired": "La cantidad debe ser un número entero para productos vinculados a inventario."
     },
     "actions": {
       "downloadPdf": "Descargar PDF",
@@ -3074,7 +3076,8 @@
       "quantity": "Cantidad",
       "unitPrice": "Precio Unitario",
       "add": "Agregar Artículo",
-      "adding": "Agregando…"
+      "adding": "Agregando…",
+      "integerQuantityRequired": "La cantidad debe ser un número entero para productos vinculados a inventario."
     },
     "toasts": {
       "itemAdded": "Artículo de línea agregado."

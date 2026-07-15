@@ -61,6 +61,15 @@ async function drawdownForSale(execute, {
 
   let stockId = stockRows[0]?.id;
 
+  // Defensive integer floor: both call sites (POST /invoices/:id/items and
+  // POST /quotes/:id/convert-to-invoice) already reject a fractional
+  // quantity at line-item creation time when inventory_item_id is set, so
+  // this should always already be a whole number. Rounding here anyway means
+  // a future caller/bug can never silently move a fractional amount of
+  // physical stock — inventory_stock.quantity and inventory_transactions.quantity
+  // are both integer columns.
+  const drawdownQty = Math.round(Number(quantity));
+
   if (!stockId) {
     const [warehouseRows] = await execute(
       'SELECT id FROM warehouses WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL ORDER BY id ASC LIMIT 1',
@@ -80,8 +89,8 @@ async function drawdownForSale(execute, {
     stockId = ins.insertId;
   }
 
-  // Negative stock is allowed — see module header. No floor/clamp here.
-  await execute('UPDATE inventory_stock SET quantity = quantity - ? WHERE id = ?', [quantity, stockId]);
+  // Negative stock is allowed — see module header. No floor/clamp on VALUE here.
+  await execute('UPDATE inventory_stock SET quantity = quantity - ? WHERE id = ?', [drawdownQty, stockId]);
 
   // Mirrors POST /inventory/transactions' ledger INSERT column list exactly
   // (src/routes/inventory.js) — quantity is stored as the raw positive line
@@ -89,7 +98,7 @@ async function drawdownForSale(execute, {
   await execute(
     `INSERT INTO inventory_transactions (stock_id, transaction_type, quantity, unit_price, job_id, client_id, invoice_id, performed_by, reference, notes)
      VALUES (?, 'sell_to_client', ?, ?, NULL, ?, ?, ?, ?, NULL)`,
-    [stockId, quantity, unitPrice ?? null, clientId ?? null, invoiceId, performedBy ?? null, reference ?? null],
+    [stockId, drawdownQty, unitPrice ?? null, clientId ?? null, invoiceId, performedBy ?? null, reference ?? null],
   );
 
   return stockId;

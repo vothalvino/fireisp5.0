@@ -176,6 +176,27 @@ describe('InvoiceDetail page', () => {
     ));
   });
 
+  // Migration 390: inventory-linked lines must carry a whole-number quantity
+  // (the backend 422s otherwise). The frontend blocks the submit locally with
+  // a translated error instead of round-tripping to the server.
+  it('blocks submit with a fractional quantity on a product-picker (inventory-linked) line', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    const picker = await screen.findByLabelText('Product');
+    fireEvent.change(picker, { target: { value: '3' } });
+
+    const quantityInput = screen.getByLabelText(/Quantity/);
+    fireEvent.change(quantityInput, { target: { value: '1.5' } });
+    // fireEvent.submit bypasses the native HTML5 step-mismatch block a real
+    // click would also trigger (step="1" once a product is selected) —
+    // this targets OUR OWN JS-level integer check in handleSubmit.
+    fireEvent.submit(quantityInput.closest('form')!);
+
+    expect(await screen.findByText('Quantity must be a whole number for inventory-linked products.')).toBeInTheDocument();
+    expect(mockApiPost).not.toHaveBeenCalledWith('/invoices/{id}/items', expect.anything());
+  });
+
   it('renders negative on-hand in red in the product picker', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());

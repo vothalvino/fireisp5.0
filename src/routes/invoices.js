@@ -72,8 +72,32 @@ router.get('/:id/items', requirePermission('invoices.view'), async (req, res, ne
 router.post('/:id/items', requirePermission('invoices.update'), validate(addInvoiceItem), async (req, res, next) => {
   try {
     if (!req.body.inventory_item_id) {
+      // Org-scoped + void-guarded even for the plain (non-inventory) path —
+      // no transaction is opened here since there's no drawdown, but the
+      // invoice must still be looked up to enforce both. Mirrors the
+      // beforeUpdate INVOICE_VOID guard on PUT/PATCH (top of this file).
+      const [[invoice]] = await db.query(
+        'SELECT id, status FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [req.params.id, req.orgId],
+      );
+      if (!invoice) throw new NotFoundError('Invoice');
+      if (invoice.status === 'void') {
+        throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+      }
       const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
       return res.status(201).json({ data: item });
+    }
+
+    // Integer-quantity guard: invoice_items.quantity is DECIMAL(10,2) but
+    // inventory_stock/inventory_transactions move whole units, so a
+    // fractional quantity here (e.g. 1.5) would silently round on drawdown
+    // below. Free-text/service lines (no inventory_item_id) keep fractional
+    // quantities — this check only fires for inventory-linked lines.
+    if (!Number.isInteger(req.body.quantity)) {
+      throw new ValidationError(
+        'quantity must be a whole number for inventory-linked line items',
+        [{ field: 'quantity', message: 'Quantity must be an integer when inventory_item_id is set' }],
+      );
     }
 
     const conn = await db.getConnection();
@@ -83,12 +107,15 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
       // Org-scoped invoice lookup — also closes a pre-existing gap where this
       // route never verified the invoice belonged to the caller's org before
       // writing to it; needed here regardless to source client_id/invoice_number
-      // for the ledger row.
+      // for the ledger row. status drives the void guard below.
       const [[invoice]] = await conn.execute(
-        'SELECT id, client_id, invoice_number FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        'SELECT id, client_id, invoice_number, status FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
         [req.params.id, req.orgId],
       );
       if (!invoice) throw new NotFoundError('Invoice');
+      if (invoice.status === 'void') {
+        throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+      }
 
       // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
       // — 422 on cross-org/nonexistent, never a raw FK-violation 500.

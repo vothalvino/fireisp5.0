@@ -42,12 +42,13 @@ const productCatalog = [
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function makeQuote(status: string) {
+function makeQuote(status: string, convertedInvoiceId: number | null = null) {
   return {
     id: 7, client_id: 10, contract_id: null, quote_number: 'QUO-000007',
     issue_date: '2025-01-01', valid_until: '2025-02-01',
     subtotal: '100.00', tax_rate: '0.16', tax_amount: '16.00', total: '116.00',
     currency: 'MXN', notes: null, status, created_at: '2025-01-01',
+    converted_invoice_id: convertedInvoiceId,
   };
 }
 const item1 = { id: 1, quote_id: 7, description: 'Setup Fee', quantity: '1.00', unit_price: '100.00', tax_rate_id: null, total: '100.00' };
@@ -234,6 +235,30 @@ describe('QuoteDetail page', () => {
     ));
   });
 
+  // Migration 390: inventory-linked lines must carry a whole-number quantity
+  // (the backend 422s otherwise). The frontend blocks the submit locally with
+  // a translated error instead of round-tripping to the server.
+  it('blocks submit with a fractional quantity on a product-picker (inventory-linked) line', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    const picker = await screen.findByLabelText('Product');
+    fireEvent.change(picker, { target: { value: '3' } });
+
+    const quantityInput = screen.getByLabelText(/Quantity/);
+    fireEvent.change(quantityInput, { target: { value: '1.5' } });
+    // fireEvent.submit dispatches the 'submit' event directly, bypassing the
+    // native HTML5 step-mismatch block a real click would also trigger (the
+    // input's step="1" for an inventory-linked line) — this test targets
+    // OUR OWN JS-level integer check (see AddItemForm's handleSubmit), not
+    // the browser's native constraint validation, which is a separate,
+    // untranslated line of defense already covered by the min/step attrs.
+    fireEvent.submit(quantityInput.closest('form')!);
+
+    expect(await screen.findByText('Quantity must be a whole number for inventory-linked products.')).toBeInTheDocument();
+    expect(mockApiPost).not.toHaveBeenCalledWith('/quotes/{id}/items', expect.anything());
+  });
+
   // "on hand: N" renders in red for an inventory-linked product with
   // quantity_on_hand <= 0 (negative stock is an allowed, visible state —
   // Inventory Phase 2 policy).
@@ -246,5 +271,27 @@ describe('QuoteDetail page', () => {
       .find(o => o.textContent?.includes('Out of Stock Router'));
     expect(negativeOption).toBeDefined();
     expect(negativeOption?.style.color).toBe('rgb(220, 38, 38)');
+  });
+
+  // Migration 390's converted_invoice_id back-reference / idempotency fix:
+  // once a quote has converted, the Convert button must never reappear (that
+  // would let a user retrigger the now-409'd endpoint), and a link to the
+  // resulting invoice takes its place.
+  it('hides Convert to Invoice and shows a link to the converted invoice once converted_invoice_id is set', async () => {
+    setupMocks('accepted');
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/quotes/{id}') return Promise.resolve({ data: { data: makeQuote('accepted', 99) }, error: undefined });
+      if (path === '/quotes/{id}/items') return Promise.resolve({ data: { data: [item1] }, error: undefined });
+      if (path === '/clients/{id}') return Promise.resolve({ data: { data: client1 }, error: undefined });
+      if (path === '/invoices/{id}') return Promise.resolve({ data: { data: { id: 99, invoice_number: 'INV-000099' } }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'QUO-000007' })).toBeInTheDocument());
+
+    expect(screen.queryByText(/Convert to Invoice/)).not.toBeInTheDocument();
+
+    const link = await screen.findByRole('link', { name: 'INV-000099' });
+    expect(link).toHaveAttribute('href', '/invoices/99');
   });
 });

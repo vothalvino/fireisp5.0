@@ -5842,7 +5842,7 @@
         "tags": [
           "Invoices"
         ],
-        "summary": "Add invoice line item",
+        "summary": "Add invoice line item; inventory_item_id-linked lines draw down stock atomically",
         "operationId": "addInvoiceItem",
         "security": [
           {
@@ -5879,6 +5879,12 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Invoice not found"
+          },
+          "422": {
+            "description": "Validation error, cross-organization inventory_item_id, fractional quantity on an inventory-linked line (INTEGER required), or the invoice is void (INVOICE_VOID)"
           }
         }
       }
@@ -6848,6 +6854,9 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation error, cross-organization inventory_item_id, or fractional quantity on an inventory-linked line (INTEGER required)"
           }
         }
       }
@@ -6893,7 +6902,7 @@
         "tags": [
           "Quotes"
         ],
-        "summary": "Convert an accepted quote to an invoice",
+        "summary": "Convert an accepted quote to an invoice (idempotent — a quote can only ever convert once)",
         "operationId": "convertQuoteToInvoice",
         "security": [
           {
@@ -6920,6 +6929,12 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Quote not found"
+          },
+          "409": {
+            "description": "Quote is not accepted (QUOTE_NOT_ACCEPTED), or has already been converted to an invoice — see quotes.converted_invoice_id (CONVERSION_EXISTS)"
           }
         }
       }

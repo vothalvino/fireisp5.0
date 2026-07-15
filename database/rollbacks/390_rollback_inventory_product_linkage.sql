@@ -12,6 +12,23 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
     WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'quotes'
+      AND CONSTRAINT_NAME = 'fk_quotes_converted_invoice'
+  ) THEN
+    ALTER TABLE quotes DROP FOREIGN KEY fk_quotes_converted_invoice;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'quotes'
+      AND COLUMN_NAME  = 'converted_invoice_id'
+  ) THEN
+    ALTER TABLE quotes DROP KEY idx_quotes_converted_invoice, DROP COLUMN converted_invoice_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME   = 'plan_addons'
       AND CONSTRAINT_NAME = 'fk_plan_addons_inventory_item'
   ) THEN
