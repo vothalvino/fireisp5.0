@@ -1,17 +1,22 @@
 // =============================================================================
-// FireISP 5.0 — CPE Inventory Page (§8.4)
+// FireISP 5.0 — CPE Inventory Page (§8.4 / Inventory Phase 3, migration 391)
 // =============================================================================
 // Tabbed page:
 //   Tab 1: Lifecycle — current state, transition form, history table
 //   Tab 2: Subscriber Link — link/unlink subscriber to CPE
 //   Tab 3: Swap Device — swap workflow (old → returned, new → assigned)
 //   Tab 4: Depreciation — purchase info + computed book value
+//   Tab 5: Register — manual serial registration (legacy devices / catch-up
+//          for stock that predates an item's serial_required toggle) + a
+//          filterable list of every serial (serial, product, state, client,
+//          ownership).
 // =============================================================================
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 import { styles, RequiredMark } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +26,7 @@ import { styles, RequiredMark } from './crudStyles';
 interface CpeDevice {
   id: number;
   serial_number: string;
-  oui: string;
+  oui: string | null;
   manufacturer: string | null;
   model_name: string | null;
   status: string;
@@ -33,7 +38,17 @@ interface CpeDevice {
   depreciation_method: string;
   useful_life_months: number | null;
   salvage_value: string | null;
+  // Inventory Phase 3 (migration 391)
+  inventory_item_id: number | null;
+  ownership: 'rented' | 'sold' | null;
+  contract_id: number | null;
+  item_name?: string | null;
+  item_sku?: string | null;
+  subscriber_name?: string | null;
 }
+
+interface InventoryItemOption { id: number; name: string; sku: string | null; serial_required: number | boolean }
+interface WarehouseOption { id: number; name: string }
 
 interface LifecycleHistory {
   id: number;
@@ -170,7 +185,9 @@ function LifecycleTab() {
         params: { path: { id: selectedDeviceId } } as never,
         body: { to_state: toState, reason: reason || undefined } as never,
       } as never);
-      if ((res as { error?: unknown }).error) throw new Error('Transition failed');
+      // Surface the backend's real message (e.g. the stock-boundary 422 for
+      // inventory-linked units) instead of a generic failure string.
+      if ((res as { error?: unknown }).error) throw new Error(extractApiError((res as { error?: unknown }).error, 'Transition failed'));
       return (res as { data: unknown }).data;
     },
     onSuccess: () => {
@@ -563,12 +580,215 @@ function DepreciationTab() {
 }
 
 // ---------------------------------------------------------------------------
+// RegisterTab (Inventory Phase 3, migration 391) — manual serial
+// registration + a filterable list of every serial (serial, product, state,
+// client, ownership).
+// ---------------------------------------------------------------------------
+
+function RegisterTab() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [itemId, setItemId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [manufacturer, setManufacturer] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [incrementStock, setIncrementStock] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
+
+  const [stateFilter, setStateFilter] = useState('');
+  const [itemFilter, setItemFilter] = useState('');
+  const [page, setPage] = useState(1);
+
+  const { data: itemsData } = useQuery<ListResponse<InventoryItemOption>>({
+    queryKey: ['inventory-items-lookup'],
+    queryFn: async () => {
+      const res = await api.GET('/inventory/items' as never, { params: { query: { limit: 200 } as never } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('Failed to load inventory items');
+      return (res as { data: unknown }).data as unknown as ListResponse<InventoryItemOption>;
+    },
+  });
+  const { data: warehousesData } = useQuery<ListResponse<WarehouseOption>>({
+    queryKey: ['warehouses-lookup'],
+    queryFn: async () => {
+      const res = await api.GET('/warehouses' as never, { params: { query: { limit: 200 } as never } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('Failed to load warehouses');
+      return (res as { data: unknown }).data as unknown as ListResponse<WarehouseOption>;
+    },
+  });
+
+  const registerMut = useMutation({
+    mutationFn: async () => {
+      const res = await api.POST('/cpe-management/devices/register' as never, {
+        body: {
+          inventory_item_id: Number(itemId),
+          serial_number: serialNumber.trim(),
+          warehouse_id: warehouseId ? Number(warehouseId) : undefined,
+          manufacturer: manufacturer || undefined,
+          model_name: modelName || undefined,
+          increment_stock: incrementStock,
+        } as never,
+      } as never);
+      if ((res as { error?: unknown }).error) {
+        throw new Error((res as { error?: { message?: string } }).error?.message || t('cpeInventory.register.error'));
+      }
+      return (res as { data: unknown }).data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cpe-devices-list'] });
+      qc.invalidateQueries({ queryKey: ['cpe-devices-select'] });
+      setFormSuccess(t('cpeInventory.register.success'));
+      setFormError('');
+      setSerialNumber('');
+      setManufacturer('');
+      setModelName('');
+      setIncrementStock(false);
+    },
+    onError: (e: Error) => { setFormError(e.message); setFormSuccess(''); },
+  });
+
+  const { data: listData, isLoading: listLoading } = useQuery<ListResponse<CpeDevice>>({
+    queryKey: ['cpe-devices-list', stateFilter, itemFilter, page],
+    queryFn: async () => {
+      const query: Record<string, string | number> = { page, limit: 25 };
+      if (stateFilter) query.lifecycle_state = stateFilter;
+      if (itemFilter) query.inventory_item_id = itemFilter;
+      const res = await api.GET('/cpe-management/devices' as never, { params: { query: query as never } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('Failed to load devices');
+      return (res as { data: unknown }).data as unknown as ListResponse<CpeDevice>;
+    },
+  });
+
+  const items = itemsData?.data ?? [];
+  const warehouses = warehousesData?.data ?? [];
+  const devices = listData?.data ?? [];
+  const total = listData?.meta?.total ?? 0;
+  const totalPages = Math.ceil(total / 25);
+
+  return (
+    <div>
+      <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginBottom: 20, maxWidth: 640 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>{t('cpeInventory.register.formTitle')}</h3>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <label style={styles.label}>{t('cpeInventory.register.item')} <RequiredMark /></label>
+            <select style={{ ...styles.input, minWidth: 220 }} value={itemId} onChange={e => setItemId(e.target.value)}>
+              <option value="">— {t('common.select') || 'select'} —</option>
+              {items.map(i => (
+                <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}{i.serial_required ? ` — ${t('inventoryManagement.serialRequired.badge')}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={styles.label}>{t('cpeInventory.register.serialNumber')} <RequiredMark /></label>
+            <input style={styles.input} value={serialNumber} onChange={e => setSerialNumber(e.target.value)} />
+          </div>
+          <div>
+            <label style={styles.label}>{t('cpeInventory.register.warehouse')}</label>
+            <select style={{ ...styles.input, minWidth: 160 }} value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
+              <option value="">— {t('common.select') || 'select'} —</option>
+              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={styles.label}>{t('cpeInventory.register.manufacturer')}</label>
+            <input style={styles.input} value={manufacturer} onChange={e => setManufacturer(e.target.value)} />
+          </div>
+          <div>
+            <label style={styles.label}>{t('cpeInventory.register.modelName')}</label>
+            <input style={styles.input} value={modelName} onChange={e => setModelName(e.target.value)} />
+          </div>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: '0.85rem', color: '#6b7280' }}>
+          <input type="checkbox" checked={incrementStock} onChange={e => setIncrementStock(e.target.checked)} />
+          {t('cpeInventory.register.incrementStock')}
+        </label>
+        <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 12px' }}>
+          {t('cpeInventory.register.incrementStockHint')}
+        </p>
+        <button
+          style={styles.primaryButton}
+          disabled={!itemId || !serialNumber.trim() || registerMut.isPending}
+          onClick={() => registerMut.mutate()}
+        >
+          {registerMut.isPending ? t('common.saving') : t('cpeInventory.register.submit')}
+        </button>
+        {formSuccess && <p style={{ color: '#16a34a', marginTop: 8 }}>{formSuccess}</p>}
+        {formError && <p style={styles.errorText}>{formError}</p>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div>
+          <label style={styles.label}>{t('cpeInventory.register.filterState')}</label>
+          <select style={styles.input} value={stateFilter} onChange={e => { setStateFilter(e.target.value); setPage(1); }}>
+            <option value="">{t('common.all') || 'All'}</option>
+            {LIFECYCLE_STATES.map(s => <option key={s} value={s}>{t(`cpeInventory.lifecycle.states.${s}`)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={styles.label}>{t('cpeInventory.register.filterItem')}</label>
+          <select style={{ ...styles.input, minWidth: 200 }} value={itemFilter} onChange={e => { setItemFilter(e.target.value); setPage(1); }}>
+            <option value="">{t('common.all') || 'All'}</option>
+            {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {listLoading ? <p style={{ color: '#6b7280' }}>{t('common.loading')}</p> : (
+        <>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>{t('cpeInventory.register.colSerial')}</th>
+                <th style={styles.th}>{t('cpeInventory.register.colProduct')}</th>
+                <th style={styles.th}>{t('cpeInventory.register.colState')}</th>
+                <th style={styles.th}>{t('cpeInventory.register.colClient')}</th>
+                <th style={styles.th}>{t('cpeInventory.register.colOwnership')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.length === 0 ? (
+                <tr><td colSpan={5} style={styles.emptyCell}>{t('cpeInventory.register.empty')}</td></tr>
+              ) : devices.map(d => (
+                <tr key={d.id}>
+                  <td style={styles.td}>{d.serial_number}</td>
+                  <td style={styles.td}>{d.item_name ?? '—'}</td>
+                  <td style={styles.td}>
+                    <span style={{ color: lifecycleStateColor(d.lifecycle_state), fontWeight: 600 }}>
+                      {t(`cpeInventory.lifecycle.states.${d.lifecycle_state}`)}
+                    </span>
+                  </td>
+                  <td style={styles.td}>{d.subscriber_name ?? '—'}</td>
+                  <td style={styles.td}>{d.ownership ? t(`cpeInventory.register.ownership.${d.ownership}`) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {totalPages > 1 && (
+            <div style={styles.pagination}>
+              <button style={styles.pageButton} disabled={page === 1} onClick={() => setPage(p => p - 1)}>
+                {t('common.previous') || 'Prev'}
+              </button>
+              <span style={{ color: '#6b7280' }}>{page} / {totalPages}</span>
+              <button style={styles.pageButton} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                {t('common.next') || 'Next'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CpeInventoryPage
 // ---------------------------------------------------------------------------
 
 export function CpeInventoryPage() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<'lifecycle' | 'subscribers' | 'swap' | 'depreciation'>('lifecycle');
+  const [tab, setTab] = useState<'lifecycle' | 'subscribers' | 'swap' | 'depreciation' | 'register'>('lifecycle');
 
   return (
     <div style={styles.container}>
@@ -576,7 +796,7 @@ export function CpeInventoryPage() {
       <p style={styles.subtitle}>{t('cpeInventory.subtitle')}</p>
 
       <div style={{ marginBottom: 20 }}>
-        {(['lifecycle', 'subscribers', 'swap', 'depreciation'] as const).map(t2 => (
+        {(['lifecycle', 'subscribers', 'swap', 'depreciation', 'register'] as const).map(t2 => (
           <button key={t2} style={tabStyle(tab === t2)} onClick={() => setTab(t2)}>
             {t(`cpeInventory.tabs.${t2}`)}
           </button>
@@ -587,6 +807,7 @@ export function CpeInventoryPage() {
       {tab === 'subscribers' && <SubscriberTab />}
       {tab === 'swap' && <SwapTab />}
       {tab === 'depreciation' && <DepreciationTab />}
+      {tab === 'register' && <RegisterTab />}
     </div>
   );
 }

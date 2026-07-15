@@ -100,6 +100,22 @@ interface InvoiceSummary {
   total: string | number;
 }
 
+// Inventory Phase 3 (migration 391) — equipment install
+interface AssignedUnit {
+  id: number;
+  serial_number: string;
+  lifecycle_state: string;
+  ownership: 'rented' | 'sold' | null;
+  item_name?: string | null;
+}
+
+interface InStockUnit {
+  id: number;
+  serial_number: string;
+}
+
+interface InventoryItemOptionSO { id: number; name: string; sku: string | null }
+
 const TODAY_SO = new Date().toISOString().split('T')[0];
 
 const ORDER_TYPES = ['new_install', 'upgrade', 'downgrade', 'relocation', 'reconnect'];
@@ -512,6 +528,164 @@ function WorkOrdersModal({ order, onClose, onCreated }: { order: ServiceOrder; o
 }
 
 // ---------------------------------------------------------------------------
+// D — Equipment modal (Inventory Phase 3, migration 391) — the install
+// drawdown moment: pick an in-stock serial for a product (or type a new one
+// off the box) and choose rent/buy. Only usable once the order has a linked
+// contract (installs are recorded against a contract, not a service order).
+// ---------------------------------------------------------------------------
+
+async function fetchAssignedUnits(contractId: number): Promise<AssignedUnit[]> {
+  const res = await api.GET('/cpe-management/devices' as never, {
+    params: { query: { contract_id: contractId, limit: 100 } as never },
+  } as never);
+  if (res.error) return [];
+  return ((res.data as unknown as { data: AssignedUnit[] }).data) ?? [];
+}
+
+async function fetchInventoryItemsSO(): Promise<InventoryItemOptionSO[]> {
+  const res = await api.GET('/inventory/items' as never, { params: { query: { limit: 200, status: 'active' } as never } } as never);
+  if (res.error) return [];
+  return ((res.data as unknown as { data: InventoryItemOptionSO[] }).data) ?? [];
+}
+
+async function fetchInStockUnits(itemId: number): Promise<InStockUnit[]> {
+  const res = await api.GET('/cpe-management/devices' as never, {
+    params: { query: { inventory_item_id: itemId, lifecycle_state: 'in_stock', limit: 200 } as never },
+  } as never);
+  if (res.error) return [];
+  return ((res.data as unknown as { data: InStockUnit[] }).data) ?? [];
+}
+
+function EquipmentModal({ order, onClose, onAssigned }: { order: ServiceOrder; onClose: () => void; onAssigned: () => void }) {
+  const { t } = useTranslation();
+  const [itemId, setItemId] = useState('');
+  const [serialMode, setSerialMode] = useState<'existing' | 'new'>('existing');
+  const [cpeDeviceId, setCpeDeviceId] = useState('');
+  const [newSerial, setNewSerial] = useState('');
+  const [ownership, setOwnership] = useState<'rented' | 'sold'>('rented');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: assigned = [], refetch: refetchAssigned } = useQuery({
+    queryKey: ['so-assigned-units', order.contract_id],
+    queryFn: () => fetchAssignedUnits(order.contract_id as number),
+    enabled: !!order.contract_id,
+  });
+  const { data: catalogItems = [] } = useQuery({ queryKey: ['inventory-items-lookup-so'], queryFn: fetchInventoryItemsSO });
+  const { data: inStockUnits = [] } = useQuery({
+    queryKey: ['so-in-stock-units', itemId],
+    queryFn: () => fetchInStockUnits(Number(itemId)),
+    enabled: !!itemId,
+  });
+
+  const installMut = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = { contract_id: order.contract_id, service_order_id: order.id, ownership };
+      if (serialMode === 'existing') {
+        if (!cpeDeviceId) throw new Error(t('serviceOrders.equipmentPickSerial', 'Select a serial'));
+        body.cpe_device_id = Number(cpeDeviceId);
+      } else {
+        if (!newSerial.trim()) throw new Error(t('serviceOrders.equipmentEnterSerial', 'Enter a serial number'));
+        if (!itemId) throw new Error(t('serviceOrders.equipmentPickProduct', 'Select a product'));
+        body.new_serial = newSerial.trim();
+        body.inventory_item_id = Number(itemId);
+      }
+      const { error } = await api.POST('/cpe-management/devices/install' as never, { body: body as never } as never);
+      if (error) throw new Error(extractApiError(error, t('serviceOrders.equipmentInstallFailed', 'Failed to install equipment')));
+    },
+    onSuccess: () => {
+      setFormErr('');
+      setCpeDeviceId(''); setNewSerial('');
+      void refetchAssigned();
+      onAssigned();
+    },
+    onError: (e: Error) => setFormErr(e.message),
+  });
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={t('serviceOrders.equipmentModalTitle', 'Equipment')}>
+      <div style={{ ...modalBox, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ margin: 0 }}>{t('serviceOrders.equipmentModalTitle', 'Equipment')} — {order.order_number}</h3>
+          <button onClick={onClose} style={cancelBtn}>✕</button>
+        </div>
+
+        {assigned.length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            <strong style={{ fontSize: '0.85rem' }}>{t('serviceOrders.equipmentAssigned', 'Assigned equipment')}</strong>
+            <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {assigned.map(u => (
+                <li key={u.id} style={{ display: 'flex', gap: 10, fontSize: '0.82rem', padding: '5px 8px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{u.serial_number}</span>
+                  <span style={{ flex: 1 }}>{u.item_name ?? ''}</span>
+                  <span style={{ textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{u.lifecycle_state}</span>
+                  {u.ownership && <span style={{ textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{u.ownership}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem' }}>
+          {formErr && <div style={errorBox}>{formErr}</div>}
+
+          <label style={labelStyle} htmlFor="equipment-product">{t('serviceOrders.equipmentProduct', 'Product')}</label>
+          <select id="equipment-product" style={inputStyle} value={itemId} onChange={e => { setItemId(e.target.value); setCpeDeviceId(''); }}>
+            <option value="">— {t('serviceOrders.equipmentSelectProduct', 'select product')} —</option>
+            {catalogItems.map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}</option>)}
+          </select>
+
+          <div style={{ display: 'flex', gap: 12, margin: '8px 0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem' }}>
+              <input type="radio" name="equipment-serial-mode" checked={serialMode === 'existing'} onChange={() => setSerialMode('existing')} />
+              {t('serviceOrders.equipmentExistingSerial', 'Pick in-stock serial')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem' }}>
+              <input type="radio" name="equipment-serial-mode" checked={serialMode === 'new'} onChange={() => setSerialMode('new')} />
+              {t('serviceOrders.equipmentNewSerial', 'Type a new serial')}
+            </label>
+          </div>
+
+          {serialMode === 'existing' ? (
+            <>
+              <label style={labelStyle} htmlFor="equipment-serial">{t('serviceOrders.equipmentSerial', 'Serial')}</label>
+              <select id="equipment-serial" style={inputStyle} value={cpeDeviceId} onChange={e => setCpeDeviceId(e.target.value)} disabled={!itemId}>
+                <option value="">— {itemId ? t('serviceOrders.equipmentSelectSerial', 'select serial') : t('serviceOrders.equipmentSelectProductFirst', 'select a product first')} —</option>
+                {inStockUnits.map(u => <option key={u.id} value={u.id}>{u.serial_number}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <label style={labelStyle} htmlFor="equipment-new-serial">{t('serviceOrders.equipmentNewSerialLabel', 'New serial number')}</label>
+              <input id="equipment-new-serial" type="text" style={inputStyle} value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder={t('serviceOrders.equipmentNewSerialPlaceholder', 'Read from the box')} />
+            </>
+          )}
+
+          <label style={labelStyle}>{t('serviceOrders.equipmentOwnership', 'Rent or buy')}</label>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem' }}>
+              <input type="radio" name="equipment-ownership" checked={ownership === 'rented'} onChange={() => setOwnership('rented')} />
+              {t('serviceOrders.equipmentRented', 'Rented (no invoice)')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem' }}>
+              <input type="radio" name="equipment-ownership" checked={ownership === 'sold'} onChange={() => setOwnership('sold')} />
+              {t('serviceOrders.equipmentSold', 'Sold (raises an invoice)')}
+            </label>
+          </div>
+
+          <button
+            style={{ ...submitBtn, width: '100%' }}
+            disabled={installMut.isPending}
+            onClick={() => installMut.mutate()}
+          >
+            {installMut.isPending ? t('common.saving', 'Saving…') : t('serviceOrders.equipmentInstall', 'Install Equipment')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // C — Create Contract modal for a service order (manual link — non-new_install
 // order types only; new_install auto-creates the contract on Start)
 // ---------------------------------------------------------------------------
@@ -687,9 +861,10 @@ export function ServiceOrderList() {
   const [pageSize, setPageSize] = useState(25);
   const [actionError, setActionError] = useState('');
 
-  // B & C — selected order for sub-panels
+  // B, C & D — selected order for sub-panels
   const [workOrdersFor, setWorkOrdersFor] = useState<ServiceOrder | null>(null);
   const [contractFor, setContractFor] = useState<ServiceOrder | null>(null);
+  const [equipmentFor, setEquipmentFor] = useState<ServiceOrder | null>(null);
   const [completeFor, setCompleteFor] = useState<ServiceOrder | null>(null);
   const [provisioningResult, setProvisioningResult] = useState<PppoeCredentials | null>(null);
   const [invoiceResult, setInvoiceResult] = useState<InvoiceSummary | null>(null);
@@ -804,6 +979,18 @@ export function ServiceOrderList() {
                       {t('serviceOrders.workOrders', 'Work Orders')}
                     </button>
 
+                    {/* D — Equipment button (Inventory Phase 3, migration 391) —
+                        install is recorded against a contract, so this only
+                        appears once one is linked (auto-created by Start for
+                        new_install orders, or manually linked above). */}
+                    {o.contract_id && (
+                      <button type="button"
+                        style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: '0.78rem', marginRight: 6 }}
+                        onClick={() => setEquipmentFor(o)}>
+                        {t('serviceOrders.equipment', 'Equipment')}
+                      </button>
+                    )}
+
                     {/* Lifecycle transitions */}
                     {canUpdate && o.status === 'new' && (
                       <button type="button" style={{ ...submitBtn, padding: '4px 10px', marginRight: 6 }}
@@ -853,6 +1040,15 @@ export function ServiceOrderList() {
           order={workOrdersFor}
           onClose={() => setWorkOrdersFor(null)}
           onCreated={refresh}
+        />
+      )}
+
+      {/* D — Equipment modal (Inventory Phase 3, migration 391) */}
+      {equipmentFor && (
+        <EquipmentModal
+          order={equipmentFor}
+          onClose={() => setEquipmentFor(null)}
+          onAssigned={refresh}
         />
       )}
 

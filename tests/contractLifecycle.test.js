@@ -20,11 +20,21 @@ jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), r
 
 jest.mock('../src/services/subscriberProvisioningService', () => ({ provisionNewContract: jest.fn(), generatePassword: jest.fn(() => 'gen-pass') }));
 
+// Inventory Phase 3 (migration 391) — terminate/cancel auto-create a pickup
+// work order for outstanding rented equipment. Whole-module-mocked so these
+// route tests assert the WIRING (the hook fires with the right contract id)
+// without re-testing ensurePickupWorkOrder's own idempotency/query logic,
+// which is covered exhaustively in tests/inventorySerialService.test.js.
+jest.mock('../src/services/inventorySerialService', () => ({
+  ensurePickupWorkOrder: jest.fn().mockResolvedValue(null),
+}));
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
 const suspensionService = require('../src/services/suspensionService');
+const inventorySerialService = require('../src/services/inventorySerialService');
 const app = require('../src/app');
 
 function adminToken() {
@@ -288,6 +298,12 @@ describe('POST /contracts/:id/terminate', () => {
     // contracts.status transiently 'suspended' and logged a misleading
     // 'suspend' suspension_logs entry for what is actually a terminate).
     expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(5);
+
+    // Inventory Phase 3 (migration 391): terminate auto-triggers the
+    // equipment-pickup hook for this contract, org-scoped.
+    expect(inventorySerialService.ensurePickupWorkOrder).toHaveBeenCalledWith(
+      5, expect.objectContaining({ orgId: 1 }),
+    );
   });
 
   test('returns 422 for a cancelled (non-terminable) contract', async () => {

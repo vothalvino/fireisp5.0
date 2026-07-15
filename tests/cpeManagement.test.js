@@ -194,3 +194,75 @@ describe('POST /api/cpe-management/devices/batch-parameter-push', () => {
     expect(res.status).toBe(422);
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/cpe-management/devices/:id/lifecycle/transition
+// Inventory Phase 3 hardening: a manual transition across the in_stock
+// boundary must be rejected for a TRACKED unit (inventory_item_id set) —
+// only the install/pickup flows are allowed to move stock. Non-boundary
+// transitions and non-linked units are unaffected.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/cpe-management/devices/:id/lifecycle/transition', () => {
+  function mockTransitionSuccess({ id, fromState, toState, inventoryItemId = null }) {
+    db.query
+      // CpeDevice.findByIdOrFail
+      .mockResolvedValueOnce([[{ id, organization_id: 1, lifecycle_state: fromState, inventory_item_id: inventoryItemId }]])
+      // transitionLifecycleState: load current state
+      .mockResolvedValueOnce([[{ id, lifecycle_state: fromState, organization_id: 1 }]])
+      // transitionLifecycleState: apply state
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      // transitionLifecycleState: history insert
+      .mockResolvedValueOnce([{ insertId: 1 }])
+      // transitionLifecycleState: final reselect
+      .mockResolvedValueOnce([[{ id, lifecycle_state: toState, organization_id: 1, inventory_item_id: inventoryItemId }]]);
+  }
+
+  it('rejects a linked unit crossing OUT of in_stock (in_stock -> assigned) with 422', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 10, organization_id: 1, lifecycle_state: 'in_stock', inventory_item_id: 5 }]]);
+
+    const res = await request(app)
+      .post('/api/cpe-management/devices/10/lifecycle/transition')
+      .set('Authorization', 'Bearer test')
+      .send({ to_state: 'assigned' });
+
+    expect(res.status).toBe(422);
+    expect(db.query).toHaveBeenCalledTimes(1); // no further writes attempted
+  });
+
+  it('rejects a linked unit crossing INTO in_stock (assigned -> in_stock) with 422', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 10, organization_id: 1, lifecycle_state: 'assigned', inventory_item_id: 5 }]]);
+
+    const res = await request(app)
+      .post('/api/cpe-management/devices/10/lifecycle/transition')
+      .set('Authorization', 'Bearer test')
+      .send({ to_state: 'in_stock' });
+
+    expect(res.status).toBe(422);
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a linked unit transitioning WITHOUT crossing the in_stock boundary (assigned -> active)', async () => {
+    mockTransitionSuccess({ id: 10, fromState: 'assigned', toState: 'active', inventoryItemId: 5 });
+
+    const res = await request(app)
+      .post('/api/cpe-management/devices/10/lifecycle/transition')
+      .set('Authorization', 'Bearer test')
+      .send({ to_state: 'active' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.lifecycle_state).toBe('active');
+  });
+
+  it('allows a NON-linked unit crossing the in_stock boundary (in_stock -> assigned)', async () => {
+    mockTransitionSuccess({ id: 11, fromState: 'in_stock', toState: 'assigned', inventoryItemId: null });
+
+    const res = await request(app)
+      .post('/api/cpe-management/devices/11/lifecycle/transition')
+      .set('Authorization', 'Bearer test')
+      .send({ to_state: 'assigned' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.lifecycle_state).toBe('assigned');
+  });
+});

@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { authedFetch, tokenStore } from '@/api/client';
 import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import { Pagination } from '@/components/Pagination';
@@ -26,6 +27,9 @@ interface InventoryItem {
   sku: string | null;
   name: string;
   category: string | null;
+  // Inventory Phase 3 (migration 391) — per-serial tracking toggle. MySQL
+  // TINYINT(1) round-trips as 0/1, not a real boolean (see CLAUDE.md).
+  serial_required: number | boolean;
   manufacturer: string | null;
   model: string | null;
   description: string | null;
@@ -210,6 +214,7 @@ interface ItemFormValues {
   name: string;
   sku: string;
   category: string;
+  serialRequired: boolean;
   manufacturer: string;
   model: string;
   description: string;
@@ -221,7 +226,7 @@ interface ItemFormValues {
 }
 
 const EMPTY_ITEM_FORM: ItemFormValues = {
-  name: '', sku: '', category: '', manufacturer: '', model: '',
+  name: '', sku: '', category: '', serialRequired: false, manufacturer: '', model: '',
   description: '', unit: 'unit', unit_cost: '', sale_price: '',
   reorder_level: '', status: 'active',
 };
@@ -233,6 +238,7 @@ interface ItemFormModalProps {
 }
 
 function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
+  const { t } = useTranslation();
   const orgCurrency = useOrgCurrency();
   const isEdit = !!item;
   const [form, setForm] = useState<ItemFormValues>(
@@ -241,6 +247,7 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
           name: item.name,
           sku: item.sku ?? '',
           category: item.category ?? '',
+          serialRequired: !!item.serial_required,
           manufacturer: item.manufacturer ?? '',
           model: item.model ?? '',
           description: item.description ?? '',
@@ -264,6 +271,7 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
       const body: Record<string, unknown> = {
         name: form.name,
         status: form.status,
+        serial_required: form.serialRequired,
       };
       if (form.sku) body.sku = form.sku;
       if (form.category) body.category = form.category;
@@ -320,6 +328,17 @@ function ItemFormModal({ item, onClose, onSaved }: ItemFormModalProps) {
               <label style={labelStyle}>Unit</label>
               <input style={inputStyle} value={form.unit}
                 onChange={e => set('unit', e.target.value)} placeholder="unit / m / roll" />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('inventoryManagement.serialRequired.label')}</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={form.serialRequired}
+                  onChange={e => setForm(f => ({ ...f, serialRequired: e.target.checked }))}
+                />
+                {t('inventoryManagement.serialRequired.hint')}
+              </label>
             </div>
             <div>
               <label style={labelStyle}>Manufacturer</label>
@@ -635,6 +654,7 @@ function TransactionModal({ item, preselectedStockId, onClose, onRecorded }: Tra
 // ---------------------------------------------------------------------------
 
 export function InventoryList() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const orgCurrency = useOrgCurrency();
   const fmtCurrency = makeFmtCurrency(orgCurrency);
@@ -740,6 +760,14 @@ export function InventoryList() {
                     <td style={{ ...td, color: '#6b7280', fontSize: '0.8rem' }}>{item.sku ?? '—'}</td>
                     <td style={{ ...td, fontWeight: 600, maxWidth: 220 }}>
                       {item.name}
+                      {!!item.serial_required && (
+                        <span style={{
+                          marginLeft: 6, fontWeight: 600, fontSize: '0.65rem', color: '#1e40af',
+                          background: '#dbeafe', padding: '1px 6px', borderRadius: 8, verticalAlign: 'middle',
+                        }} title={t('inventoryManagement.serialRequired.hint')}>
+                          {t('inventoryManagement.serialRequired.badge')}
+                        </span>
+                      )}
                       {item.manufacturer && (
                         <div style={{ fontWeight: 400, color: '#9ca3af', fontSize: '0.75rem' }}>
                           {item.manufacturer}{item.model ? ` · ${item.model}` : ''}

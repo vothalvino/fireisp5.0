@@ -26,7 +26,7 @@ class PurchaseOrder extends BaseModel {
    */
   static async getItems(poId) {
     const [rows] = await db.query(
-      `SELECT poi.*, i.name AS item_name, i.sku
+      `SELECT poi.*, i.name AS item_name, i.sku, i.serial_required
        FROM purchase_order_items poi
        LEFT JOIN inventory_items i ON i.id = poi.inventory_item_id
        WHERE poi.po_id = ?

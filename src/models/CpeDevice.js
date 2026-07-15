@@ -19,6 +19,8 @@ class CpeDevice extends BaseModel {
       'lifecycle_state', 'subscriber_id', 'subscriber_linked_at',
       'purchase_cost', 'purchase_date', 'depreciation_method',
       'useful_life_months', 'salvage_value',
+      // Inventory Phase 3 (migration 391) — per-serial unit tracking
+      'inventory_item_id', 'ownership',
     ];
   }
 

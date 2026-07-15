@@ -21,7 +21,11 @@
     "next": "Próx.",
     "none": "(nenhum)",
     "id": "ID",
-    "unassigned": "— nao atribuido —"
+    "unassigned": "— nao atribuido —",
+    "select": "selecionar",
+    "all": "Todos",
+    "actions": "Ações",
+    "error": "Ocorreu um erro"
   },
   "clientPicker": {
     "label": "Cliente",
@@ -2467,7 +2471,8 @@
       "lifecycle": "Ciclo de Vida",
       "subscribers": "Vínculo Assinante",
       "swap": "Trocar Equipamento",
-      "depreciation": "Depreciação"
+      "depreciation": "Depreciação",
+      "register": "Registrar"
     },
     "lifecycle": {
       "title": "Estado do Ciclo de Vida",
@@ -2527,6 +2532,31 @@
       },
       "notConfigured": "Sem dados de depreciação. Configure custo de compra, data e método no dispositivo.",
       "error": "Falha ao carregar a depreciação."
+    },
+    "register": {
+      "formTitle": "Registrar um Número de Série",
+      "item": "Produto",
+      "serialNumber": "Número de Série",
+      "warehouse": "Armazém",
+      "manufacturer": "Fabricante",
+      "modelName": "Modelo",
+      "incrementStock": "Esta é uma unidade nova (aumentar estoque em 1)",
+      "incrementStockHint": "Deixe desmarcado para um registro de atualização de estoque já existente — não alterará a quantidade.",
+      "submit": "Registrar Número de Série",
+      "error": "Falha ao registrar o número de série",
+      "success": "Número de série registrado.",
+      "filterState": "Estado",
+      "filterItem": "Produto",
+      "colSerial": "Número de Série",
+      "colProduct": "Produto",
+      "colState": "Estado",
+      "colClient": "Cliente",
+      "colOwnership": "Propriedade",
+      "empty": "Nenhuma unidade serializada encontrada.",
+      "ownership": {
+        "rented": "Alugado",
+        "sold": "Vendido"
+      }
     }
   },
   "wirelessManagement": {
@@ -2884,7 +2914,8 @@
       "maintenance": "Manutenção",
       "repair": "Reparo",
       "survey": "Vistoria",
-      "other": "Outro"
+      "other": "Outro",
+      "pickup": "Coleta"
     },
     "status": {
       "pending": "Pendente",
@@ -2892,6 +2923,14 @@
       "inProgress": "Em Andamento",
       "completed": "Concluído",
       "cancelled": "Cancelado"
+    },
+    "pickup": {
+      "title": "Lista de Coleta de Equipamento",
+      "none": "Nenhum equipamento pendente.",
+      "serial": "Número de Série",
+      "product": "Produto",
+      "returned": "Devolvido ao Estoque",
+      "rma": "Danificado / RMA"
     }
   },
   "ticketDetail": {
@@ -3062,6 +3101,11 @@
       "reference": "Referência",
       "performedBy": "Realizado Por",
       "noRows": "Nenhuma movimentação de estoque encontrada"
+    },
+    "serialRequired": {
+      "label": "Rastreamento por Série",
+      "hint": "Rastrear este produto por número de série individual",
+      "badge": "Serializado"
     }
   },
   "productPicker": {
@@ -3971,7 +4015,27 @@
     "close": "Fechar",
     "invoiceCreatedModalTitle": "Fatura de instalação criada",
     "invoiceCreatedHint": "Uma fatura de taxa de instalação foi criada para esta ordem.",
-    "viewInvoice": "Ver fatura"
+    "viewInvoice": "Ver fatura",
+    "equipment": "Equipamento",
+    "equipmentModalTitle": "Equipamento",
+    "equipmentAssigned": "Equipamento atribuído",
+    "equipmentProduct": "Produto",
+    "equipmentSelectProduct": "selecionar produto",
+    "equipmentExistingSerial": "Escolher número de série em estoque",
+    "equipmentNewSerial": "Digitar um novo número de série",
+    "equipmentSerial": "Número de Série",
+    "equipmentSelectSerial": "selecionar número de série",
+    "equipmentSelectProductFirst": "selecione um produto primeiro",
+    "equipmentNewSerialLabel": "Novo número de série",
+    "equipmentNewSerialPlaceholder": "Lido da caixa",
+    "equipmentOwnership": "Alugar ou vender",
+    "equipmentRented": "Alugado (sem fatura)",
+    "equipmentSold": "Vendido (gera uma fatura)",
+    "equipmentInstall": "Instalar Equipamento",
+    "equipmentPickSerial": "Selecione um número de série",
+    "equipmentEnterSerial": "Insira um número de série",
+    "equipmentPickProduct": "Selecione um produto",
+    "equipmentInstallFailed": "Falha ao instalar o equipamento"
   },
   "leads": {
     "addressField": "Endereço",
@@ -4120,11 +4184,26 @@
       "hint": "As quantidades usam o total restante por padrão. Reduza um valor para receber um envio parcial — o pedido ficará como \"parcial\" até que cada linha seja totalmente recebida.",
       "confirm": "Confirmar Recebimento",
       "receiving": "Recebendo…",
-      "genericError": "Ocorreu um erro"
+      "genericError": "Ocorreu um erro",
+      "serialsLabel": "Números de série ({{count}} necessários)",
+      "serialsPlaceholder": "Um número de série por linha",
+      "serialsCount": "{{entered}} de {{needed}} inseridos",
+      "serialsMismatchError": "Insira exatamente a quantidade correta de números de série para cada linha rastreada por série antes de receber."
     },
     "toasts": {
       "itemAdded": "Item adicionado.",
       "received": "Pedido de compra recebido — estoque atualizado."
+    }
+  },
+  "clientDetail": {
+    "assignedEquipment": {
+      "title": "Equipamento Atribuído",
+      "serial": "Número de Série",
+      "product": "Produto",
+      "state": "Estado",
+      "ownership": "Propriedade",
+      "ownership_rented": "Alugado",
+      "ownership_sold": "Vendido"
     }
   }
 }

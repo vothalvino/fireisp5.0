@@ -34,6 +34,49 @@
 const { ValidationError } = require('../utils/errors');
 
 /**
+ * Find the org's existing inventory_stock row with the greatest quantity for
+ * an item, or create a zero-quantity row at the org's first warehouse when
+ * none exists yet. Shared by drawdownForSale (sell_to_client) and, since
+ * Inventory Phase 3 (migration 391), inventorySerialService's install
+ * (assign_to_job) and pickup-return (return) ledger writes — every caller
+ * that needs to move inventory_stock.quantity for an org+item pair without a
+ * warehouse picker resolves the target row the same deterministic way.
+ * @param {(sql: string, params: unknown[]) => Promise<[unknown, unknown]>} execute
+ * @param {{ orgId: number, itemId: number }} params
+ * @returns {Promise<number>} inventory_stock.id
+ */
+async function resolveOrCreateStockRow(execute, { orgId, itemId }) {
+  const [stockRows] = await execute(
+    `SELECT s.id FROM inventory_stock s
+     JOIN inventory_items i ON i.id = s.item_id
+     WHERE s.item_id = ? AND s.deleted_at IS NULL AND (i.organization_id = ? OR i.organization_id IS NULL)
+     ORDER BY s.quantity DESC, s.id ASC
+     LIMIT 1`,
+    [itemId, orgId],
+  );
+
+  const stockId = stockRows[0]?.id;
+  if (stockId) return stockId;
+
+  const [warehouseRows] = await execute(
+    'SELECT id FROM warehouses WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL ORDER BY id ASC LIMIT 1',
+    [orgId],
+  );
+  const warehouse = warehouseRows[0];
+  if (!warehouse) {
+    throw new ValidationError(
+      'No warehouse is configured for this organization; cannot record stock for this item',
+      [{ field: 'inventory_item_id', message: 'No warehouse available to hold stock' }],
+    );
+  }
+  const [ins] = await execute(
+    'INSERT INTO inventory_stock (item_id, warehouse_id, quantity) VALUES (?, ?, 0)',
+    [itemId, warehouse.id],
+  );
+  return ins.insertId;
+}
+
+/**
  * @param {(sql: string, params: unknown[]) => Promise<[unknown, unknown]>} execute
  * @param {{
  *   orgId: number,
@@ -50,16 +93,7 @@ const { ValidationError } = require('../utils/errors');
 async function drawdownForSale(execute, {
   orgId, itemId, quantity, unitPrice, invoiceId, clientId, performedBy, reference,
 }) {
-  const [stockRows] = await execute(
-    `SELECT s.id FROM inventory_stock s
-     JOIN inventory_items i ON i.id = s.item_id
-     WHERE s.item_id = ? AND s.deleted_at IS NULL AND (i.organization_id = ? OR i.organization_id IS NULL)
-     ORDER BY s.quantity DESC, s.id ASC
-     LIMIT 1`,
-    [itemId, orgId],
-  );
-
-  let stockId = stockRows[0]?.id;
+  const stockId = await resolveOrCreateStockRow(execute, { orgId, itemId });
 
   // Defensive integer floor: both call sites (POST /invoices/:id/items and
   // POST /quotes/:id/convert-to-invoice) already reject a fractional
@@ -69,25 +103,6 @@ async function drawdownForSale(execute, {
   // physical stock — inventory_stock.quantity and inventory_transactions.quantity
   // are both integer columns.
   const drawdownQty = Math.round(Number(quantity));
-
-  if (!stockId) {
-    const [warehouseRows] = await execute(
-      'SELECT id FROM warehouses WHERE (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL ORDER BY id ASC LIMIT 1',
-      [orgId],
-    );
-    const warehouse = warehouseRows[0];
-    if (!warehouse) {
-      throw new ValidationError(
-        'No warehouse is configured for this organization; cannot record stock for a linked product sale',
-        [{ field: 'inventory_item_id', message: 'No warehouse available to hold stock' }],
-      );
-    }
-    const [ins] = await execute(
-      'INSERT INTO inventory_stock (item_id, warehouse_id, quantity) VALUES (?, ?, 0)',
-      [itemId, warehouse.id],
-    );
-    stockId = ins.insertId;
-  }
 
   // Negative stock is allowed — see module header. No floor/clamp on VALUE here.
   await execute('UPDATE inventory_stock SET quantity = quantity - ? WHERE id = ?', [drawdownQty, stockId]);
@@ -104,4 +119,4 @@ async function drawdownForSale(execute, {
   return stockId;
 }
 
-module.exports = { drawdownForSale };
+module.exports = { drawdownForSale, resolveOrCreateStockRow };

@@ -21,6 +21,10 @@ const {
   createCpeDevice,
   updateCpeDevice,
 } = require('../middleware/schemas/cpeDevices');
+const {
+  registerSerial: registerSerialSchema,
+  installEquipment: installEquipmentSchema,
+} = require('../middleware/schemas/inventorySerials');
 const { createCpeTask } = require('../middleware/schemas/cpeTasks');
 const {
   createCpeFirmwareVersion,
@@ -36,6 +40,8 @@ const cpeDiagnosticsService = require('../services/cpeDiagnosticsService');
 const cpeSessionLogService = require('../services/cpeSessionLogService');
 // §8.4
 const cpeInventoryService = require('../services/cpeInventoryService');
+// Inventory Phase 3 (migration 391)
+const inventorySerialService = require('../services/inventorySerialService');
 
 const router = Router();
 
@@ -71,10 +77,34 @@ router.get('/devices', requirePermission('cpe_devices.view'), async (req, res, n
       conditions.push('d.model_name = ?');
       params.push(req.query.model_name);
     }
+    // Inventory Phase 3 (migration 391) filters — used by the install-time
+    // serial picker (lifecycle_state=in_stock&inventory_item_id=N), the
+    // client profile "assigned equipment" section (subscriber_id=N), and the
+    // service-order Equipment panel's "currently assigned" list (contract_id=N).
+    if (req.query.lifecycle_state) {
+      conditions.push('d.lifecycle_state = ?');
+      params.push(req.query.lifecycle_state);
+    }
+    if (req.query.inventory_item_id) {
+      conditions.push('d.inventory_item_id = ?');
+      params.push(req.query.inventory_item_id);
+    }
+    if (req.query.subscriber_id) {
+      conditions.push('d.subscriber_id = ?');
+      params.push(req.query.subscriber_id);
+    }
+    if (req.query.contract_id) {
+      conditions.push('d.contract_id = ?');
+      params.push(req.query.contract_id);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [rows] = await db.query(
-      `SELECT d.* FROM cpe_devices d ${where} ORDER BY d.id DESC LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT d.*, i.name AS item_name, i.sku AS item_sku, c.name AS subscriber_name
+       FROM cpe_devices d
+       LEFT JOIN inventory_items i ON i.id = d.inventory_item_id
+       LEFT JOIN clients c ON c.id = d.subscriber_id
+       ${where} ORDER BY d.id DESC LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
     const [[{ total }]] = await db.query(
@@ -467,10 +497,28 @@ router.get('/devices/:id/lifecycle', requirePermission('cpe_lifecycle_history.vi
 // Transition lifecycle state
 router.post('/devices/:id/lifecycle/transition', requirePermission('cpe_inventory.manage'), async (req, res, next) => {
   try {
-    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const existing = await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
     const { to_state, reason } = req.body;
     if (!to_state) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'to_state is required' } });
+    }
+    // Inventory Phase 3 hardening (migration 391): this generic transition
+    // endpoint has no idea about inventory_stock — installEquipment and
+    // completePickupUnit are the only two places that cross the in_stock
+    // boundary with the matching stock decrement/increment + ledger row.
+    // Letting a manual transition cross that same boundary for a TRACKED
+    // unit (inventory_item_id set) would silently strand or double-count
+    // physical stock (see cpeInventorySwap/manual-transition PR review).
+    // Non-linked/legacy devices (no inventory_item_id) are unaffected —
+    // they never had stock to begin with.
+    const crossesStockBoundary = existing.lifecycle_state === 'in_stock' || to_state === 'in_stock';
+    if (existing.inventory_item_id && crossesStockBoundary) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'This unit is linked to a tracked inventory item — use the Install or Pickup flow to move it into or out of stock, not a manual lifecycle transition.',
+        },
+      });
     }
     const device = await cpeInventoryService.transitionLifecycleState(
       parseInt(req.params.id, 10),
@@ -519,6 +567,51 @@ router.get('/devices/:id/depreciation', requirePermission('cpe_inventory.view'),
     const device = await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
     const depreciation = cpeInventoryService.computeDepreciation(device);
     res.json({ data: { ...depreciation, device_id: device.id } });
+  } catch (err) { next(err); }
+});
+
+// ===========================================================================
+// Inventory Phase 3 (migration 391) — serialized equipment
+// ===========================================================================
+
+// Manual serial registration — CPE Inventory page's "Register" tab: legacy
+// devices or catch-up for stock that predates an item's serial_required
+// toggle. Default (no increment_stock) never touches inventory_stock.
+router.post('/devices/register', requirePermission('cpe_inventory.manage'), validate(registerSerialSchema), async (req, res, next) => {
+  try {
+    const device = await inventorySerialService.registerSerial({
+      orgId: req.orgId,
+      itemId: req.body.inventory_item_id,
+      serialNumber: req.body.serial_number,
+      warehouseId: req.body.warehouse_id || null,
+      manufacturer: req.body.manufacturer || null,
+      modelName: req.body.model_name || null,
+      notes: req.body.notes || null,
+      incrementStock: !!req.body.increment_stock,
+      performedBy: req.user?.id || null,
+    });
+    res.status(201).json({ data: device });
+  } catch (err) { next(err); }
+});
+
+// Install — the drawdown moment. Picks an existing in-stock serial OR
+// registers a brand-new one on the fly ("type-a-new-serial"), transitions it
+// to 'assigned' on the given contract, and decrements stock exactly once
+// (rent: assign_to_job ledger, no invoice; sold: a real invoice line via
+// billingService.createOneOffInvoice, which itself calls drawdownForSale).
+router.post('/devices/install', requirePermission('cpe_inventory.manage'), validate(installEquipmentSchema), async (req, res, next) => {
+  try {
+    const result = await inventorySerialService.installEquipment({
+      orgId: req.orgId,
+      contractId: req.body.contract_id,
+      serviceOrderId: req.body.service_order_id || null,
+      cpeDeviceId: req.body.cpe_device_id || null,
+      newSerial: req.body.new_serial || null,
+      inventoryItemId: req.body.inventory_item_id || null,
+      ownership: req.body.ownership,
+      performedBy: req.user?.id || null,
+    });
+    res.status(201).json({ data: result });
   } catch (err) { next(err); }
 });
 

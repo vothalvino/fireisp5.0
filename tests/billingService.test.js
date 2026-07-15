@@ -413,7 +413,9 @@ describe('billingService', () => {
 
       const itemInsert = mockConnection.execute.mock.calls[4];
       expect(itemInsert[0]).toContain('INSERT INTO invoice_items');
-      expect(itemInsert[1]).toEqual([60, 'Installation fee', 500, 500]);
+      // Trailing null = inventory_item_id (Inventory Phase 3, migration 391)
+      // — this call didn't pass inventoryItemId, so the line isn't product-linked.
+      expect(itemInsert[1]).toEqual([60, 'Installation fee', 500, 500, null]);
     });
 
     test('defaults contract_id to null and 0% tax when the org has no default tax rate', async () => {
@@ -497,6 +499,56 @@ describe('billingService', () => {
       // so an uncommitted row the caller hasn't committed yet is visible.
       expect(externalConn.query).toHaveBeenCalledWith('SELECT * FROM invoices WHERE id = ?', [70]);
       expect(result).toEqual({ id: 70, total: '580.00', status: 'issued' });
+    });
+
+    test('inventoryItemId (Inventory Phase 3, migration 391): invoice_items carries it AND drawdownForSale decrements stock exactly once, inside the same transaction', async () => {
+      const externalConn = {
+        beginTransaction: jest.fn(),
+        execute: jest.fn()
+          .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])   // tax rate
+          .mockResolvedValueOnce([{ affectedRows: 0 }])            // nextInvoiceNumber: INSERT IGNORE
+          .mockResolvedValueOnce([{ affectedRows: 1 }])            // nextInvoiceNumber: UPDATE next_number
+          .mockResolvedValueOnce([{ insertId: 80 }])               // INSERT invoice
+          .mockResolvedValueOnce([])                               // INSERT invoice_items
+          .mockResolvedValueOnce([[{ id: 500 }]])                  // drawdownForSale: resolveOrCreateStockRow (existing row found)
+          .mockResolvedValueOnce([{ affectedRows: 1 }])            // drawdownForSale: UPDATE inventory_stock (decrement)
+          .mockResolvedValueOnce([{ insertId: 900 }])              // drawdownForSale: INSERT inventory_transactions
+          .mockResolvedValueOnce([]),                              // INSERT client_balance_ledger
+        query: jest.fn()
+          .mockResolvedValueOnce([[{ id: 1 }]])                    // nextInvoiceNumber: SELECT LAST_INSERT_ID()
+          .mockResolvedValueOnce([[{ id: 80, total: '150.00', status: 'issued' }]]), // read back
+        commit: jest.fn(),
+        rollback: jest.fn(),
+        release: jest.fn(),
+      };
+
+      const result = await billingService.createOneOffInvoice({
+        orgId: 42, clientId: 100, contractId: 900, description: 'Equipment sale: ONU-X (SN ABC123)',
+        amount: 150, currency: 'MXN', conn: externalConn, inventoryItemId: 7, performedBy: 5,
+      });
+
+      expect(result).toEqual({ id: 80, total: '150.00', status: 'issued' });
+
+      const itemInsert = externalConn.execute.mock.calls[4];
+      expect(itemInsert[0]).toContain('INSERT INTO invoice_items');
+      expect(itemInsert[1]).toEqual([80, 'Equipment sale: ONU-X (SN ABC123)', 150, 150, 7]);
+
+      const drawdownUpdate = externalConn.execute.mock.calls[6];
+      expect(drawdownUpdate[0]).toContain('UPDATE inventory_stock SET quantity = quantity - ?');
+      expect(drawdownUpdate[1]).toEqual([1, 500]);
+
+      const ledgerInsert = externalConn.execute.mock.calls[7];
+      expect(ledgerInsert[0]).toContain('INSERT INTO inventory_transactions');
+      expect(ledgerInsert[0]).toContain("'sell_to_client'");
+      expect(ledgerInsert[1]).toEqual([500, 1, 150, 100, 80, 5, 'INV-000001']);
+
+      // Exactly ONE stock decrement — proves installEquipment's "buy" path
+      // (which composes createOneOffInvoice with inventoryItemId) never
+      // double-decrements: this is the ONLY place stock moves.
+      const stockUpdateCalls = externalConn.execute.mock.calls.filter(
+        c => typeof c[0] === 'string' && c[0].includes('UPDATE inventory_stock'),
+      );
+      expect(stockUpdateCalls).toHaveLength(1);
     });
 
     test('external-conn mode propagates the raw error without rollback/release (caller owns the transaction)', async () => {

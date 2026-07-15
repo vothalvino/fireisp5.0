@@ -3142,6 +3142,8 @@ CREATE TABLE IF NOT EXISTS inventory_items (
                         'other'
                     ) NOT NULL DEFAULT 'other'
                         COMMENT 'Item category for filtering and reporting',
+    serial_required TINYINT(1)      NOT NULL DEFAULT 0
+                        COMMENT 'When 1, this product is tracked per-serial via cpe_devices (PO receive requires serials, install requires picking one) — migration 391. Default 0 preserves pure-quantity Phase 1/2 behavior.',
     manufacturer    VARCHAR(100)    NULL,
     model           VARCHAR(100)    NULL,
     description     TEXT            NULL,
@@ -10569,7 +10571,7 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED NULL,
     serial_number       VARCHAR(64)     NOT NULL,
-    oui                 VARCHAR(6)      NOT NULL COMMENT 'OUI from CWMP DeviceId.OUI (6 hex chars)',
+    oui                 VARCHAR(6)      NULL COMMENT 'OUI from CWMP DeviceId.OUI (6 hex chars); NULL for units registered via inventory (PO receive / manual add / install-time type-new-serial) that have no known TR-069 identity yet (migration 391)',
     product_class       VARCHAR(64)     NULL,
     hardware_version    VARCHAR(64)     NULL,
     software_version    VARCHAR(64)     NULL,
@@ -10580,6 +10582,8 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     acs_password_hash   VARCHAR(255)    NULL,
     device_id           BIGINT UNSIGNED NULL COMMENT 'FK to devices table (indoor_cpe/outdoor_cpe types)',
     contract_id         BIGINT UNSIGNED NULL,
+    inventory_item_id   BIGINT UNSIGNED NULL COMMENT 'Which inventory_items catalog product this serial IS — set when the unit is created from a PO receive or manual registration (migration 391)',
+    ownership           ENUM('rented','sold') NULL COMMENT 'Set at install time: rented = stays FireISP property (returned on pickup), sold = client property (never appears in a pickup checklist) — migration 391',
     cpe_profile_id      BIGINT UNSIGNED NULL COMMENT 'FK to cpe_profiles, added in migration 276',
     status              ENUM('new','provisioning','active','error','offline') NOT NULL DEFAULT 'new',
     last_inform_at      DATETIME        NULL,
@@ -10611,10 +10615,12 @@ CREATE TABLE IF NOT EXISTS cpe_devices (
     KEY idx_cpe_devices_cpe_profile_id (cpe_profile_id),
     KEY idx_cpe_devices_subscriber (subscriber_id),
     KEY idx_cpe_devices_deleted_at (deleted_at),
+    KEY idx_cpe_devices_inventory_item (inventory_item_id),
     CONSTRAINT fk_cpe_devices_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_devices_device FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_cpe_devices_contract FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_cpe_devices_subscriber FOREIGN KEY (subscriber_id) REFERENCES clients(id) ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT fk_cpe_devices_subscriber FOREIGN KEY (subscriber_id) REFERENCES clients(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_cpe_devices_inventory_item FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TR-069/CWMP CPE device registry (§8.1)';
 
 CREATE TABLE IF NOT EXISTS cpe_parameters (
@@ -11441,7 +11447,7 @@ CREATE TABLE IF NOT EXISTS work_orders (
   description     TEXT            NULL,
   status          ENUM('pending','assigned','in_progress','completed','cancelled') NOT NULL DEFAULT 'pending',
   priority        ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium',
-  work_type       ENUM('installation','maintenance','repair','survey','other') NOT NULL DEFAULT 'other' COMMENT 'Field-work classification (migrated from jobs.type)',
+  work_type       ENUM('installation','maintenance','repair','survey','pickup','other') NOT NULL DEFAULT 'other' COMMENT 'Field-work classification (migrated from jobs.type); pickup = auto-created equipment-return follow-up on contract cancellation (migration 391)',
   scheduled_at    DATETIME        NULL     COMMENT 'Planned visit datetime',
   started_at      DATETIME        NULL,
   completed_at    DATETIME        NULL,

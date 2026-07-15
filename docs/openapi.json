@@ -32645,6 +32645,78 @@
         }
       }
     },
+    "/cpe-management/devices/register": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Manually register a serialized unit (legacy devices / catch-up for stock that predates serial_required)",
+        "operationId": "registerCpeSerial",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "inventorySerials_registerSerial",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cpe-management/devices/install": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Install a serialized unit on a contract — picks an in-stock serial or registers a new one, decrements stock (rent: ledger only; sold: real invoice line)",
+        "operationId": "installCpeEquipment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "inventorySerials_installEquipment",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "CpeInstallResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cpe-profiles": {
       "get": {
         "tags": [
@@ -39505,6 +39577,86 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/work-orders/{id}/pickup-items": {
+      "get": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Get the outstanding rented-equipment checklist for a pickup work order (Inventory Phase 3, migration 391)",
+        "operationId": "getWorkOrderPickupItems",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CpeDevice[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Resolve one unit's pickup disposition (returned -> back in stock; rma -> no stock change)",
+        "operationId": "completeWorkOrderPickupItem",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "inventorySerials_pickupDisposition",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeDevice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -56662,6 +56814,9 @@
               "other"
             ]
           },
+          "serial_required": {
+            "type": "boolean"
+          },
           "manufacturer": {
             "type": "string",
             "maximum": 100
@@ -56734,6 +56889,9 @@
               "tool",
               "other"
             ]
+          },
+          "serial_required": {
+            "type": "boolean"
           },
           "manufacturer": {
             "type": "string",
@@ -56834,6 +56992,104 @@
         "required": [
           "transaction_type",
           "quantity"
+        ]
+      },
+      "inventorySerials_registerSerial": {
+        "type": "object",
+        "properties": {
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "serial_number": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "warehouse_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "manufacturer": {
+            "type": "string",
+            "maximum": 100
+          },
+          "model_name": {
+            "type": "string",
+            "maximum": 100
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          },
+          "increment_stock": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "inventory_item_id",
+          "serial_number"
+        ]
+      },
+      "inventorySerials_installEquipment": {
+        "type": "object",
+        "properties": {
+          "contract_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "service_order_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "cpe_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "new_serial": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "rented",
+              "sold"
+            ]
+          }
+        },
+        "required": [
+          "contract_id",
+          "ownership"
+        ]
+      },
+      "inventorySerials_pickupDisposition": {
+        "type": "object",
+        "properties": {
+          "cpe_device_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "returned",
+              "rma"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "cpe_device_id",
+          "disposition"
         ]
       },
       "invoices_createInvoice": {
@@ -62832,6 +63088,9 @@
             "type": "string"
           },
           "items": {
+            "type": "string"
+          },
+          "serials": {
             "type": "string"
           }
         }

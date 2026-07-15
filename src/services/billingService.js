@@ -11,6 +11,7 @@ const Organization = require('../models/Organization');
 const logger = require('../utils/logger').child({ service: 'billing' });
 const { InvoiceGenerationError } = require('../utils/errors');
 const auditLog = require('./auditLog');
+const { drawdownForSale } = require('./inventoryDrawdownService');
 
 /**
  * Atomically allocate the next sequential invoice number for an organization,
@@ -387,9 +388,23 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
  *   organization's currency (Organization.getCurrency) when omitted.
  * @param {object} [params.conn] - An existing transaction connection to reuse
  *   instead of opening (and owning the commit/rollback/release of) a new one.
+ * @param {number|null} [params.inventoryItemId] - When set (Inventory Phase 3,
+ *   migration 391: equipment-sale install), the single invoice_items row also
+ *   carries `inventory_item_id` and this function draws down stock for it via
+ *   inventoryDrawdownService.drawdownForSale — mirrors exactly how
+ *   POST /invoices/:id/items links a product line, so a "buy" equipment
+ *   install and a manual product-linked invoice line behave identically. The
+ *   physical unit's own lifecycle-state transition (in stock -> assigned) is
+ *   the caller's responsibility (src/services/inventorySerialService.js) —
+ *   this only ever decrements inventory_stock.quantity ONCE, here.
+ * @param {number|null} [params.performedBy] - User id recorded on the
+ *   inventory_transactions ledger row when inventoryItemId is set.
  * @returns {Promise<object>} the created invoice
  */
-async function createOneOffInvoice({ orgId, clientId, contractId = null, description, amount, currency: currencyOverride = null, conn: externalConn = null }) {
+async function createOneOffInvoice({
+  orgId, clientId, contractId = null, description, amount, currency: currencyOverride = null,
+  conn: externalConn = null, inventoryItemId = null, performedBy = null,
+}) {
   logger.info({ orgId, clientId, contractId, amount }, 'Creating one-off invoice');
 
   const currency = currencyOverride || await Organization.getCurrency(orgId);
@@ -432,10 +447,22 @@ async function createOneOffInvoice({ orgId, clientId, contractId = null, descrip
     const invoiceId = invResult.insertId;
 
     await conn.execute(
-      `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount)
-       VALUES (?, ?, 1, ?, ?)`,
-      [invoiceId, description, subtotal, subtotal],
+      `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, inventory_item_id)
+       VALUES (?, ?, 1, ?, ?, ?)`,
+      [invoiceId, description, subtotal, subtotal, inventoryItemId || null],
     );
+
+    // Inventory Phase 3 (migration 391): a single physical unit sold at
+    // install time draws down stock exactly once, right here — the caller
+    // (inventorySerialService.installEquipment) must NOT also decrement for
+    // the 'sold' ownership case. Quantity is always 1 (one serial = one
+    // unit); unitPrice/amount already equal `subtotal` above.
+    if (inventoryItemId) {
+      await drawdownForSale(conn.execute.bind(conn), {
+        orgId, itemId: inventoryItemId, quantity: 1, unitPrice: subtotal,
+        invoiceId, clientId, performedBy, reference: invoiceNumber,
+      });
+    }
 
     // Debit client balance ledger — identical shape to generateInvoice()/POST /invoices/generate.
     await conn.execute(

@@ -463,31 +463,96 @@ function PaymentsTab({ payments }: { payments: Payment[] }) {
   );
 }
 
-function DevicesTab({ devices }: { devices: Device[] }) {
-  if (!devices.length) return <p style={styles.msg}>No devices found.</p>;
+// Inventory Phase 3 (migration 391) — read-only "assigned equipment" section,
+// separate from the `devices` (network infrastructure) table above: cpe_devices
+// rows currently linked to this client via subscriber_id (serial, product,
+// rented/sold).
+interface AssignedEquipmentUnit {
+  id: number;
+  serial_number: string;
+  lifecycle_state: string;
+  ownership: 'rented' | 'sold' | null;
+  item_name?: string | null;
+}
+
+async function fetchAssignedEquipment(clientId: number): Promise<AssignedEquipmentUnit[]> {
+  const res = await api.GET('/cpe-management/devices' as never, {
+    params: { query: { subscriber_id: clientId, limit: 100 } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data: unknown }).data as { data: AssignedEquipmentUnit[] }).data) ?? [];
+}
+
+function AssignedEquipmentSection({ clientId }: { clientId: number }) {
+  const { t } = useTranslation();
+  const { data: units = [], isLoading } = useQuery({
+    queryKey: ['client-assigned-equipment', clientId],
+    queryFn: () => fetchAssignedEquipment(clientId),
+  });
+
+  if (isLoading) return null;
+  if (units.length === 0) return null;
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={styles.table}>
-        <thead>
-          <tr>{['Name', 'Type', 'Manufacturer / Model', 'MAC', 'IP', 'Status'].map(h => (
-            <th key={h} style={styles.th}>{h}</th>
-          ))}</tr>
-        </thead>
-        <tbody>
-          {devices.map(d => (
-            <tr key={d.id} style={styles.tr}>
-              <td style={{ ...styles.td, fontWeight: 600 }}>{d.name}</td>
-              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{d.type || '—'}</td>
-              <td style={styles.td}>
-                {[d.manufacturer, d.model].filter(Boolean).join(' / ') || '—'}
-              </td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.macAddress || '—'}</td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ipAddress || '—'}</td>
-              <td style={styles.td}><StatusBadge status={d.status} /></td>
+    <div style={{ marginTop: '1.5rem' }}>
+      <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem' }}>{t('clientDetail.assignedEquipment.title', 'Assigned Equipment')}</h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>{t('clientDetail.assignedEquipment.serial', 'Serial')}</th>
+              <th style={styles.th}>{t('clientDetail.assignedEquipment.product', 'Product')}</th>
+              <th style={styles.th}>{t('clientDetail.assignedEquipment.state', 'State')}</th>
+              <th style={styles.th}>{t('clientDetail.assignedEquipment.ownership', 'Ownership')}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {units.map(u => (
+              <tr key={u.id} style={styles.tr}>
+                <td style={{ ...styles.td, fontFamily: 'monospace' }}>{u.serial_number}</td>
+                <td style={styles.td}>{u.item_name ?? '—'}</td>
+                <td style={{ ...styles.td, textTransform: 'capitalize' }}>{u.lifecycle_state}</td>
+                <td style={{ ...styles.td, textTransform: 'capitalize' }}>
+                  {u.ownership ? t(`clientDetail.assignedEquipment.ownership_${u.ownership}`, u.ownership) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DevicesTab({ devices, clientId }: { devices: Device[]; clientId: number }) {
+  return (
+    <div>
+      {devices.length === 0 ? <p style={styles.msg}>No devices found.</p> : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>{['Name', 'Type', 'Manufacturer / Model', 'MAC', 'IP', 'Status'].map(h => (
+                <th key={h} style={styles.th}>{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {devices.map(d => (
+                <tr key={d.id} style={styles.tr}>
+                  <td style={{ ...styles.td, fontWeight: 600 }}>{d.name}</td>
+                  <td style={{ ...styles.td, textTransform: 'capitalize' }}>{d.type || '—'}</td>
+                  <td style={styles.td}>
+                    {[d.manufacturer, d.model].filter(Boolean).join(' / ') || '—'}
+                  </td>
+                  <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.macAddress || '—'}</td>
+                  <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ipAddress || '—'}</td>
+                  <td style={styles.td}><StatusBadge status={d.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <AssignedEquipmentSection clientId={clientId} />
     </div>
   );
 }
@@ -1191,7 +1256,7 @@ export function ClientDetail() {
             <PaymentsTab payments={client.payments} />
           </>
         )}
-        {activeTab === 'devices'   && <DevicesTab   devices={client.devices}     />}
+        {activeTab === 'devices'   && <DevicesTab   devices={client.devices} clientId={Number(client.id)} />}
         {activeTab === 'tickets'   && (
           <>
             {canCreateTicket && <NewBtnRow label="+ New Ticket" onClick={() => setShowNewTicket(true)} />}
