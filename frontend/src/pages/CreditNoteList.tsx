@@ -24,7 +24,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface CreditNote {
+export interface CreditNote {
   id: number;
   client_id: number;
   invoice_id: number | null;
@@ -37,6 +37,7 @@ interface CreditNote {
   currency: string | null;
   notes: string | null;
   status: string;
+  issue_date?: string | null;
 }
 
 interface CreditNotesResponse {
@@ -78,7 +79,7 @@ const REASONS = [
   'other',
 ];
 
-function reasonLabel(reason: string): string {
+export function reasonLabel(reason: string): string {
   return reason.split('_').map(capitalize).join(' ');
 }
 
@@ -146,12 +147,17 @@ interface CreditNoteModalProps {
   clients: Client[];
   onClose: () => void;
   onSaved: () => void;
+  /** Pin the credit note to one client (e.g. opened from that client's page):
+   *  pre-selects the client and disables the selector on create. */
+  lockedClientId?: number;
 }
 
-function CreditNoteModal({ creditNote, clients, onClose, onSaved }: CreditNoteModalProps) {
+export function CreditNoteModal({ creditNote, clients, onClose, onSaved, lockedClientId }: CreditNoteModalProps) {
   const isEdit = creditNote !== null;
   const [form, setForm] = useState({
-    client_id: creditNote?.client_id != null ? String(creditNote.client_id) : '',
+    client_id: creditNote?.client_id != null
+      ? String(creditNote.client_id)
+      : lockedClientId != null ? String(lockedClientId) : '',
     invoice_id: creditNote?.invoice_id != null ? String(creditNote.invoice_id) : '',
     credit_note_number: creditNote?.credit_note_number ?? '',
     reason: creditNote?.reason ?? 'billing_error',
@@ -221,7 +227,7 @@ function CreditNoteModal({ creditNote, clients, onClose, onSaved }: CreditNoteMo
         <form onSubmit={handleSubmit} style={modalStyles.form}>
           <label style={modalStyles.label}>
             Client <RequiredMark />
-            <select style={modalStyles.select} value={form.client_id} onChange={e => setField('client_id', e.target.value)} required disabled={isEdit}>
+            <select style={modalStyles.select} value={form.client_id} onChange={e => setField('client_id', e.target.value)} required disabled={isEdit || lockedClientId != null}>
               <option value="">— select client —</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>

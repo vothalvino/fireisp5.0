@@ -86,10 +86,71 @@ describe('ClientDetail page', () => {
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: '🎫 Tickets' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tickets' }));
 
     await waitFor(() => expect(screen.getByText('No internet')).toBeInTheDocument());
     const link = screen.getByRole('link', { name: 'No internet' });
     expect(link).toHaveAttribute('href', '/tickets/42');
+  });
+
+  it('tabs are icon-only but keep their accessible names', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
+
+    // Inactive tab: icon only, name exposed via aria-label/title.
+    const invoicesTab = screen.getByRole('button', { name: 'Invoices' });
+    expect(invoicesTab).toHaveAttribute('title', 'Invoices');
+    expect(invoicesTab).not.toHaveTextContent('Invoices');
+
+    // Active tab (default: Contracts) shows its label next to the icon.
+    expect(screen.getByRole('button', { name: 'Contracts' })).toHaveTextContent('Contracts');
+  });
+
+  it('Credit Notes tab lists the client credit notes and opens the pinned create modal', async () => {
+    mockApiGet.mockImplementation((path: string) =>
+      path === '/credit-notes'
+        ? Promise.resolve({
+            data: { data: [{ id: 7, client_id: 5, invoice_id: null, credit_note_number: 'CN-001', reason: 'billing_error', subtotal: '100.00', tax_rate: '0.16', tax_amount: '16.00', total: '116.00', currency: 'MXN', notes: null, status: 'issued', issue_date: '2026-07-01' }] },
+            error: undefined,
+          })
+        : Promise.resolve({ data: { data: [] }, error: undefined }),
+    );
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Credit Notes' }));
+
+    await waitFor(() => expect(screen.getByText('CN-001')).toBeInTheDocument());
+    expect(screen.getByText('Billing Error')).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledWith(
+      '/credit-notes',
+      expect.objectContaining({ params: { query: expect.objectContaining({ client_id: 5 }) } }),
+    );
+
+    // Create modal opens locked to this client.
+    fireEvent.click(screen.getByText('+ New Credit Note'));
+    expect(await screen.findByRole('dialog', { name: 'New credit note' })).toBeInTheDocument();
+    const clientSelect = screen.getByDisplayValue('Acme Corp');
+    expect(clientSelect).toBeDisabled();
+  });
+
+  it('hides credit note write actions for read-only role', async () => {
+    mockRole = 'read-only';
+    mockApiGet.mockImplementation((path: string) =>
+      path === '/credit-notes'
+        ? Promise.resolve({
+            data: { data: [{ id: 7, client_id: 5, invoice_id: null, credit_note_number: 'CN-001', reason: 'billing_error', subtotal: '100.00', tax_rate: '0.16', tax_amount: '16.00', total: '116.00', currency: 'MXN', notes: null, status: 'issued', issue_date: '2026-07-01' }] },
+            error: undefined,
+          })
+        : Promise.resolve({ data: { data: [] }, error: undefined }),
+    );
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Credit Notes' }));
+
+    await waitFor(() => expect(screen.getByText('CN-001')).toBeInTheDocument());
+    expect(screen.queryByText('+ New Credit Note')).not.toBeInTheDocument();
+    expect(screen.queryByText('✏️ Edit')).not.toBeInTheDocument();
   });
 });
