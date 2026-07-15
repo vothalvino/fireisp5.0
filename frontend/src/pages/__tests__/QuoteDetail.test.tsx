@@ -82,7 +82,16 @@ function setupMocks(initialStatus = 'draft', items: object[] = [item1]) {
     return Promise.resolve({ data: {}, error: undefined });
   });
   mockApiPut.mockResolvedValue({ data: { data: makeQuote(currentStatus) }, error: undefined });
-  mockAuthedFetch.mockResolvedValue({ ok: true, json: async () => ({ data: productCatalog }) });
+  // Branch by URL — the addon catalog and the (Inventory follow-up) sellable
+  // inventory items fetch both go through authedFetch; a blanket
+  // mockResolvedValue would leak productCatalog into the items fetch too
+  // (same id space, producing bogus duplicate-looking options).
+  mockAuthedFetch.mockImplementation((url: string) => {
+    if (url.includes('/plans/addons/catalog')) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: productCatalog }) });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+  });
 }
 
 function renderDetail() {
@@ -271,6 +280,56 @@ describe('QuoteDetail page', () => {
       .find(o => o.textContent?.includes('Out of Stock Router'));
     expect(negativeOption).toBeDefined();
     expect(negativeOption?.style.color).toBe('rgb(220, 38, 38)');
+  });
+
+  // Inventory follow-up: raw inventory items sell directly in the picker
+  // (union with the addon catalog), de-duping against anything already
+  // linked by a curated addon.
+  it('unions in a raw inventory item w/ sale_price autofill + sends inventory_item_id, de-duping addon-linked items', async () => {
+    mockAuthedFetch.mockImplementation((url: string) => {
+      if (url.includes('/plans/addons/catalog')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: productCatalog }) });
+      }
+      if (url.includes('/inventory/items')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              // Already linked by productCatalog[0] (inventory_item_id: 7) —
+              // must NOT get a second, duplicate option.
+              { id: 7, name: 'MikroTik hAP ac3', sku: 'MT-7', sale_price: '899.00', unit_cost: null, quantity_on_hand: 5, status: 'active' },
+              // Not linked by any addon — sellable directly.
+              { id: 9, name: 'Ubiquiti NanoStation', sku: 'UB-9', sale_price: '75.50', unit_cost: '60.00', quantity_on_hand: 3, status: 'active' },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    const picker = await screen.findByLabelText('Product');
+    const options = Array.from(picker.querySelectorAll('option'));
+    expect(options.some(o => o.textContent?.includes('Ubiquiti NanoStation (UB-9)') && o.textContent?.includes('75.50'))).toBe(true);
+    expect(options.filter(o => o.textContent?.includes('MikroTik hAP ac3'))).toHaveLength(1);
+
+    const itemOption = options.find(o => o.textContent?.includes('Ubiquiti NanoStation')) as HTMLOptionElement;
+    fireEvent.change(picker, { target: { value: itemOption.value } });
+    expect(screen.getByLabelText(/Description/)).toHaveValue('Ubiquiti NanoStation (UB-9)');
+    expect(screen.getByLabelText(/Unit Price/)).toHaveValue(75.5);
+
+    fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Item' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/quotes/{id}/items',
+      expect.objectContaining({
+        params: { path: { id: 7 } },
+        body: expect.objectContaining({ description: 'Ubiquiti NanoStation (UB-9)', inventory_item_id: 9 }),
+      }),
+    ));
   });
 
   // Migration 390's converted_invoice_id back-reference / idempotency fix:

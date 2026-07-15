@@ -3113,6 +3113,18 @@
     "customOption": "— custom / free-text line —",
     "onHand": "on hand: {{count}}"
   },
+  "undoInstall": {
+    "action": "Undo install",
+    "title": "Undo install",
+    "confirm": "Undo the install of {{item}} (serial {{serial}})? The unit will return to stock.",
+    "unknownItem": "this equipment",
+    "notes": "Notes (optional)",
+    "notesPlaceholder": "e.g. installed the wrong model",
+    "cancel": "Cancel",
+    "confirmButton": "Undo install",
+    "undoing": "Undoing…",
+    "close": "Close"
+  },
   "invoiceDetail": {
     "addItem": {
       "heading": "Add Item",
@@ -4203,7 +4215,8 @@
       "state": "State",
       "ownership": "Ownership",
       "ownership_rented": "Rented",
-      "ownership_sold": "Sold"
+      "ownership_sold": "Sold",
+      "actions": "Actions"
     }
   }
 }

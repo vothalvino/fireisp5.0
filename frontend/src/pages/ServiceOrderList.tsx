@@ -24,6 +24,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import { ClientPicker } from '@/components/ClientPicker';
 import { LeadPicker } from '@/components/LeadPicker';
+import { UndoInstallButton } from '@/components/UndoInstallButton';
 import {
   extractApiError,
   overlay,
@@ -558,6 +559,7 @@ async function fetchInStockUnits(itemId: number): Promise<InStockUnit[]> {
 
 function EquipmentModal({ order, onClose, onAssigned }: { order: ServiceOrder; onClose: () => void; onAssigned: () => void }) {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const [itemId, setItemId] = useState('');
   const [serialMode, setSerialMode] = useState<'existing' | 'new'>('existing');
   const [cpeDeviceId, setCpeDeviceId] = useState('');
@@ -576,6 +578,14 @@ function EquipmentModal({ order, onClose, onAssigned }: { order: ServiceOrder; o
     queryFn: () => fetchInStockUnits(Number(itemId)),
     enabled: !!itemId,
   });
+
+  function handleUndone() {
+    void refetchAssigned();
+    // The unit undo-install just freed is now in_stock again — invalidate
+    // (not just this modal's assigned list) so it's immediately pickable
+    // for a new install in the same session.
+    void qc.invalidateQueries({ queryKey: ['so-in-stock-units'] });
+  }
 
   const installMut = useMutation({
     mutationFn: async () => {
@@ -614,11 +624,18 @@ function EquipmentModal({ order, onClose, onAssigned }: { order: ServiceOrder; o
             <strong style={{ fontSize: '0.85rem' }}>{t('serviceOrders.equipmentAssigned', 'Assigned equipment')}</strong>
             <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
               {assigned.map(u => (
-                <li key={u.id} style={{ display: 'flex', gap: 10, fontSize: '0.82rem', padding: '5px 8px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
+                <li key={u.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: '0.82rem', padding: '5px 8px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{u.serial_number}</span>
                   <span style={{ flex: 1 }}>{u.item_name ?? ''}</span>
                   <span style={{ textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{u.lifecycle_state}</span>
                   {u.ownership && <span style={{ textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{u.ownership}</span>}
+                  <UndoInstallButton
+                    deviceId={u.id}
+                    serialNumber={u.serial_number}
+                    itemName={u.item_name}
+                    lifecycleState={u.lifecycle_state}
+                    onDone={handleUndone}
+                  />
                 </li>
               ))}
             </ul>

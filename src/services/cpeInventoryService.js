@@ -27,7 +27,15 @@ const TRANSITIONS = {
   // 'active', so completePickupUnit's rma disposition needs a direct
   // assigned -> rma path, not a detour through 'returned'.
   assigned:  ['active', 'returned', 'in_stock', 'rma'],
-  active:    ['returned', 'rma'],
+  // 'in_stock' added to 'active' (migration 392, undo-install follow-up):
+  // inventorySerialService.uninstallEquipment reverses a mistaken install on
+  // a LIVE contract straight back to in_stock — including for a unit that
+  // already came online (state 'active'), not just one still 'assigned'.
+  // Before this, undo could only work on 'assigned' units; an 'active' one
+  // had no direct path back to in_stock at all (only via 'returned', which
+  // is the pickup flow's post-cancellation limbo state, not a live-contract
+  // undo).
+  active:    ['returned', 'rma', 'in_stock'],
   returned:  ['in_stock', 'rma'],
   rma:       ['in_stock'],
 };

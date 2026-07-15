@@ -14,7 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore, authedFetch } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
-import { fetchAddonCatalog, addonPrice, addonQuantityOnHand } from '@/api/addonCatalog';
+import { fetchAddonCatalog, fetchSellableInventoryItems, buildProductPickerEntries } from '@/api/addonCatalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -386,21 +386,27 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
   const [unitPrice, setUnitPrice] = useState('');
   const [formError, setFormError] = useState('');
 
+  // The picker is a UNION of the curated addon catalog and active inventory
+  // items not already linked by one of those addons (see
+  // buildProductPickerEntries) — an inventory item is sellable on invoices
+  // directly, no addon detour required.
   const { data: catalog = [] } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+  const { data: sellableItems = [] } = useQuery({ queryKey: ['sellable-inventory-items'], queryFn: fetchSellableInventoryItems });
+  const entries = buildProductPickerEntries(catalog, sellableItems);
   // inventory_item_id-linked lines must carry a WHOLE-number quantity — the
   // backend 422s otherwise (migration 390: DECIMAL(10,2) line qty vs INT
   // stock/ledger). Free-text lines keep the usual step=0.01.
-  const selectedAddon = catalog.find(a => String(a.id) === productId);
-  const isInventoryLinked = !!selectedAddon?.inventory_item_id;
+  const selectedEntry = entries.find(e => e.value === productId);
+  const isInventoryLinked = !!selectedEntry?.inventory_item_id;
 
   function selectProduct(id: string) {
     setProductId(id);
     setFormError('');
-    const addon = catalog.find(a => String(a.id) === id);
-    if (addon) {
-      setDescription(addon.name);
-      setUnitPrice(addonPrice(addon));
-      if (addon.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
+    const entry = entries.find(e => e.value === id);
+    if (entry) {
+      setDescription(entry.label);
+      setUnitPrice(entry.price);
+      if (entry.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
         setQuantity('1');
       }
     }
@@ -409,7 +415,7 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError('');
-    const selected = catalog.find(a => String(a.id) === productId);
+    const selected = entries.find(e => e.value === productId);
     if (selected?.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
       setFormError(t('invoiceDetail.addItem.integerQuantityRequired'));
       return;
@@ -429,19 +435,19 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
-      {catalog.length > 0 && (
+      {entries.length > 0 && (
         <div style={{ flex: '1 1 220px' }}>
           <label style={labelStyle} htmlFor="invoice-item-product">{t('productPicker.label')}</label>
           <select id="invoice-item-product" style={inputStyle} value={productId} onChange={e => selectProduct(e.target.value)}>
             <option value="">{t('productPicker.customOption')}</option>
-            {catalog.map(a => (
+            {entries.map(e => (
               <option
-                key={a.id}
-                value={String(a.id)}
-                style={a.inventory_item_id && addonQuantityOnHand(a) <= 0 ? { color: '#dc2626' } : undefined}
+                key={e.value}
+                value={e.value}
+                style={e.quantityOnHand !== null && e.quantityOnHand <= 0 ? { color: '#dc2626' } : undefined}
               >
-                {a.name} — {addonPrice(a)}
-                {a.inventory_item_id ? ` (${t('productPicker.onHand', { count: addonQuantityOnHand(a) })})` : ''}
+                {e.label} — {e.price}
+                {e.quantityOnHand !== null ? ` (${t('productPicker.onHand', { count: e.quantityOnHand })})` : ''}
               </option>
             ))}
           </select>

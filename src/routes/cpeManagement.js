@@ -24,6 +24,7 @@ const {
 const {
   registerSerial: registerSerialSchema,
   installEquipment: installEquipmentSchema,
+  uninstallEquipment: uninstallEquipmentSchema,
 } = require('../middleware/schemas/inventorySerials');
 const { createCpeTask } = require('../middleware/schemas/cpeTasks');
 const {
@@ -612,6 +613,22 @@ router.post('/devices/install', requirePermission('cpe_inventory.manage'), valid
       performedBy: req.user?.id || null,
     });
     res.status(201).json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// Undo install (migration 392 follow-up) — reverses a mistaken install on a
+// still-live contract: unassigns the unit, restores stock/ledger for a
+// tracked unit, and for a sold unit also voids the (unpaid) sale invoice. See
+// inventorySerialService.uninstallEquipment for the full rule set.
+router.post('/devices/:id/uninstall', requirePermission('cpe_inventory.manage'), validate(uninstallEquipmentSchema), async (req, res, next) => {
+  try {
+    const result = await inventorySerialService.uninstallEquipment({
+      orgId: req.orgId,
+      cpeDeviceId: parseInt(req.params.id, 10),
+      notes: req.body.notes || null,
+      performedBy: req.user?.id || null,
+    });
+    res.json({ data: result.unit, warnings: result.warnings });
   } catch (err) { next(err); }
 });
 

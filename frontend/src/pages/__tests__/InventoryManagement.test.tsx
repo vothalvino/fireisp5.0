@@ -62,6 +62,47 @@ describe('InventoryManagement page — Purchase Orders tab crash fix', () => {
   });
 });
 
+// =============================================================================
+// Stock tab — quantity_on_hand (Inventory follow-up). Previously GET
+// /inventory/items never included this field at all (a bare SELECT * on
+// inventory_items), so the column always rendered "—" and the low-stock
+// banner never fired. Now it's a SUM() aggregate, which mysql2 returns as a
+// STRING — fetchInventoryItems must normalize it to a real number.
+// =============================================================================
+const lowStockItem = {
+  id: 5, name: 'ONU Splitter', sku: 'SPL-1', category: 'other',
+  quantity_on_hand: '2', reorder_level: 5, unit_cost: '10.00', status: 'active',
+};
+const healthyItem = {
+  id: 6, name: 'CAT6 Cable Roll', sku: 'CBL-1', category: 'cable',
+  quantity_on_hand: 40, reorder_level: 10, unit_cost: '25.00', status: 'active',
+};
+
+describe('InventoryManagement page — Stock tab quantity_on_hand', () => {
+  beforeEach(() => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/inventory/items')
+        return Promise.resolve({ data: { data: [lowStockItem, healthyItem], meta: { total: 2, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      return Promise.resolve({ data: { data: [], meta: { total: 0, page: 1, limit: 25 } }, error: undefined });
+    });
+  });
+
+  it('renders the real quantity_on_hand (normalized from a string) instead of always showing —', async () => {
+    renderPage();
+    // "ONU Splitter" appears BOTH in the low-stock banner and its own table
+    // row — getByText would be ambiguous, so wait on the table cell instead.
+    await waitFor(() => expect(screen.getByText('SPL-1')).toBeInTheDocument());
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('40')).toBeInTheDocument();
+  });
+
+  it('surfaces the low-stock banner once quantity_on_hand is a real number', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/Low Stock/i)).toBeInTheDocument());
+    expect(screen.getAllByText('ONU Splitter').length).toBeGreaterThan(0);
+  });
+});
+
 describe('InventoryManagement page — Assets tab warranty column fix', () => {
   it('renders the real warranty_expires_at date instead of always showing —', async () => {
     renderPage();

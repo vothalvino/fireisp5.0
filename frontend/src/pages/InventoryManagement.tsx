@@ -28,9 +28,13 @@ interface InventoryItem {
   name: string;
   sku: string | null;
   category: string | null;
-  // quantity_on_hand lives in inventory_stock (separate table); the /inventory/items
-  // endpoint (SELECT * on inventory_items) does not include it. Typed as optional
-  // so renders show '—' rather than undefined when absent.
+  // quantity_on_hand is a SUM(inventory_stock.quantity) aggregate, grouped
+  // per item across all warehouses (Inventory follow-up — GET /inventory/items
+  // was previously a bare SELECT * on inventory_items and never included it,
+  // which is why this column always rendered "—" before). fetchInventoryItems
+  // below normalizes it to a real number (or null) — mysql2 returns SUM()
+  // aggregates as strings without decimalNumbers:true (see agent-memory
+  // mysql2-decimal-string-gotcha).
   quantity_on_hand?: number | null;
   reorder_level: number | null;
   unit_cost: number | null;
@@ -139,7 +143,14 @@ async function fetchInventoryItems(page: number): Promise<ListResponse<Inventory
     params: { query: { page, limit: PAGE_SIZE } as never },
   } as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load inventory items');
-  return (res as { data: unknown }).data as unknown as ListResponse<InventoryItem>;
+  const body = (res as { data: unknown }).data as unknown as ListResponse<InventoryItem>;
+  return {
+    ...body,
+    data: body.data.map(item => ({
+      ...item,
+      quantity_on_hand: item.quantity_on_hand == null ? null : Number(item.quantity_on_hand),
+    })),
+  };
 }
 
 async function fetchAssets(page: number): Promise<ListResponse<Asset>> {
