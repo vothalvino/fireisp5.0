@@ -44,8 +44,18 @@ const allocatePayment = {
   amount: { type: 'number', required: true, min: 0 },
 };
 
+// Body: { invoice_ids?: number[] }. Omitted/absent = apply to ALL of the
+// payment's client's payable open invoices (FIFO oldest→newest); given = only
+// those (still sorted oldest→newest — narrowing the set never changes order).
+// validate()'s 'array' type only confirms the top-level shape (see
+// purchaseOrders.js's addInventoryTransaction convention) — each element is
+// checked to be a positive integer in the route handler itself.
+const allocateAuto = {
+  invoice_ids: { type: 'array', required: false },
+};
+
 const patchPayment = Object.fromEntries(
   Object.entries(updatePayment).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createPayment, updatePayment, patchPayment, allocatePayment };
+module.exports = { createPayment, updatePayment, patchPayment, allocatePayment, allocateAuto };

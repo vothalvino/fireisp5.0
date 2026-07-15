@@ -201,7 +201,9 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(payClientSelect).toBeVisible({ timeout: 10_000 });
   await payClientSelect.selectOption({ label: clientName });
 
-  // Enter amount
+  // Enter amount — overrides whatever the checklist auto-filled from this
+  // client's open invoices (editing the amount never unchecks anything; the
+  // FIFO allocate-auto call below just applies less than the full balance).
   await payDialog
     .locator('input[type="number"]')
     .first()
@@ -209,6 +211,10 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   // Submit
   await page.getByRole('button', { name: /^record payment$/i }).click();
+
+  // A success summary (which invoice(s) were paid/partially paid, any
+  // remaining credit) shows before the modal closes — dismiss it.
+  await payDialog.getByRole('button', { name: /^done$/i }).click({ timeout: 15_000 });
 
   // Modal closes
   await expect(payDialog).not.toBeVisible({ timeout: 15_000 });

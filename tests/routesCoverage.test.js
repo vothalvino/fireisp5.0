@@ -1474,10 +1474,13 @@ describe('Payment Routes — /api/payments', () => {
   });
 
   describe('POST /api/payments/:id/allocate', () => {
+    const PAYMENT_ROW = { id: 1, client_id: 9, amount: '200.00', organization_id: 1 };
+
     test('success — allocates payment to invoice', async () => {
       mockAuthUser();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '200.00' });
       db.query
+        .mockResolvedValueOnce([[PAYMENT_ROW]])
         .mockResolvedValueOnce([[{ id: 5, total: '200.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '200.00' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -1497,6 +1500,7 @@ describe('Payment Routes — /api/payments', () => {
       mockAuthUser();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '200.00' });
       db.query
+        .mockResolvedValueOnce([[PAYMENT_ROW]])
         .mockResolvedValueOnce([[{ id: 5, total: '200.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '200.00' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -1515,6 +1519,7 @@ describe('Payment Routes — /api/payments', () => {
       mockAuthUser();
       Payment.allocate.mockResolvedValue({ id: 1, payment_id: 1, invoice_id: 5, amount: '100.00' });
       db.query
+        .mockResolvedValueOnce([[PAYMENT_ROW]])
         .mockResolvedValueOnce([[{ id: 5, total: '500.00', contract_id: 10 }]])
         .mockResolvedValueOnce([[{ total_allocated: '100.00' }]]);
 

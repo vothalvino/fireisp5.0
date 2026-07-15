@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api, tokenStore, authedFetch } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 import { fetchAddonCatalog, fetchSellableInventoryItems, buildProductPickerEntries } from '@/api/addonCatalog';
+import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,31 +106,6 @@ async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
   return body as { to: string };
 }
 
-async function createPayment(invoiceId: number, body: RecordPaymentBody): Promise<void> {
-  // Create payment then allocate to this invoice
-  const createRes = await authedFetch(`${API_BASE}/payments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!createRes.ok) {
-    const err = await createRes.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to create payment');
-  }
-  const { data: payment } = await createRes.json() as { data: { id: number } };
-
-  // Allocate the payment to this invoice
-  const allocRes = await authedFetch(`${API_BASE}/payments/${payment.id}/allocate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ invoice_id: invoiceId, amount: body.amount }),
-  });
-  if (!allocRes.ok) {
-    const err = await allocRes.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to allocate payment');
-  }
-}
-
 interface UpdateInvoiceBody {
   invoice_number?: string;
   currency?: string;
@@ -183,15 +159,6 @@ function computeInvoiceTotals(items: InvoiceItem[], taxRate: number) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-interface RecordPaymentBody {
-  client_id: number;
-  amount: number;
-  currency: string;
-  payment_method: string;
-  reference_number?: string;
-  payment_date: string;
-}
-
 function fmt(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('es-MX', {
@@ -223,141 +190,6 @@ function StatusBadge({ status }: { status: string }) {
     }}>
       {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Record Payment Modal
-// ---------------------------------------------------------------------------
-
-// Must match the backend payment_method enum exactly (src/middleware/schemas/payments.js
-// + the DB ENUM, database/schema.sql) — a value here that isn't accepted
-// there 422s on submit with no client-side warning.
-const PAYMENT_METHODS = [
-  'cash', 'check', 'card', 'transfer', 'online',
-  'credit_card', 'debit_card', 'bank_transfer',
-  'oxxo_pay', 'spei', 'codi', 'convenience_store',
-  'digital_wallet', 'other',
-];
-const TODAY = new Date().toISOString().split('T')[0];
-
-interface RecordPaymentModalProps {
-  invoice: Invoice;
-  clientId: number;
-  onClose: () => void;
-  onRecorded: () => void;
-}
-
-function RecordPaymentModal({ invoice, clientId, onClose, onRecorded }: RecordPaymentModalProps) {
-  const { t } = useTranslation();
-  const [form, setForm] = useState({
-    amount: invoice.total,
-    currency: invoice.currency || 'MXN',
-    payment_method: 'cash',
-    reference_number: '',
-    payment_date: TODAY,
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  function setField(name: string, value: string) {
-    setForm(prev => ({ ...prev, [name]: value }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.amount || isNaN(parseFloat(form.amount))) {
-      setError('Please enter a valid amount.');
-      return;
-    }
-    setSubmitting(true);
-    setError('');
-    try {
-      await createPayment(invoice.id, {
-        client_id: clientId,
-        amount: parseFloat(form.amount),
-        currency: form.currency,
-        payment_method: form.payment_method,
-        ...(form.reference_number ? { reference_number: form.reference_number } : {}),
-        payment_date: form.payment_date,
-      });
-      onRecorded();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record payment');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div style={overlay}>
-      <div style={modalBox}>
-        <h3 style={{ margin: '0 0 1rem' }}>Record Payment</h3>
-        <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#6b7280' }}>
-          Invoice {invoice.invoice_number} — balance {fmtAmount(invoice.total, invoice.currency)}
-        </p>
-        {error && <div style={errorBox}>{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-            <div>
-              <label style={labelStyle}>Amount</label>
-              <input
-                type="number" step="0.01" min="0.01"
-                style={inputStyle}
-                value={form.amount}
-                onChange={e => setField('amount', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Currency</label>
-              <input
-                type="text" maxLength={3}
-                style={inputStyle}
-                value={form.currency}
-                onChange={e => setField('currency', e.target.value.toUpperCase())}
-                required
-              />
-            </div>
-          </div>
-
-          <label style={labelStyle}>Payment Method</label>
-          <select
-            style={inputStyle}
-            value={form.payment_method}
-            onChange={e => setField('payment_method', e.target.value)}
-          >
-            {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>
-            ))}
-          </select>
-
-          <label style={labelStyle}>Payment Date</label>
-          <input
-            type="date" style={inputStyle}
-            value={form.payment_date}
-            onChange={e => setField('payment_date', e.target.value)}
-            required
-          />
-
-          <label style={labelStyle}>Reference / Folio (optional)</label>
-          <input
-            type="text" style={inputStyle}
-            value={form.reference_number}
-            onChange={e => setField('reference_number', e.target.value)}
-            placeholder="e.g. transfer ID, check number"
-          />
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? 'Saving…' : 'Record Payment'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -756,7 +588,11 @@ export function InvoiceDetail() {
               </button>
               <button
                 onClick={() => setShowPayment(true)}
-                disabled={invoice.status === 'paid' || invoice.status === 'void'}
+                // Only payable statuses — a draft/cancelled invoice never
+                // appears in the payment modal's checklist, so opening it from
+                // one just records unallocatable credit.
+                disabled={!['issued', 'sent', 'overdue'].includes(invoice.status)}
+                title={!['issued', 'sent', 'overdue'].includes(invoice.status) ? 'Only issued, sent, or overdue invoices can receive payments' : undefined}
                 style={actionBtn('var(--accent)')}
               >
                 💳 Record Payment
@@ -892,11 +728,14 @@ export function InvoiceDetail() {
             />
           )}
 
-          {/* Record Payment Modal */}
+          {/* Record Payment Modal — this invoice starts checked in the
+              checklist; the client's other open invoices are still listed,
+              unchecked (see RecordPaymentModal's header comment). */}
           {showPayment && (
             <RecordPaymentModal
-              invoice={invoice}
-              clientId={invoice.client_id}
+              lockedClientId={invoice.client_id}
+              lockedClientName={clientQ.data?.name}
+              lockedInvoiceId={invoice.id}
               onClose={() => setShowPayment(false)}
               onRecorded={() => {
                 qc.invalidateQueries({ queryKey: ['invoice', id] });

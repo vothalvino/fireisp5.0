@@ -468,7 +468,7 @@ Content-Type: application/json
 
 ### Payment Allocation
 
-When recording a payment, allocate it to specific invoices:
+When recording a payment, allocate it to the client's open invoices:
 
 ```http
 POST /api/payments
@@ -479,7 +479,29 @@ POST /api/payments
 }
 ```
 
-Then allocate:
+**Recommended — FIFO waterfall (atomic, multi-invoice):** applies the payment
+across one or more of the client's open invoices oldest→newest in a single
+transaction. This is what the RecordPaymentModal checklist (PaymentList /
+ClientDetail / InvoiceDetail) submits to.
+
+```http
+POST /api/payments/:id/allocate-auto
+{
+  "invoice_ids": [42, 43]
+}
+```
+
+- `invoice_ids` omitted → applies to ALL of the client's payable open
+  invoices (not void/cancelled/draft/paid), oldest→newest.
+- `invoice_ids` given → narrows the set to those invoices (each is
+  org-verified and must belong to the payment's client), still applied
+  oldest→newest.
+- Each invoice gets `min(remainder, balance_due)`; a fully-covered invoice
+  flips to `paid` (+ reconnects a suspended contract); any amount left over
+  after the last invoice stays as unallocated credit on the payment.
+- Response: `{ allocations: [...], remaining_credit: number }`.
+
+**Single-invoice (kept for existing API integrations):**
 
 ```http
 POST /api/payments/:id/allocate
