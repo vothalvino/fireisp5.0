@@ -264,7 +264,44 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
         const up = Math.max(parseFloat(item.unit_price) || 0, 0);
         const amount = Math.round(qty * up * 100) / 100;
-        lineItems.push({ description: String(item.description).trim(), quantity: qty, unit_price: up, amount });
+
+        // Optional stock link — 'product' lines only ('custom' free-text
+        // lines are untouched, mirroring POST /invoices/:id/items and
+        // POST /quotes/:id/items' identical inventory_item_id handling).
+        // When set, this line's stock is drawn down in the SAME transaction
+        // as the invoice + item INSERTs below (see the drawdownForSale call
+        // in the item-insert loop further down).
+        let inventoryItemId = null;
+        if (type === 'product' && item.inventory_item_id) {
+          // Integer-quantity guard: invoice_items.quantity is DECIMAL(10,2)
+          // but inventory_stock/inventory_transactions move whole units —
+          // mirrors POST /invoices/:id/items' identical guard.
+          if (!Number.isInteger(qty)) {
+            throw new ValidationError(
+              'quantity must be a whole number for inventory-linked line items',
+              [{ field: 'quantity', message: 'Quantity must be an integer when inventory_item_id is set' }],
+            );
+          }
+          // Org-ownership check (mirrors POST /invoices/:id/items) — 422 on
+          // cross-org/nonexistent, never a raw FK-violation deep inside the
+          // transaction below.
+          const [[invItem]] = await db.query(
+            'SELECT id FROM inventory_items WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+            [item.inventory_item_id, req.orgId],
+          );
+          if (!invItem) {
+            throw new ValidationError(
+              'inventory_item_id does not reference a valid item for this organization',
+              [{ field: 'inventory_item_id', message: 'Invalid or cross-organization inventory item' }],
+            );
+          }
+          inventoryItemId = item.inventory_item_id;
+        }
+
+        lineItems.push({
+          description: String(item.description).trim(), quantity: qty, unit_price: up, amount,
+          inventory_item_id: inventoryItemId,
+        });
         subtotal += amount;
       } else {
         return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown item type: ${type}` } });
@@ -315,9 +352,28 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
 
       for (const li of lineItems) {
         await conn.execute(
-          'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)',
-          [invoiceId, li.description, li.quantity, li.unit_price, li.amount],
+          'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, inventory_item_id) VALUES (?, ?, ?, ?, ?, ?)',
+          [invoiceId, li.description, li.quantity, li.unit_price, li.amount, li.inventory_item_id || null],
         );
+
+        // Stock drawdown for a linked product line — runs on the SAME
+        // transaction connection as the invoice + item INSERTs (mirrors
+        // POST /quotes/:id/convert-to-invoice's inline pattern), so a
+        // drawdown failure (e.g. no warehouse configured for the org) rolls
+        // back the whole generate — never an invoice with no matching stock
+        // movement.
+        if (li.inventory_item_id) {
+          await inventoryDrawdownService.drawdownForSale(conn.execute.bind(conn), {
+            orgId: req.orgId,
+            itemId: li.inventory_item_id,
+            quantity: li.quantity,
+            unitPrice: li.unit_price,
+            invoiceId,
+            clientId: client_id,
+            performedBy: req.user?.id,
+            reference: invoiceNumber,
+          });
+        }
       }
 
       for (const bp of billingPeriodUpdates) {

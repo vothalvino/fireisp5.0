@@ -8,7 +8,7 @@
 //   - Submit posts { client_id, items } to /invoices/generate
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -162,5 +162,91 @@ describe('GenerateInvoiceModal', () => {
     // second, duplicate entry — only the curated addon's option exists.
     expect(screen.queryByRole('option', { name: /Router rental \(RT-55\)/ })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: /^Router rental \(150\.00\)$/ })).toBeInTheDocument();
+  });
+
+  // Gap this brief closes: /invoices/generate now accepts inventory_item_id
+  // on product lines, so the modal must send it when a stock-backed catalog
+  // entry is picked.
+  it('carries inventory_item_id when a stock-backed addon is picked', async () => {
+    (authedFetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/plans/addons/catalog')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [{ ...ADDONS[1], inventory_item_id: 55 }] }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    const user = userEvent.setup();
+    const { onGenerated } = renderModal();
+    await user.click(screen.getByTitle('Add Product'));
+    const opt = await screen.findByRole('option', { name: /Router rental/ }) as HTMLOptionElement;
+    await user.selectOptions(opt.closest('select')!, '2');
+    await user.click(screen.getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() => expect(api.POST).toHaveBeenCalled());
+    const [, opts] = (api.POST as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(opts.body.items[0]).toMatchObject({ type: 'product', inventory_item_id: 55 });
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+  });
+
+  it('omits inventory_item_id for a plain (non-linked) catalog product', async () => {
+    // Default setupApi() fixture: ADDONS have no inventory_item_id at all.
+    const user = userEvent.setup();
+    const { onGenerated } = renderModal();
+    await user.click(screen.getByTitle('Add Product'));
+    const opt = await screen.findByRole('option', { name: /Static IP/ }) as HTMLOptionElement;
+    await user.selectOptions(opt.closest('select')!, '1');
+    await user.click(screen.getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() => expect(api.POST).toHaveBeenCalled());
+    const [, opts] = (api.POST as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(opts.body.items[0]).not.toHaveProperty('inventory_item_id');
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+  });
+
+  it('omits inventory_item_id for a Custom (free-text) item', async () => {
+    const user = userEvent.setup();
+    const { onGenerated } = renderModal();
+    await user.click(screen.getByTitle('Add Custom item'));
+    await user.type(screen.getByPlaceholderText('e.g. Installation fee'), 'Setup fee');
+    await user.type(screen.getByPlaceholderText('0.00'), '25');
+    await user.click(screen.getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() => expect(api.POST).toHaveBeenCalled());
+    const [, opts] = (api.POST as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(opts.body.items[0]).not.toHaveProperty('inventory_item_id');
+    await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+  });
+
+  it('rejects a fractional quantity for a stock-backed selection and never submits', async () => {
+    (authedFetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/plans/addons/catalog')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [{ ...ADDONS[1], inventory_item_id: 55 }] }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByTitle('Add Product'));
+    const opt = await screen.findByRole('option', { name: /Router rental/ }) as HTMLOptionElement;
+    await user.selectOptions(opt.closest('select')!, '2');
+    // Quantity defaults to '1' and is the only field showing that value at
+    // this point (unit price is auto-filled to '150.00' by the selection).
+    const qtyInput = screen.getByDisplayValue('1');
+    fireEvent.change(qtyInput, { target: { value: '1.5' } });
+    // fireEvent.submit bypasses the native HTML5 step-mismatch block a real
+    // click would also trigger (step="1" once a stock-backed product is
+    // selected) — this targets OUR OWN JS-level integer check in
+    // handleSubmit, mirroring InvoiceDetail.test.tsx's identical pattern.
+    fireEvent.submit(qtyInput.closest('form')!);
+
+    expect(await screen.findByText(/whole number/i)).toBeInTheDocument();
+    expect(api.POST).not.toHaveBeenCalled();
   });
 });

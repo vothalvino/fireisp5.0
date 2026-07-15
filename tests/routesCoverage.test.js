@@ -1222,7 +1222,9 @@ describe('Quote Routes — /api/quotes', () => {
       expect(res.status).toBe(201);
       const itemInsert = conn.execute.mock.calls.find(c => /INSERT INTO quote_items/.test(c[0]));
       expect(itemInsert).toBeDefined();
-      expect(itemInsert[1]).toEqual([31, 'Site survey', 1, 150]);
+      // Trailing null is inventory_item_id — 'custom' items never carry a
+      // stock link (see tests/generateInventoryLink.test.js).
+      expect(itemInsert[1]).toEqual([31, 'Site survey', 1, 150, null]);
     });
 
     // Regression: tax_rate is a FRACTION (DECIMAL(5,4); 0.1600 = 16%) — this

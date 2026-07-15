@@ -5902,7 +5902,7 @@
           }
         ],
         "requestBody": {
-          "description": "contract_id",
+          "description": "contract_id (legacy) OR client_id + items[] — items[].inventory_item_id is optional on type:\"product\" lines and draws down stock in the same transaction as the invoice",
           "content": {
             "application/json": {
               "schema": {
@@ -6874,7 +6874,7 @@
           }
         ],
         "requestBody": {
-          "description": "client_id + items[]",
+          "description": "client_id + items[] — items[].inventory_item_id is optional on type:\"product\" lines; carried through to quote_items with no stock drawdown (quotes never draw down — only conversion to an invoice does)",
           "content": {
             "application/json": {
               "schema": {
