@@ -51,9 +51,14 @@ module.exports = /* GraphQL */ `
     notes: String
     createdAt: String!
 
-    """Current account balance — signed sum of the balance ledger. Postpaid
-    semantics: positive = the client owes; negative = the client has credit."""
+    """Current account balance — COMPUTED from payable invoices minus
+    unallocated payment credit (NOT the balance ledger, which is history-only
+    and can be missing entries). Postpaid semantics: positive = the client
+    owes; negative = the client has credit."""
     balance: String!
+
+    """ISO 4217 currency the computed balance above is denominated in."""
+    balanceCurrency: String!
 
     """Active contracts for this client."""
     contracts: [Contract!]!

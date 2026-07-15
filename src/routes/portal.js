@@ -77,6 +77,7 @@ const dataPackService = require('../services/dataPackService');
 const portalServiceRequestService = require('../services/portalServiceRequestService');
 const pdfService = require('../services/pdfService');
 const aiReplyService = require('../services/aiReplyService');
+const { computeClientBalance } = require('../services/clientBalanceService');
 const logger = require('../utils/logger');
 
 const router = Router();
@@ -631,13 +632,12 @@ router.get('/dashboard', async (req, res, next) => {
     );
     const contract = contracts[0] || null;
 
-    // Outstanding balance (sum of unpaid invoices)
-    const [[{ balance }]] = await db.query(
-      `SELECT COALESCE(SUM(total), 0) AS balance
-       FROM invoices
-       WHERE client_id = ? AND status IN ('issued','overdue') AND deleted_at IS NULL`,
-      [clientId],
-    );
+    // Outstanding balance — COMPUTED from payable invoices minus unallocated
+    // payment credit (see clientBalanceService's module doc). This used to be
+    // a plain SUM(total) of unpaid invoices, which overstated what the client
+    // owed whenever an invoice had a partial payment allocated to it, and
+    // never credited an unapplied overpayment.
+    const { balance, currency } = await computeClientBalance(req.client.organizationId, clientId);
 
     // Next due date
     const [[{ next_due }]] = await db.query(
@@ -721,7 +721,8 @@ router.get('/dashboard', async (req, res, next) => {
             data_cap_gb: contract.data_cap_gb,
           },
         } : null,
-        balance: parseFloat(balance),
+        balance,
+        balance_currency: currency,
         next_due_date: next_due || null,
         session,
         usage_this_month: usage,

@@ -26,6 +26,16 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
+// The currency field primes from the active org's currency (GET /auth/me's
+// organization_currency, via this hook) instead of a hardcoded 'MXN' — mock
+// it to the same 'MXN' the OPEN_INVOICES fixture already uses so the
+// existing amount/allocation assertions below are unaffected; a dedicated
+// test below overrides this mock to prove the priming actually happens.
+const mockOrgCurrency = vi.fn(() => 'MXN');
+vi.mock('@/auth/useOrgCurrency', () => ({
+  useOrgCurrency: () => mockOrgCurrency(),
+}));
+
 import { api, authedFetch } from '@/api/client';
 import { RecordPaymentModal, type RecordPaymentModalProps } from '../RecordPaymentModal';
 
@@ -82,10 +92,33 @@ function renderModal(props: Partial<RecordPaymentModalProps> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockOrgCurrency.mockReturnValue('MXN');
   setupApi();
 });
 
 describe('RecordPaymentModal', () => {
+  it('primes the currency field from the active org currency before any invoices load', async () => {
+    mockOrgCurrency.mockReturnValue('EUR');
+    // No client picked yet (unlocked entry point) — nothing has loaded that
+    // could override the org-currency default.
+    renderModal({ lockedClientId: undefined, lockedClientName: undefined });
+    // Wait for the self-fetched client picker to settle so no state update
+    // from that query lands after the test (and its assertions) finish.
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    expect(screen.getByDisplayValue('EUR')).toBeInTheDocument();
+  });
+
+  it('overrides the org-currency default with the open invoices\' own currency once loaded', async () => {
+    mockOrgCurrency.mockReturnValue('EUR');
+    setupApi([
+      { id: 20, invoice_number: 'INV-20', issue_date: '2024-01-01', total: '80.00', currency: 'MXN', status: 'issued', balance_due: '80.00' },
+    ]);
+    renderModal();
+    await screen.findByText('INV-20');
+    // The client's actual open-invoice currency wins over the org default.
+    expect(screen.getByDisplayValue('MXN')).toBeInTheDocument();
+  });
+
   it('loads the open invoices for a locked client, all checked, amount = sum of balances', async () => {
     renderModal();
     expect(await screen.findByText('INV-10')).toBeInTheDocument();

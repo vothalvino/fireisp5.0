@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Chargeback = require('../models/Chargeback');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -26,13 +27,16 @@ router.get('/:id', requirePermission('chargebacks.view'), ctrl.get);
 // Manual create
 router.post('/', requirePermission('chargebacks.create'), validate(createChargebackSchema), async (req, res, next) => {
   try {
+    // Default to the organization's currency (not a hardcoded 'USD') when the
+    // caller omits one — an explicitly-set currency always wins.
+    const currency = req.body.currency || await Organization.getCurrency(req.orgId);
     const chargeback = await Chargeback.create({
       organization_id: req.orgId || null,
       payment_id: req.body.payment_id || null,
       gateway: req.body.gateway || null,
       gateway_dispute_id: req.body.gateway_dispute_id || null,
       amount: req.body.amount,
-      currency: req.body.currency || 'USD',
+      currency,
       reason_code: req.body.reason_code || null,
       status: req.body.status || 'received',
       due_by: req.body.due_by || null,

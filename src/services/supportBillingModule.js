@@ -6,7 +6,7 @@
 // =============================================================================
 'use strict';
 const db = require('../config/database');
-const ClientBalanceLedger = require('../models/ClientBalanceLedger');
+const { computeClientBalance } = require('./clientBalanceService');
 const logger = require('../utils/logger').child({ service: 'supportBillingModule' });
 
 // ---------------------------------------------------------------------------
@@ -53,35 +53,24 @@ async function handle(intent, context, messageContent, orgId) {
 // Sub-handlers
 // ---------------------------------------------------------------------------
 
-async function _balanceQuery(context) {
+async function _balanceQuery(context, _messageContent, orgId) {
   try {
-    const balance = context?.billing?.balance ?? null;
-    if (balance !== null) {
-      return {
-        response: `Tu saldo actual es $${balance} MXN.`,
-        requiresConfirmation: false,
-        actionType: 'balance_query',
-        actionData: { balance },
-      };
+    // supportContextService.enrichContext already computed this (invoices +
+    // payments — NOT client_balance_ledger, see clientBalanceService's
+    // module doc) for the conversation; reuse it instead of a second query
+    // when present so this can never disagree with what enrichContext quoted
+    // elsewhere in the same conversation.
+    let balance = context?.billing?.balance;
+    let currency = context?.billing?.currency;
+    if (typeof balance !== 'number') {
+      ({ balance, currency } = await computeClientBalance(orgId, context?.customer?.id));
     }
-
-    // clients has no `balance` column — the running balance is derived from
-    // client_balance_ledger via ClientBalanceLedger.signedAmountSql, the
-    // single source of truth also used by the statement PDF and the GraphQL
-    // resolver (a second, ad-hoc computation here would risk disagreeing
-    // with those — see the model's own comment on why that happened before).
-    const [rows] = await db.query(
-      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
-         FROM client_balance_ledger
-        WHERE client_id = ?`,
-      [context?.customer?.id],
-    );
-    const bal = rows[0] ? parseFloat(rows[0].balance).toFixed(2) : 'N/A';
+    const bal = balance.toFixed(2);
     return {
-      response: `Tu saldo actual es $${bal} MXN.`,
+      response: `Tu saldo actual es $${bal} ${currency}.`,
       requiresConfirmation: false,
       actionType: 'balance_query',
-      actionData: { balance: bal },
+      actionData: { balance: bal, currency },
     };
   } catch (err) {
     logger.warn({ err }, 'billingModule: balance query failed');

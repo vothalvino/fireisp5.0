@@ -18,6 +18,7 @@ const Ticket = require('../models/Ticket');
 const AiPolicy = require('../models/AiPolicy');
 const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const aiReplyService = require('../services/aiReplyService');
+const { computeClientBalance } = require('../services/clientBalanceService');
 const { pubsub } = require('../services/pubsub');
 const { assertGraphqlPermission, gqlForbidden } = require('./authz');
 
@@ -29,6 +30,26 @@ function clamp(val, defaultVal, max) {
 }
 
 const MAX_LIMIT = 200;
+
+/**
+ * Memoize computeClientBalance's PROMISE (not just its resolved value) per
+ * request on `ctx`, keyed by client id — the `balance` and `balanceCurrency`
+ * field resolvers below are both requested off the same `Client` in a single
+ * query and graphql-js kicks off sibling field resolvers concurrently, so a
+ * "compute once, read from a cache the other resolver already populated"
+ * approach has a race; caching the in-flight promise itself does not.
+ *
+ * @param {{id: number|string}} client
+ * @param {{orgId: number}} ctx
+ * @returns {Promise<{balance: number, currency: string}>}
+ */
+function getClientBalance(client, ctx) {
+  if (!ctx._clientBalanceCache) ctx._clientBalanceCache = new Map();
+  if (!ctx._clientBalanceCache.has(client.id)) {
+    ctx._clientBalanceCache.set(client.id, computeClientBalance(ctx.orgId, client.id));
+  }
+  return ctx._clientBalanceCache.get(client.id);
+}
 
 const resolvers = {
   // ---------------------------------------------------------------------------
@@ -182,25 +203,32 @@ const resolvers = {
       return rows;
     },
 
-    // Current account balance: the signed sum of the ledger (postpaid semantics —
-    // positive = the client owes us). Computed on read because the stored
-    // running_balance column is left at its 0.00 default by the amount-based
-    // writers (invoice/payment/credit_note/gateway); only the refund path sets
-    // debit/credit. The signed expression reconciles BOTH representations — each
-    // entry populates exactly one: an entry_type-signed `amount`, plus debit-credit.
+    // Current account balance — COMPUTED from invoices + payments, not from
+    // the ledger (client_balance_ledger drifts: not every money path writes
+    // it — see clientBalanceService's module doc). Postpaid semantics:
+    // positive = the client owes us, negative = the client is in credit.
     balance: async (client, _args, ctx) => {
-      const [rows] = await db.query(
-        `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
-           FROM client_balance_ledger
-          WHERE client_id = ? AND organization_id = ?`,
-        [client.id, ctx.orgId],
-      );
-      return String(rows[0].balance);
+      const { balance } = await getClientBalance(client, ctx);
+      return balance.toFixed(2);
+    },
+
+    // The currency the computed balance above is denominated in — see
+    // clientBalanceService for how it's chosen when a client's payable
+    // invoices/payments don't all agree on one currency.
+    balanceCurrency: async (client, _args, ctx) => {
+      const { currency } = await getClientBalance(client, ctx);
+      return currency;
     },
 
     ledger: async (client, _args, ctx) => {
-      // running_balance is computed on read (the stored column is unreliable —
-      // see the balance resolver above) so each entry's "Balance After" is correct.
+      // Ledger HISTORY — kept exactly as it was. This is the audit trail
+      // (every entry ever written), not the balance source; the headline
+      // `balance` field above no longer reads from here. running_balance is
+      // still computed on read here (the stored column is unreliable) so
+      // each entry's own "Balance After" is internally consistent within the
+      // ledger's own bookkeeping — it does NOT necessarily equal `balance`
+      // above when the ledger is missing entries for a payable invoice (the
+      // exact drift this PR fixes for the headline figure).
       const [rows] = await db.query(
         `SELECT id, organization_id, client_id, entry_type, amount, currency,
                 reference_type, reference_id, description, created_at,

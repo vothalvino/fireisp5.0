@@ -61,6 +61,7 @@ const CLIENT_DETAIL_QUERY = /* GraphQL */ `
       notes
       createdAt
       balance
+      balanceCurrency
       contracts {
         id
         connectionType
@@ -139,6 +140,7 @@ interface Client {
   notes: string | null;
   createdAt: string;
   balance: string;
+  balanceCurrency: string;
   contracts: Contract[];
   invoices: Invoice[];
   payments: Payment[];
@@ -1173,8 +1175,11 @@ export function ClientDetail() {
       : (clientGroups ?? []).find(g => g.id === clientGroupId)?.name ?? '—';
 
   // Current account balance (postpaid: positive = owed by client, negative = credit).
+  // COMPUTED server-side from payable invoices minus unallocated payment
+  // credit — NOT the ledger (client.ledger below is history/audit trail
+  // only and can be missing entries; see clientBalanceService's module doc).
   const balanceAmount = parseFloat(client.balance || '0');
-  const balanceCurrency = client.ledger[0]?.currency || 'MXN';
+  const balanceCurrency = client.balanceCurrency || 'MXN';
   const owes = balanceAmount > 0.005;
   const inCredit = balanceAmount < -0.005;
 

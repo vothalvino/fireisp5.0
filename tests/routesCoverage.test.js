@@ -1260,6 +1260,59 @@ describe('Quote Routes — /api/quotes', () => {
       expect(quoteInsert[1][6]).toBe(580); // total
     });
 
+    test('a custom-item-only quote (no contract line) defaults currency to the ORG currency, not USD', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM organizations/.test(sql)) return Promise.resolve([[{ currency: 'MXN' }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000045');
+      Quote.findById.mockResolvedValue({ id: 33 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 33, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'custom', description: 'Site survey', quantity: 1, unit_price: 150 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      // columns: (…, total, currency, …) -> currency is param index 7
+      expect(quoteInsert[1][7]).toBe('MXN');
+    });
+
+    test('a contract-charge item\'s plan currency still wins over the org default', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '299.00', currency: 'EUR' }]]);
+        if (/FROM organizations/.test(sql)) return Promise.resolve([[{ currency: 'MXN' }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextQuoteNumber.mockResolvedValue('QUO-000046');
+      Quote.findById.mockResolvedValue({ id: 34 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO quotes/.test(sql)) return Promise.resolve([{ insertId: 34, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/quotes/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const quoteInsert = conn.execute.mock.calls.find(c => /INSERT INTO quotes/.test(c[0]));
+      expect(quoteInsert[1][7]).toBe('EUR'); // the plan's own currency, not the org default
+    });
+
     test('returns 404 when client not found', async () => {
       mockAuthUser();
       db.query.mockResolvedValue([[]]);
@@ -1442,6 +1495,9 @@ describe('Payment Routes — /api/payments', () => {
   describe('POST /api/payments', () => {
     test('success — creates payment and records credit', async () => {
       mockAuthUser();
+      // No `currency` in the request — POST /payments now defaults it from
+      // Organization.getCurrency(req.orgId) before Payment.create().
+      db.query.mockResolvedValue([[{ currency: 'MXN' }]]);
       Payment.create.mockResolvedValue({ id: 1, amount: '500.00', client_id: 10 });
       billingService.recordPaymentCredit.mockResolvedValue(true);
 
@@ -1452,6 +1508,7 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(billingService.recordPaymentCredit).toHaveBeenCalled();
+      expect(Payment.create).toHaveBeenCalledWith(expect.objectContaining({ currency: 'MXN' }));
     });
 
     // Regression: the DB `payments.payment_method` ENUM supports these
@@ -1460,6 +1517,7 @@ describe('Payment Routes — /api/payments', () => {
     // 'oxxo_pay' 422'd before the schema was aligned to the DB ENUM.
     test.each(['spei', 'oxxo_pay'])('success — accepts payment_method=%s (previously 422)', async (payment_method) => {
       mockAuthUser();
+      db.query.mockResolvedValue([[{ currency: 'MXN' }]]);
       Payment.create.mockResolvedValue({ id: 2, amount: '500.00', client_id: 10, payment_method });
       billingService.recordPaymentCredit.mockResolvedValue(true);
 
@@ -1470,6 +1528,22 @@ describe('Payment Routes — /api/payments', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data).toMatchObject({ payment_method });
+    });
+
+    test('success — an explicitly-set currency always wins over the org default', async () => {
+      mockAuthUser();
+      Payment.create.mockResolvedValue({ id: 3, amount: '500.00', client_id: 10, currency: 'USD' });
+      billingService.recordPaymentCredit.mockResolvedValue(true);
+
+      const res = await request(app)
+        .post('/api/payments')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 10, amount: 500, payment_method: 'cash', payment_date: '2024-01-01', currency: 'USD' });
+
+      expect(res.status).toBe(201);
+      // The org-currency lookup is skipped entirely when the caller sends one.
+      expect(db.query).not.toHaveBeenCalled();
+      expect(Payment.create).toHaveBeenCalledWith(expect.objectContaining({ currency: 'USD' }));
     });
   });
 
@@ -1745,6 +1819,60 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
       expect(invInsert[1][4]).toBe(500);   // subtotal
       expect(invInsert[1][5]).toBe(80);    // tax_amount
       expect(invInsert[1][6]).toBe(580);   // total
+    });
+
+    test('a custom-item-only invoice (no contract line) defaults currency to the ORG currency, not USD', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM organizations/.test(sql)) return Promise.resolve([[{ currency: 'MXN' }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000022');
+      Invoice.findById.mockResolvedValue({ id: 22 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO invoices/.test(sql)) return Promise.resolve([{ insertId: 22, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/invoices/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'custom', description: 'Site survey', quantity: 1, unit_price: 150 }] });
+
+      expect(res.status).toBe(201);
+      const invInsert = conn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+      // columns: (…, total, currency, …) -> currency is param index 7
+      expect(invInsert[1][7]).toBe('MXN');
+    });
+
+    test('a contract-charge item\'s plan currency still wins over the org default', async () => {
+      mockAuthUser();
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ id: 5 }]]);
+        if (/FROM contracts/.test(sql)) return Promise.resolve([[{ id: 7, plan_id: 5, price_override: null }]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[{ id: 5, name: 'Basic', price: '299.00', currency: 'EUR' }]]);
+        if (/FROM organizations/.test(sql)) return Promise.resolve([[{ currency: 'MXN' }]]);
+        return Promise.resolve([[]]);
+      });
+      billingService.generateBillingPeriod.mockResolvedValue({ id: 10, period_start: '2026-01-01', period_end: '2026-01-31' });
+      billingService.nextInvoiceNumber.mockResolvedValue('INV-000023');
+      Invoice.findById.mockResolvedValue({ id: 23, contract_id: 7 });
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (/INSERT INTO invoices/.test(sql)) return Promise.resolve([{ insertId: 23, affectedRows: 1 }]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+
+      const res = await request(app)
+        .post('/api/invoices/generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 5, items: [{ type: 'contract', contract_id: 7 }] });
+
+      expect(res.status).toBe(201);
+      const invInsert = conn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+      expect(invInsert[1][7]).toBe('EUR'); // the plan's own currency, not the org default
     });
   });
 

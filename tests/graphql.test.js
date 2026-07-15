@@ -225,16 +225,55 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
     expect(res.body.data.client.contacts).toEqual([]);
   });
 
-  test('client.balance returns the computed account balance', async () => {
+  test('client.balance returns the COMPUTED account balance (invoices + payments, not the ledger)', async () => {
     mockQuery
-      .mockResolvedValueOnce([[CLIENT_ROW]])              // client findById
-      .mockResolvedValueOnce([[{ balance: '150.00' }]]);  // balance signed-sum
+      .mockResolvedValueOnce([[CLIENT_ROW]])  // client findById
+      .mockResolvedValueOnce([[               // getInvoicesWithBalance — one open invoice
+        { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
+      ]])
+      .mockResolvedValueOnce([[]])            // payments — none unallocated
+      .mockResolvedValueOnce([[]]);           // credit notes — none
 
     const res = await graphql('query { client(id: "10") { id balance } }');
 
     expect(res.status).toBe(200);
     expect(res.body.errors).toBeUndefined();
     expect(res.body.data.client.balance).toBe('150.00');
+  });
+
+  test('client.balanceCurrency returns the currency the computed balance is denominated in', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])
+      .mockResolvedValueOnce([[
+        { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
+      ]])
+      .mockResolvedValueOnce([[]])            // payments — none
+      .mockResolvedValueOnce([[]]);           // credit notes — none
+
+    const res = await graphql('query { client(id: "10") { id balanceCurrency } }');
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    expect(res.body.data.client.balanceCurrency).toBe('MXN');
+  });
+
+  test('client.balance and balanceCurrency share ONE underlying computation (no duplicate query pair)', async () => {
+    mockQuery
+      .mockResolvedValueOnce([[CLIENT_ROW]])
+      .mockResolvedValueOnce([[
+        { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
+      ]])
+      .mockResolvedValueOnce([[]])            // payments — none
+      .mockResolvedValueOnce([[]]);           // credit notes — none
+
+    const res = await graphql('query { client(id: "10") { balance balanceCurrency } }');
+
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toBeUndefined();
+    expect(res.body.data.client.balance).toBe('150.00');
+    expect(res.body.data.client.balanceCurrency).toBe('MXN');
+    // findById + the invoice, payments, and credit-notes queries — NOT doubled.
+    expect(mockQuery).toHaveBeenCalledTimes(4);
   });
 
   test('client.ledger exposes the computed running_balance as balanceAfter', async () => {

@@ -11,7 +11,7 @@
 // =============================================================================
 
 const db     = require('../config/database');
-const ClientBalanceLedger = require('../models/ClientBalanceLedger');
+const { computeClientBalance } = require('./clientBalanceService');
 const logger = require('../utils/logger').child({ service: 'supportContextService' });
 
 // ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ function _stripPrivateIps(value) {
  * @param {number} opts.clientId — client ID
  * @returns {Promise<{
  *   customer: { id: number, name: string, status: string, planId: number|null } | null,
- *   billing:  { balance: number, nextDue: string|null } | null,
+ *   billing:  { balance: number, currency: string, nextDue: string|null } | null,
  *   connection: { sessionActive: boolean, ip: string|null, uptime: number|null } | null,
  *   alerts: Array
  * }>}
@@ -102,17 +102,13 @@ async function enrichContext({ orgId, clientId }) {
   // billingService.getBillingSummary was never defined (this branch never ran)
   // and client_billing_summaries was never a real table (the "fallback" —
   // actually the only code path ever reached — always threw). The running
-  // balance and next-due date are computed the same way supportBillingModule.js
-  // does: client_balance_ledger (single source of truth; see
-  // ClientBalanceLedger.signedAmountSql) and billing_periods.scheduled_at.
+  // balance is now computed the same way everywhere it's shown — invoices +
+  // payments, NOT client_balance_ledger (see clientBalanceService's module
+  // doc: the ledger is history-only and can drift from reality). Next-due
+  // date is still billing_periods.scheduled_at.
   let billing = null;
   try {
-    const [balRows] = await db.query(
-      `SELECT COALESCE(SUM(${ClientBalanceLedger.signedAmountSql}), 0) AS balance
-         FROM client_balance_ledger
-        WHERE client_id = ? AND organization_id <=> ?`,
-      [clientId, orgId],
-    );
+    const { balance, currency } = await computeClientBalance(orgId, clientId);
     const [dueRows] = await db.query(
       `SELECT bp.scheduled_at AS next_due_date
          FROM billing_periods bp
@@ -122,7 +118,8 @@ async function enrichContext({ orgId, clientId }) {
       [clientId, orgId],
     );
     billing = {
-      balance: balRows[0] ? parseFloat(balRows[0].balance) : null,
+      balance,
+      currency,
       nextDue: dueRows[0]?.next_due_date ?? null,
     };
   } catch (err) {

@@ -4,6 +4,7 @@
 
 const { Router } = require('express');
 const Invoice = require('../models/Invoice');
+const Organization = require('../models/Organization');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -214,7 +215,11 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
     // Pre-process items (billing-period lookups happen outside the tx)
     const lineItems = [];
     const billingPeriodUpdates = []; // { periodId }
-    let currency = 'USD';
+    // Default to the organization's currency (not a hardcoded 'USD') so a
+    // product/custom-only invoice — one with no 'contract' line to pull a
+    // plan currency from — still lands in the org's real currency. A
+    // contract-charge item's plan currency, when present, still wins below.
+    let currency = await Organization.getCurrency(req.orgId);
     let subtotal = 0;
     const contractIds = new Set(); // distinct contracts referenced by contract-charge items
 
@@ -245,7 +250,7 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
 
         const period = await billingService.generateBillingPeriod(contract);
         const price = parseFloat(contract.price_override || plan.price);
-        currency = plan.currency || 'USD';
+        currency = plan.currency || currency;
 
         const periodStart = String(period.period_start).slice(0, 10);
         const periodEnd = String(period.period_end).slice(0, 10);

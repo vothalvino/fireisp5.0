@@ -105,6 +105,13 @@ describe('POST /api/v1/chargebacks', () => {
 
     expect(res.status).toBe(422);
   });
+
+  // NOTE: createChargebackSchema declares `currency` as required, so a
+  // request that omits it 422s before the handler runs — the route's
+  // `req.body.currency || await Organization.getCurrency(req.orgId)` default
+  // (added alongside the other currency-default fixes in this PR) is
+  // currently unreachable via this endpoint; it's defense-in-depth only,
+  // matching the same "never hardcode USD" rule applied everywhere else.
 });
 
 describe('PUT /api/v1/chargebacks/:id', () => {

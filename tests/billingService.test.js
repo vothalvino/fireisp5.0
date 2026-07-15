@@ -598,15 +598,17 @@ describe('billingService', () => {
       );
     });
 
-    test('uses default currency when payment has no currency', async () => {
+    test('falls back to the organization currency (not a hardcoded USD) when payment has no currency', async () => {
       const payment = { id: 78, client_id: 101, amount: '100.00', reference_number: null };
-      db.query.mockResolvedValueOnce([{ insertId: 2 }]);
+      db.query
+        .mockResolvedValueOnce([[{ currency: 'MXN' }]]) // Organization.getCurrency
+        .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT INTO client_balance_ledger
 
       await billingService.recordPaymentCredit(payment, 42);
 
-      expect(db.query).toHaveBeenCalledWith(
+      expect(db.query).toHaveBeenLastCalledWith(
         expect.stringContaining('INSERT INTO client_balance_ledger'),
-        expect.arrayContaining(['USD']),
+        expect.arrayContaining(['MXN']),
       );
     });
   });
