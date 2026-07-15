@@ -165,3 +165,86 @@ gap there.
 - No e2e coverage exists anywhere for purchase-orders/service-orders/
   work-orders/CPE flows (checked, confirmed) — not built (brief's "when the
   flow you touched has coverage there" condition doesn't apply).
+- **`CpeInventoryPage.tsx`'s Transition tab discards the real backend error**
+  (`if (res.error) throw new Error('Transition failed')` — the actual
+  `error.message` is never read, unlike the Register/Install tabs and
+  `PurchaseOrderDetail.tsx`'s receive flow, which all correctly surface
+  `res.error.message`). Found while adding the hardening pass's manual-
+  transition 422 (see below) — a technician trying to "undo" a mistaken
+  install on a tracked unit now gets a real, specific 422 from the backend
+  but sees only the generic "Transition failed" in the UI. Pre-existing bug
+  (already true for e.g. any invalid-FSM-transition error before this pass),
+  not fixed — flagged per CLAUDE.md's persona-walk instruction, out of the
+  hardening brief's scope.
+
+## Hardening pass (commit c71dacc, same branch, migration 391 unchanged)
+
+Adversarial review after the initial build found 5 side doors that crossed
+the in_stock boundary without the stock+ledger accounting the main flows
+maintain — all fixed on the same branch/commit as the original build (391
+never merged, so no new migration number was needed):
+
+- `cpeInventoryService.swapDevice`: the incoming device now decrements stock
+  + writes `assign_to_job` via `resolveOrCreateStockRow` (only when it has
+  `inventory_item_id`), and **ownership now travels with subscriber/profile/
+  contract** from the old device to the new one — without this, a swapped-in
+  rented replacement had `ownership: null` and silently fell out of
+  `ensurePickupWorkOrder`/`completePickupUnit`'s `ownership='rented'` filters,
+  making it unreclaimable forever. The outgoing device gets NO stock write —
+  `'returned'` is a deliberate limbo state (see FSM above), only pickup's
+  `completePickupUnit` moves stock back on.
+- `POST /devices/:id/lifecycle/transition` (route, not the service function
+  — `transitionLifecycleState` itself is reused internally by
+  installEquipment/completePickupUnit and must stay stock-agnostic): 422s
+  when a TRACKED unit's requested transition crosses the in_stock boundary
+  (`fromState === 'in_stock' || toState === 'in_stock'`). This is the exact
+  mechanism a tech could otherwise use to strand or double-count stock
+  outside the install/pickup flows.
+- `registerSerial` catch-up mode (no `increment_stock`) now runs the same
+  `_untrackedCapacity` guard `installEquipment`'s type-new-serial path
+  already used, checked (and the warehouse org-verify below) BEFORE the
+  `cpe_devices` INSERT — validate-before-write, not validate-then-rollback,
+  both so a rejected request never does partial work and so it plays nicely
+  with non-transactional jest mocks that don't actually undo array pushes on
+  `conn.rollback()`.
+- `registerSerial` `increment_stock` + explicit `warehouse_id`: org-verified
+  now (`SELECT id FROM warehouses WHERE id = ? AND (organization_id = ? OR
+  organization_id IS NULL)...`), same pattern as `POST
+  /inventory/transactions` in `src/routes/inventory.js`.
+- `POST /purchase-orders/:id/receive`: a `serial_required` line with a
+  positive delta on a **warehouse-less** PO now 422s before any write
+  (previously both the serial-count check AND the mint/stock write were
+  gated on `po.warehouse_id`, so it silently received with zero serials
+  minted and zero stock moved).
+- `ensurePickupWorkOrder`'s check-then-insert race (concurrent cancel+
+  terminate could both pass the "no open pickup order yet" check) is
+  documented only, not locked — a `FOR UPDATE` on `contracts` in a
+  best-effort side-effect hook was judged not worth the deadlock/contention
+  risk for a benign, visible, manually-cancellable duplicate.
+
+**Test-double gotcha that cost a retry**: the pre-existing
+`tests/inventoryPhase3Routes.test.js` register-route test predates the
+catch-up capacity guard, so its `conn` dispatch fell through to the generic
+`Promise.resolve([[]])` for the two new `_untrackedCapacity` queries — that
+resolves to `[[]]` (rows = `[]`), and `_untrackedCapacity`'s
+`const [[stockRow]] = await execute(...)` then reads `.total` off
+`undefined`, turning a should-be-422 into an actual 500. Fixed by adding
+matching branches to that test's mock (5 units physical stock, 0 already
+tracked → capacity 5) rather than weakening the new guard — always re-run
+the FULL suite after adding a guard to shared logic, not just the file you
+edited, because sibling route-wiring tests can have their own independent
+mocks of the same underlying queries.
+
+**Ordering lesson for guard-before-write**: initially placed the
+`registerSerial` warehouse org-verify check *after* the `cpe_devices` INSERT
+(inside the existing `if (incrementStock)` block, which naturally runs after
+the insert). This passed the real transactional code (rollback undoes it)
+but failed a same-shape unit test asserting `state.devices` stayed empty on
+rejection, because the test's in-memory state object has no rollback
+semantics — it's mutated synchronously, not deferred to commit. Moved the
+check earlier (before the INSERT) instead of weakening the test; this is
+also strictly better production behavior (no wasted write attempted before
+a validation that's already knowable). General rule for this codebase's
+transactional services: order validation before mutation even inside an
+open transaction, both for test-double compatibility and to keep the
+rollback path minimal.
