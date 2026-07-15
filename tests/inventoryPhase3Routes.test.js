@@ -69,6 +69,12 @@ describe('POST /api/v1/cpe-management/devices/register', () => {
         return Promise.resolve([[{ id: 1, organization_id: 42, name: 'ONU-X' }]]);
       }
       if (sql.includes('SELECT id FROM cpe_devices WHERE serial_number')) return Promise.resolve([[]]);
+      // _untrackedCapacity (catch-up capacity guard): 5 units of physical
+      // stock, 0 already tracked in_stock -> capacity 5, guard passes.
+      if (sql.includes('COALESCE(SUM(s.quantity), 0) AS total')) return Promise.resolve([[{ total: 5 }]]);
+      if (sql.includes('COUNT(*) AS total FROM cpe_devices') && sql.includes("lifecycle_state = 'in_stock'")) {
+        return Promise.resolve([[{ total: 0 }]]);
+      }
       if (sql.includes('INSERT INTO cpe_devices')) return Promise.resolve([{ insertId: 900 }]);
       return Promise.resolve([[]]);
     });

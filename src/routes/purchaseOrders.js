@@ -194,7 +194,19 @@ router.post('/:id/receive', requirePermission('purchase_orders.receive'), valida
         const delta = target - currentReceived;
         planned.set(item.id, { target, delta });
 
-        if (delta > 0 && item.inventory_item_id && po.warehouse_id && serialRequiredByItemId.get(item.inventory_item_id)) {
+        const isSerialRequired = delta > 0 && item.inventory_item_id && serialRequiredByItemId.get(item.inventory_item_id);
+        if (isSerialRequired) {
+          // Both the serial-count check AND the mint/stock write below are
+          // otherwise gated on po.warehouse_id — a serialized item received
+          // on a warehouse-less PO would silently succeed with no serials,
+          // no cpe_devices rows, and no stock write at all. Reject up front,
+          // before any write, instead of quietly skipping serialization.
+          // Non-serialized items on warehouse-less POs are unaffected.
+          if (!po.warehouse_id) {
+            throw new ValidationError(
+              `Line ${item.id} is a serial-tracked item — this purchase order has no warehouse set, so serialized items cannot be received. Set a warehouse on the purchase order first.`,
+            );
+          }
           const provided = bodySerials[item.id] ?? bodySerials[String(item.id)];
           if (!Array.isArray(provided) || provided.length !== delta) {
             throw new ValidationError(

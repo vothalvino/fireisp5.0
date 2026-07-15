@@ -455,6 +455,50 @@ describe('POST /api/v1/purchase-orders/:id/receive', () => {
     expect(res.status).toBe(200);
     expect(conn._createdDevices.length).toBe(0);
   });
+
+  it('422s BEFORE any write when a serial_required line is received on a warehouse-less PO', async () => {
+    mockAuthQuery({ warehouse_id: null });
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 3, quantity_received: 0 }],
+      { serialRequiredByItemId: { 1: true } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ serials: { 1: ['SN-A', 'SN-B', 'SN-C'] } }); // correct count, but no warehouse on the PO
+
+    expect(res.status).toBe(422);
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn._createdDevices.length).toBe(0);
+    const calls = conn.query.mock.calls.map(c => c[0]);
+    expect(calls.some(sql => sql.includes('UPDATE inventory_stock'))).toBe(false);
+    expect(calls.some(sql => sql.includes('UPDATE purchase_order_items SET quantity_received'))).toBe(false);
+  });
+
+  it('still succeeds receiving a warehouse-less PO when every line is non-serialized', async () => {
+    mockAuthQuery({ warehouse_id: null });
+    const conn = buildConn(
+      [{ ...samplePoItem, id: 1, inventory_item_id: 1, quantity_ordered: 5, quantity_received: 0 }],
+      { serialRequiredByItemId: { 1: false } },
+    );
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/purchase-orders/1/receive')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({});
+
+    // Pre-existing behavior for warehouse-less POs (no warehouse_id means no
+    // inventory_stock/ledger side effect for ANY line, serialized or not) is
+    // unchanged for non-serialized lines — only serial_required lines with a
+    // positive delta are newly rejected.
+    expect(res.status).toBe(200);
+    expect(conn._createdDevices.length).toBe(0);
+  });
 });
 
 describe('PUT /api/v1/purchase-orders/:id', () => {

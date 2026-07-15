@@ -135,6 +135,40 @@ async function registerSerial({
     await _loadItem(execute, itemId, orgId);
     await _assertSerialNotTaken(execute, trimmed, orgId);
 
+    // Catch-up mode (default) mints a tracked in_stock unit WITHOUT touching
+    // inventory_stock.quantity — it's meant to retroactively serialize stock
+    // that already exists untracked. Without this guard, repeated catch-up
+    // registrations could mint more tracked in_stock units than
+    // inventory_stock.quantity actually holds, violating the module's core
+    // invariant (see header). Mirrors installEquipment's type-new-serial
+    // guard exactly. increment_stock=true is exempt — that path adds a real
+    // new unit AND bumps quantity to match, so it can never over-track.
+    if (!incrementStock) {
+      const capacity = await _untrackedCapacity(execute, itemId, orgId);
+      if (capacity <= 0) {
+        throw new ValidationError(
+          'No untracked stock available for this item — every unit already has a serial on record. Register with increment_stock to add a genuinely new unit, or receive more stock first.',
+        );
+      }
+    }
+
+    // Org-verify the caller-specified warehouse BEFORE any write — the
+    // schema only validates warehouse_id is a positive number, so without
+    // this an org A caller could create/increment a stock row in org B's
+    // warehouse (mirrors the org-verify already done for POST
+    // /inventory/transactions in src/routes/inventory.js). Checked here,
+    // ahead of the cpe_devices INSERT below, so a rejected warehouse never
+    // leaves a half-done write for the transaction rollback to undo.
+    if (incrementStock && warehouseId) {
+      const [warehouseRows] = await execute(
+        'SELECT id FROM warehouses WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+        [warehouseId, orgId],
+      );
+      if (!warehouseRows[0]) {
+        throw new ValidationError('warehouse_id does not belong to this organization');
+      }
+    }
+
     const [ins] = await execute(
       `INSERT INTO cpe_devices
          (organization_id, serial_number, oui, manufacturer, model_name, inventory_item_id, lifecycle_state, notes)
@@ -153,6 +187,8 @@ async function registerSerial({
     if (incrementStock) {
       let stockId;
       if (warehouseId) {
+        // warehouseId was already org-verified above, before the cpe_devices
+        // INSERT.
         const [existing] = await execute(
           'SELECT id FROM inventory_stock WHERE item_id = ? AND warehouse_id = ? AND aisle IS NULL AND col IS NULL AND shelf IS NULL AND deleted_at IS NULL',
           [itemId, warehouseId],
@@ -341,6 +377,16 @@ async function ensurePickupWorkOrder(contractId, { orgId = null, performedBy = n
   );
   if (!rentedUnits.length) return null;
 
+  // Check-then-insert, not atomic: two concurrent callers (e.g. a cancel and
+  // a terminate racing on the same contract) could both pass this check and
+  // each insert their own pickup work order. Accepted as a benign race —
+  // the duplicate is visible in the UI and trivially cancellable by a
+  // technician/manager, and this function is a best-effort side-effect hook
+  // fired from contract cancel/terminate (see src/routes/contracts.js):
+  // adding a `SELECT ... FOR UPDATE` on the contracts row here to close the
+  // window would add lock contention/deadlock risk to that critical path
+  // for a race that in practice requires two near-simultaneous writes to
+  // the SAME contract, which is not a realistic operational pattern.
   const [existing] = await db.query(
     `SELECT * FROM work_orders
      WHERE contract_id = ? AND work_type = 'pickup' AND status NOT IN ('completed', 'cancelled') AND deleted_at IS NULL

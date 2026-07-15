@@ -171,6 +171,14 @@ function route(sql, params, state) {
     const rows = state.stock.filter(st => st.item_id === itemId).sort((a, b) => b.quantity - a.quantity || a.id - b.id);
     return Promise.resolve([rows.length ? [{ id: rows[0].id }] : []]);
   }
+  // --- registerSerial: org-verify the caller-specified warehouse (has an
+  //     `id = ?` filter, unlike resolveOrCreateStockRow's first-warehouse
+  //     lookup below) ---
+  if (s.startsWith('SELECT id FROM warehouses WHERE id = ?')) {
+    const [warehouseId, orgId] = p;
+    const wh = state.warehouses.find(w => w.id === warehouseId && (w.organization_id === orgId || w.organization_id === null));
+    return Promise.resolve([wh ? [{ id: wh.id }] : []]);
+  }
   // --- resolveOrCreateStockRow: first warehouse ---
   if (s.startsWith('SELECT id FROM warehouses WHERE')) {
     const wh = state.warehouses[0];
@@ -328,6 +336,82 @@ describe('inventorySerialService', () => {
       await expect(inventorySerialService.registerSerial({
         orgId: 42, itemId: 1, serialNumber: 'X-1',
       })).rejects.toThrow(/does not belong to this organization/);
+    });
+
+    test('catch-up 422s once tracked in_stock units already match inventory_stock.quantity', async () => {
+      // stock quantity 1, and ONE unit already tracked in_stock for this item
+      // -> untracked capacity = 1 - 1 = 0. A second catch-up registration
+      // would push tracked units past the physical quantity.
+      const state = makeState({
+        stock: [{ id: 10, item_id: 1, warehouse_id: 5, quantity: 1 }],
+        devices: [{ id: 60, organization_id: 42, serial_number: 'ALREADY-TRACKED', inventory_item_id: 1, lifecycle_state: 'in_stock' }],
+      });
+      wireDb(state);
+
+      await expect(inventorySerialService.registerSerial({
+        orgId: 42, itemId: 1, serialNumber: 'OVER-CAPACITY',
+      })).rejects.toThrow(/No untracked stock available/);
+
+      // Nothing was written.
+      expect(state.devices).toHaveLength(1);
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(1);
+    });
+
+    test('catch-up succeeds while untracked capacity remains', async () => {
+      // stock quantity 3, zero tracked in_stock units -> capacity 3.
+      const state = makeState();
+      wireDb(state);
+
+      const device = await inventorySerialService.registerSerial({
+        orgId: 42, itemId: 1, serialNumber: 'WITHIN-CAPACITY',
+      });
+
+      expect(device.serial_number).toBe('WITHIN-CAPACITY');
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3); // catch-up never touches quantity
+    });
+
+    test('increment_stock=true is exempt from the untracked-capacity guard', async () => {
+      // Capacity is already 0 (same setup as the 422 case above), but
+      // increment_stock=true adds a genuinely new unit AND bumps quantity to
+      // match, so it must not be blocked by the catch-up guard.
+      const state = makeState({
+        stock: [{ id: 10, item_id: 1, warehouse_id: 5, quantity: 1 }],
+        devices: [{ id: 60, organization_id: 42, serial_number: 'ALREADY-TRACKED', inventory_item_id: 1, lifecycle_state: 'in_stock' }],
+      });
+      wireDb(state);
+
+      const device = await inventorySerialService.registerSerial({
+        orgId: 42, itemId: 1, serialNumber: 'GENUINELY-NEW', incrementStock: true,
+      });
+
+      expect(device.serial_number).toBe('GENUINELY-NEW');
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(2); // 1 -> 2
+    });
+
+    test('increment_stock with a cross-org warehouse_id 422s and writes nothing', async () => {
+      const state = makeState({
+        warehouses: [{ id: 5, organization_id: 99 }], // belongs to a different org
+      });
+      wireDb(state);
+
+      await expect(inventorySerialService.registerSerial({
+        orgId: 42, itemId: 1, serialNumber: 'CROSS-ORG', warehouseId: 5, incrementStock: true,
+      })).rejects.toThrow(/warehouse_id does not belong to this organization/);
+
+      // Nothing was written — not the device, not the stock row.
+      expect(state.devices).toHaveLength(0);
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3);
+    });
+
+    test('increment_stock with an org-owned warehouse_id succeeds', async () => {
+      const state = makeState();
+      wireDb(state);
+
+      await inventorySerialService.registerSerial({
+        orgId: 42, itemId: 1, serialNumber: 'OWN-ORG-WH', warehouseId: 5, incrementStock: true,
+      });
+
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(4); // 3 -> 4
     });
   });
 

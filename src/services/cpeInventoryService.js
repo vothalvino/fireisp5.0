@@ -11,6 +11,7 @@
 'use strict';
 
 const db = require('../config/database');
+const { resolveOrCreateStockRow } = require('./inventoryDrawdownService');
 const logger = require('../utils/logger').child({ service: 'cpeInventoryService' });
 
 // ---------------------------------------------------------------------------
@@ -277,13 +278,18 @@ async function swapDevice(opts) {
       );
     }
 
-    // Inherit subscriber/profile/contract from old device to new device
+    // Inherit subscriber/profile/contract/ownership from old device to new
+    // device. Ownership must travel too (Inventory Phase 3, migration 391):
+    // a rented replacement has to stay ownership='rented' or it silently
+    // falls out of ensurePickupWorkOrder/completePickupUnit's filters (both
+    // key on `ownership = 'rented'`) and can never be reclaimed when the
+    // contract is later cancelled.
     await conn.query(
       `UPDATE cpe_devices
        SET subscriber_id = ?, subscriber_linked_at = NOW(),
-           cpe_profile_id = ?, contract_id = ?
+           cpe_profile_id = ?, contract_id = ?, ownership = ?
        WHERE id = ?`,
-      [oldDevRows.subscriber_id, oldDevRows.cpe_profile_id, oldDevRows.contract_id, newDeviceId],
+      [oldDevRows.subscriber_id, oldDevRows.cpe_profile_id, oldDevRows.contract_id, oldDevRows.ownership, newDeviceId],
     );
 
     // Clear old device subscriber link
@@ -307,6 +313,29 @@ async function swapDevice(opts) {
       swapOutDeviceId: oldDeviceId,
       connection: conn,
     });
+
+    // Stock effect for the NEW device, in the SAME transaction — mirrors
+    // installEquipment's rented-path decrement exactly (source-of-stock rule:
+    // resolveOrCreateStockRow's org-wide greatest-quantity row for this
+    // item). Only tracked units (inventory_item_id set) have any physical
+    // stock to move; a legacy/untracked device swapped in leaves stock
+    // untouched, same as it always has.
+    //
+    // The OLD device intentionally gets NO stock write here: it lands in
+    // 'returned' above, and per the consistency invariant (module header of
+    // inventorySerialService.js) 'returned' is a limbo state that does not
+    // re-enter inventory_stock until a pickup/return flow (completePickupUnit)
+    // explicitly resolves it — mirroring that a swapped-out unit isn't
+    // physically back in the warehouse yet, just off the client's line.
+    if (newDevRows.inventory_item_id) {
+      const stockId = await resolveOrCreateStockRow(conn.query.bind(conn), { orgId, itemId: newDevRows.inventory_item_id });
+      await conn.query('UPDATE inventory_stock SET quantity = quantity - 1 WHERE id = ?', [stockId]);
+      await conn.query(
+        `INSERT INTO inventory_transactions (stock_id, transaction_type, quantity, client_id, performed_by, reference, notes)
+         VALUES (?, 'assign_to_job', 1, ?, ?, ?, ?)`,
+        [stockId, oldDevRows.subscriber_id, performedBy, `CPE swap on contract #${oldDevRows.contract_id}`, `Serial ${newDevRows.serial_number} (swap-in)`],
+      );
+    }
 
     await conn.commit();
 

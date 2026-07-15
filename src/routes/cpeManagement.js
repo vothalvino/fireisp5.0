@@ -497,10 +497,28 @@ router.get('/devices/:id/lifecycle', requirePermission('cpe_lifecycle_history.vi
 // Transition lifecycle state
 router.post('/devices/:id/lifecycle/transition', requirePermission('cpe_inventory.manage'), async (req, res, next) => {
   try {
-    await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
+    const existing = await CpeDevice.findByIdOrFail(req.params.id, req.orgId);
     const { to_state, reason } = req.body;
     if (!to_state) {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'to_state is required' } });
+    }
+    // Inventory Phase 3 hardening (migration 391): this generic transition
+    // endpoint has no idea about inventory_stock — installEquipment and
+    // completePickupUnit are the only two places that cross the in_stock
+    // boundary with the matching stock decrement/increment + ledger row.
+    // Letting a manual transition cross that same boundary for a TRACKED
+    // unit (inventory_item_id set) would silently strand or double-count
+    // physical stock (see cpeInventorySwap/manual-transition PR review).
+    // Non-linked/legacy devices (no inventory_item_id) are unaffected —
+    // they never had stock to begin with.
+    const crossesStockBoundary = existing.lifecycle_state === 'in_stock' || to_state === 'in_stock';
+    if (existing.inventory_item_id && crossesStockBoundary) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'This unit is linked to a tracked inventory item — use the Install or Pickup flow to move it into or out of stock, not a manual lifecycle transition.',
+        },
+      });
     }
     const device = await cpeInventoryService.transitionLifecycleState(
       parseInt(req.params.id, 10),
