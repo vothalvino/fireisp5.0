@@ -118,7 +118,11 @@ describe('POST /api/v1/plans/addons', () => {
 
     expect(res.status).toBe(201);
     const insertCall = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO plan_addons'));
-    expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, 50, undefined, true, 'active']);
+    // billing_cycle omitted from the request must land as the column DEFAULT
+    // ('monthly'), never as undefined — the mocked driver tolerates undefined
+    // bind params but real mysql2 throws, which 500'd every addon create that
+    // omitted billing_cycle (found live on the demo, 2026-07-14).
+    expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, 50, 'monthly', true, 'active']);
   });
 
   it('returns 422 when inventory_item_id does not belong to this org', async () => {
