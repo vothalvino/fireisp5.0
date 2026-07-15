@@ -4793,6 +4793,68 @@
         }
       }
     },
+    "/plans/addons/catalog": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Product/add-on catalog for invoice & quote generation — inventory-linked entries include quantity_on_hand (SUM of stock across the org's warehouses)",
+        "operationId": "getAddonCatalog",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PlanAddon[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/addons": {
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Create a plan add-on catalog entry, optionally linked to an inventory item",
+        "operationId": "createPlanAddon",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "plans_createPlanAddon",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PlanAddon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/plans/{id}/radius-attributes": {
       "get": {
         "tags": [
@@ -17958,6 +18020,85 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/inventory/transactions": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "List inventory stock-movement ledger entries (org-scoped, paginated, newest first)",
+        "operationId": "listInventoryTransactions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Filter by inventory_items.id"
+          },
+          {
+            "name": "stock_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Filter by inventory_stock.id"
+          },
+          {
+            "name": "transaction_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "receive",
+                "assign_to_job",
+                "sell_to_client",
+                "transfer_out",
+                "transfer_in",
+                "return",
+                "adjustment"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "InventoryTransaction[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -56861,6 +57002,10 @@
           "tax_rate_id": {
             "type": "number",
             "minimum": 1
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
           }
         },
         "required": [
@@ -61479,6 +61624,10 @@
               "other"
             ]
           },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "price": {
             "type": "number",
             "minimum": 0
@@ -63050,6 +63199,10 @@
           "amount": {
             "type": "number",
             "minimum": 0
+          },
+          "inventory_item_id": {
+            "type": "number",
+            "minimum": 1
           }
         },
         "required": [

@@ -9,7 +9,7 @@ class PlanAddon extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'plan_id', 'name', 'addon_type', 'price',
+      'organization_id', 'plan_id', 'name', 'addon_type', 'inventory_item_id', 'price',
       'billing_cycle', 'taxable', 'description', 'status',
     ];
   }

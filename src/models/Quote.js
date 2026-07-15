@@ -39,9 +39,9 @@ class Quote extends BaseModel {
     // computed by MySQL from quantity * unit_price and comes back on the SELECT
     // below.
     const [result] = await db.query(
-      `INSERT INTO quote_items (quote_id, description, quantity, unit_price, tax_rate_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [data.quote_id, data.description, data.quantity, data.unit_price, data.tax_rate_id || null],
+      `INSERT INTO quote_items (quote_id, description, quantity, unit_price, tax_rate_id, inventory_item_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [data.quote_id, data.description, data.quantity, data.unit_price, data.tax_rate_id || null, data.inventory_item_id || null],
     );
     const [rows] = await db.query('SELECT * FROM quote_items WHERE id = ?', [result.insertId]);
     return rows[0];

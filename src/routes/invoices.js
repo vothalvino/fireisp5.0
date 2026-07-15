@@ -11,8 +11,9 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
+const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const db = require('../config/database');
-const { AppError } = require('../utils/errors');
+const { AppError, NotFoundError, ValidationError } = require('../utils/errors');
 
 const router = Router();
 // A voided invoice is terminal: any edit is rejected (PUT/PATCH that isn't a
@@ -62,11 +63,67 @@ router.get('/:id/items', requirePermission('invoices.view'), async (req, res, ne
   } catch (err) { next(err); }
 });
 
-// Add invoice line item
+// Add invoice line item. When the line carries an inventory_item_id (a
+// product picked from the catalog rather than a free-text charge), the item
+// insert, stock drawdown, and sell_to_client ledger row all run in ONE
+// transaction (src/services/inventoryDrawdownService.js) — see PR brief
+// "Inventory Phase 2". Free-text/non-inventory lines are unchanged: no
+// transaction is opened, same as before this feature existed.
 router.post('/:id/items', requirePermission('invoices.update'), validate(addInvoiceItem), async (req, res, next) => {
   try {
-    const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
-    res.status(201).json({ data: item });
+    if (!req.body.inventory_item_id) {
+      const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
+      return res.status(201).json({ data: item });
+    }
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Org-scoped invoice lookup — also closes a pre-existing gap where this
+      // route never verified the invoice belonged to the caller's org before
+      // writing to it; needed here regardless to source client_id/invoice_number
+      // for the ledger row.
+      const [[invoice]] = await conn.execute(
+        'SELECT id, client_id, invoice_number FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [req.params.id, req.orgId],
+      );
+      if (!invoice) throw new NotFoundError('Invoice');
+
+      // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
+      // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
+      const [[invItem]] = await conn.execute(
+        'SELECT id FROM inventory_items WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+        [req.body.inventory_item_id, req.orgId],
+      );
+      if (!invItem) {
+        throw new ValidationError(
+          'inventory_item_id does not reference a valid item for this organization',
+          [{ field: 'inventory_item_id', message: 'Invalid or cross-organization inventory item' }],
+        );
+      }
+
+      const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body }, conn.execute.bind(conn));
+
+      await inventoryDrawdownService.drawdownForSale(conn.execute.bind(conn), {
+        orgId: req.orgId,
+        itemId: req.body.inventory_item_id,
+        quantity: req.body.quantity,
+        unitPrice: req.body.unit_price,
+        invoiceId: invoice.id,
+        clientId: invoice.client_id,
+        performedBy: req.user?.id,
+        reference: invoice.invoice_number,
+      });
+
+      await conn.commit();
+      res.status(201).json({ data: item });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }

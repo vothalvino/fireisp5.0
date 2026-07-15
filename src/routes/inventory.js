@@ -37,6 +37,51 @@ router.get('/items/:id/stock', requirePermission('inventory.view'), async (req, 
   }
 });
 
+// Ledger read API (Inventory Phase 2, §14.2) — org-scoped via the item's
+// organization_id (matching every other org check in this file), paginated
+// newest-first, each row enriched with item name/sku + warehouse name so the
+// frontend Movements view needs no follow-up lookups. Declared before the
+// POST of the same path only for readability — there is no /:id route on
+// this router to collide with.
+router.get('/transactions', requirePermission('inventory.view'), async (req, res, next) => {
+  try {
+    const { item_id, stock_id, transaction_type } = req.query;
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 50, 500));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+    const conditions = ['(i.organization_id = ? OR i.organization_id IS NULL)'];
+    const params = [req.orgId];
+    if (item_id) { conditions.push('s.item_id = ?'); params.push(item_id); }
+    if (stock_id) { conditions.push('t.stock_id = ?'); params.push(stock_id); }
+    if (transaction_type) { conditions.push('t.transaction_type = ?'); params.push(transaction_type); }
+    const where = conditions.join(' AND ');
+
+    const [rows] = await db.query(
+      `SELECT t.*, i.name AS item_name, i.sku AS item_sku, w.name AS warehouse_name
+       FROM inventory_transactions t
+       JOIN inventory_stock s ON s.id = t.stock_id
+       JOIN inventory_items i ON i.id = s.item_id
+       JOIN warehouses w ON w.id = s.warehouse_id
+       WHERE ${where}
+       ORDER BY t.created_at DESC, t.id DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params,
+    );
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM inventory_transactions t
+       JOIN inventory_stock s ON s.id = t.stock_id
+       JOIN inventory_items i ON i.id = s.item_id
+       WHERE ${where}`,
+      params,
+    );
+
+    res.json({ data: rows, meta: { total: countRows[0].total, limit, offset } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Record inventory transaction (receive, assign, transfer, etc.)
 //
 // stock_id is normally required, but for transaction_type 'receive' or

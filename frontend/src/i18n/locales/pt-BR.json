@@ -3014,7 +3014,8 @@
       "assets": "Ativos",
       "vendors": "Fornecedores",
       "purchaseOrders": "Ordens de Compra",
-      "rma": "RMA"
+      "rma": "RMA",
+      "movements": "Movimentações"
     },
     "stock": {
       "lowStock": "Alertas de Estoque Baixo",
@@ -3045,6 +3046,38 @@
       "rmaNumber": "Número RMA",
       "reason": "Motivo",
       "status": "Status"
+    },
+    "movements": {
+      "filterItem": "Item",
+      "filterAllItems": "Todos os itens",
+      "filterType": "Tipo",
+      "filterAllTypes": "Todos os tipos",
+      "date": "Data",
+      "type": "Tipo",
+      "item": "Item",
+      "warehouse": "Armazém",
+      "qty": "Qtd.",
+      "reference": "Referência",
+      "performedBy": "Realizado Por",
+      "noRows": "Nenhuma movimentação de estoque encontrada"
+    }
+  },
+  "productPicker": {
+    "label": "Produto",
+    "customOption": "— linha personalizada / texto livre —",
+    "onHand": "em estoque: {{count}}"
+  },
+  "invoiceDetail": {
+    "addItem": {
+      "heading": "Adicionar Item",
+      "description": "Descrição",
+      "quantity": "Quantidade",
+      "unitPrice": "Preço Unitário",
+      "add": "Adicionar Item",
+      "adding": "Adicionando…"
+    },
+    "toasts": {
+      "itemAdded": "Item de linha adicionado."
     }
   },
   "reports": {

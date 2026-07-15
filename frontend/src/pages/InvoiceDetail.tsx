@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore, authedFetch } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
+import { fetchAddonCatalog, addonPrice, addonQuantityOnHand } from '@/api/addonCatalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +27,7 @@ interface Invoice {
   invoice_number: string;
   subtotal: string;
   tax_amount: string;
+  tax_rate: string | null;
   discount_amount: string | null;
   total: string;
   currency: string;
@@ -45,6 +47,7 @@ interface InvoiceItem {
   unit_price: string;
   amount: string;
   tax_rate: string | null;
+  inventory_item_id?: number | null;
 }
 
 interface Payment {
@@ -143,6 +146,37 @@ async function updateInvoice(id: number, body: UpdateInvoiceBody): Promise<void>
     body: body as never,
   });
   if (error) throw new Error(extractApiError(error, 'Failed to update invoice'));
+}
+
+interface AddInvoiceItemBody {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount: number;
+  inventory_item_id?: number;
+}
+
+async function addInvoiceItem(invoiceId: number, body: AddInvoiceItemBody): Promise<InvoiceItem> {
+  const res = await api.POST('/invoices/{id}/items' as never, {
+    params: { path: { id: invoiceId } },
+    body: body as never,
+  } as never);
+  if ((res as { error?: unknown }).error) {
+    throw new Error(extractApiError((res as { error: unknown }).error, 'Failed to add item'));
+  }
+  return (res as { data: { data: InvoiceItem } }).data.data;
+}
+
+// Mirrors billingService's rounding convention (Math.round(x*100)/100) and
+// treats tax_rate as a 0-1 FRACTION (DECIMAL(5,4) on invoices — same
+// convention as quotes; see QuoteDetail.tsx's identical helper) — never
+// multiply by an extra 100 here.
+function computeInvoiceTotals(items: InvoiceItem[], taxRate: number) {
+  const rawSubtotal = items.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const subtotal = Math.round(rawSubtotal * 100) / 100;
+  const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
+  const total = Math.round((subtotal + taxAmount) * 100) / 100;
+  return { subtotal, taxAmount, total };
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +362,97 @@ function RecordPaymentModal({ invoice, clientId, onClose, onRecorded }: RecordPa
 }
 
 // ---------------------------------------------------------------------------
+// Add Line Item form — the invoice's first-ever add-item UI (previously
+// invoice_items could only be created via POST /invoices/generate). Mirrors
+// QuoteDetail.tsx's AddItemForm: an inline card, not a modal, with an
+// optional product-catalog picker on top of the always-available free-text
+// fields (picking a product just autofills description/unit price and tags
+// the line with inventory_item_id — the fields stay editable either way).
+// invoice_items has no PUT/DELETE route (mirrors quote_items), so items can
+// be added but not edited/removed once saved.
+// ---------------------------------------------------------------------------
+
+interface AddInvoiceItemFormProps {
+  onAdd: (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => void;
+  pending: boolean;
+  error: string;
+}
+
+function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) {
+  const { t } = useTranslation();
+  const [productId, setProductId] = useState('');
+  const [description, setDescription] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('');
+
+  const { data: catalog = [] } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+
+  function selectProduct(id: string) {
+    setProductId(id);
+    const addon = catalog.find(a => String(a.id) === id);
+    if (addon) {
+      setDescription(addon.name);
+      setUnitPrice(addonPrice(addon));
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const selected = catalog.find(a => String(a.id) === productId);
+    onAdd({
+      description,
+      quantity,
+      unit_price: unitPrice,
+      ...(selected?.inventory_item_id ? { inventory_item_id: selected.inventory_item_id } : {}),
+    });
+    // Reset for the next line item immediately (mirrors QuoteDetail.tsx).
+    setProductId('');
+    setDescription('');
+    setQuantity('1');
+    setUnitPrice('');
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+      {catalog.length > 0 && (
+        <div style={{ flex: '1 1 220px' }}>
+          <label style={labelStyle} htmlFor="invoice-item-product">{t('productPicker.label')}</label>
+          <select id="invoice-item-product" style={inputStyle} value={productId} onChange={e => selectProduct(e.target.value)}>
+            <option value="">{t('productPicker.customOption')}</option>
+            {catalog.map(a => (
+              <option
+                key={a.id}
+                value={String(a.id)}
+                style={a.inventory_item_id && addonQuantityOnHand(a) <= 0 ? { color: '#dc2626' } : undefined}
+              >
+                {a.name} — {addonPrice(a)}
+                {a.inventory_item_id ? ` (${t('productPicker.onHand', { count: addonQuantityOnHand(a) })})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div style={{ flex: '2 1 200px' }}>
+        <label style={labelStyle} htmlFor="invoice-item-description">{t('invoiceDetail.addItem.description')}</label>
+        <input id="invoice-item-description" style={inputStyle} type="text" maxLength={500} required value={description} onChange={e => setDescription(e.target.value)} />
+      </div>
+      <div style={{ flex: '1 1 90px' }}>
+        <label style={labelStyle} htmlFor="invoice-item-quantity">{t('invoiceDetail.addItem.quantity')}</label>
+        <input id="invoice-item-quantity" style={inputStyle} type="number" min="0.01" step="0.01" required value={quantity} onChange={e => setQuantity(e.target.value)} />
+      </div>
+      <div style={{ flex: '1 1 120px' }}>
+        <label style={labelStyle} htmlFor="invoice-item-unit-price">{t('invoiceDetail.addItem.unitPrice')}</label>
+        <input id="invoice-item-unit-price" style={inputStyle} type="number" min="0" step="0.01" required value={unitPrice} onChange={e => setUnitPrice(e.target.value)} />
+      </div>
+      <button type="submit" style={submitBtn} disabled={pending}>
+        {pending ? t('invoiceDetail.addItem.adding') : t('invoiceDetail.addItem.add')}
+      </button>
+      {error && <p style={{ ...errorBox, flexBasis: '100%' }}>{error}</p>}
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Edit Invoice Modal
 // ---------------------------------------------------------------------------
 
@@ -434,10 +559,12 @@ function EditInvoiceModal({ invoice, onClose, onSaved }: EditInvoiceModalProps) 
 
 export function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [showPayment, setShowPayment] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [addItemError, setAddItemError] = useState('');
 
   const invoiceQ = useQuery({
     queryKey: ['invoice', id],
@@ -470,6 +597,37 @@ export function InvoiceDetail() {
       qc.invalidateQueries({ queryKey: ['invoice', id] });
     },
     onError: (err: Error) => showToast(`Error: ${err.message}`),
+  });
+
+  const addItemMutation = useMutation({
+    mutationFn: async (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => {
+      const quantity = parseFloat(form.quantity);
+      const unitPrice = parseFloat(form.unit_price);
+      const amount = Math.round(quantity * unitPrice * 100) / 100;
+      await addInvoiceItem(Number(id), {
+        description: form.description.trim(),
+        quantity,
+        unit_price: unitPrice,
+        amount,
+        ...(form.inventory_item_id ? { inventory_item_id: form.inventory_item_id } : {}),
+      });
+
+      // Recompute subtotal/tax/total from the full item set (fraction
+      // tax-rate math, same as billingService/QuoteDetail.tsx) and persist
+      // it onto the invoice, so the header always reflects its line items.
+      const freshItems = await fetchItems(id!);
+      const taxRate = invoiceQ.data ? (parseFloat(invoiceQ.data.tax_rate ?? '0') || 0) : 0;
+      const { subtotal, taxAmount, total } = computeInvoiceTotals(freshItems, taxRate);
+      await updateInvoice(Number(id), { subtotal, tax_amount: taxAmount, total });
+    },
+    onSuccess: () => {
+      setAddItemError('');
+      qc.invalidateQueries({ queryKey: ['invoice', id] });
+      qc.invalidateQueries({ queryKey: ['invoice-items', id] });
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      showToast(t('invoiceDetail.toasts.itemAdded'));
+    },
+    onError: (err: Error) => setAddItemError(err.message),
   });
 
   const voidMutation = useMutation({
@@ -650,6 +808,18 @@ export function InvoiceDetail() {
                   ))}
                 </tbody>
               </table>
+            )}
+
+            {/* Add-item form: invoice_items has no PUT/DELETE route (mirrors
+                quote_items), so items can be added but not edited/removed
+                once saved. Hidden once the invoice is void — a voided
+                invoice cannot be modified. */}
+            {invoice.status !== 'void' && (
+              <AddInvoiceItemForm
+                onAdd={(form) => addItemMutation.mutate(form)}
+                pending={addItemMutation.isPending}
+                error={addItemError}
+              />
             )}
           </div>
 

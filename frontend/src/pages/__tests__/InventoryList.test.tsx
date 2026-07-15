@@ -101,3 +101,38 @@ describe('InventoryList — Record Transaction modal (first-time stock)', () => 
     expect(mockAuthedFetch).not.toHaveBeenCalled();
   });
 });
+
+// =============================================================================
+// Stock modal — negative quantity rendering (Inventory Phase 2, §14.2)
+// =============================================================================
+// Negative stock is now an allowed state (automatic sale drawdown never
+// blocks on a stock-count drift). Before this fix, `row.quantity === 0 ? red
+// : green` never matched a negative number, so a negative balance rendered
+// GREEN — the opposite of what a drift warning should look like.
+describe('InventoryList — Stock modal negative quantity rendering', () => {
+  it('renders a negative stock balance in red, not green', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/inventory/items?'))
+        return jsonResponse({ data: [item1], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } });
+      if (url.includes('/inventory/items/1/stock')) {
+        return jsonResponse({
+          data: [{ id: 55, warehouse_id: 5, warehouse_name: 'Main Warehouse', quantity: -3, aisle: null, col: null, shelf: null }],
+        });
+      }
+      if (url.includes('/warehouses'))
+        return jsonResponse({ data: [warehouse1], meta: { total: 1 } });
+      return jsonResponse({ data: [] });
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('MikroTik RB750Gr3')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('Stock'));
+    // "Total in stock: -3" (summary line) and the per-row quantity cell both
+    // render the literal text "-3" — scope to the colored <span> cell.
+    await waitFor(() => expect(screen.getAllByText('-3').length).toBeGreaterThan(0));
+    const coloredCell = screen.getAllByText('-3').find(el => el.tagName === 'SPAN');
+    expect(coloredCell).toBeDefined();
+    expect(coloredCell).toHaveStyle({ color: '#dc2626' });
+  });
+});

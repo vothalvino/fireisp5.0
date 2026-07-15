@@ -1406,6 +1406,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     unit_price  DECIMAL(10, 2)  NOT NULL,
     amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
+    inventory_item_id BIGINT UNSIGNED NULL COMMENT 'Inventory item this line sold, if any — drives automatic stock drawdown (migration 390)',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1415,10 +1416,13 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     KEY idx_invoice_items_invoice_id (invoice_id),
     KEY idx_invoice_items_tax_rate_id (tax_rate_id),
     KEY idx_invoice_items_deleted_at (deleted_at),
+    KEY idx_invoice_items_inventory_item (inventory_item_id),
     CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id)
         REFERENCES invoices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_invoice_items_tax_rate FOREIGN KEY (tax_rate_id)
-        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_invoice_items_inventory_item FOREIGN KEY (inventory_item_id)
+        REFERENCES inventory_items (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -1432,6 +1436,7 @@ CREATE TABLE IF NOT EXISTS quote_items (
     quantity    DECIMAL(10, 2)  NOT NULL DEFAULT 1.00,
     unit_price  DECIMAL(10, 2)  NOT NULL,
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent quote',
+    inventory_item_id BIGINT UNSIGNED NULL COMMENT 'Inventory item this line represents — carried through to invoice_items on quote->invoice conversion (migration 390)',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1441,10 +1446,13 @@ CREATE TABLE IF NOT EXISTS quote_items (
     KEY idx_quote_items_quote_id (quote_id),
     KEY idx_quote_items_tax_rate_id (tax_rate_id),
     KEY idx_quote_items_deleted_at (deleted_at),
+    KEY idx_quote_items_inventory_item (inventory_item_id),
     CONSTRAINT fk_quote_items_quote FOREIGN KEY (quote_id)
         REFERENCES quotes (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_quote_items_tax_rate FOREIGN KEY (tax_rate_id)
-        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES tax_rates (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_quote_items_inventory_item FOREIGN KEY (inventory_item_id)
+        REFERENCES inventory_items (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -6576,6 +6584,7 @@ CREATE TABLE IF NOT EXISTS plan_addons (
     description      TEXT             NULL                         COMMENT 'Detailed description shown to billing agents or on the client portal',
     addon_type       ENUM('static_ip','extra_ip_block','extra_bandwidth','equipment_rental','voip','iptv','other')
                                       NOT NULL                     COMMENT 'Category of add-on for reporting and processing logic',
+    inventory_item_id BIGINT UNSIGNED NULL                        COMMENT 'Optional link to the inventory_items row this catalog product is backed by (migration 390)',
     price            DECIMAL(10, 2)   NOT NULL                     COMMENT 'Base price per billing cycle',
     billing_cycle    ENUM('monthly','one_time','yearly')
                                       NOT NULL DEFAULT 'monthly'   COMMENT 'How often this add-on is charged',
@@ -6591,8 +6600,11 @@ CREATE TABLE IF NOT EXISTS plan_addons (
     KEY idx_plan_addons_addon_type (addon_type),
     KEY idx_plan_addons_status (status),
     KEY idx_plan_addons_deleted_at (deleted_at),
+    KEY idx_plan_addons_inventory_item (inventory_item_id),
     CONSTRAINT fk_plan_addons_organization FOREIGN KEY (organization_id)
-        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE
+        REFERENCES organizations (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_plan_addons_inventory_item FOREIGN KEY (inventory_item_id)
+        REFERENCES inventory_items (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -7434,19 +7446,12 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
--- Trigger: inventory stock negative guard (migration 127)
--- Purpose: Prevent inventory_stock.quantity from going below zero.
+-- Trigger: inventory stock negative guard (migration 127) — REMOVED by
+-- migration 390. Inventory Phase 2's sale drawdown policy requires that
+-- invoicing a linked product never fails on a stock-count drift; negative
+-- inventory_stock.quantity is now an explicit, allowed state (rendered in
+-- red in the UI) rather than a blocking DB error.
 -- ---------------------------------------------------------------------------
-DROP TRIGGER IF EXISTS trg_inventory_stock_negative_bu$$
-CREATE TRIGGER trg_inventory_stock_negative_bu
-BEFORE UPDATE ON inventory_stock
-FOR EACH ROW
-BEGIN
-    IF NEW.quantity < 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Inventory stock quantity cannot be negative';
-    END IF;
-END$$
 
 -- ---------------------------------------------------------------------------
 -- Trigger: PPPoE contract RADIUS consistency (migration 128)

@@ -7,6 +7,10 @@
 //   3. Vendors         — vendor CRUD
 //   4. Purchase Orders — PO list with status
 //   5. RMA             — return merchandise authorisation requests
+//   6. Movements       — inventory_transactions ledger, read-only (Inventory
+//                        Phase 2, §14.2) — the ledger has always been
+//                        write-only (POST /inventory/transactions,
+//                        purchase-order receive, sale drawdown) until now.
 // =============================================================================
 
 import { useState } from 'react';
@@ -74,10 +78,37 @@ interface RmaRequest {
   created_at: string;
 }
 
+interface InventoryTransaction {
+  id: number;
+  stock_id: number;
+  transaction_type: string;
+  quantity: number;
+  unit_price: string | null;
+  reference: string | null;
+  performed_by: number | null;
+  created_at: string;
+  item_name: string;
+  item_sku: string | null;
+  warehouse_name: string;
+}
+
+interface InventoryItemOption {
+  id: number;
+  name: string;
+  sku: string | null;
+}
+
 interface ListResponse<T> {
   data: T[];
   meta: { total: number; page: number; limit: number; totalPages?: number };
 }
+
+interface LedgerResponse<T> {
+  data: T[];
+  meta: { total: number; limit: number; offset: number };
+}
+
+const TRANSACTION_TYPES = ['receive', 'assign_to_job', 'sell_to_client', 'transfer_out', 'transfer_in', 'return', 'adjustment'];
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,6 +174,30 @@ async function fetchRmaRequests(page: number): Promise<ListResponse<RmaRequest>>
   return (res as { data: unknown }).data as unknown as ListResponse<RmaRequest>;
 }
 
+async function fetchInventoryTransactions(
+  offset: number,
+  itemId: string,
+  transactionType: string,
+): Promise<LedgerResponse<InventoryTransaction>> {
+  const query: Record<string, unknown> = { limit: PAGE_SIZE, offset };
+  if (itemId) query.item_id = Number(itemId);
+  if (transactionType) query.transaction_type = transactionType;
+  const res = await api.GET('/inventory/transactions' as never, { params: { query } as never } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load inventory movements');
+  return (res as { data: unknown }).data as unknown as LedgerResponse<InventoryTransaction>;
+}
+
+// Minimal item list for the Movements tab's filter dropdown — reuses the
+// same endpoint the Stock tab does, but only the fields the filter needs.
+async function fetchInventoryItemOptions(): Promise<InventoryItemOption[]> {
+  const res = await api.GET('/inventory/items' as never, {
+    params: { query: { page: 1, limit: 500 } as never },
+  } as never);
+  if ((res as { error?: unknown }).error) throw new Error('Failed to load inventory items');
+  const body = (res as { data: unknown }).data as unknown as ListResponse<InventoryItemOption>;
+  return body.data;
+}
+
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
@@ -150,7 +205,7 @@ async function fetchRmaRequests(page: number): Promise<ListResponse<RmaRequest>>
 export function InventoryManagement() {
   const { t } = useTranslation();
 
-  type Tab = 'stock' | 'assets' | 'vendors' | 'purchaseOrders' | 'rma';
+  type Tab = 'stock' | 'assets' | 'vendors' | 'purchaseOrders' | 'rma' | 'movements';
   const [tab, setTab] = useState<Tab>('stock');
 
   // Stock tab
@@ -197,6 +252,22 @@ export function InventoryManagement() {
     enabled: tab === 'rma',
   });
   const rmaTotalPages = Math.ceil((rmaQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+
+  // Movements tab
+  const [movementsPage, setMovementsPage] = useState(1);
+  const [movementsItemFilter, setMovementsItemFilter] = useState('');
+  const [movementsTypeFilter, setMovementsTypeFilter] = useState('');
+  const movementsQ = useQuery({
+    queryKey: ['inventory', 'movements', movementsPage, movementsItemFilter, movementsTypeFilter],
+    queryFn: () => fetchInventoryTransactions((movementsPage - 1) * PAGE_SIZE, movementsItemFilter, movementsTypeFilter),
+    enabled: tab === 'movements',
+  });
+  const movementsTotalPages = Math.ceil((movementsQ.data?.meta.total ?? 0) / PAGE_SIZE) || 1;
+  const movementsItemsQ = useQuery({
+    queryKey: ['inventory', 'movementsItemOptions'],
+    queryFn: fetchInventoryItemOptions,
+    enabled: tab === 'movements',
+  });
 
   // ---------------------------------------------------------------------------
   // Render helpers
@@ -248,7 +319,7 @@ export function InventoryManagement() {
         aria-label={t('inventoryManagement.title')}
         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', display: 'flex', gap: '0.25rem' }}
       >
-        {(['stock', 'assets', 'vendors', 'purchaseOrders', 'rma'] as const).map(tabId => (
+        {(['stock', 'assets', 'vendors', 'purchaseOrders', 'rma', 'movements'] as const).map(tabId => (
           <button
             key={tabId}
             role="tab"
@@ -588,6 +659,102 @@ export function InventoryManagement() {
                 </button>
                 <span style={styles.pageInfo}>{rmaPage} / {rmaTotalPages}</span>
                 <button style={styles.pageBtn} onClick={() => setRmaPage(p => p + 1)} disabled={rmaPage >= rmaTotalPages}>
+                  {t('inventoryManagement.next')} &raquo;
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB: Movements                                                    */}
+      {/* ================================================================ */}
+      {tab === 'movements' && (
+        <div
+          role="tabpanel"
+          id="tabpanel-movements"
+          aria-labelledby="tab-movements"
+        >
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div>
+              <label htmlFor="movements-item-filter" style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                {t('inventoryManagement.movements.filterItem')}
+              </label>
+              <select
+                id="movements-item-filter"
+                value={movementsItemFilter}
+                onChange={e => { setMovementsItemFilter(e.target.value); setMovementsPage(1); }}
+                style={{ padding: '0.4rem 0.6rem', borderRadius: 4, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+              >
+                <option value="">{t('inventoryManagement.movements.filterAllItems')}</option>
+                {(movementsItemsQ.data ?? []).map(i => (
+                  <option key={i.id} value={String(i.id)}>{i.name}{i.sku ? ` (${i.sku})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="movements-type-filter" style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                {t('inventoryManagement.movements.filterType')}
+              </label>
+              <select
+                id="movements-type-filter"
+                value={movementsTypeFilter}
+                onChange={e => { setMovementsTypeFilter(e.target.value); setMovementsPage(1); }}
+                style={{ padding: '0.4rem 0.6rem', borderRadius: 4, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+              >
+                <option value="">{t('inventoryManagement.movements.filterAllTypes')}</option>
+                {TRANSACTION_TYPES.map(tt => (
+                  <option key={tt} value={tt}>{tt}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {movementsQ.isLoading && <p style={styles.msg}>{t('inventoryManagement.loading')}</p>}
+          {movementsQ.isError && <p style={styles.msgError}>{t('inventoryManagement.loadError')}</p>}
+          {movementsQ.data && (
+            <>
+              <div style={styles.tableCard}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>{t('inventoryManagement.movements.date')}</th>
+                      <th style={styles.th}>{t('inventoryManagement.movements.type')}</th>
+                      <th style={styles.th}>{t('inventoryManagement.movements.item')}</th>
+                      <th style={styles.th}>{t('inventoryManagement.movements.warehouse')}</th>
+                      <th style={styles.thNum}>{t('inventoryManagement.movements.qty')}</th>
+                      <th style={styles.th}>{t('inventoryManagement.movements.reference')}</th>
+                      <th style={styles.th}>{t('inventoryManagement.movements.performedBy')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movementsQ.data.data.length === 0 && (
+                      <tr><td colSpan={7} style={styles.msg}>{t('inventoryManagement.movements.noRows')}</td></tr>
+                    )}
+                    {movementsQ.data.data.map(row => (
+                      <tr key={row.id} style={styles.tr}>
+                        <td style={styles.td}>{formatDate(row.created_at)}</td>
+                        <td style={styles.td}>{row.transaction_type}</td>
+                        <td style={styles.td}>
+                          <strong>{row.item_name}</strong>
+                          {row.item_sku && <span style={{ color: 'var(--text-secondary)' }}> ({row.item_sku})</span>}
+                        </td>
+                        <td style={styles.td}>{row.warehouse_name}</td>
+                        <td style={styles.tdNum}>{row.quantity}</td>
+                        <td style={styles.td}>{row.reference ?? '—'}</td>
+                        <td style={styles.td}>{row.performed_by ? `#${row.performed_by}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} onClick={() => setMovementsPage(p => Math.max(1, p - 1))} disabled={movementsPage <= 1}>
+                  &laquo; {t('inventoryManagement.prev')}
+                </button>
+                <span style={styles.pageInfo}>{movementsPage} / {movementsTotalPages}</span>
+                <button style={styles.pageBtn} onClick={() => setMovementsPage(p => p + 1)} disabled={movementsPage >= movementsTotalPages}>
                   {t('inventoryManagement.next')} &raquo;
                 </button>
               </div>

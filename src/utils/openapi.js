@@ -361,6 +361,8 @@ function generateSpec() {
 
       // ---- Plans ----
       ...crudPaths('plans', 'Plans', 'Plan'),
+      '/plans/addons/catalog': { get: { tags: ['Plans'], summary: 'Product/add-on catalog for invoice & quote generation — inventory-linked entries include quantity_on_hand (SUM of stock across the org\'s warehouses)', operationId: 'getAddonCatalog', security: [{ bearerAuth: [] }], responses: r200('PlanAddon[]') } },
+      '/plans/addons': { post: { tags: ['Plans'], summary: 'Create a plan add-on catalog entry, optionally linked to an inventory item', operationId: 'createPlanAddon', security: [{ bearerAuth: [] }], requestBody: jsonBody('plans_createPlanAddon'), responses: r201('PlanAddon') } },
       '/plans/{id}/radius-attributes': { get: { tags: ['Plans'], summary: 'Preview RADIUS attributes for a plan', operationId: 'getPlanRadiusAttributes', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RadiusAttributes') } },
       '/plans/{id}/speed-windows': {
         get:  { tags: ['Plans'], summary: 'List time-based speed windows for a plan', operationId: 'listPlanSpeedWindows', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SpeedWindow[]') },
@@ -842,7 +844,27 @@ function generateSpec() {
       ...crudPaths('warehouses', 'Warehouses', 'Warehouse'),
 
       // ---- Inventory ----
+      // NOTE: crudPaths('inventory', ...) below documents /inventory + /inventory/{id},
+      // which do not match the real routes (/inventory/items, /inventory/items/{id},
+      // /inventory/items/{id}/stock, /inventory/transactions) — a pre-existing drift
+      // flagged in Inventory Phase 1, not fixed here (out of scope for this PR).
       ...crudPaths('inventory', 'Inventory', 'InventoryItem'),
+      '/inventory/transactions': {
+        get: {
+          tags: ['Inventory'],
+          summary: 'List inventory stock-movement ledger entries (org-scoped, paginated, newest first)',
+          operationId: 'listInventoryTransactions',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'item_id', in: 'query', required: false, schema: { type: 'integer' }, description: 'Filter by inventory_items.id' },
+            { name: 'stock_id', in: 'query', required: false, schema: { type: 'integer' }, description: 'Filter by inventory_stock.id' },
+            { name: 'transaction_type', in: 'query', required: false, schema: { type: 'string', enum: ['receive', 'assign_to_job', 'sell_to_client', 'transfer_out', 'transfer_in', 'return', 'adjustment'] } },
+            limitParam(),
+            { name: 'offset', in: 'query', required: false, schema: { type: 'integer' } },
+          ],
+          responses: r200('InventoryTransaction[]'),
+        },
+      },
 
       // ---- Webhooks ----
       ...crudPaths('webhooks', 'Webhooks', 'Webhook'),

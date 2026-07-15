@@ -20,14 +20,23 @@ vi.mock('react-router-dom', async () => {
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
 const mockApiPut = vi.fn();
+const mockAuthedFetch = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...a: unknown[]) => mockApiGet(...a),
     POST: (...a: unknown[]) => mockApiPost(...a),
     PUT: (...a: unknown[]) => mockApiPut(...a),
   },
+  authedFetch: (...a: unknown[]) => mockAuthedFetch(...a),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
+
+// GET /plans/addons/catalog — the product picker's catalog source (fetched
+// via authedFetch, not the typed api client; see api/addonCatalog.ts).
+const productCatalog = [
+  { id: 3, name: 'MikroTik hAP ac3', price: '899.00', inventory_item_id: 7, quantity_on_hand: 5 },
+  { id: 4, name: 'Out of Stock Router', price: '500.00', inventory_item_id: 8, quantity_on_hand: -2 },
+];
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -72,6 +81,7 @@ function setupMocks(initialStatus = 'draft', items: object[] = [item1]) {
     return Promise.resolve({ data: {}, error: undefined });
   });
   mockApiPut.mockResolvedValue({ data: { data: makeQuote(currentStatus) }, error: undefined });
+  mockAuthedFetch.mockResolvedValue({ ok: true, json: async () => ({ data: productCatalog }) });
 }
 
 function renderDetail() {
@@ -196,5 +206,45 @@ describe('QuoteDetail page', () => {
     ));
 
     expect(await screen.findByText('Line item added.')).toBeInTheDocument();
+  });
+
+  // Inventory Phase 2: the product picker autofills description/unit_price
+  // from the catalog and tags the line with inventory_item_id — a plain
+  // free-text line (no product selected, covered by the test above) posts
+  // without that field at all.
+  it('picking a product autofills the line and sends inventory_item_id', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    const picker = await screen.findByLabelText('Product');
+    fireEvent.change(picker, { target: { value: '3' } });
+
+    expect(screen.getByLabelText(/Description/)).toHaveValue('MikroTik hAP ac3');
+    expect(screen.getByLabelText(/Unit Price/)).toHaveValue(899);
+
+    fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Item' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/quotes/{id}/items',
+      expect.objectContaining({
+        params: { path: { id: 7 } },
+        body: expect.objectContaining({ description: 'MikroTik hAP ac3', inventory_item_id: 7 }),
+      }),
+    ));
+  });
+
+  // "on hand: N" renders in red for an inventory-linked product with
+  // quantity_on_hand <= 0 (negative stock is an allowed, visible state —
+  // Inventory Phase 2 policy).
+  it('renders negative on-hand in red in the product picker', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    const picker = await screen.findByLabelText('Product');
+    const negativeOption = Array.from(picker.querySelectorAll('option'))
+      .find(o => o.textContent?.includes('Out of Stock Router'));
+    expect(negativeOption).toBeDefined();
+    expect(negativeOption?.style.color).toBe('rgb(220, 38, 38)');
   });
 });

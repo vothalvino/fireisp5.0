@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 import { styles as crudStyles, modalStyles, RequiredMark } from './crudStyles';
+import { fetchAddonCatalog, addonPrice, addonQuantityOnHand } from '@/api/addonCatalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +53,7 @@ interface QuoteItem {
   // quote_items.total is a GENERATED column (quantity * unit_price) — there is
   // no writable `amount` column on this table (unlike invoice_items).
   total: string;
+  inventory_item_id?: number | null;
 }
 
 interface Client {
@@ -92,6 +94,10 @@ interface AddItemBody {
   // compatibility, but never persisted (see Quote.addItem) — the DB computes
   // `total` itself. Sent as quantity * unit_price so validation is satisfied.
   amount: number;
+  // Optional link to a catalog product backed by physical stock (migration
+  // 390) — carried through unchanged to invoice_items on conversion; quotes
+  // themselves never draw down stock.
+  inventory_item_id?: number;
 }
 
 async function addQuoteItem(quoteId: number, body: AddItemBody): Promise<QuoteItem> {
@@ -201,25 +207,47 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 interface AddItemFormProps {
-  onAdd: (form: { description: string; quantity: string; unit_price: string }) => void;
+  onAdd: (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => void;
   pending: boolean;
   error: string;
 }
 
 function AddItemForm({ onAdd, pending, error }: AddItemFormProps) {
   const { t } = useTranslation();
+  const [productId, setProductId] = useState('');
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('');
 
+  // Optional product-catalog picker — autofills description/unit price and
+  // tags the line with inventory_item_id; free-text lines keep working
+  // exactly as before (the fields stay editable either way).
+  const { data: catalog = [] } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+
+  function selectProduct(id: string) {
+    setProductId(id);
+    const addon = catalog.find(a => String(a.id) === id);
+    if (addon) {
+      setDescription(addon.name);
+      setUnitPrice(addonPrice(addon));
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onAdd({ description, quantity, unit_price: unitPrice });
+    const selected = catalog.find(a => String(a.id) === productId);
+    onAdd({
+      description,
+      quantity,
+      unit_price: unitPrice,
+      ...(selected?.inventory_item_id ? { inventory_item_id: selected.inventory_item_id } : {}),
+    });
     // Reset for the next line item immediately — quotes commonly need
     // several items added back-to-back (e.g. equipment + install fee +
     // first-month service), so the form shouldn't make the user re-clear
     // fields between adds. If the add fails, addItemError still surfaces
     // below the (now-empty) form.
+    setProductId('');
     setDescription('');
     setQuantity('1');
     setUnitPrice('');
@@ -227,6 +255,24 @@ function AddItemForm({ onAdd, pending, error }: AddItemFormProps) {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
+      {catalog.length > 0 && (
+        <div style={{ flex: '1 1 220px' }}>
+          <label style={labelStyle} htmlFor="quote-item-product">{t('productPicker.label')}</label>
+          <select id="quote-item-product" style={inputStyle} value={productId} onChange={e => selectProduct(e.target.value)}>
+            <option value="">{t('productPicker.customOption')}</option>
+            {catalog.map(a => (
+              <option
+                key={a.id}
+                value={String(a.id)}
+                style={a.inventory_item_id && addonQuantityOnHand(a) <= 0 ? { color: '#dc2626' } : undefined}
+              >
+                {a.name} — {addonPrice(a)}
+                {a.inventory_item_id ? ` (${t('productPicker.onHand', { count: addonQuantityOnHand(a) })})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div style={{ flex: '2 1 200px' }}>
         <label style={labelStyle} htmlFor="quote-item-description">{t('quoteDetail.form.description')} <RequiredMark /></label>
         <input id="quote-item-description" style={inputStyle} type="text" maxLength={255} required value={description} onChange={e => setDescription(e.target.value)} />
@@ -404,11 +450,17 @@ export function QuoteDetail() {
   const quote = quoteQ.data;
 
   const addItemMutation = useMutation({
-    mutationFn: async (form: { description: string; quantity: string; unit_price: string }) => {
+    mutationFn: async (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => {
       const quantity = parseFloat(form.quantity);
       const unitPrice = parseFloat(form.unit_price);
       const amount = Math.round(quantity * unitPrice * 100) / 100;
-      await addQuoteItem(Number(id), { description: form.description.trim(), quantity, unit_price: unitPrice, amount });
+      await addQuoteItem(Number(id), {
+        description: form.description.trim(),
+        quantity,
+        unit_price: unitPrice,
+        amount,
+        ...(form.inventory_item_id ? { inventory_item_id: form.inventory_item_id } : {}),
+      });
 
       // Recompute subtotal/tax/total from the full item set — the same
       // (fraction) tax-rate math billingService uses when generating

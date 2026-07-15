@@ -422,8 +422,10 @@ function StockModal({ item, onClose, onRecord }: StockModalProps) {
                   </td>
                   <td style={{ ...td, fontWeight: 600 }}>
                     <span style={{
-                      color: row.quantity <= (item.reorder_level ?? 0) && row.quantity > 0
-                        ? '#d97706' : row.quantity === 0 ? '#dc2626' : '#065f46',
+                      color: row.quantity < 0
+                        ? '#dc2626'
+                        : row.quantity <= (item.reorder_level ?? 0) && row.quantity > 0
+                          ? '#d97706' : row.quantity === 0 ? '#dc2626' : '#065f46',
                     }}>
                       {row.quantity}
                     </span>

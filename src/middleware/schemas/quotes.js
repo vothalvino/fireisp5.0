@@ -31,6 +31,11 @@ const createQuoteItem = {
   quantity: { type: 'number', required: true, min: 0 },
   unit_price: { type: 'number', required: true, min: 0 },
   amount: { type: 'number', required: true, min: 0 },
+  // Optional link to the inventory item this line represents (migration 390)
+  // — carried through unchanged to invoice_items on quote->invoice
+  // conversion. Quotes never draw down stock themselves; org-ownership is
+  // verified in the route handler (422 on cross-org/nonexistent), not here.
+  inventory_item_id: { type: 'number', min: 1 },
 };
 
 module.exports = { createQuote, updateQuote, createQuoteItem };
