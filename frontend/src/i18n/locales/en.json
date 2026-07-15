@@ -213,7 +213,10 @@
       "admin": "Administration",
       "fieldWork": "Field Work",
       "inventory": "Inventory"
-    }
+    },
+    "vendors": "🏬 Vendors",
+    "purchaseOrders": "📑 Purchase Orders",
+    "cpeInventory": "📶 CPE Inventory"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -3939,5 +3942,153 @@
     "cityField": "City",
     "stateField": "State",
     "zipCodeField": "ZIP / Postal Code"
+  },
+  "vendors": {
+    "title": "Vendors",
+    "total": "vendors",
+    "newVendor": "New Vendor",
+    "newTitle": "New Vendor",
+    "editTitle": "Edit Vendor",
+    "loading": "Loading vendors…",
+    "loadError": "Failed to load vendors. Please try again.",
+    "noItems": "No vendors found.",
+    "deleteFailed": "Failed to delete vendor.",
+    "deleteConfirmTitle": "Confirm delete",
+    "deleteConfirmMessage": "Delete vendor \"{{name}}\"? This cannot be undone.",
+    "filters": {
+      "status": "Status:",
+      "all": "All"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "table": {
+      "name": "Name",
+      "contactName": "Contact Name",
+      "email": "Email",
+      "phone": "Phone",
+      "paymentTerms": "Payment Terms",
+      "currency": "Currency",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "form": {
+      "name": "Name",
+      "contactName": "Contact Name",
+      "email": "Email",
+      "phone": "Phone",
+      "website": "Website",
+      "address": "Address",
+      "taxId": "Tax ID",
+      "paymentTerms": "Payment Terms",
+      "currency": "Currency",
+      "status": "Status",
+      "notes": "Notes",
+      "genericError": "An error occurred"
+    },
+    "actions": {
+      "edit": "Edit",
+      "delete": "Delete",
+      "cancel": "Cancel",
+      "save": "Save Changes",
+      "saving": "Saving…",
+      "create": "Create Vendor"
+    }
+  },
+  "purchaseOrders": {
+    "title": "Purchase Orders",
+    "total": "purchase orders",
+    "newPo": "New Purchase Order",
+    "newTitle": "New Purchase Order",
+    "loading": "Loading purchase orders…",
+    "loadError": "Failed to load purchase orders. Please try again.",
+    "noItems": "No purchase orders found.",
+    "deleteFailed": "Failed to delete purchase order.",
+    "deleteConfirmMessage": "Delete purchase order \"{{number}}\"? This cannot be undone.",
+    "filters": {
+      "status": "Status:",
+      "all": "All"
+    },
+    "table": {
+      "poNumber": "PO Number",
+      "vendor": "Vendor",
+      "warehouse": "Warehouse",
+      "orderDate": "Order Date",
+      "total": "Total",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "form": {
+      "poNumber": "PO Number",
+      "vendor": "Vendor",
+      "selectVendor": "— select vendor —",
+      "warehouse": "Warehouse",
+      "selectWarehouse": "— select warehouse —",
+      "orderDate": "Order Date",
+      "expectedDate": "Expected Date",
+      "reference": "Reference",
+      "notes": "Notes",
+      "genericError": "An error occurred"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create Purchase Order",
+      "creating": "Creating…",
+      "delete": "Delete"
+    }
+  },
+  "purchaseOrderDetail": {
+    "breadcrumb": "Purchase Orders",
+    "loading": "Loading…",
+    "loadingItems": "Loading items…",
+    "notFound": "Purchase order not found.",
+    "vendorLabel": "Vendor:",
+    "notesLabel": "Notes:",
+    "lineItems": "Line Items",
+    "noItems": "No line items yet. Add one below.",
+    "meta": {
+      "status": "Status",
+      "warehouse": "Warehouse",
+      "total": "Total",
+      "subtotal": "Subtotal",
+      "tax": "Tax",
+      "orderDate": "Order Date",
+      "expectedDate": "Expected Date",
+      "receivedDate": "Received Date",
+      "reference": "Reference"
+    },
+    "table": {
+      "description": "Description",
+      "quantityOrdered": "Ordered",
+      "quantityReceived": "Received",
+      "unitCost": "Unit Cost",
+      "totalCost": "Total Cost"
+    },
+    "form": {
+      "inventoryItem": "Inventory Item",
+      "selectItem": "— optional: link to inventory item —",
+      "description": "Description",
+      "quantityOrdered": "Quantity",
+      "unitCost": "Unit Cost"
+    },
+    "actions": {
+      "add": "Add Item",
+      "adding": "Adding…",
+      "receive": "Receive",
+      "cancel": "Cancel"
+    },
+    "receiveModal": {
+      "title": "Receive Purchase Order",
+      "receiveNow": "Receive Now",
+      "hint": "Quantities default to the full remaining amount. Lower a value to receive a partial shipment — the order will be marked \"partial\" until every line is fully received.",
+      "confirm": "Confirm Receive",
+      "receiving": "Receiving…",
+      "genericError": "An error occurred"
+    },
+    "toasts": {
+      "itemAdded": "Line item added.",
+      "received": "Purchase order received — stock updated."
+    }
   }
 }

@@ -33,7 +33,12 @@ const updateInventoryItem = {
 };
 
 const createInventoryTransaction = {
-  stock_id: { type: 'number', required: true, min: 1 },
+  // Either stock_id, OR item_id + warehouse_id (for transaction_type 'receive'
+  // /'adjustment' only), must be provided — that OR-requirement is enforced by
+  // the route handler, not here, since validate() has no cross-field rules.
+  stock_id: { type: 'number', required: false, min: 1 },
+  item_id: { type: 'number', required: false, min: 1 },
+  warehouse_id: { type: 'number', required: false, min: 1 },
   transaction_type: { type: 'string', required: true, enum: ['receive', 'assign_to_job', 'sell_to_client', 'transfer_out', 'transfer_in', 'return', 'adjustment'] },
   quantity: { type: 'number', required: true },
   unit_price: { type: 'number', min: 0 },

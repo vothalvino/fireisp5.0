@@ -40,7 +40,7 @@ interface Asset {
   name: string;
   category: string | null;
   lifecycle_status: string;
-  warranty_expires: string | null;
+  warranty_expires_at: string | null;
   assigned_to_client_id: number | null;
 }
 
@@ -61,7 +61,7 @@ interface PurchaseOrder {
   vendor_id: number | null;
   order_date: string | null;
   expected_date: string | null;
-  total_amount: number | null;
+  total: string | null;
   status: string;
 }
 
@@ -215,9 +215,15 @@ export function InventoryManagement() {
     return 'inherit';
   }
 
-  function formatCurrency(amount: number | null) {
-    if (amount === null) return '—';
-    return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function formatCurrency(amount: string | number | null | undefined) {
+    // purchase_orders.total is a DECIMAL column — mysql2 returns DECIMAL values
+    // as strings, not numbers, so this must parse before formatting. Guards
+    // both null (never fetched) and undefined (field absent) — the previous
+    // version only guarded null and crashed on undefined with a TypeError.
+    if (amount === null || amount === undefined) return '—';
+    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (Number.isNaN(num)) return '—';
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   function formatDate(d: string | null) {
@@ -381,7 +387,7 @@ export function InventoryManagement() {
                             {item.lifecycle_status}
                           </span>
                         </td>
-                        <td style={styles.td}>{formatDate(item.warranty_expires)}</td>
+                        <td style={styles.td}>{formatDate(item.warranty_expires_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -494,7 +500,7 @@ export function InventoryManagement() {
                         <td style={styles.td}><strong>{item.po_number}</strong></td>
                         <td style={styles.td}>{formatDate(item.order_date)}</td>
                         <td style={styles.td}>{formatDate(item.expected_date)}</td>
-                        <td style={styles.tdNum}>{formatCurrency(item.total_amount)}</td>
+                        <td style={styles.tdNum}>{formatCurrency(item.total)}</td>
                         <td style={styles.td}>
                           <span style={{
                             color: item.status === 'received' ? '#059669'

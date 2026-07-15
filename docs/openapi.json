@@ -56627,6 +56627,14 @@
             "type": "number",
             "minimum": 1
           },
+          "item_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "warehouse_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "transaction_type": {
             "type": "string",
             "enum": [
@@ -56668,7 +56676,6 @@
           }
         },
         "required": [
-          "stock_id",
           "transaction_type",
           "quantity"
         ]
@@ -62658,6 +62665,9 @@
             "type": "string"
           },
           "notes": {
+            "type": "string"
+          },
+          "items": {
             "type": "string"
           }
         }

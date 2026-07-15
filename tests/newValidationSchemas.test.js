@@ -368,12 +368,29 @@ describe('Inventory validation schemas', () => {
     }
   });
 
-  test('createInventoryTransaction requires stock_id, transaction_type, quantity', () => {
+  test('createInventoryTransaction requires transaction_type and quantity', () => {
     const next = run(createInventoryTransaction, {});
     const fields = errorFields(next);
-    expect(fields).toContain('stock_id');
     expect(fields).toContain('transaction_type');
     expect(fields).toContain('quantity');
+  });
+
+  // stock_id is no longer schema-required (Inventory Phase 1): a caller may
+  // instead provide item_id + warehouse_id so the route can create a
+  // first-time stock row for 'receive'/'adjustment'. The OR-requirement
+  // between stock_id and item_id+warehouse_id is enforced by the route
+  // handler (src/routes/inventory.js), not this schema — see the route's
+  // integration tests (tests/inventoryTransactions.test.js) for that contract.
+  test('createInventoryTransaction does not require stock_id at the schema level', () => {
+    const next = run(createInventoryTransaction, { transaction_type: 'receive', quantity: 5 });
+    expectPass(next);
+  });
+
+  test('createInventoryTransaction accepts item_id + warehouse_id in place of stock_id', () => {
+    const next = run(createInventoryTransaction, {
+      item_id: 1, warehouse_id: 2, transaction_type: 'receive', quantity: 5,
+    });
+    expectPass(next);
   });
 
   test('createInventoryTransaction rejects invalid transaction_type', () => {
