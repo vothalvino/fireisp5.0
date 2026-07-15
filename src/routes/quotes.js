@@ -237,7 +237,45 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
         const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
         const up = Math.max(parseFloat(item.unit_price) || 0, 0);
         const amount = Math.round(qty * up * 100) / 100;
-        lineItems.push({ description: String(item.description).trim(), quantity: qty, unit_price: up });
+
+        // Optional stock link — 'product' lines only, carried through
+        // unchanged to quote_items (mirrors POST /quotes/:id/items). Quotes
+        // NEVER draw down stock themselves — only quote->invoice conversion
+        // (POST /:id/convert-to-invoice, above) does, and it already carries
+        // this same column, so a generate-created quote's linked line
+        // behaves identically to one added via POST /:id/items once accepted
+        // and converted.
+        let inventoryItemId = null;
+        if (type === 'product' && item.inventory_item_id) {
+          // Integer-quantity guard — mirrors POST /quotes/:id/items and
+          // POST /invoices/generate's identical guard (quote_items.quantity
+          // is DECIMAL(10,2) but inventory_stock/inventory_transactions move
+          // whole units, enforced at conversion time via drawdownForSale).
+          if (!Number.isInteger(qty)) {
+            throw new ValidationError(
+              'quantity must be a whole number for inventory-linked line items',
+              [{ field: 'quantity', message: 'Quantity must be an integer when inventory_item_id is set' }],
+            );
+          }
+          // Org-ownership check (mirrors POST /quotes/:id/items) — 422 on
+          // cross-org/nonexistent, never a raw FK-violation later.
+          const [[invItem]] = await db.query(
+            'SELECT id FROM inventory_items WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+            [item.inventory_item_id, req.orgId],
+          );
+          if (!invItem) {
+            throw new ValidationError(
+              'inventory_item_id does not reference a valid item for this organization',
+              [{ field: 'inventory_item_id', message: 'Invalid or cross-organization inventory item' }],
+            );
+          }
+          inventoryItemId = item.inventory_item_id;
+        }
+
+        lineItems.push({
+          description: String(item.description).trim(), quantity: qty, unit_price: up,
+          inventory_item_id: inventoryItemId,
+        });
         subtotal += amount;
       } else {
         return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown item type: ${type}` } });
@@ -281,10 +319,13 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
 
       // No per-item tax_rate_id (NULL = inherit from the parent quote),
       // matching POST /invoices/generate's invoice_items INSERT exactly.
+      // inventory_item_id is carried through but never drawn down here (see
+      // comment above the product-item branch) — no stock/ledger writes on
+      // this connection.
       for (const li of lineItems) {
         await conn.execute(
-          'INSERT INTO quote_items (quote_id, description, quantity, unit_price) VALUES (?, ?, ?, ?)',
-          [quoteId, li.description, li.quantity, li.unit_price],
+          'INSERT INTO quote_items (quote_id, description, quantity, unit_price, inventory_item_id) VALUES (?, ?, ?, ?, ?)',
+          [quoteId, li.description, li.quantity, li.unit_price, li.inventory_item_id || null],
         );
       }
 

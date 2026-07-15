@@ -407,7 +407,7 @@ function generateSpec() {
           },
         },
       },
-      '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
+      '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id (legacy) OR client_id + items[] — items[].inventory_item_id is optional on type:"product" lines and draws down stock in the same transaction as the invoice'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
       '/invoices/{id}/receipt': {
         get: {
@@ -464,7 +464,7 @@ function generateSpec() {
           },
         },
       },
-      '/quotes/generate': { post: { tags: ['Quotes'], summary: 'Generate a quote with line items (client_id + items[], mirrors /invoices/generate)', operationId: 'generateQuote', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_id + items[]'), responses: r201('Quote') } },
+      '/quotes/generate': { post: { tags: ['Quotes'], summary: 'Generate a quote with line items (client_id + items[], mirrors /invoices/generate)', operationId: 'generateQuote', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_id + items[] — items[].inventory_item_id is optional on type:"product" lines; carried through to quote_items with no stock drawdown (quotes never draw down — only conversion to an invoice does)'), responses: r201('Quote') } },
       '/quotes/{id}/convert-to-invoice': {
         post: {
           tags: ['Quotes'],

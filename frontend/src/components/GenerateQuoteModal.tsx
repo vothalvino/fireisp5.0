@@ -59,6 +59,7 @@ interface FlexItem {
   description?: string;
   quantity?: number;
   unit_price?: number;
+  inventory_item_id?: number;
 }
 
 /** Minimal shape of the created quote — just enough for the caller to navigate. */
@@ -131,12 +132,11 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
   const { data: sellableItems = [] } = useQuery({ queryKey: ['sellable-inventory-items'], queryFn: fetchSellableInventoryItems });
   // Product picker: UNION of the curated addon catalog and active inventory
   // items not already linked by one of those addons (Inventory follow-up —
-  // an item is sellable directly, no addon detour required). Note: unlike
-  // InvoiceDetail/QuoteDetail's picker, this modal's `type: 'product'` line
-  // does NOT carry inventory_item_id through to POST /quotes/generate
-  // (pre-existing gap, out of this follow-up's scope — see addonCatalog.ts);
-  // this only extends the SAME pre-existing "prefill only" behavior to more
-  // entries, it does not add a new one.
+  // an item is sellable directly, no addon detour required). Picking a
+  // stock-backed entry tags the line with inventory_item_id, which
+  // POST /quotes/generate now carries through to the created quote_items
+  // row — quotes never draw down stock themselves, only conversion to an
+  // invoice does (same as QuoteDetail's per-item Add Item form).
   const addons = buildProductPickerEntries(addonCatalog, sellableItems);
   const loadError = (!lockedClientId && clientsError) || addonsError;
 
@@ -149,10 +149,17 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
   }
   function selectAddon(localId: string, addonId: string) {
     const addon = addons.find(a => a.value === addonId);
+    const current = items.find(i => i.localId === localId);
+    // Inventory-linked lines must carry a WHOLE-number quantity — the
+    // backend 422s otherwise (mirrors QuoteDetail's AddItemForm). Reset a
+    // fractional quantity left over from a previous (unlinked) selection so
+    // the input doesn't silently fail submit.
+    const resetQuantity = addon?.inventory_item_id && current && !Number.isInteger(parseFloat(current.quantity));
     updateItem(localId, {
       productAddonId: addonId,
       description: addon ? addon.label : '',
       unitPrice: addon ? addon.price : '',
+      ...(resetQuantity ? { quantity: '1' } : {}),
     });
   }
 
@@ -174,6 +181,12 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
       if ((item.type === 'product' || item.type === 'custom') && (!item.unitPrice || parseFloat(item.unitPrice) <= 0)) {
         setError('Please enter a unit price greater than zero for each product/custom item.'); return;
       }
+      if (item.type === 'product') {
+        const entry = addons.find(a => a.value === item.productAddonId);
+        if (entry?.inventory_item_id && !Number.isInteger(parseFloat(item.quantity))) {
+          setError('Quantity must be a whole number for a stock-linked product.'); return;
+        }
+      }
     }
 
     setSubmitting(true);
@@ -183,11 +196,13 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
         if (item.type === 'contract') {
           return { type: 'contract', contract_id: Number(item.contractId) };
         }
+        const entry = item.type === 'product' ? addons.find(a => a.value === item.productAddonId) : undefined;
         return {
           type: item.type,
           description: item.description.trim(),
           quantity: parseFloat(item.quantity) || 1,
           unit_price: parseFloat(item.unitPrice) || 0,
+          ...(entry?.inventory_item_id ? { inventory_item_id: entry.inventory_item_id } : {}),
         };
       });
       const quote = await generateFlexibleQuote(Number(clientId), flexItems);
@@ -248,7 +263,13 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
               </p>
             )}
 
-            {items.map((item, idx) => (
+            {items.map((item, idx) => {
+              // Inventory-linked lines require a whole-number quantity (see
+              // selectAddon / handleSubmit) — mirrors QuoteDetail's
+              // AddItemForm min/step swap.
+              const selectedEntry = item.type === 'product' ? addons.find(a => a.value === item.productAddonId) : undefined;
+              const isInventoryLinked = !!selectedEntry?.inventory_item_id;
+              return (
               <div
                 key={item.localId}
                 style={{
@@ -312,7 +333,7 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>Quantity</label>
-                        <input style={inputStyle} type="number" min="0.01" step="any" value={item.quantity}
+                        <input style={inputStyle} type="number" min={isInventoryLinked ? '1' : '0.01'} step={isInventoryLinked ? '1' : 'any'} value={item.quantity}
                           onChange={e => updateItem(item.localId, { quantity: e.target.value })} />
                       </div>
                       <div style={{ flex: 2 }}>
@@ -345,7 +366,8 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
                   </>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
