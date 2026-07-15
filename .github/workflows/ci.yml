@@ -52,25 +52,27 @@ jobs:
       - name: Offline schema.sql parity check
         run: node src/scripts/schema-parity-check.js
 
-      - name: Security audit
-        # npm retired the legacy "quick audit" endpoint that `pnpm audit` calls
-        # (it now answers HTTP 410 "This endpoint is being retired"), so a plain
-        # `pnpm audit` exits non-zero on an INFRASTRUCTURE error instead of a real
-        # advisory — which would red every build and every push to main. Keep the
-        # gate honest: run the audit, still FAIL on a genuine high/critical
-        # advisory, but treat an unreachable/retired endpoint as a skip (with a
-        # visible warning) rather than a hard failure.
-        # Remove this wrapper once `pnpm audit` targets npm's bulk advisory API.
-        run: |
-          set +e
-          OUT=$(pnpm audit --audit-level=high 2>&1)
-          CODE=$?
-          echo "$OUT"
-          if [ "$CODE" -ne 0 ] && echo "$OUT" | grep -qiE "ERR_PNPM_AUDIT_BAD_RESPONSE|being retired|responded with 410"; then
-            echo "::warning::pnpm audit endpoint unavailable (npm retired the legacy audit API); advisory gate skipped this run."
-            exit 0
-          fi
-          exit "$CODE"
+      - name: Dependency vulnerability audit (Trivy)
+        # Replaces `pnpm audit`: npm retired the legacy quick-audit endpoint pnpm
+        # calls (HTTP 410 "This endpoint is being retired"), so `pnpm audit` can no
+        # longer function. Trivy scans the pnpm lockfile against its own regularly
+        # updated vuln DB, with no dependency on npm's audit API — a real, blocking
+        # gate again. Reuses the same pinned action, DB version, HIGH,CRITICAL
+        # threshold, ignore-unfixed policy and .trivyignore file as the image scan
+        # below, so suppressions live in one place. Scoped to PRODUCTION
+        # dependencies (Trivy's default for lockfiles), matching the shipped-image
+        # scan; dev/build-tooling advisories are out of this gate's scope.
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          version: v0.71.1
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+          trivyignores: .trivyignore
 
       - name: Run tests with coverage
         run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
