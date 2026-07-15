@@ -641,6 +641,61 @@ describe('POST /api/v1/quotes/:id/convert-to-invoice — idempotency', () => {
     expect(res.body.error.message).toMatch(/999/);
     expect(db.getConnection).not.toHaveBeenCalled();
   });
+
+  // The early converted_invoice_id guard is check-then-act: two NEAR-CONCURRENT
+  // converts can both read NULL and both proceed. The conditional stamp
+  // (WHERE converted_invoice_id IS NULL) is what serializes them — the loser
+  // matches 0 rows and must roll back its invoice + drawdown, not commit.
+  it('rolls back and 409s when a concurrent conversion wins the atomic stamp (affectedRows 0)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM quotes WHERE id')) {
+        return Promise.resolve([[{
+          id: 1, client_id: 5, contract_id: null, subtotal: '500.00', tax_amount: '80.00', total: '580.00',
+          currency: 'MXN', tax_rate: '0.16', tax_rate_id: 1, notes: null, status: 'accepted',
+          converted_invoice_id: null, // guard passes — the race hasn't been lost yet
+        }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('INSERT INTO invoices')) return Promise.resolve([{ insertId: 51, affectedRows: 1 }]);
+      if (sql.includes('SELECT * FROM quote_items WHERE quote_id')) {
+        return Promise.resolve([[
+          { id: 11, description: 'Router', quantity: 1, unit_price: 500, total: 500, tax_rate_id: null, inventory_item_id: 7 },
+        ]]);
+      }
+      if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 502, affectedRows: 1 }]);
+      if (sql.includes('SELECT s.id FROM inventory_stock s')) return Promise.resolve([[{ id: 55 }]]);
+      if (sql.includes('UPDATE inventory_stock SET quantity')) return Promise.resolve([{ affectedRows: 1 }]);
+      if (sql.includes('INSERT INTO inventory_transactions')) return Promise.resolve([{ insertId: 901, affectedRows: 1 }]);
+      // The concurrent winner already stamped converted_invoice_id, so the
+      // IS NULL condition matches nothing.
+      if (sql.includes('UPDATE quotes SET status')) return Promise.resolve([{ affectedRows: 0 }]);
+      return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const billingService = require('../src/services/billingService');
+    jest.spyOn(billingService, 'nextInvoiceNumber').mockResolvedValue('INV-000010');
+
+    const res = await request(app)
+      .post('/api/v1/quotes/1/convert-to-invoice')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONVERSION_EXISTS');
+
+    // The stamp must be conditional, and the loser must roll back everything
+    // (its invoice INSERT, stock decrement, and ledger row) — never commit.
+    const stampCall = conn.execute.mock.calls.find(c => c[0].includes('UPDATE quotes SET status'));
+    expect(stampCall[0]).toMatch(/converted_invoice_id IS NULL/);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

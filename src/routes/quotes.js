@@ -428,10 +428,23 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
       // transaction as the invoice INSERT above, so a crash/rollback between
       // the two is impossible: either both the invoice and this stamp exist,
       // or neither does (migration 390's idempotency fix).
-      await conn.execute(
-        'UPDATE quotes SET status = ?, converted_invoice_id = ? WHERE id = ?',
+      // The IS NULL condition makes the claim atomic: the early guard above is
+      // check-then-act, so two near-concurrent converts can both pass it. The
+      // row lock serializes them here — the loser matches 0 rows and rolls
+      // back its invoice + stock drawdown instead of double-converting.
+      const [stamp] = await conn.execute(
+        'UPDATE quotes SET status = ?, converted_invoice_id = ? WHERE id = ? AND converted_invoice_id IS NULL',
         ['accepted', invoiceId, req.params.id],
       );
+      if (stamp.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: {
+            code: 'CONVERSION_EXISTS',
+            message: 'This quote was converted to an invoice by a concurrent request.',
+          },
+        });
+      }
 
       await conn.commit();
       const invoice = await Invoice.findById(invoiceId);
