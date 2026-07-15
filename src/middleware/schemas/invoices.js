@@ -34,6 +34,11 @@ const addInvoiceItem = {
   unit_price: { type: 'number', required: true, min: 0 },
   amount: { type: 'number', required: true, min: 0 },
   tax_rate_id: { type: 'number', min: 1 },
+  // Optional link to the inventory item this line sold (migration 390) —
+  // when present, the route decrements stock and writes a ledger row in the
+  // same transaction as the item insert. Org-ownership is verified in the
+  // route handler (422 on cross-org/nonexistent), not here.
+  inventory_item_id: { type: 'number', min: 1 },
 };
 
 const generateInvoice = {

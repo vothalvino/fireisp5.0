@@ -71,3 +71,52 @@ describe('InventoryManagement page — Assets tab warranty column fix', () => {
     expect(screen.getByText('2027-06-01')).toBeInTheDocument();
   });
 });
+
+// =============================================================================
+// Movements tab (Inventory Phase 2, §14.2) — the ledger has always been
+// write-only; this is the first UI that can ever read it back.
+// =============================================================================
+const movementRow = {
+  id: 900, stock_id: 55, transaction_type: 'sell_to_client', quantity: 2,
+  unit_price: '500.00', reference: 'INV-000005', performed_by: 1,
+  created_at: '2026-07-01T12:00:00Z', item_name: 'MikroTik hAP', item_sku: 'RB-1',
+  warehouse_name: 'Main Warehouse',
+};
+
+describe('InventoryManagement page — Movements tab', () => {
+  beforeEach(() => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/inventory/transactions')
+        return Promise.resolve({ data: { data: [movementRow], meta: { total: 1, limit: 25, offset: 0 } }, error: undefined });
+      if (path === '/inventory/items')
+        return Promise.resolve({ data: { data: [{ id: 7, name: 'MikroTik hAP', sku: 'RB-1' }], meta: { total: 1, page: 1, limit: 500 } }, error: undefined });
+      return Promise.resolve({ data: { data: [], meta: { total: 0, page: 1, limit: 25 } }, error: undefined });
+    });
+  });
+
+  it('renders ledger rows enriched with item/warehouse names', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Movements' }));
+
+    // 'INV-000005' (the reference) only ever comes from the loaded ledger
+    // row — unlike 'sell_to_client', it can't false-positive-match the
+    // static transaction-type filter's <option> list.
+    await waitFor(() => expect(screen.getByText('INV-000005')).toBeInTheDocument());
+    expect(screen.getByText('MikroTik hAP')).toBeInTheDocument();
+    expect(screen.getByText('(RB-1)')).toBeInTheDocument();
+    expect(screen.getByText('Main Warehouse')).toBeInTheDocument();
+  });
+
+  it('re-queries with the item filter applied', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Movements' }));
+    await waitFor(() => expect(screen.getByText('INV-000005')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText('Item'), { target: { value: '7' } });
+
+    await waitFor(() => expect(mockApiGet).toHaveBeenCalledWith(
+      '/inventory/transactions',
+      expect.objectContaining({ params: { query: expect.objectContaining({ item_id: 7 }) } }),
+    ));
+  });
+});

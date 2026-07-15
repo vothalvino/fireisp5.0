@@ -13,7 +13,9 @@ const { validate } = require('../middleware/validate');
 const { createQuote, updateQuote, createQuoteItem } = require('../middleware/schemas/quotes');
 const db = require('../config/database');
 const billingService = require('../services/billingService');
+const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const auditLog = require('../services/auditLog');
+const { ValidationError } = require('../utils/errors');
 
 const router = Router();
 const ctrl = crudController(Quote);
@@ -103,9 +105,39 @@ router.get('/:id/items', requirePermission('quotes.view'), async (req, res, next
   }
 });
 
-// Add quote line item
+// Add quote line item. Quotes never draw down stock (drawdown happens only
+// when a quote converts to an invoice — see POST /:id/convert-to-invoice
+// below), so this stays a plain, non-transactional insert; the only new
+// behavior for Inventory Phase 2 is accepting + org-verifying inventory_item_id.
 router.post('/:id/items', requirePermission('quotes.update'), validate(createQuoteItem), async (req, res, next) => {
   try {
+    if (req.body.inventory_item_id) {
+      // Integer-quantity guard: quote_items.quantity is DECIMAL(10,2) but
+      // inventory_stock/inventory_transactions move whole units, so a
+      // fractional quantity here (e.g. 1.5) would silently round on
+      // drawdown when this line is later carried into an invoice via
+      // POST /:id/convert-to-invoice. Free-text/service lines (no
+      // inventory_item_id) keep fractional quantities — this check only
+      // fires for inventory-linked lines.
+      if (!Number.isInteger(req.body.quantity)) {
+        throw new ValidationError(
+          'quantity must be a whole number for inventory-linked line items',
+          [{ field: 'quantity', message: 'Quantity must be an integer when inventory_item_id is set' }],
+        );
+      }
+      // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
+      // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
+      const [[invItem]] = await db.query(
+        'SELECT id FROM inventory_items WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+        [req.body.inventory_item_id, req.orgId],
+      );
+      if (!invItem) {
+        throw new ValidationError(
+          'inventory_item_id does not reference a valid item for this organization',
+          [{ field: 'inventory_item_id', message: 'Invalid or cross-organization inventory item' }],
+        );
+      }
+    }
     const item = await Quote.addItem({ quote_id: req.params.id, ...req.body });
     res.status(201).json({ data: item });
   } catch (err) {
@@ -305,10 +337,30 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
     }
     const quote = quotes[0];
 
+    // Idempotency guard (migration 390's converted_invoice_id back-reference):
+    // a quote that already converted must reject a retry/double-click 409
+    // instead of creating a duplicate invoice and re-running drawdownForSale
+    // per linked line — checked BEFORE the status gate below because the
+    // terminal write further down leaves status at 'accepted', so status
+    // alone can never distinguish "never converted" from "already converted".
+    if (quote.converted_invoice_id) {
+      const [existing] = await db.query(
+        'SELECT id, invoice_number FROM invoices WHERE id = ?',
+        [quote.converted_invoice_id],
+      );
+      const existingInvoice = existing[0];
+      return res.status(409).json({
+        error: {
+          code: 'CONVERSION_EXISTS',
+          message: existingInvoice
+            ? `This quote was already converted to invoice ${existingInvoice.invoice_number} (id ${existingInvoice.id}).`
+            : `This quote was already converted to invoice id ${quote.converted_invoice_id}.`,
+        },
+      });
+    }
+
     // Only an approved (accepted) quote may become an invoice — approve/reject
-    // (above) is the gate. A quote already converted has no separate "converted"
-    // status to detect (quotes carries no invoice_id back-reference), so this is
-    // the only guard available without a migration.
+    // (above) is the gate.
     if (quote.status !== 'accepted') {
       return res.status(409).json({
         error: {
@@ -342,24 +394,57 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
       );
       const invoiceId = invResult.insertId;
 
-      // Copy quote items to invoice items
+      // Copy quote items to invoice items — inventory_item_id is carried
+      // through unchanged (migration 390). A linked line's stock drawdown
+      // happens HERE, inline, in this same transaction — this route builds
+      // invoice_items via raw SQL and never calls POST /invoices/:id/items
+      // internally, so a converted line is drawn down exactly once.
       const [quoteItems] = await conn.execute(
         'SELECT * FROM quote_items WHERE quote_id = ? AND deleted_at IS NULL ORDER BY id',
         [req.params.id],
       );
       for (const item of quoteItems) {
         await conn.execute(
-          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate_id)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [invoiceId, item.description, item.quantity, item.unit_price, item.total, item.tax_rate_id || null],
+          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate_id, inventory_item_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [invoiceId, item.description, item.quantity, item.unit_price, item.total, item.tax_rate_id || null, item.inventory_item_id || null],
         );
+
+        if (item.inventory_item_id) {
+          await inventoryDrawdownService.drawdownForSale(conn.execute.bind(conn), {
+            orgId: req.orgId,
+            itemId: item.inventory_item_id,
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+            invoiceId,
+            clientId: quote.client_id,
+            performedBy: req.user?.id,
+            reference: invoiceNumber,
+          });
+        }
       }
 
-      // Mark quote as accepted
-      await conn.execute(
-        'UPDATE quotes SET status = ? WHERE id = ?',
-        ['accepted', req.params.id],
+      // Mark quote as accepted and record the back-reference — SAME
+      // transaction as the invoice INSERT above, so a crash/rollback between
+      // the two is impossible: either both the invoice and this stamp exist,
+      // or neither does (migration 390's idempotency fix).
+      // The IS NULL condition makes the claim atomic: the early guard above is
+      // check-then-act, so two near-concurrent converts can both pass it. The
+      // row lock serializes them here — the loser matches 0 rows and rolls
+      // back its invoice + stock drawdown instead of double-converting.
+      const [stamp] = await conn.execute(
+        'UPDATE quotes SET status = ?, converted_invoice_id = ? WHERE id = ? AND converted_invoice_id IS NULL',
+        ['accepted', invoiceId, req.params.id],
       );
+      if (stamp.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: {
+            code: 'CONVERSION_EXISTS',
+            message: 'This quote was converted to an invoice by a concurrent request.',
+          },
+        });
+      }
 
       await conn.commit();
       const invoice = await Invoice.findById(invoiceId);

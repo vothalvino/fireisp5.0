@@ -28,14 +28,23 @@ class Invoice extends BaseModel {
     return rows;
   }
 
-  static async addItem(data) {
+  /**
+   * @param {object} data
+   * @param {(sql: string, params: unknown[]) => Promise<[unknown, unknown]>} [exec]
+   *   Optional bound query function (e.g. `conn.execute.bind(conn)`) so the
+   *   caller can run this on a transaction connection — used by
+   *   POST /invoices/:id/items when the line is inventory-linked and must be
+   *   atomic with a stock drawdown. Defaults to the pool.
+   */
+  static async addItem(data, exec = null) {
     const db = require('../config/database');
-    const [result] = await db.query(
-      `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [data.invoice_id, data.description, data.quantity, data.unit_price, data.amount, data.tax_rate_id || null],
+    const run = exec || db.query.bind(db);
+    const [result] = await run(
+      `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, tax_rate_id, inventory_item_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [data.invoice_id, data.description, data.quantity, data.unit_price, data.amount, data.tax_rate_id || null, data.inventory_item_id || null],
     );
-    const [rows] = await db.query('SELECT * FROM invoice_items WHERE id = ?', [result.insertId]);
+    const [rows] = await run('SELECT * FROM invoice_items WHERE id = ?', [result.insertId]);
     return rows[0];
   }
 }

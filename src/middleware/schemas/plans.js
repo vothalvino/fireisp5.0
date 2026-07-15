@@ -43,6 +43,10 @@ const updatePlan = {
 const createPlanAddon = {
   name: { type: 'string', required: true, min: 1, max: 200 },
   addon_type: { type: 'string', required: true, enum: ['static_ip', 'extra_ip_block', 'extra_bandwidth', 'equipment_rental', 'voip', 'iptv', 'other'] },
+  // Optional link to a physical inventory_items row this catalog product is
+  // backed by (migration 390) — org-ownership is verified in the route
+  // handler (422 on cross-org/nonexistent), not here.
+  inventory_item_id: { type: 'number', min: 1 },
   price: { type: 'number', required: true, min: 0 },
   billing_cycle: { type: 'string', enum: ['monthly', 'one_time', 'yearly'] },
   taxable: { type: 'boolean' },

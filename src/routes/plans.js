@@ -12,6 +12,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createPlan, updatePlan, patchPlan, createPlanAddon, createSpeedWindow, createAccessWindow } = require('../middleware/schemas/plans');
 const { httpCache } = require('../middleware/httpCache');
+const { ValidationError } = require('../utils/errors');
 const db = require('../config/database');
 
 const router = Router();
@@ -46,12 +47,28 @@ router.get('/addons/catalog', requirePermission('plans.view'), async (req, res, 
 
 router.post('/addons', requirePermission('plans.create'), validate(createPlanAddon), async (req, res, next) => {
   try {
-    const { name, addon_type, price, billing_cycle, taxable, status } = req.body;
+    const { name, addon_type, inventory_item_id, price, billing_cycle, taxable, status } = req.body;
+
+    // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
+    // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
+    if (inventory_item_id) {
+      const [[item]] = await db.query(
+        'SELECT id FROM inventory_items WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+        [inventory_item_id, req.orgId],
+      );
+      if (!item) {
+        throw new ValidationError(
+          'inventory_item_id does not reference a valid item for this organization',
+          [{ field: 'inventory_item_id', message: 'Invalid or cross-organization inventory item' }],
+        );
+      }
+    }
+
     const [result] = await db.query(
       // Column is `is_taxable` (database/schema.sql); the request field stays `taxable`.
-      `INSERT INTO plan_addons (organization_id, name, addon_type, price, billing_cycle, is_taxable, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [req.orgId, name, addon_type, price, billing_cycle, taxable !== false, status || 'active'],
+      `INSERT INTO plan_addons (organization_id, name, addon_type, inventory_item_id, price, billing_cycle, is_taxable, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.orgId, name, addon_type, inventory_item_id || null, price, billing_cycle, taxable !== false, status || 'active'],
     );
     const [rows] = await db.query('SELECT * FROM plan_addons WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });

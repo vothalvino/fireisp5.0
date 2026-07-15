@@ -479,6 +479,7 @@
     "lineItems": "Artículos",
     "noItems": "Aún no hay artículos. Agregue uno abajo.",
     "convertGuard": "Solo las cotizaciones aceptadas se pueden convertir en factura.",
+    "convertedTo": "Convertida en factura:",
     "meta": {
       "status": "Estado",
       "total": "Total",
@@ -499,7 +500,8 @@
     "form": {
       "description": "Descripción",
       "quantity": "Cantidad",
-      "unitPrice": "Precio unitario"
+      "unitPrice": "Precio unitario",
+      "integerQuantityRequired": "La cantidad debe ser un número entero para productos vinculados a inventario."
     },
     "actions": {
       "downloadPdf": "Descargar PDF",
@@ -3014,7 +3016,8 @@
       "assets": "Activos",
       "vendors": "Proveedores",
       "purchaseOrders": "Órdenes de Compra",
-      "rma": "RMA"
+      "rma": "RMA",
+      "movements": "Movimientos"
     },
     "stock": {
       "lowStock": "Alertas de Stock Bajo",
@@ -3045,6 +3048,39 @@
       "rmaNumber": "Número RMA",
       "reason": "Razón",
       "status": "Estado"
+    },
+    "movements": {
+      "filterItem": "Artículo",
+      "filterAllItems": "Todos los artículos",
+      "filterType": "Tipo",
+      "filterAllTypes": "Todos los tipos",
+      "date": "Fecha",
+      "type": "Tipo",
+      "item": "Artículo",
+      "warehouse": "Almacén",
+      "qty": "Cant.",
+      "reference": "Referencia",
+      "performedBy": "Realizado Por",
+      "noRows": "No se encontraron movimientos de stock"
+    }
+  },
+  "productPicker": {
+    "label": "Producto",
+    "customOption": "— línea personalizada / texto libre —",
+    "onHand": "en stock: {{count}}"
+  },
+  "invoiceDetail": {
+    "addItem": {
+      "heading": "Agregar Artículo",
+      "description": "Descripción",
+      "quantity": "Cantidad",
+      "unitPrice": "Precio Unitario",
+      "add": "Agregar Artículo",
+      "adding": "Agregando…",
+      "integerQuantityRequired": "La cantidad debe ser un número entero para productos vinculados a inventario."
+    },
+    "toasts": {
+      "itemAdded": "Artículo de línea agregado."
     }
   },
   "reports": {

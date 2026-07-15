@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
 import { extractApiError } from '@/components/ClientFormModal';
 import { styles as crudStyles, modalStyles, RequiredMark } from './crudStyles';
+import { fetchAddonCatalog, addonPrice, addonQuantityOnHand } from '@/api/addonCatalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +41,11 @@ interface Quote {
   notes: string | null;
   status: string;
   created_at: string;
+  // Back-reference set atomically by POST /quotes/:id/convert-to-invoice
+  // (migration 390) — once set, a second conversion is rejected with 409
+  // CONVERSION_EXISTS, so the frontend hides the Convert button and shows a
+  // link to the resulting invoice instead.
+  converted_invoice_id: number | null;
 }
 
 interface QuoteItem {
@@ -52,6 +58,7 @@ interface QuoteItem {
   // quote_items.total is a GENERATED column (quantity * unit_price) — there is
   // no writable `amount` column on this table (unlike invoice_items).
   total: string;
+  inventory_item_id?: number | null;
 }
 
 interface Client {
@@ -84,6 +91,19 @@ async function fetchClient(id: number): Promise<Client> {
   return (res.data as unknown as { data: Client }).data ?? (res.data as unknown as Client);
 }
 
+interface ConvertedInvoice {
+  id: number;
+  invoice_number: string | null;
+}
+
+// Only fetched once quote.converted_invoice_id is set, to show the invoice
+// number next to the "Converted to invoice:" link instead of just the id.
+async function fetchConvertedInvoice(id: number): Promise<ConvertedInvoice> {
+  const res = await api.GET('/invoices/{id}', { params: { path: { id } } });
+  if (res.error) throw new Error('Invoice not found');
+  return (res.data as unknown as { data: ConvertedInvoice }).data ?? (res.data as unknown as ConvertedInvoice);
+}
+
 interface AddItemBody {
   description: string;
   quantity: number;
@@ -92,6 +112,10 @@ interface AddItemBody {
   // compatibility, but never persisted (see Quote.addItem) — the DB computes
   // `total` itself. Sent as quantity * unit_price so validation is satisfied.
   amount: number;
+  // Optional link to a catalog product backed by physical stock (migration
+  // 390) — carried through unchanged to invoice_items on conversion; quotes
+  // themselves never draw down stock.
+  inventory_item_id?: number;
 }
 
 async function addQuoteItem(quoteId: number, body: AddItemBody): Promise<QuoteItem> {
@@ -201,25 +225,62 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 interface AddItemFormProps {
-  onAdd: (form: { description: string; quantity: string; unit_price: string }) => void;
+  onAdd: (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => void;
   pending: boolean;
   error: string;
 }
 
 function AddItemForm({ onAdd, pending, error }: AddItemFormProps) {
   const { t } = useTranslation();
+  const [productId, setProductId] = useState('');
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('');
+  const [formError, setFormError] = useState('');
+
+  // Optional product-catalog picker — autofills description/unit price and
+  // tags the line with inventory_item_id; free-text lines keep working
+  // exactly as before (the fields stay editable either way).
+  const { data: catalog = [] } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+  const selectedAddon = catalog.find(a => String(a.id) === productId);
+  // inventory_item_id-linked lines must carry a WHOLE-number quantity — the
+  // backend 422s otherwise (migration 390: DECIMAL(10,2) line qty vs INT
+  // stock/ledger). Free-text lines keep the usual step=0.01.
+  const isInventoryLinked = !!selectedAddon?.inventory_item_id;
+
+  function selectProduct(id: string) {
+    setProductId(id);
+    setFormError('');
+    const addon = catalog.find(a => String(a.id) === id);
+    if (addon) {
+      setDescription(addon.name);
+      setUnitPrice(addonPrice(addon));
+      if (addon.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
+        setQuantity('1');
+      }
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onAdd({ description, quantity, unit_price: unitPrice });
+    setFormError('');
+    const selected = catalog.find(a => String(a.id) === productId);
+    if (selected?.inventory_item_id && !Number.isInteger(parseFloat(quantity))) {
+      setFormError(t('quoteDetail.form.integerQuantityRequired'));
+      return;
+    }
+    onAdd({
+      description,
+      quantity,
+      unit_price: unitPrice,
+      ...(selected?.inventory_item_id ? { inventory_item_id: selected.inventory_item_id } : {}),
+    });
     // Reset for the next line item immediately — quotes commonly need
     // several items added back-to-back (e.g. equipment + install fee +
     // first-month service), so the form shouldn't make the user re-clear
     // fields between adds. If the add fails, addItemError still surfaces
     // below the (now-empty) form.
+    setProductId('');
     setDescription('');
     setQuantity('1');
     setUnitPrice('');
@@ -227,13 +288,36 @@ function AddItemForm({ onAdd, pending, error }: AddItemFormProps) {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
+      {catalog.length > 0 && (
+        <div style={{ flex: '1 1 220px' }}>
+          <label style={labelStyle} htmlFor="quote-item-product">{t('productPicker.label')}</label>
+          <select id="quote-item-product" style={inputStyle} value={productId} onChange={e => selectProduct(e.target.value)}>
+            <option value="">{t('productPicker.customOption')}</option>
+            {catalog.map(a => (
+              <option
+                key={a.id}
+                value={String(a.id)}
+                style={a.inventory_item_id && addonQuantityOnHand(a) <= 0 ? { color: '#dc2626' } : undefined}
+              >
+                {a.name} — {addonPrice(a)}
+                {a.inventory_item_id ? ` (${t('productPicker.onHand', { count: addonQuantityOnHand(a) })})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div style={{ flex: '2 1 200px' }}>
         <label style={labelStyle} htmlFor="quote-item-description">{t('quoteDetail.form.description')} <RequiredMark /></label>
         <input id="quote-item-description" style={inputStyle} type="text" maxLength={255} required value={description} onChange={e => setDescription(e.target.value)} />
       </div>
       <div style={{ flex: '1 1 90px' }}>
         <label style={labelStyle} htmlFor="quote-item-quantity">{t('quoteDetail.form.quantity')} <RequiredMark /></label>
-        <input id="quote-item-quantity" style={inputStyle} type="number" min="0.01" step="0.01" required value={quantity} onChange={e => setQuantity(e.target.value)} />
+        <input
+          id="quote-item-quantity" style={inputStyle} type="number"
+          min={isInventoryLinked ? '1' : '0.01'}
+          step={isInventoryLinked ? '1' : '0.01'}
+          required value={quantity} onChange={e => setQuantity(e.target.value)}
+        />
       </div>
       <div style={{ flex: '1 1 120px' }}>
         <label style={labelStyle} htmlFor="quote-item-unit-price">{t('quoteDetail.form.unitPrice')} <RequiredMark /></label>
@@ -242,7 +326,7 @@ function AddItemForm({ onAdd, pending, error }: AddItemFormProps) {
       <button type="submit" style={submitBtn} disabled={pending}>
         {pending ? t('quoteDetail.actions.adding') : t('quoteDetail.actions.add')}
       </button>
-      {error && <p style={{ ...errorText, flexBasis: '100%' }}>{error}</p>}
+      {(formError || error) && <p style={{ ...errorText, flexBasis: '100%' }}>{formError || error}</p>}
     </form>
   );
 }
@@ -396,6 +480,12 @@ export function QuoteDetail() {
     enabled: !!quoteQ.data?.client_id,
   });
 
+  const convertedInvoiceQ = useQuery({
+    queryKey: ['quote-converted-invoice', quoteQ.data?.converted_invoice_id],
+    queryFn: () => fetchConvertedInvoice(quoteQ.data!.converted_invoice_id!),
+    enabled: !!quoteQ.data?.converted_invoice_id,
+  });
+
   function showToast(msg: string) {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 4000);
@@ -404,11 +494,17 @@ export function QuoteDetail() {
   const quote = quoteQ.data;
 
   const addItemMutation = useMutation({
-    mutationFn: async (form: { description: string; quantity: string; unit_price: string }) => {
+    mutationFn: async (form: { description: string; quantity: string; unit_price: string; inventory_item_id?: number }) => {
       const quantity = parseFloat(form.quantity);
       const unitPrice = parseFloat(form.unit_price);
       const amount = Math.round(quantity * unitPrice * 100) / 100;
-      await addQuoteItem(Number(id), { description: form.description.trim(), quantity, unit_price: unitPrice, amount });
+      await addQuoteItem(Number(id), {
+        description: form.description.trim(),
+        quantity,
+        unit_price: unitPrice,
+        amount,
+        ...(form.inventory_item_id ? { inventory_item_id: form.inventory_item_id } : {}),
+      });
 
       // Recompute subtotal/tax/total from the full item set — the same
       // (fraction) tax-rate math billingService uses when generating
@@ -483,7 +579,11 @@ export function QuoteDetail() {
 
   const client = clientQ.data;
   const items = itemsQ.data ?? [];
-  const canConvert = quote?.status === 'accepted';
+  // A quote that already converted (converted_invoice_id set — migration
+  // 390) can never convert again: the backend rejects a retry with 409
+  // CONVERSION_EXISTS, and this hides the button so a double-click can't
+  // even reach that race in the first place.
+  const canConvert = quote?.status === 'accepted' && !quote?.converted_invoice_id;
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: 860 }}>
@@ -579,7 +679,14 @@ export function QuoteDetail() {
                 <strong>{t('quoteDetail.notesLabel')}</strong> {quote.notes}
               </p>
             )}
-            {!canConvert && (
+            {quote.converted_invoice_id ? (
+              <p style={{ margin: '0.75rem 0 0', fontSize: '0.78rem', color: '#059669', borderTop: '1px solid #f3f4f6', paddingTop: '0.75rem' }}>
+                {t('quoteDetail.convertedTo')}{' '}
+                <Link to={`/invoices/${quote.converted_invoice_id}`} style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
+                  {convertedInvoiceQ.data?.invoice_number || `#${quote.converted_invoice_id}`}
+                </Link>
+              </p>
+            ) : !canConvert && (
               <p style={{ margin: '0.75rem 0 0', fontSize: '0.78rem', color: '#9ca3af', borderTop: '1px solid #f3f4f6', paddingTop: '0.75rem' }}>
                 {t('quoteDetail.convertGuard')}
               </p>

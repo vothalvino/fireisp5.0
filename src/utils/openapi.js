@@ -361,6 +361,8 @@ function generateSpec() {
 
       // ---- Plans ----
       ...crudPaths('plans', 'Plans', 'Plan'),
+      '/plans/addons/catalog': { get: { tags: ['Plans'], summary: 'Product/add-on catalog for invoice & quote generation — inventory-linked entries include quantity_on_hand (SUM of stock across the org\'s warehouses)', operationId: 'getAddonCatalog', security: [{ bearerAuth: [] }], responses: r200('PlanAddon[]') } },
+      '/plans/addons': { post: { tags: ['Plans'], summary: 'Create a plan add-on catalog entry, optionally linked to an inventory item', operationId: 'createPlanAddon', security: [{ bearerAuth: [] }], requestBody: jsonBody('plans_createPlanAddon'), responses: r201('PlanAddon') } },
       '/plans/{id}/radius-attributes': { get: { tags: ['Plans'], summary: 'Preview RADIUS attributes for a plan', operationId: 'getPlanRadiusAttributes', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('RadiusAttributes') } },
       '/plans/{id}/speed-windows': {
         get:  { tags: ['Plans'], summary: 'List time-based speed windows for a plan', operationId: 'listPlanSpeedWindows', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SpeedWindow[]') },
@@ -391,7 +393,19 @@ function generateSpec() {
       ...crudPaths('invoices', 'Invoices', 'Invoice'),
       '/invoices/{id}/items': {
         get: { tags: ['Invoices'], summary: 'List invoice line items', operationId: 'listInvoiceItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('InvoiceItem[]') },
-        post: { tags: ['Invoices'], summary: 'Add invoice line item', operationId: 'addInvoiceItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('invoices_addInvoiceItem'), responses: r201('InvoiceItem') },
+        post: {
+          tags: ['Invoices'],
+          summary: 'Add invoice line item; inventory_item_id-linked lines draw down stock atomically',
+          operationId: 'addInvoiceItem',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: jsonBody('invoices_addInvoiceItem'),
+          responses: {
+            ...r201('InvoiceItem'),
+            404: { description: 'Invoice not found' },
+            422: { description: 'Validation error, cross-organization inventory_item_id, fractional quantity on an inventory-linked line (INTEGER required), or the invoice is void (INVOICE_VOID)' },
+          },
+        },
       },
       '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
@@ -437,10 +451,34 @@ function generateSpec() {
       ...crudPaths('quotes', 'Quotes', 'Quote'),
       '/quotes/{id}/items': {
         get: { tags: ['Quotes'], summary: 'List quote line items', operationId: 'listQuoteItems', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('QuoteItem[]') },
-        post: { tags: ['Quotes'], summary: 'Add quote line item', operationId: 'addQuoteItem', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('quotes_createQuoteItem'), responses: r201('QuoteItem') },
+        post: {
+          tags: ['Quotes'],
+          summary: 'Add quote line item',
+          operationId: 'addQuoteItem',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: jsonBody('quotes_createQuoteItem'),
+          responses: {
+            ...r201('QuoteItem'),
+            422: { description: 'Validation error, cross-organization inventory_item_id, or fractional quantity on an inventory-linked line (INTEGER required)' },
+          },
+        },
       },
       '/quotes/generate': { post: { tags: ['Quotes'], summary: 'Generate a quote with line items (client_id + items[], mirrors /invoices/generate)', operationId: 'generateQuote', security: [{ bearerAuth: [] }], requestBody: jsonBody('client_id + items[]'), responses: r201('Quote') } },
-      '/quotes/{id}/convert-to-invoice': { post: { tags: ['Quotes'], summary: 'Convert an accepted quote to an invoice', operationId: 'convertQuoteToInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r201('Invoice') } },
+      '/quotes/{id}/convert-to-invoice': {
+        post: {
+          tags: ['Quotes'],
+          summary: 'Convert an accepted quote to an invoice (idempotent — a quote can only ever convert once)',
+          operationId: 'convertQuoteToInvoice',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: {
+            ...r201('Invoice'),
+            404: { description: 'Quote not found' },
+            409: { description: 'Quote is not accepted (QUOTE_NOT_ACCEPTED), or has already been converted to an invoice — see quotes.converted_invoice_id (CONVERSION_EXISTS)' },
+          },
+        },
+      },
       '/quotes/{id}/approve': { post: { tags: ['Quotes'], summary: 'Approve a quote (sets status to accepted)', operationId: 'approveQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
       '/quotes/{id}/reject': { post: { tags: ['Quotes'], summary: 'Reject a quote (sets status to rejected)', operationId: 'rejectQuote', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quote') } },
 
@@ -842,7 +880,27 @@ function generateSpec() {
       ...crudPaths('warehouses', 'Warehouses', 'Warehouse'),
 
       // ---- Inventory ----
+      // NOTE: crudPaths('inventory', ...) below documents /inventory + /inventory/{id},
+      // which do not match the real routes (/inventory/items, /inventory/items/{id},
+      // /inventory/items/{id}/stock, /inventory/transactions) — a pre-existing drift
+      // flagged in Inventory Phase 1, not fixed here (out of scope for this PR).
       ...crudPaths('inventory', 'Inventory', 'InventoryItem'),
+      '/inventory/transactions': {
+        get: {
+          tags: ['Inventory'],
+          summary: 'List inventory stock-movement ledger entries (org-scoped, paginated, newest first)',
+          operationId: 'listInventoryTransactions',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'item_id', in: 'query', required: false, schema: { type: 'integer' }, description: 'Filter by inventory_items.id' },
+            { name: 'stock_id', in: 'query', required: false, schema: { type: 'integer' }, description: 'Filter by inventory_stock.id' },
+            { name: 'transaction_type', in: 'query', required: false, schema: { type: 'string', enum: ['receive', 'assign_to_job', 'sell_to_client', 'transfer_out', 'transfer_in', 'return', 'adjustment'] } },
+            limitParam(),
+            { name: 'offset', in: 'query', required: false, schema: { type: 'integer' } },
+          ],
+          responses: r200('InventoryTransaction[]'),
+        },
+      },
 
       // ---- Webhooks ----
       ...crudPaths('webhooks', 'Webhooks', 'Webhook'),
