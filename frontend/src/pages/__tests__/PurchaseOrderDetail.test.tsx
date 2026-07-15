@@ -188,4 +188,48 @@ describe('PurchaseOrderDetail page', () => {
       }),
     ));
   });
+
+  // Regression: the modal input is a per-shipment "receive now" DELTA, but the
+  // backend's quantity_received is the CUMULATIVE total. On a second receive of
+  // an already-partially-received line the two must not be confused, or the
+  // just-arrived stock is silently under-counted and the PO can stall.
+  it('second receive of a partial line sends the cumulative total, not the delta', async () => {
+    const partialItem = { ...item1, quantity_received: 4 }; // 4 of 10 already received
+    setupMocks('partial', [partialItem]);
+    renderDetail();
+    const receiveBtn = await screen.findByRole('button', { name: /Receive/ });
+    fireEvent.click(receiveBtn);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive Purchase Order' });
+    const qtyInput = within(dialog).getByRole('spinbutton');
+    expect(qtyInput).toHaveValue(6); // "receive now" defaults to remaining (10 - 4)
+
+    // Accept the default (receive the remaining 6). Cumulative must be 4 + 6 = 10.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm Receive' }));
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/purchase-orders/{id}/receive',
+      expect.objectContaining({
+        body: { items: [{ id: 1, quantity_received: 10 }] },
+      }),
+    ));
+  });
+
+  it('a smaller second receive adds the delta onto what was already received', async () => {
+    const partialItem = { ...item1, quantity_received: 4 }; // 4 of 10 already received
+    setupMocks('partial', [partialItem]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: /Receive/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive Purchase Order' });
+    const qtyInput = within(dialog).getByRole('spinbutton');
+    fireEvent.change(qtyInput, { target: { value: '3' } }); // receive 3 more now
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm Receive' }));
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/purchase-orders/{id}/receive',
+      expect.objectContaining({
+        body: { items: [{ id: 1, quantity_received: 7 }] }, // 4 + 3
+      }),
+    ));
+  });
 });

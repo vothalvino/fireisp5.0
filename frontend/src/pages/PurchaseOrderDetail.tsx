@@ -279,9 +279,13 @@ function ReceiveModal({ po, items, onClose, onReceived }: ReceiveModalProps) {
     mutationFn: () => {
       const payload: ReceiveItemInput[] = items.map(item => {
         const remaining = item.quantity_ordered - item.quantity_received;
-        const requested = Number(quantities[item.id] ?? remaining);
-        const clamped = Math.min(Math.max(requested, item.quantity_received), item.quantity_ordered);
-        return { id: item.id, quantity_received: clamped };
+        // The input is a per-shipment "receive now" delta (defaults to the full
+        // remaining amount). The backend's quantity_received is the CUMULATIVE
+        // total received, so add the delta to what's already on the line —
+        // otherwise a second receive re-sends the delta as an absolute total and
+        // silently under-counts (or no-ops) the stock that just arrived.
+        const receiveNow = Math.min(Math.max(Number(quantities[item.id] ?? remaining), 0), remaining);
+        return { id: item.id, quantity_received: item.quantity_received + receiveNow };
       });
       return receivePo(po.id, payload);
     },
