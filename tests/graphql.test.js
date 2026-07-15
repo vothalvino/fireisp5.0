@@ -231,7 +231,8 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
       .mockResolvedValueOnce([[               // getInvoicesWithBalance — one open invoice
         { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
       ]])
-      .mockResolvedValueOnce([[]]);           // payments — none unallocated
+      .mockResolvedValueOnce([[]])            // payments — none unallocated
+      .mockResolvedValueOnce([[]]);           // credit notes — none
 
     const res = await graphql('query { client(id: "10") { id balance } }');
 
@@ -246,7 +247,8 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
       .mockResolvedValueOnce([[
         { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
       ]])
-      .mockResolvedValueOnce([[]]);
+      .mockResolvedValueOnce([[]])            // payments — none
+      .mockResolvedValueOnce([[]]);           // credit notes — none
 
     const res = await graphql('query { client(id: "10") { id balanceCurrency } }');
 
@@ -261,7 +263,8 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
       .mockResolvedValueOnce([[
         { id: 30, total: '150.00', currency: 'MXN', balance_due: '150.00' },
       ]])
-      .mockResolvedValueOnce([[]]);
+      .mockResolvedValueOnce([[]])            // payments — none
+      .mockResolvedValueOnce([[]]);           // credit notes — none
 
     const res = await graphql('query { client(id: "10") { balance balanceCurrency } }');
 
@@ -269,8 +272,8 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
     expect(res.body.errors).toBeUndefined();
     expect(res.body.data.client.balance).toBe('150.00');
     expect(res.body.data.client.balanceCurrency).toBe('MXN');
-    // findById + the invoice query + the payments query — NOT doubled.
-    expect(mockQuery).toHaveBeenCalledTimes(3);
+    // findById + the invoice, payments, and credit-notes queries — NOT doubled.
+    expect(mockQuery).toHaveBeenCalledTimes(4);
   });
 
   test('client.ledger exposes the computed running_balance as balanceAfter', async () => {

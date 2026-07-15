@@ -31,7 +31,8 @@ describe('computeClientBalance', () => {
       .mockResolvedValueOnce([[ // getInvoicesWithBalance
         { id: 1, client_id: 5, organization_id: 1, total: '1392.00', currency: 'MXN', status: 'issued', balance_due: '1392.00' },
       ]])
-      .mockResolvedValueOnce([[]]); // payments — none
+      .mockResolvedValueOnce([[]]) // payments — none
+      .mockResolvedValueOnce([[]]); // credit notes — none
 
     const { balance, currency } = await computeClientBalance(1, 5);
     expect(balance).toBe(1392);
@@ -43,7 +44,8 @@ describe('computeClientBalance', () => {
       .mockResolvedValueOnce([[]]) // no payable invoices
       .mockResolvedValueOnce([[
         { amount: '500.00', currency: 'MXN', allocated: '0.00' },
-      ]]);
+      ]])
+      .mockResolvedValueOnce([[]]); // credit notes — none
 
     const { balance, currency } = await computeClientBalance(1, 5);
     expect(balance).toBe(-500);
@@ -59,7 +61,8 @@ describe('computeClientBalance', () => {
       .mockResolvedValueOnce([[
         // amount 700.00, 600.00 allocated -> 100.00 unallocated remainder
         { amount: '700.00', currency: 'MXN', allocated: '600.00' },
-      ]]);
+      ]])
+      .mockResolvedValueOnce([[]]); // credit notes — none
 
     const { balance, currency } = await computeClientBalance(1, 5);
     expect(balance).toBe(300); // 400 owed - 100 credit
@@ -73,7 +76,8 @@ describe('computeClientBalance', () => {
       ]])
       .mockResolvedValueOnce([[
         { amount: '150.00', currency: 'MXN', allocated: '150.00' }, // fully applied already
-      ]]);
+      ]])
+      .mockResolvedValueOnce([[]]); // credit notes — none
 
     const { balance } = await computeClientBalance(1, 5);
     expect(balance).toBe(200);
@@ -83,6 +87,7 @@ describe('computeClientBalance', () => {
     db.query
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]]) // credit notes — none
       .mockResolvedValueOnce([[{ currency: 'MXN' }]]); // Organization.getCurrency fallback (no contributing rows)
     await computeClientBalance(7, 5);
 
@@ -93,25 +98,35 @@ describe('computeClientBalance', () => {
     const [paymentSql, paymentParams] = db.query.mock.calls[1];
     expect(paymentSql).toMatch(/organization_id/);
     expect(paymentParams).toContain(7);
+
+    const [creditNoteSql, creditNoteParams] = db.query.mock.calls[2];
+    expect(creditNoteSql).toMatch(/credit_notes/);
+    expect(creditNoteSql).toMatch(/organization_id/);
+    expect(creditNoteParams).toContain(7);
   });
 
-  test('client 35 shape — a stray credit-note ledger entry never flips an owed balance to credit', async () => {
-    // computeClientBalance never queries client_balance_ledger at all — only
-    // invoices + payments feed the result, so a ledger entry (like the
-    // credit note that made the live page read "in credit") simply cannot
-    // affect this figure. Exactly 2 db.query calls proves that.
+  test('client 35 shape — open invoice minus the standing credit note, never the ledger', async () => {
+    // The live-demo confusion: the ledger's lone credit-note entry made the
+    // page read "in credit" while a 1392 invoice sat open. The computed
+    // balance reads the invoice AND the standing credit note from their own
+    // tables (never client_balance_ledger): 1392 - 116 = 1276 owed.
     db.query
       .mockResolvedValueOnce([[
         { id: 99, total: '1392.00', currency: 'MXN', balance_due: '1392.00' },
       ]])
-      .mockResolvedValueOnce([[]]);
+      .mockResolvedValueOnce([[]]) // payments — none
+      .mockResolvedValueOnce([[
+        { total: '116.00', currency: 'MXN' }, // the real standing credit note
+      ]]);
 
     const { balance } = await computeClientBalance(1, 35);
-    expect(balance).toBe(1392);
-    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(balance).toBe(1276);
     for (const [sql] of db.query.mock.calls) {
       expect(sql).not.toMatch(/client_balance_ledger/);
     }
+    // Only issued/applied notes count — drafts and cancelled are excluded.
+    const [cnSql] = db.query.mock.calls[2];
+    expect(cnSql).toMatch(/status IN \('issued', 'applied'\)/);
   });
 
   test('currency: mixed invoice/payment currencies fall back to the org currency', async () => {
@@ -122,6 +137,7 @@ describe('computeClientBalance', () => {
       .mockResolvedValueOnce([[
         { amount: '20.00', currency: 'EUR', allocated: '0.00' },
       ]])
+      .mockResolvedValueOnce([[]]) // credit notes — none
       .mockResolvedValueOnce([[{ currency: 'MXN' }]]); // Organization.getCurrency fallback
 
     const { balance, currency } = await computeClientBalance(1, 5);
@@ -133,10 +149,24 @@ describe('computeClientBalance', () => {
     db.query
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]]) // credit notes — none
       .mockResolvedValueOnce([[{ currency: 'MXN' }]]);
 
     const { balance, currency } = await computeClientBalance(1, 5);
     expect(balance).toBe(0);
+    expect(currency).toBe('MXN');
+  });
+
+  test('a standing credit note alone puts the client in credit; its currency contributes', async () => {
+    db.query
+      .mockResolvedValueOnce([[]]) // no invoices
+      .mockResolvedValueOnce([[]]) // no payments
+      .mockResolvedValueOnce([[
+        { total: '116.00', currency: 'MXN' },
+      ]]);
+
+    const { balance, currency } = await computeClientBalance(1, 35);
+    expect(balance).toBe(-116);
     expect(currency).toBe('MXN');
   });
 });

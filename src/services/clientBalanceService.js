@@ -19,6 +19,15 @@
 //
 // balance = SUM(balance_due of payable invoices: issued/sent/overdue)
 //         - SUM(unallocated remainder of completed payments: amount - allocated)
+//         - SUM(total of standing credit notes: issued/applied)
+//
+// Credit notes are the ONE money instrument with no invoice/payment footprint
+// at all — they historically reduced the balance only via their ledger entry,
+// so a formula built purely on invoices+payments would silently drop a
+// client's standing credit (adversarial review caught exactly this). Drafts
+// (being prepared) and cancelled notes do NOT count — note this is *more*
+// correct than the old ledger, which kept counting a credit note even after
+// cancellation (no compensating entry is ever written).
 //
 // Positive = owed by the client, negative = the client is in credit — same
 // sign convention the ledger used (postpaid semantics: ClientDetail's own
@@ -70,7 +79,20 @@ async function computeClientBalance(orgId, clientId) {
     .filter((p) => p.remainder > 0.005);
   const unallocatedTotal = unallocated.reduce((sum, p) => sum + p.remainder, 0);
 
-  const balance = Math.round((invoiceTotal - unallocatedTotal) * 100) / 100;
+  // Standing credit notes — see module doc. 'issued'/'applied' = live credit
+  // on the account; 'draft' is still being prepared and 'cancelled' is voided.
+  const [creditNotes] = await db.query(
+    `SELECT total, currency FROM credit_notes
+      WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL
+        AND status IN ('issued', 'applied')`,
+    [clientId, orgId],
+  );
+  const standingCredits = creditNotes
+    .map((cn) => ({ currency: cn.currency, total: parseFloat(cn.total) }))
+    .filter((cn) => cn.total > 0.005);
+  const creditNoteTotal = standingCredits.reduce((sum, cn) => sum + cn.total, 0);
+
+  const balance = Math.round((invoiceTotal - unallocatedTotal - creditNoteTotal) * 100) / 100;
 
   // Currency: honest, never a converted figure (see PR brief — "if mixed
   // currencies exist just use org currency and don't fake conversion"). If
@@ -80,6 +102,7 @@ async function computeClientBalance(orgId, clientId) {
   const contributingCurrencies = new Set([
     ...invoices.filter((inv) => parseFloat(inv.balance_due) > 0.005).map((inv) => inv.currency),
     ...unallocated.map((p) => p.currency),
+    ...standingCredits.map((cn) => cn.currency),
   ]);
   const currency = contributingCurrencies.size === 1
     ? [...contributingCurrencies][0]

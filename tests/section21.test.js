@@ -571,7 +571,8 @@ describe('supportBillingModule', () => {
     const ctxNoBilling = { customer: { id: 10 }, billing: null, connection: null, alerts: [] };
     db.query
       .mockResolvedValueOnce([[{ id: 1, total: '75.00', currency: 'MXN', balance_due: '75.00' }], undefined]) // getInvoicesWithBalance
-      .mockResolvedValueOnce([[], undefined]); // payments
+      .mockResolvedValueOnce([[], undefined]) // payments
+      .mockResolvedValueOnce([[], undefined]); // credit notes
     const result = await billingModule.handle('billing', ctxNoBilling, 'cual es mi saldo', 1);
     expect(result.response).toContain('75.00');
     expect(result.response).toContain('MXN');
