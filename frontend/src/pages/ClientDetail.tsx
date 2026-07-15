@@ -37,6 +37,7 @@ import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { NewTicketModal } from '@/components/NewTicketModal';
 import { NewContractModal } from '@/components/NewContractModal';
 import { UndoInstallButton } from '@/components/UndoInstallButton';
+import { CreditNoteModal, reasonLabel, type CreditNote } from '@/pages/CreditNoteList';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -283,22 +284,25 @@ function StatusBadge({ status, colorMap }: { status: string; colorMap?: Record<s
 // Tab types
 // ---------------------------------------------------------------------------
 
-type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'devices' | 'tickets' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates' | 'communication';
+type TabId = 'activity' | 'contracts' | 'invoices' | 'payments' | 'creditNotes' | 'devices' | 'tickets' | 'ledger' | 'contacts' | 'profile' | 'customFields' | 'documents' | 'duplicates' | 'communication';
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'activity',  label: '📅 Activity' },
-  { id: 'contracts', label: '📄 Contracts' },
-  { id: 'invoices',  label: '🧾 Invoices' },
-  { id: 'payments',  label: '💳 Payments' },
-  { id: 'devices',   label: '🖧 Devices' },
-  { id: 'tickets',   label: '🎫 Tickets' },
-  { id: 'ledger',    label: '📒 Ledger' },
-  { id: 'contacts',  label: '👤 Contacts' },
-  { id: 'profile',   label: '🧭 Profile' },
-  { id: 'customFields', label: '🏷️ Custom Fields' },
-  { id: 'documents', label: '📎 Documents' },
-  { id: 'duplicates', label: '🔍 Duplicates' },
-  { id: 'communication', label: '📵 DND / Comms' },
+// Tabs render icon-only (the label appears on the ACTIVE tab and as the
+// hover/AT name of the rest) so the 14-tab bar fits without wrapping.
+const TABS: { id: TabId; icon: string; label: string }[] = [
+  { id: 'activity',  icon: '📅', label: 'Activity' },
+  { id: 'contracts', icon: '📄', label: 'Contracts' },
+  { id: 'invoices',  icon: '🧾', label: 'Invoices' },
+  { id: 'payments',  icon: '💳', label: 'Payments' },
+  { id: 'creditNotes', icon: '↩️', label: 'Credit Notes' },
+  { id: 'devices',   icon: '🖧', label: 'Devices' },
+  { id: 'tickets',   icon: '🎫', label: 'Tickets' },
+  { id: 'ledger',    icon: '📒', label: 'Ledger' },
+  { id: 'contacts',  icon: '👤', label: 'Contacts' },
+  { id: 'profile',   icon: '🧭', label: 'Profile' },
+  { id: 'customFields', icon: '🏷️', label: 'Custom Fields' },
+  { id: 'documents', icon: '📎', label: 'Documents' },
+  { id: 'duplicates', icon: '🔍', label: 'Duplicates' },
+  { id: 'communication', icon: '📵', label: 'DND / Comms' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -458,6 +462,68 @@ function PaymentsTab({ payments }: { payments: Payment[] }) {
               <td style={styles.td}>{p.reference || '—'}</td>
               <td style={styles.td}>{fmt(p.createdAt)}</td>
               <td style={styles.td}><StatusBadge status={p.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const CREDIT_NOTE_STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  draft:     { bg: '#f3f4f6', color: '#374151' },
+  issued:    { bg: '#dbeafe', color: '#1e40af' },
+  applied:   { bg: '#d1fae5', color: '#065f46' },
+  cancelled: { bg: '#fee2e2', color: '#991b1b' },
+};
+
+function CreditNotesTab({ clientId, onEdit }: { clientId: number; onEdit: ((note: CreditNote) => void) | null }) {
+  const { data: notes = [], isLoading, error } = useQuery({
+    queryKey: ['client-credit-notes', clientId],
+    queryFn: async () => {
+      const res = await api.GET('/credit-notes', { params: { query: { client_id: clientId, limit: 100 } as never } });
+      if (res.error) throw new Error('Failed to load credit notes');
+      return (res.data as unknown as { data: CreditNote[] }).data ?? [];
+    },
+  });
+
+  if (isLoading) return <p style={styles.msg}>Loading credit notes…</p>;
+  if (error) return <p style={styles.msg}>Failed to load credit notes.</p>;
+  if (!notes.length) return <p style={styles.msg}>No credit notes found.</p>;
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            {['Number', 'Issued', 'Reason', 'Total', 'Status'].map(h => (
+              <th key={h} style={styles.th}>{h}</th>
+            ))}
+            {onEdit && <th style={styles.th} aria-label="Actions" />}
+          </tr>
+        </thead>
+        <tbody>
+          {notes.map(n => (
+            <tr key={n.id} style={styles.tr}>
+              <td style={{ ...styles.td, fontWeight: 600 }}>{n.credit_note_number || `#${n.id}`}</td>
+              <td style={styles.td}>{fmt(n.issue_date)}</td>
+              <td style={styles.td}>{n.reason ? reasonLabel(n.reason) : '—'}</td>
+              <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtMoney(n.total == null ? null : String(n.total), n.currency || 'MXN')}
+              </td>
+              <td style={styles.td}><StatusBadge status={n.status} colorMap={CREDIT_NOTE_STATUS_COLORS} /></td>
+              {onEdit && (
+                <td style={{ ...styles.td, textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    onClick={() => onEdit(n)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.82rem' }}
+                    title="Edit this credit note"
+                  >
+                    ✏️ Edit
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -1085,12 +1151,16 @@ export function ClientDetail() {
   const [showRecordPayment, setShowRecordPayment] = useState(false);
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [showNewContract, setShowNewContract] = useState(false);
+  // null = closed; { note: null } = create; { note } = edit that note.
+  const [creditNoteModal, setCreditNoteModal] = useState<{ note: CreditNote | null } | null>(null);
 
   const canEdit = can(user, 'clients.update');
   const canCreateInvoice = can(user, 'invoices.create');
   const canRecordPayment = can(user, 'payments.create');
   const canCreateTicket = can(user, 'tickets.create');
   const canCreateContract = can(user, 'contracts.create');
+  const canCreateCreditNote = can(user, 'credit_notes.create');
+  const canEditCreditNote = can(user, 'credit_notes.update');
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],
@@ -1235,18 +1305,21 @@ export function ClientDetail() {
       {/* Info card */}
       <ClientInfoCard client={client} accountGroup={accountGroupName} />
 
-      {/* Tabs */}
+      {/* Tabs — icon-only; the active tab also shows its name */}
       <div style={styles.tabBar}>
         {TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            title={tab.label}
+            aria-label={tab.label}
             style={{
               ...styles.tabBtn,
               ...(activeTab === tab.id ? styles.tabBtnActive : {}),
             }}
           >
-            {tab.label}
+            <span aria-hidden="true" style={{ fontSize: '1.05rem' }}>{tab.icon}</span>
+            {activeTab === tab.id && <span style={{ marginLeft: 6 }}>{tab.label}</span>}
           </button>
         ))}
       </div>
@@ -1270,6 +1343,15 @@ export function ClientDetail() {
           <>
             {canRecordPayment && <NewBtnRow label="+ Record Payment" onClick={() => setShowRecordPayment(true)} />}
             <PaymentsTab payments={client.payments} />
+          </>
+        )}
+        {activeTab === 'creditNotes' && (
+          <>
+            {canCreateCreditNote && <NewBtnRow label="+ New Credit Note" onClick={() => setCreditNoteModal({ note: null })} />}
+            <CreditNotesTab
+              clientId={Number(client.id)}
+              onEdit={canEditCreditNote ? (note => setCreditNoteModal({ note })) : null}
+            />
           </>
         )}
         {activeTab === 'devices'   && <DevicesTab   devices={client.devices} clientId={Number(client.id)} />}
@@ -1334,6 +1416,20 @@ export function ClientDetail() {
           lockedClientName={client.name}
           onClose={() => setShowNewContract(false)}
           onCreated={() => { refetchClient(); setActiveTab('contracts'); }}
+        />
+      )}
+      {creditNoteModal && (
+        <CreditNoteModal
+          creditNote={creditNoteModal.note}
+          clients={[{ id: Number(client.id), name: client.name }]}
+          lockedClientId={Number(client.id)}
+          onClose={() => setCreditNoteModal(null)}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['client-credit-notes', Number(client.id)] });
+            // Credit notes feed the computed account balance — refresh it too.
+            refetchClient();
+            setActiveTab('creditNotes');
+          }}
         />
       )}
       {showAddContact && (
@@ -1443,12 +1539,15 @@ const styles = {
 
   tabBar: {
     display: 'flex',
+    flexWrap: 'wrap' as const,
     gap: '0.25rem',
     borderBottom: '2px solid var(--border)',
     marginBottom: '0',
   },
   tabBtn: {
-    padding: '0.6rem 1rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.5rem 0.7rem',
     border: 'none',
     background: 'transparent',
     cursor: 'pointer',
