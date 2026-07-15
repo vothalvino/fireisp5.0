@@ -15,6 +15,7 @@ const { httpCache, bustCache } = require('../middleware/httpCache');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const { quotaCheck } = require('../middleware/checkQuota');
 const { uploadClientDocument, STORAGE_ROOT } = require('../middleware/upload');
+const paymentAllocationService = require('../services/paymentAllocationService');
 const auditLog = require('../services/auditLog');
 const path = require('path');
 const fs = require('fs');
@@ -197,6 +198,20 @@ router.get('/:id/invoices', requirePermission('invoices.view'), async (req, res,
     const [rows] = await db.query(
       'SELECT * FROM invoices WHERE client_id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
+    );
+    res.json({ data: rows });
+  } catch (err) { next(err); }
+});
+
+// Client's payable open invoices with a computed, live balance_due — the data
+// source for RecordPaymentModal's invoice checklist (auto-fill amount +
+// FIFO order preview). Shared query with POST /payments/:id/allocate-auto
+// (src/services/paymentAllocationService.js) so what the checklist shows is
+// exactly what gets paid first.
+router.get('/:id/open-invoices', requirePermission('invoices.view'), async (req, res, next) => {
+  try {
+    const rows = await paymentAllocationService.getInvoicesWithBalance(
+      db.query.bind(db), req.orgId, req.params.id, null, false,
     );
     res.json({ data: rows });
   } catch (err) { next(err); }

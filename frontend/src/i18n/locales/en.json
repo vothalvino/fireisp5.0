@@ -575,6 +575,48 @@
     "loading": "Loading…",
     "error": "Failed to load payments."
   },
+  "recordPayment": {
+    "title": "Record Payment",
+    "successTitle": "Payment Recorded",
+    "client": "Client",
+    "selectClient": "— select client —",
+    "selectClientError": "Please select a client.",
+    "selectClientFirst": "Select a client to load their open invoices.",
+    "amount": "Amount",
+    "invalidAmount": "Please enter a valid amount greater than zero.",
+    "currency": "Currency",
+    "paymentMethod": "Payment Method",
+    "status": "Status",
+    "statusValues": {
+      "completed": "Completed",
+      "pending": "Pending",
+      "failed": "Failed",
+      "refunded": "Refunded",
+      "cancelled": "Cancelled"
+    },
+    "paymentDate": "Payment Date",
+    "reference": "Reference / Folio (optional)",
+    "referencePlaceholder": "e.g. transfer ID, check number",
+    "invoicesHeading": "Apply to Invoices",
+    "loadingInvoices": "Loading open invoices…",
+    "noOpenInvoices": "No open invoices for this client. This payment will be recorded as unallocated credit.",
+    "loadClientsError": "Failed to load clients.",
+    "excessCreditHint": "The amount above the checked invoices' balance stays as client credit.",
+    "table": {
+      "invoice": "Invoice",
+      "issueDate": "Issue Date",
+      "total": "Total",
+      "balanceDue": "Balance Due"
+    },
+    "cancel": "Cancel",
+    "submit": "Record Payment",
+    "submitting": "Saving…",
+    "paidInFull": "paid in full",
+    "partiallyPaid": "partially paid",
+    "remainingCredit": "Remaining credit: {{amount}}",
+    "recordedAsCredit": "Recorded as an unallocated credit on the client's account.",
+    "done": "Done"
+  },
   "ticketList": {
     "title": "Tickets",
     "newTicket": "+ New Ticket",

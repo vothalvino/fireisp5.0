@@ -9,9 +9,9 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createPayment, updatePayment, patchPayment, allocatePayment } = require('../middleware/schemas/payments');
+const { createPayment, updatePayment, patchPayment, allocatePayment, allocateAuto } = require('../middleware/schemas/payments');
 const billingService = require('../services/billingService');
-const suspensionService = require('../services/suspensionService');
+const paymentAllocationService = require('../services/paymentAllocationService');
 const db = require('../config/database');
 
 const router = Router();
@@ -64,10 +64,29 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
   try {
     const { invoice_id, amount } = req.body;
 
-    // Validate invoice exists and is not void BEFORE inserting the allocation.
-    // A voided invoice's total is NOT zeroed on void (only its ledger entries are),
-    // so the over-allocation trigger would otherwise still let the apply through.
-    const [invoiceRows] = await db.query('SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL', [invoice_id]);
+    // Org-verify the payment BEFORE touching anything else. This route used
+    // to accept ANY payment id with no organization_id filter at all — an
+    // authenticated user in org A could allocate org B's payment to org B's
+    // invoice (marking it paid and reconnecting org B's contract) just by
+    // guessing/enumerating ids. Mirrors the reallocate/reassign/unapply
+    // routes' payment lookup below.
+    const [paymentRows] = await db.query(
+      'SELECT * FROM payments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!paymentRows[0]) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Payment not found.' } });
+    }
+
+    // Validate invoice exists (same org — same hole as above: this had no
+    // organization_id filter either) and is not void BEFORE inserting the
+    // allocation. A voided invoice's total is NOT zeroed on void (only its
+    // ledger entries are), so the over-allocation trigger would otherwise
+    // still let the apply through.
+    const [invoiceRows] = await db.query(
+      'SELECT * FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [invoice_id, req.orgId],
+    );
     const invoice = invoiceRows[0];
     if (!invoice) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invoice not found.' } });
@@ -90,35 +109,161 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
       throw allocErr;
     }
 
-    // Check if invoice is now fully paid (reuse the already-fetched invoice for total)
-    const [allocRows] = await db.query(
-      'SELECT SUM(amount) AS total_allocated FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
-      [invoice_id],
-    );
-    const totalAllocated = parseFloat(allocRows[0].total_allocated || 0);
-    if (totalAllocated >= parseFloat(invoice.total)) {
-      await db.query(
-        'UPDATE invoices SET status = ?, paid_at = NOW() WHERE id = ?',
-        ['paid', invoice_id],
-      );
-
-      // Check if contract was suspended → reconnect
-      if (invoice.contract_id) {
-        const [contractRows] = await db.query(
-          'SELECT * FROM contracts WHERE id = ? AND status = ? AND deleted_at IS NULL',
-          [invoice.contract_id, 'suspended'],
-        );
-        if (contractRows[0]) {
-          await suspensionService.reconnectContract(
-            invoice.contract_id, req.user.id, invoice_id,
-          );
-        }
-      }
+    // Mark the invoice paid once fully covered, and reconnect a suspended
+    // contract — shared with POST /:id/allocate-auto so the two endpoints
+    // cannot drift (see src/services/paymentAllocationService.js).
+    const becamePaid = await paymentAllocationService.finalizeIfFullyPaid(db.query.bind(db), invoice);
+    if (becamePaid) {
+      await paymentAllocationService.reconnectIfSuspended(invoice, req.user.id);
     }
 
     res.status(201).json({ data: allocation });
   } catch (err) {
     next(err);
+  }
+});
+
+// Allocate a payment across one or more of the client's open invoices,
+// oldest→newest (FIFO waterfall), atomically. This is the endpoint the
+// RecordPaymentModal checklist submits to — see PR brief "payment waterfall".
+//
+// Body: { invoice_ids?: number[] }
+//   - given: only those invoices (still org+client verified, still payable,
+//     still applied oldest→newest — narrowing the set never changes order).
+//   - omitted: ALL of the payment's client's payable open invoices.
+//
+// Any leftover after the last invoice is covered stays as unallocated credit
+// on the payment (today's existing model — nothing new to build there).
+router.post('/:id/allocate-auto', requirePermission('payments.create'), validate(allocateAuto), async (req, res, next) => {
+  const conn = await db.getConnection();
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const rawInvoiceIds = req.body.invoice_ids;
+
+    // validate()'s 'array' type only confirms the top-level shape; each
+    // element is checked here (mirrors deviceGroups.js's addGroupMembers
+    // convention where per-item checking also isn't done by validate()).
+    let requestedIds = null;
+    if (rawInvoiceIds !== undefined) {
+      if (!Array.isArray(rawInvoiceIds) || rawInvoiceIds.length === 0
+        || rawInvoiceIds.some((v) => !Number.isInteger(v) || v < 1)) {
+        return res.status(422).json({
+          error: { code: 'VALIDATION_ERROR', message: 'invoice_ids must be a non-empty array of positive integers.' },
+        });
+      }
+      requestedIds = [...new Set(rawInvoiceIds)];
+    }
+
+    await conn.beginTransaction();
+
+    // Org-verify + lock the payment for the duration of this allocation.
+    const [payRows] = await conn.execute(
+      'SELECT * FROM payments WHERE id = ? AND organization_id = ? AND deleted_at IS NULL FOR UPDATE',
+      [paymentId, req.orgId],
+    );
+    if (!payRows[0]) {
+      await conn.rollback();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Payment not found.' } });
+    }
+    const payment = payRows[0];
+
+    // Unallocated remainder for THIS payment (live allocations only).
+    const [remRows] = await conn.execute(
+      'SELECT COALESCE(SUM(amount), 0) AS allocated FROM payment_allocations WHERE payment_id = ? AND deleted_at IS NULL',
+      [paymentId],
+    );
+    let remainder = Math.round((parseFloat(payment.amount) - parseFloat(remRows[0].allocated || 0)) * 100) / 100;
+    if (remainder <= 0) {
+      await conn.rollback();
+      return res.status(422).json({
+        error: { code: 'PAYMENT_FULLY_ALLOCATED', message: 'This payment has no remaining balance to allocate.' },
+      });
+    }
+
+    // Target invoices — org + client verified, payable, oldest→newest, locked
+    // FOR UPDATE. Shared with GET /clients/:id/open-invoices so the checklist
+    // the user saw and the order money is actually applied in always match.
+    const invoiceRows = await paymentAllocationService.getInvoicesWithBalance(
+      conn.execute.bind(conn), req.orgId, payment.client_id, requestedIds, true,
+    );
+    if (requestedIds) {
+      const foundIds = new Set(invoiceRows.map((r) => r.id));
+      const missing = requestedIds.filter((id) => !foundIds.has(id));
+      if (missing.length > 0) {
+        await conn.rollback();
+        return res.status(422).json({
+          error: {
+            code: 'INVOICE_NOT_PAYABLE',
+            message: `Invoice id(s) ${missing.join(', ')} are not payable invoices for this payment's client.`,
+          },
+        });
+      }
+    }
+
+    const allocations = [];
+    const justPaidInvoices = [];
+    for (const invoice of invoiceRows) {
+      if (remainder <= 0) break;
+
+      const balanceDue = Math.max(0, Math.round(Number(invoice.balance_due) * 100) / 100);
+      if (balanceDue <= 0) continue; // already fully covered — skip, don't insert a zero row
+
+      const applyAmount = Math.round(Math.min(remainder, balanceDue) * 100) / 100;
+      if (applyAmount <= 0) continue;
+
+      let insertResult;
+      try {
+        [insertResult] = await conn.execute(
+          'INSERT INTO payment_allocations (payment_id, invoice_id, amount) VALUES (?, ?, ?)',
+          [paymentId, invoice.id, applyAmount],
+        );
+      } catch (allocErr) {
+        // Over-allocation guard trigger (migration 126) → SQLSTATE 45000.
+        if (allocErr.sqlState === '45000' || allocErr.errno === 1644) {
+          await conn.rollback();
+          return res.status(422).json({
+            error: { code: 'OVER_ALLOCATION', message: 'Allocation would exceed the invoice or payment total.' },
+          });
+        }
+        // The soft-delete-aware UNIQUE (migration 361) rejects a second live
+        // allocation of this SAME payment to this SAME invoice — e.g.
+        // allocate-auto called twice with overlapping invoice_ids. Skip
+        // rather than fail the whole batch; the earlier live allocation
+        // already covers this invoice from this payment.
+        if (allocErr.code === 'ER_DUP_ENTRY' || allocErr.errno === 1062) {
+          continue;
+        }
+        throw allocErr;
+      }
+
+      allocations.push({
+        id: insertResult.insertId, payment_id: paymentId, invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number, amount: applyAmount,
+      });
+      remainder = Math.round((remainder - applyAmount) * 100) / 100;
+
+      const becamePaid = await paymentAllocationService.finalizeIfFullyPaid(conn.execute.bind(conn), invoice);
+      if (becamePaid) justPaidInvoices.push(invoice);
+    }
+
+    await conn.commit();
+
+    // Reconnect side effects run AFTER commit — reconnectContract opens its
+    // own connection/transaction and cannot join this one (see
+    // paymentAllocationService.reconnectIfSuspended).
+    for (const invoice of justPaidInvoices) {
+      await paymentAllocationService.reconnectIfSuspended(invoice, req.user.id);
+    }
+
+    const paidIds = new Set(justPaidInvoices.map((inv) => inv.id));
+    const enrichedAllocations = allocations.map((a) => ({ ...a, fully_paid: paidIds.has(a.invoice_id) }));
+
+    res.status(201).json({ data: { allocations: enrichedAllocations, remaining_credit: remainder } });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    next(err);
+  } finally {
+    conn.release();
   }
 });
 

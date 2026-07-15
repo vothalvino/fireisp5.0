@@ -2746,6 +2746,42 @@
         }
       }
     },
+    "/clients/{id}/open-invoices": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List the client's payable open invoices with a computed balance_due, oldest first",
+        "operationId": "listClientOpenInvoices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenInvoiceWithBalance[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/clients/{id}/balance-ledger": {
       "get": {
         "tags": [
@@ -6211,6 +6247,52 @@
         "responses": {
           "201": {
             "description": "Allocation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}/allocate-auto": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Allocate a payment across the client's open invoices oldest→newest (FIFO waterfall), atomically",
+        "operationId": "allocatePaymentAuto",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "payments_allocateAuto (optional invoice_ids — omitted = all payable invoices)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ allocations: Allocation[], remaining_credit: number }",
             "content": {
               "application/json": {
                 "schema": {
@@ -61656,6 +61738,14 @@
           "invoice_id",
           "amount"
         ]
+      },
+      "payments_allocateAuto": {
+        "type": "object",
+        "properties": {
+          "invoice_ids": {
+            "type": "string"
+          }
+        }
       },
       "pdf_pdfById": {
         "type": "object",

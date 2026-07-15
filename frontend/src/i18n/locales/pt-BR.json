@@ -575,6 +575,48 @@
     "loading": "Carregando…",
     "error": "Falha ao carregar pagamentos."
   },
+  "recordPayment": {
+    "title": "Registrar Pagamento",
+    "successTitle": "Pagamento Registrado",
+    "client": "Cliente",
+    "selectClient": "— selecionar cliente —",
+    "selectClientError": "Selecione um cliente.",
+    "selectClientFirst": "Selecione um cliente para carregar suas faturas pendentes.",
+    "amount": "Valor",
+    "invalidAmount": "Insira um valor válido maior que zero.",
+    "currency": "Moeda",
+    "paymentMethod": "Método de Pagamento",
+    "status": "Status",
+    "statusValues": {
+      "completed": "Concluído",
+      "pending": "Pendente",
+      "failed": "Falhou",
+      "refunded": "Reembolsado",
+      "cancelled": "Cancelado"
+    },
+    "paymentDate": "Data do Pagamento",
+    "reference": "Referência / Folio (opcional)",
+    "referencePlaceholder": "ex.: ID da transferência, número do cheque",
+    "invoicesHeading": "Aplicar a Faturas",
+    "loadingInvoices": "Carregando faturas pendentes…",
+    "noOpenInvoices": "Este cliente não possui faturas pendentes. O pagamento será registrado como crédito não alocado.",
+    "loadClientsError": "Falha ao carregar clientes.",
+    "excessCreditHint": "O valor que exceder o saldo das faturas marcadas permanece como crédito do cliente.",
+    "table": {
+      "invoice": "Fatura",
+      "issueDate": "Data de Emissão",
+      "total": "Total",
+      "balanceDue": "Saldo Devedor"
+    },
+    "cancel": "Cancelar",
+    "submit": "Registrar Pagamento",
+    "submitting": "Salvando…",
+    "paidInFull": "paga integralmente",
+    "partiallyPaid": "paga parcialmente",
+    "remainingCredit": "Crédito restante: {{amount}}",
+    "recordedAsCredit": "Registrado como crédito não alocado na conta do cliente.",
+    "done": "Concluído"
+  },
   "ticketList": {
     "title": "Tickets",
     "newTicket": "+ Novo ticket",

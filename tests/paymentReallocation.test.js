@@ -443,14 +443,18 @@ describe('POST /payments/:id/reassign (Capability 3)', () => {
 
 describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
   // In paymentReallocation.test.js, Payment model is NOT mocked, so
-  // Payment.allocate calls db.query for INSERT + SELECT. With the void guard
-  // the first db.query is now SELECT invoice (before Payment.allocate).
+  // Payment.allocate calls db.query for INSERT + SELECT. The route now
+  // org-verifies the payment FIRST (see the payments.js org-scoping fix),
+  // then does the void guard, so db.query[0] is always the payment lookup.
+  const PAYMENT_ROW = { id: 1, client_id: 5, amount: '9999.00', organization_id: 1 };
 
   test('returns 422 INVOICE_VOID when invoice.status is void', async () => {
-    // db.query[0] = SELECT invoice → void
-    db.query.mockResolvedValueOnce([[{
-      id: 5, total: '200.00', status: 'void', contract_id: null, organization_id: 1,
-    }]]);
+    // db.query[0] = SELECT payment (org-verify), [1] = SELECT invoice → void
+    db.query
+      .mockResolvedValueOnce([[PAYMENT_ROW]])
+      .mockResolvedValueOnce([[{
+        id: 5, total: '200.00', status: 'void', contract_id: null, organization_id: 1,
+      }]]);
 
     const res = await request(app)
       .post('/api/v1/payments/1/allocate')
@@ -463,9 +467,11 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
   });
 
   test('returns 422 INVOICE_NOT_PAYABLE when invoice.status is cancelled', async () => {
-    db.query.mockResolvedValueOnce([[{
-      id: 5, total: '200.00', status: 'cancelled', contract_id: null, organization_id: 1,
-    }]]);
+    db.query
+      .mockResolvedValueOnce([[PAYMENT_ROW]])
+      .mockResolvedValueOnce([[{
+        id: 5, total: '200.00', status: 'cancelled', contract_id: null, organization_id: 1,
+      }]]);
 
     const res = await request(app)
       .post('/api/v1/payments/1/allocate')
@@ -478,7 +484,9 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
   });
 
   test('returns 404 when invoice does not exist', async () => {
-    db.query.mockResolvedValueOnce([[]]); // no invoice row
+    db.query
+      .mockResolvedValueOnce([[PAYMENT_ROW]])
+      .mockResolvedValueOnce([[]]); // no invoice row
 
     const res = await request(app)
       .post('/api/v1/payments/1/allocate')
@@ -489,10 +497,25 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
 
+  test('returns 404 when the payment does not belong to this org', async () => {
+    db.query.mockResolvedValueOnce([[]]); // no payment row for this org
+
+    const res = await request(app)
+      .post('/api/v1/payments/1/allocate')
+      .set('Authorization', AUTH)
+      .send({ invoice_id: 5, amount: 100 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+    // Must not have gone on to look up the invoice at all.
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
   test('returns 422 OVER_ALLOCATION when db trigger fires on INSERT', async () => {
     const invoice = { id: 5, total: '100.00', status: 'issued', contract_id: null, organization_id: 1 };
-    // db.query[0] = SELECT invoice (non-void), db.query[1] = INSERT in Payment.allocate → trigger fires
+    // db.query[0] = SELECT payment, [1] = SELECT invoice (non-void), [2] = INSERT in Payment.allocate → trigger fires
     db.query
+      .mockResolvedValueOnce([[PAYMENT_ROW]])
       .mockResolvedValueOnce([[invoice]])
       .mockRejectedValueOnce(Object.assign(new Error('exceeds total'), { sqlState: '45000', errno: 1644 }));
 
@@ -510,8 +533,9 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/allocate', () => {
     const allocation = { id: 10, payment_id: 1, invoice_id: 5, amount: '100.00' };
     const invoice = { id: 5, total: '100.00', status: 'issued', contract_id: null, organization_id: 1 };
 
-    // SELECT invoice (void guard), INSERT alloc, SELECT alloc, SUM alloc
+    // SELECT payment (org-verify), SELECT invoice (void guard), INSERT alloc, SELECT alloc, SUM alloc
     db.query
+      .mockResolvedValueOnce([[PAYMENT_ROW]])
       .mockResolvedValueOnce([[invoice]])
       .mockResolvedValueOnce([{ insertId: 10, affectedRows: 1 }])
       .mockResolvedValueOnce([[allocation]])

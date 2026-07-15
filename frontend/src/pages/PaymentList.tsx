@@ -15,18 +15,15 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
-import { readCsrfCookie } from '@/api/csrf';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { Pagination } from '@/components/Pagination';
+import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import {
   Payment,
   Client,
-  Invoice,
   extractList,
   fmtAmount,
-  PAYMENT_METHODS,
   fetchClients,
-  fetchOpenInvoices,
   fetchAllocations,
   PaymentActionButtons,
 } from './payments/PaymentActions';
@@ -38,17 +35,6 @@ import {
 interface PaymentsResponse {
   data: Payment[];
   meta: { total: number; page: number; limit: number; totalPages: number };
-}
-
-interface RecordPaymentBody {
-  client_id: number;
-  amount: number;
-  currency: string;
-  payment_method: string;
-  payment_date?: string;
-  reference_number?: string;
-  status: string;
-  invoice_id?: number;
 }
 
 interface PaymentAllocation {
@@ -92,45 +78,6 @@ async function fetchGatewayTransactions(clientId: number): Promise<GatewayTransa
   if (!res.ok) return [];
   const body = await res.json() as unknown;
   return extractList<GatewayTransaction>(body);
-}
-
-async function recordPayment(body: RecordPaymentBody): Promise<{ id: number }> {
-  const token = tokenStore.getAccess();
-  const csrf = readCsrfCookie();
-  const { invoice_id, ...paymentBody } = body;
-
-  const createRes = await fetch(`${API_BASE}/payments`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-    },
-    body: JSON.stringify(paymentBody),
-  });
-  if (!createRes.ok) {
-    const err = await createRes.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to record payment');
-  }
-  const { data: payment } = await createRes.json() as { data: { id: number } };
-
-  if (invoice_id) {
-    const allocRes = await fetch(`${API_BASE}/payments/${payment.id}/allocate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-      },
-      body: JSON.stringify({ invoice_id, amount: paymentBody.amount }),
-    });
-    if (!allocRes.ok) {
-      const err = await allocRes.json().catch(() => ({}));
-      throw new Error((err as { error?: string }).error || 'Failed to allocate payment to invoice');
-    }
-  }
-
-  return payment;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,190 +132,6 @@ function GatewayBadge({ status }: { status: string }) {
     }}>
       GW: {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Record Payment Modal
-// ---------------------------------------------------------------------------
-
-interface RecordPaymentModalProps {
-  clients: Client[];
-  onClose: () => void;
-  onRecorded: () => void;
-}
-
-function RecordPaymentModal({ clients, onClose, onRecorded }: RecordPaymentModalProps) {
-  const { t } = useTranslation();
-  const TODAY = new Date().toISOString().split('T')[0];
-  const [form, setForm] = useState({
-    client_id: '',
-    amount: '',
-    currency: 'MXN',
-    payment_method: 'cash',
-    reference_number: '',
-    status: 'completed',
-    payment_date: TODAY,
-  });
-  const [invoiceId, setInvoiceId] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  const { data: openInvoices = [], isLoading: loadingInvoices } = useQuery({
-    queryKey: ['open-invoices', form.client_id],
-    queryFn: () => fetchOpenInvoices(Number(form.client_id)),
-    enabled: !!form.client_id,
-  });
-
-  function setField(name: string, value: string) {
-    setForm(prev => ({ ...prev, [name]: value }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.client_id) { setError('Please select a client.'); return; }
-    if (!form.amount || isNaN(parseFloat(form.amount))) {
-      setError('Please enter a valid amount.');
-      return;
-    }
-    setSubmitting(true);
-    setError('');
-    try {
-      await recordPayment({
-        client_id: Number(form.client_id),
-        amount: parseFloat(form.amount),
-        currency: form.currency,
-        payment_method: form.payment_method,
-        payment_date: form.payment_date,
-        ...(form.reference_number ? { reference_number: form.reference_number } : {}),
-        status: form.status,
-        ...(invoiceId ? { invoice_id: Number(invoiceId) } : {}),
-      });
-      onRecorded();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record payment');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Record Payment">
-      <div style={{ ...modalBox, maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 1rem' }}>Record Payment</h3>
-        {error && <div style={errorBox}>{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Client *</label>
-          <select
-            style={inputStyle}
-            value={form.client_id}
-            onChange={e => { setField('client_id', e.target.value); setInvoiceId(''); }}
-            required
-          >
-            <option value="">— select client —</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-            <div>
-              <label style={labelStyle}>Amount *</label>
-              <input
-                type="number" step="0.01" min="0.01"
-                style={inputStyle}
-                value={form.amount}
-                onChange={e => setField('amount', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Currency</label>
-              <input
-                type="text" maxLength={3}
-                style={inputStyle}
-                value={form.currency}
-                onChange={e => setField('currency', e.target.value.toUpperCase())}
-                required
-              />
-            </div>
-          </div>
-
-          <label style={labelStyle}>Payment Method</label>
-          <select
-            style={inputStyle}
-            value={form.payment_method}
-            onChange={e => setField('payment_method', e.target.value)}
-          >
-            {PAYMENT_METHODS.map(m => (
-              <option key={m} value={m}>{t(`paymentMethods.${m}`)}</option>
-            ))}
-          </select>
-
-          <label style={labelStyle}>Status</label>
-          <select
-            style={inputStyle}
-            value={form.status}
-            onChange={e => setField('status', e.target.value)}
-          >
-            {['pending', 'completed', 'failed', 'refunded', 'cancelled'].map(s => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-            ))}
-          </select>
-
-          <label style={labelStyle}>Payment Date</label>
-          <input
-            type="date" style={inputStyle}
-            value={form.payment_date}
-            onChange={e => setField('payment_date', e.target.value)}
-            required
-          />
-
-          <label style={labelStyle}>Reference / Folio (optional)</label>
-          <input
-            type="text" style={inputStyle}
-            value={form.reference_number}
-            onChange={e => setField('reference_number', e.target.value)}
-            placeholder="e.g. transfer ID, check number"
-          />
-
-          {form.client_id && (
-            <>
-              <label style={labelStyle}>Apply to Invoice (optional)</label>
-              <select
-                style={inputStyle}
-                value={invoiceId}
-                onChange={e => setInvoiceId(e.target.value)}
-                disabled={loadingInvoices}
-              >
-                <option value="">— no allocation —</option>
-                {openInvoices.map((inv: Invoice) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number || `#${inv.id}`} — {fmtAmount(inv.total, form.currency)}
-                  </option>
-                ))}
-              </select>
-              {loadingInvoices && (
-                <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
-                  Loading open invoices…
-                </p>
-              )}
-              {!loadingInvoices && openInvoices.length === 0 && form.client_id && (
-                <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '4px 0 0' }}>
-                  No open invoices for this client.
-                </p>
-              )}
-            </>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
-              {submitting ? 'Saving…' : 'Record Payment'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -606,7 +369,8 @@ export function PaymentList() {
     placeholderData: prev => prev,
   });
 
-  // Always load clients: needed for the name column display and RecordPaymentModal.
+  // Needed for the name column display (RecordPaymentModal fetches its own
+  // client list when unlocked, since it isn't given one here).
   const { data: clients = [] } = useQuery({
     queryKey: ['clients-slim'],
     queryFn: fetchClients,
@@ -705,10 +469,9 @@ export function PaymentList() {
         </>
       )}
 
-      {/* Record Payment Modal */}
+      {/* Record Payment Modal — no locked client here, so it shows its own picker. */}
       {showRecord && (
         <RecordPaymentModal
-          clients={clients}
           onClose={() => setShowRecord(false)}
           onRecorded={() => qc.invalidateQueries({ queryKey: ['payments'] })}
         />
@@ -721,33 +484,8 @@ export function PaymentList() {
 // Shared styles
 // ---------------------------------------------------------------------------
 
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
-};
-const modalBox: React.CSSProperties = {
-  background: 'var(--bg-card)', borderRadius: 10, padding: '1.5rem',
-  width: 460, maxWidth: '92vw', boxShadow: '0 8px 32px rgba(0,0,0,.18)',
-};
-const errorBox: React.CSSProperties = {
-  background: '#fee2e2', color: '#991b1b', padding: '8px 12px',
-  borderRadius: 6, marginBottom: '0.75rem', fontSize: '0.85rem',
-};
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontWeight: 600, fontSize: '0.8rem',
-  color: 'var(--text-secondary)', marginBottom: 4, marginTop: 12,
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', padding: '7px 10px',
-  border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem',
-};
 const submitBtn: React.CSSProperties = {
   background: 'var(--accent)', color: '#fff', border: 'none',
-  padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
-  fontWeight: 600, fontSize: '0.875rem',
-};
-const cancelBtn: React.CSSProperties = {
-  background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-strong)',
   padding: '7px 18px', borderRadius: 6, cursor: 'pointer',
   fontWeight: 600, fontSize: '0.875rem',
 };
