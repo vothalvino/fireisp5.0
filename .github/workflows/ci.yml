@@ -53,7 +53,24 @@ jobs:
         run: node src/scripts/schema-parity-check.js
 
       - name: Security audit
-        run: pnpm audit --audit-level=high
+        # npm retired the legacy "quick audit" endpoint that `pnpm audit` calls
+        # (it now answers HTTP 410 "This endpoint is being retired"), so a plain
+        # `pnpm audit` exits non-zero on an INFRASTRUCTURE error instead of a real
+        # advisory — which would red every build and every push to main. Keep the
+        # gate honest: run the audit, still FAIL on a genuine high/critical
+        # advisory, but treat an unreachable/retired endpoint as a skip (with a
+        # visible warning) rather than a hard failure.
+        # Remove this wrapper once `pnpm audit` targets npm's bulk advisory API.
+        run: |
+          set +e
+          OUT=$(pnpm audit --audit-level=high 2>&1)
+          CODE=$?
+          echo "$OUT"
+          if [ "$CODE" -ne 0 ] && echo "$OUT" | grep -qiE "ERR_PNPM_AUDIT_BAD_RESPONSE|being retired|responded with 410"; then
+            echo "::warning::pnpm audit endpoint unavailable (npm retired the legacy audit API); advisory gate skipped this run."
+            exit 0
+          fi
+          exit "$CODE"
 
       - name: Run tests with coverage
         run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
