@@ -31,7 +31,12 @@ router.use(orgScope);
 router.get('/items', requirePermission('inventory.view'), async (req, res, next) => {
   try {
     const { page = 1, limit = 50, order_by, order, include_deleted, only_deleted, ...filters } = req.query;
-    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    // Cap ONCE and use the capped value for offset and meta too — mixing the
+    // raw requested limit into offset/totalPages while querying with the cap
+    // makes page math lie to paginating clients (the product picker pages
+    // through this endpoint trusting meta.totalPages).
+    const effectiveLimit = Math.min(Math.max(1, parseInt(limit) || 50), 100);
+    const offset = (Math.max(1, parseInt(page)) - 1) * effectiveLimit;
     const withDeleted = include_deleted === 'true';
     const onlyDeleted = only_deleted === 'true';
 
@@ -40,7 +45,7 @@ router.get('/items', requirePermission('inventory.view'), async (req, res, next)
         where: filters,
         orderBy: order_by || 'id',
         order: order || 'ASC',
-        limit: Math.min(parseInt(limit), 100),
+        limit: effectiveLimit,
         offset,
         orgId: req.orgId,
         withDeleted,
@@ -54,8 +59,8 @@ router.get('/items', requirePermission('inventory.view'), async (req, res, next)
       meta: {
         total,
         page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit)),
+        limit: effectiveLimit,
+        totalPages: Math.ceil(total / effectiveLimit),
       },
     });
   } catch (err) {

@@ -65,11 +65,26 @@ export interface InventoryItemCatalogEntry {
   quantity_on_hand: number | string | null;
 }
 
+// The backend caps this list at 100 rows per page, so a single large-limit
+// request silently truncates — an org with >100 active SKUs would lose its
+// newest (highest-id) products from the picker, exactly the ones being sold.
+// Page through meta.totalPages instead, with a sanity bound.
+const SELLABLE_PAGE_LIMIT = 100;
+const SELLABLE_MAX_PAGES = 20; // 2000 items — beyond this a dropdown is the wrong UI anyway
+
 export async function fetchSellableInventoryItems(): Promise<InventoryItemCatalogEntry[]> {
-  const res = await authedFetch('/api/v1/inventory/items?status=active&limit=500');
-  if (!res.ok) throw new Error('Failed to load inventory items');
-  const json = await res.json() as { data: InventoryItemCatalogEntry[] };
-  return json.data ?? [];
+  const all: InventoryItemCatalogEntry[] = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const res = await authedFetch(`/api/v1/inventory/items?status=active&limit=${SELLABLE_PAGE_LIMIT}&page=${page}`);
+    if (!res.ok) throw new Error('Failed to load inventory items');
+    const json = await res.json() as { data: InventoryItemCatalogEntry[]; meta?: { totalPages?: number } };
+    all.push(...(json.data ?? []));
+    totalPages = json.meta?.totalPages ?? 1;
+    page += 1;
+  } while (page <= totalPages && page <= SELLABLE_MAX_PAGES);
+  return all;
 }
 
 function toNumberOrNull(v: number | string | null | undefined): number | null {
