@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import { extractApiError } from '@/components/ClientFormModal';
 import { styles, RequiredMark } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -184,7 +185,9 @@ function LifecycleTab() {
         params: { path: { id: selectedDeviceId } } as never,
         body: { to_state: toState, reason: reason || undefined } as never,
       } as never);
-      if ((res as { error?: unknown }).error) throw new Error('Transition failed');
+      // Surface the backend's real message (e.g. the stock-boundary 422 for
+      // inventory-linked units) instead of a generic failure string.
+      if ((res as { error?: unknown }).error) throw new Error(extractApiError((res as { error?: unknown }).error, 'Transition failed'));
       return (res as { data: unknown }).data;
     },
     onSuccess: () => {
