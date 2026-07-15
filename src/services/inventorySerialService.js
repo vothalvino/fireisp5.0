@@ -341,6 +341,11 @@ async function installEquipment({
         inventoryItemId: unit.inventory_item_id,
         performedBy,
       });
+      // Record which invoice paid for this unit (migration 392) — undo-install
+      // (uninstallEquipment, below) uses this to find and void the sale
+      // invoice when reversing a mistaken sold install. Same connection/
+      // transaction as everything else here.
+      await execute('UPDATE cpe_devices SET sale_invoice_id = ? WHERE id = ?', [invoice.id, unit.id]);
     }
 
     await conn.commit();
@@ -352,6 +357,176 @@ async function installEquipment({
   } finally {
     conn.release();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Undo install — reverses a MISTAKEN install on a still-live contract
+// (migration 392 follow-up). Distinct from the pickup flow above: pickup owns
+// post-cancellation returns (a client's service actually ended); undo is for
+// "we installed the wrong thing" while the contract is still active. Rules
+// (PR brief, user-confirmed):
+//   • Unit must be 'assigned' or 'active'. A cancelled/terminated contract's
+//     equipment is the pickup flow's job, not undo's — 422 there.
+//   • Tracked units that were actually INSTALLED (inventory_item_id AND
+//     ownership both set — ownership is only ever set by installEquipment,
+//     which always decrements, and inherited by swapDevice, which
+//     independently decrements the incoming tracked device) get the stock/
+//     ledger reversal mirroring whichever decrement install did for them:
+//     rented decremented via a direct 'assign_to_job' ledger write, sold
+//     decremented via drawdownForSale (inside createOneOffInvoice) — either
+//     way, undo restores +1 stock with a 'return' ledger row. Units with NO
+//     inventory_item_id (legacy/manual assignment), OR a tracked unit that
+//     was only ever subscriber-LINKED (cpeInventoryService.linkSubscriber /
+//     the TR-069 auto-link on Inform — both cross in_stock -> assigned
+//     without decrementing stock, a pre-existing gap in those two functions,
+//     out of this follow-up's scope) just get unassigned: no stock/ledger
+//     writes, because none were ever made for them. Restoring +1 for a
+//     link-only unit would silently inflate stock, so `ownership` gates the
+//     write, not `inventory_item_id` alone.
+//   • Sold units ADDITIONALLY resolve the sale invoice via sale_invoice_id:
+//     unpaid -> void it (reuses billingService.voidInvoiceById); paid/
+//     partially paid -> 422, nothing written, the operator must resolve the
+//     payment (credit note/refund) first; sale_invoice_id NULL (installed
+//     before migration 392) -> proceed with the reversal and return a
+//     warning that the sale invoice, if any, must be voided manually.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reverse a mistaken install: unassign the unit from its contract/subscriber,
+ * transition it back to in_stock, and — for a tracked unit — restore the
+ * stock/ledger entry install consumed. Sold units also resolve (void) the
+ * sale invoice when it is safely unpaid.
+ *
+ * Ordering note: the sale-invoice void (when applicable) runs BEFORE the
+ * stock/unit reversal transaction, not inside it — billingService.
+ * voidInvoiceById is not composable into an externally-supplied connection
+ * (every other call site in this codebase invokes it standalone; see
+ * src/routes/invoices.js and src/routes/bulk.js). Voiding first makes the
+ * whole operation retry-safe: voidInvoiceById is idempotent, so if the
+ * reversal transaction below then fails, a retry finds the invoice already
+ * void and just retries the reversal. The opposite order would risk a
+ * committed reversal with no guaranteed way to still void the invoice.
+ *
+ * @param {{ orgId: number, cpeDeviceId: number, notes?: string|null, performedBy?: number|null }} params
+ * @returns {Promise<{ unit: object, warnings: string[] }>}
+ */
+async function uninstallEquipment({ orgId, cpeDeviceId, notes = null, performedBy = null }) {
+  // ---- Pre-flight validation (before ANY write) --------------------------
+  const [unitRows] = await db.query(
+    'SELECT * FROM cpe_devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+    [cpeDeviceId, orgId],
+  );
+  const unit = unitRows[0];
+  if (!unit) throw new NotFoundError('CPE device');
+
+  if (!['assigned', 'active'].includes(unit.lifecycle_state)) {
+    throw new ValidationError(
+      `Unit is not installed (currently: ${unit.lifecycle_state}) — nothing to undo`,
+    );
+  }
+
+  if (unit.contract_id) {
+    const [contractRows] = await db.query(
+      'SELECT id, status FROM contracts WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL',
+      [unit.contract_id, orgId],
+    );
+    const contract = contractRows[0];
+    if (contract && ['cancelled', 'terminated'].includes(contract.status)) {
+      throw new ValidationError(
+        'This contract has been cancelled or terminated — use the equipment pickup flow to process the return, not undo-install.',
+      );
+    }
+  }
+
+  const warnings = [];
+  let saleInvoice = null;
+  if (unit.ownership === 'sold') {
+    if (unit.sale_invoice_id) {
+      const [invRows] = await db.query(
+        'SELECT * FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [unit.sale_invoice_id, orgId],
+      );
+      saleInvoice = invRows[0] || null;
+      if (saleInvoice) {
+        const [[payRow]] = await db.query(
+          'SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payment_allocations WHERE invoice_id = ? AND deleted_at IS NULL',
+          [saleInvoice.id],
+        );
+        if (Number(payRow.paid_amount) > 0) {
+          throw new ValidationError(
+            'The equipment sale invoice has a payment applied — resolve the payment (credit note or refund) before undoing this install.',
+          );
+        }
+      } else {
+        warnings.push('The recorded sale invoice could not be found for this organization — if one was issued, void it manually.');
+      }
+    } else {
+      warnings.push('This unit was installed before sale-invoice tracking existed — if a sale invoice was issued for it, void it manually.');
+    }
+  }
+
+  // Void BEFORE the reversal transaction — see function doc comment.
+  if (saleInvoice && saleInvoice.status !== 'void') {
+    await billingService.voidInvoiceById(saleInvoice.id, orgId, performedBy);
+  }
+
+  // ---- Transactional stock/unit reversal ----------------------------------
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const execute = conn.execute.bind(conn);
+
+    // Re-check under FOR UPDATE — a concurrent request could have changed
+    // the lifecycle_state since the pre-flight read above.
+    const [rows] = await execute(
+      'SELECT * FROM cpe_devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL FOR UPDATE',
+      [cpeDeviceId, orgId],
+    );
+    const lockedUnit = rows[0];
+    if (!lockedUnit) throw new NotFoundError('CPE device');
+    if (!['assigned', 'active'].includes(lockedUnit.lifecycle_state)) {
+      throw new ValidationError(`Unit is not installed (currently: ${lockedUnit.lifecycle_state}) — nothing to undo`);
+    }
+
+    // Restore stock only when this unit's assignment actually decremented it.
+    // `inventory_item_id` alone is NOT a safe proxy: cpeInventoryService's
+    // subscriber-link paths (linkSubscriber / auto-link on TR-069 Inform)
+    // also cross in_stock -> assigned for a tracked unit but do NOT
+    // decrement stock (a pre-existing gap in those two functions, out of
+    // this follow-up's scope) — restoring +1 for one of THOSE units would
+    // silently inflate stock. `ownership` is only ever set by
+    // installEquipment (which always decrements) and inherited by
+    // swapDevice (which independently decrements the incoming tracked
+    // device), so it's a much closer proxy for "stock was actually taken"
+    // than inventory_item_id alone.
+    if (lockedUnit.inventory_item_id && lockedUnit.ownership) {
+      const stockId = await resolveOrCreateStockRow(execute, { orgId, itemId: lockedUnit.inventory_item_id });
+      await execute('UPDATE inventory_stock SET quantity = quantity + 1 WHERE id = ?', [stockId]);
+      await execute(
+        `INSERT INTO inventory_transactions (stock_id, transaction_type, quantity, client_id, performed_by, reference, notes)
+         VALUES (?, 'return', 1, ?, ?, ?, ?)`,
+        [stockId, lockedUnit.subscriber_id, performedBy, `Undo install (contract #${lockedUnit.contract_id})`, notes],
+      );
+    }
+
+    await cpeInventoryService.transitionLifecycleState(lockedUnit.id, 'in_stock', {
+      orgId, performedBy, reason: notes ? `Undo install: ${notes}` : 'Undo install', connection: conn,
+    });
+    await execute(
+      'UPDATE cpe_devices SET contract_id = NULL, subscriber_id = NULL, subscriber_linked_at = NULL, ownership = NULL, sale_invoice_id = NULL WHERE id = ?',
+      [lockedUnit.id],
+    );
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  const [rows] = await db.query('SELECT * FROM cpe_devices WHERE id = ?', [cpeDeviceId]);
+  return { unit: rows[0], warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +693,7 @@ module.exports = {
   createTrackedUnits,
   registerSerial,
   installEquipment,
+  uninstallEquipment,
   ensurePickupWorkOrder,
   getPickupChecklist,
   completePickupUnit,

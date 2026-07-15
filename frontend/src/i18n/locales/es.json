@@ -3113,6 +3113,18 @@
     "customOption": "— línea personalizada / texto libre —",
     "onHand": "en stock: {{count}}"
   },
+  "undoInstall": {
+    "action": "Deshacer instalación",
+    "title": "Deshacer instalación",
+    "confirm": "¿Deshacer la instalación de {{item}} (serie {{serial}})? El equipo regresará al inventario.",
+    "unknownItem": "este equipo",
+    "notes": "Notas (opcional)",
+    "notesPlaceholder": "p. ej. se instaló el modelo equivocado",
+    "cancel": "Cancelar",
+    "confirmButton": "Deshacer instalación",
+    "undoing": "Deshaciendo…",
+    "close": "Cerrar"
+  },
   "invoiceDetail": {
     "addItem": {
       "heading": "Agregar Artículo",
@@ -4203,7 +4215,8 @@
       "state": "Estado",
       "ownership": "Propiedad",
       "ownership_rented": "Rentado",
-      "ownership_sold": "Vendido"
+      "ownership_sold": "Vendido",
+      "actions": "Acciones"
     }
   }
 }

@@ -40,4 +40,12 @@ const pickupDisposition = {
   notes: { type: 'string', required: false, max: 10000 },
 };
 
-module.exports = { registerSerial, installEquipment, pickupDisposition };
+// Undo-install (migration 392 follow-up) — the unit is identified by the
+// route's :id param, not the body; everything else (state/contract/ownership
+// checks, sale-invoice handling) is business logic in
+// inventorySerialService.uninstallEquipment, not a validate() rule.
+const uninstallEquipment = {
+  notes: { type: 'string', required: false, max: 10000 },
+};
+
+module.exports = { registerSerial, installEquipment, pickupDisposition, uninstallEquipment };

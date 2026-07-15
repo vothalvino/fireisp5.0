@@ -122,7 +122,36 @@ describe('POST /api/v1/plans/addons', () => {
     // ('monthly'), never as undefined — the mocked driver tolerates undefined
     // bind params but real mysql2 throws, which 500'd every addon create that
     // omitted billing_cycle (found live on the demo, 2026-07-14).
-    expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, 50, 'monthly', true, 'active']);
+    // description (migration 392 follow-up) omitted from the request lands as
+    // NULL, same undefined-bind-param safety as billing_cycle above.
+    expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, null, 50, 'monthly', true, 'active']);
+  });
+
+  it('persists description when provided (migration 392 follow-up — was silently dropped)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM inventory_items WHERE id')) {
+        return Promise.resolve([[{ id: 7 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('INSERT INTO plan_addons')) {
+        return Promise.resolve([{ insertId: 99 }]);
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM plan_addons WHERE id')) {
+        return Promise.resolve([[{ id: 99, inventory_item_id: 7, name: 'Router Rental', description: 'TP-Link Archer' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/plans/addons')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ name: 'Router Rental', addon_type: 'equipment_rental', price: 50, inventory_item_id: 7, description: 'TP-Link Archer' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.description).toBe('TP-Link Archer');
+    const insertCall = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO plan_addons'));
+    expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, 'TP-Link Archer', 50, 'monthly', true, 'active']);
   });
 
   it('returns 422 when inventory_item_id does not belong to this org', async () => {

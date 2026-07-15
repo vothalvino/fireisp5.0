@@ -35,6 +35,8 @@ function makeState(overrides = {}) {
     warehouses: overrides.warehouses ?? [{ id: 5, organization_id: 42 }],
     devices: overrides.devices ?? [],
     workOrders: overrides.workOrders ?? [],
+    invoices: overrides.invoices ?? [],
+    paymentAllocations: overrides.paymentAllocations ?? [],
     txns: [],
     nextDeviceId: 1000,
     nextStockId: 500,
@@ -80,6 +82,44 @@ function route(sql, params, state) {
     const [id, orgId] = p;
     const d = state.devices.find(d => d.id === id && (d.organization_id === orgId || d.organization_id === null) && !d._deleted);
     return Promise.resolve([d ? [{ ...d }] : []]);
+  }
+  // --- uninstallEquipment: pre-flight unit lookup, org-scoped, NOT locked ---
+  if (s === 'SELECT * FROM cpe_devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL') {
+    const [id, orgId] = p;
+    const d = state.devices.find(d => d.id === id && (d.organization_id === orgId || d.organization_id === null) && !d._deleted);
+    return Promise.resolve([d ? [{ ...d }] : []]);
+  }
+  // --- uninstallEquipment: contract cancelled/terminated check ---
+  if (s.startsWith('SELECT id, status FROM contracts WHERE id = ?')) {
+    const [id, orgId] = p;
+    const c = state.contracts.find(c => c.id === id && (c.organization_id === orgId || c.organization_id === null));
+    return Promise.resolve([c ? [{ id: c.id, status: c.status }] : []]);
+  }
+  // --- uninstallEquipment: sale invoice lookup, org-scoped ---
+  if (s.startsWith('SELECT * FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL')) {
+    const [id, orgId] = p;
+    const inv = state.invoices.find(i => i.id === id && i.organization_id === orgId);
+    return Promise.resolve([inv ? [{ ...inv }] : []]);
+  }
+  // --- uninstallEquipment: sale invoice paid-amount check ---
+  if (s.includes('COALESCE(SUM(amount), 0) AS paid_amount')) {
+    const [invoiceId] = p;
+    const total = state.paymentAllocations.filter(a => a.invoice_id === invoiceId).reduce((a, b) => a + b.amount, 0);
+    return Promise.resolve([[{ paid_amount: total }]]);
+  }
+  // --- installEquipment (sold): record which invoice paid for the unit ---
+  if (s.startsWith('UPDATE cpe_devices SET sale_invoice_id = ? WHERE id = ?')) {
+    const [invoiceId, id] = p;
+    const d = state.devices.find(d => d.id === id);
+    if (d) d.sale_invoice_id = invoiceId;
+    return Promise.resolve([{ affectedRows: d ? 1 : 0 }]);
+  }
+  // --- uninstallEquipment: clear-assignment UPDATE (also clears sale_invoice_id) ---
+  if (s.startsWith('UPDATE cpe_devices SET contract_id = NULL, subscriber_id = NULL, subscriber_linked_at = NULL, ownership = NULL, sale_invoice_id = NULL WHERE id = ?')) {
+    const [id] = p;
+    const d = state.devices.find(d => d.id === id);
+    if (d) { d.contract_id = null; d.subscriber_id = null; d.ownership = null; d.sale_invoice_id = null; }
+    return Promise.resolve([{ affectedRows: d ? 1 : 0 }]);
   }
 
   // --- completePickupUnit: outstanding-rented unit lookup, FOR UPDATE ---
@@ -548,6 +588,39 @@ describe('inventorySerialService', () => {
       jest.dontMock('../src/services/billingService');
     });
 
+    // Migration 392 follow-up: undo-install needs to find the sale invoice
+    // later — installEquipment must tag the unit with it at sale time.
+    test('records sale_invoice_id on the unit (migration 392, undo-install prerequisite)', async () => {
+      jest.resetModules();
+      jest.doMock('../src/services/billingService', () => ({
+        createOneOffInvoice: jest.fn().mockResolvedValue({ id: 1234, total: '150.00' }),
+      }));
+      const freshDb = require('../src/config/database');
+      const freshService = require('../src/services/inventorySerialService');
+
+      const state = makeState({
+        devices: [{ id: 50, organization_id: 42, serial_number: 'SN-SOLD-2', inventory_item_id: 1, lifecycle_state: 'in_stock' }],
+      });
+      freshDb.query.mockImplementation((sql, params) => route(sql, params, state));
+      const conn = {
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+        execute: jest.fn((sql, params) => route(sql, params, state)),
+        query: jest.fn((sql, params) => route(sql, params, state)),
+      };
+      freshDb.getConnection.mockResolvedValue(conn);
+
+      await freshService.installEquipment({
+        orgId: 42, contractId: 900, cpeDeviceId: 50, ownership: 'sold', performedBy: 3,
+      });
+
+      expect(state.devices.find(d => d.id === 50).sale_invoice_id).toBe(1234);
+
+      jest.dontMock('../src/services/billingService');
+    });
+
     test('422s when the item has neither sale_price nor unit_cost configured', async () => {
       const state = makeState({
         items: [{ id: 1, organization_id: 42, name: 'No-price item', sale_price: null, unit_cost: null, serial_required: 1 }],
@@ -558,6 +631,225 @@ describe('inventorySerialService', () => {
       await expect(inventorySerialService.installEquipment({
         orgId: 42, contractId: 900, cpeDeviceId: 50, ownership: 'sold',
       })).rejects.toThrow(/no sale_price or unit_cost configured/);
+    });
+  });
+
+  // ===========================================================================
+  // uninstallEquipment — undo a mistaken install (migration 392 follow-up)
+  // ===========================================================================
+  describe('uninstallEquipment', () => {
+    test('rented: unit -> in_stock, stock +1, a return ledger row w/ real params, and links cleared', async () => {
+      const state = makeState({
+        devices: [{
+          id: 50, organization_id: 42, serial_number: 'SN-RENT', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented', sale_invoice_id: null,
+        }],
+      });
+      wireDb(state);
+
+      const { unit, warnings } = await inventorySerialService.uninstallEquipment({
+        orgId: 42, cpeDeviceId: 50, notes: 'installed wrong item', performedBy: 9,
+      });
+
+      expect(warnings).toEqual([]);
+      expect(unit.lifecycle_state).toBe('in_stock');
+      expect(unit.ownership).toBeNull();
+      expect(unit.contract_id).toBeNull();
+      expect(unit.subscriber_id).toBeNull();
+      expect(unit.sale_invoice_id).toBeNull();
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(4); // 3 -> 4
+      expect(state.txns).toHaveLength(1);
+      expect(state.txns[0].sql).toContain("'return'");
+      expect(state.txns[0].params).toEqual([10, 100, 9, 'Undo install (contract #900)', 'installed wrong item']);
+    });
+
+    test('active unit can also be undone (not just assigned)', async () => {
+      const state = makeState({
+        devices: [{
+          id: 51, organization_id: 42, serial_number: 'SN-ACTIVE', inventory_item_id: 1,
+          lifecycle_state: 'active', contract_id: 900, subscriber_id: 100, ownership: 'rented',
+        }],
+      });
+      wireDb(state);
+
+      const { unit } = await inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 51 });
+
+      expect(unit.lifecycle_state).toBe('in_stock');
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(4);
+    });
+
+    test('non-inventory-linked unit: state/links cleared, zero stock/ledger writes', async () => {
+      const state = makeState({
+        devices: [{
+          id: 60, organization_id: 42, serial_number: 'LEGACY-1', inventory_item_id: null,
+          lifecycle_state: 'active', contract_id: 900, subscriber_id: 100, ownership: null,
+        }],
+      });
+      wireDb(state);
+
+      const { unit, warnings } = await inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 60 });
+
+      expect(warnings).toEqual([]);
+      expect(unit.lifecycle_state).toBe('in_stock');
+      expect(unit.contract_id).toBeNull();
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3); // unchanged
+      expect(state.txns).toHaveLength(0);
+    });
+
+    // Adversarial-review fix: inventory_item_id alone is NOT a safe proxy for
+    // "stock was decremented at assignment time" — cpeInventoryService's
+    // subscriber-link paths (linkSubscriber / TR-069 auto-link on Inform)
+    // cross in_stock -> assigned for a TRACKED unit without ever
+    // decrementing stock (a pre-existing, separate gap). Restoring +1 for
+    // one of those units would silently inflate stock. `ownership` (only
+    // ever set by installEquipment/inherited by swapDevice, both of which
+    // DO decrement) is what actually gates the stock/ledger reversal.
+    test('tracked unit that was only subscriber-LINKED (never installed, ownership NULL): zero stock/ledger writes', async () => {
+      const state = makeState({
+        devices: [{
+          id: 61, organization_id: 42, serial_number: 'LINKED-NOT-INSTALLED', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: null, subscriber_id: 100, ownership: null,
+        }],
+      });
+      wireDb(state);
+
+      const { unit, warnings } = await inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 61 });
+
+      expect(warnings).toEqual([]);
+      expect(unit.lifecycle_state).toBe('in_stock');
+      expect(unit.subscriber_id).toBeNull();
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3); // unchanged — no phantom stock restore
+      expect(state.txns).toHaveLength(0);
+    });
+
+    test('rejects a unit that is not assigned/active (e.g. already in_stock)', async () => {
+      const state = makeState({
+        devices: [{ id: 52, organization_id: 42, serial_number: 'SN-INSTOCK', inventory_item_id: 1, lifecycle_state: 'in_stock' }],
+      });
+      wireDb(state);
+
+      await expect(inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 52 }))
+        .rejects.toThrow(/not installed/);
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3);
+    });
+
+    test('422s when the contract has been cancelled — directs to the pickup flow', async () => {
+      const state = makeState({
+        contracts: [{ id: 900, client_id: 100, organization_id: 42, status: 'cancelled' }],
+        devices: [{
+          id: 50, organization_id: 42, serial_number: 'SN-CANCELLED', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented',
+        }],
+      });
+      wireDb(state);
+
+      await expect(inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 50 }))
+        .rejects.toThrow(/pickup flow/);
+
+      // Nothing was written.
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3);
+      expect(state.devices.find(d => d.id === 50).lifecycle_state).toBe('assigned');
+    });
+
+    test('cross-org unit is rejected and nothing is written', async () => {
+      const state = makeState({
+        devices: [{ id: 53, organization_id: 99, serial_number: 'FOREIGN', inventory_item_id: 1, lifecycle_state: 'assigned' }],
+      });
+      wireDb(state);
+
+      await expect(inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 53 }))
+        .rejects.toThrow(/not found/i);
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(3);
+    });
+
+    test('sold unit with sale_invoice_id NULL (pre-392): proceeds and warns the invoice must be voided manually', async () => {
+      const state = makeState({
+        devices: [{
+          id: 54, organization_id: 42, serial_number: 'SN-PRE392', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'sold', sale_invoice_id: null,
+        }],
+      });
+      wireDb(state);
+
+      const { unit, warnings } = await inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 54 });
+
+      expect(unit.lifecycle_state).toBe('in_stock');
+      expect(state.stock.find(s => s.id === 10).quantity).toBe(4); // still reversed
+      expect(warnings).toEqual([expect.stringMatching(/void it manually/)]);
+    });
+
+    describe('sold unit with a sale invoice', () => {
+      function wireSoldState(overrides = {}) {
+        jest.resetModules();
+        jest.doMock('../src/services/billingService', () => ({
+          createOneOffInvoice: jest.fn(),
+          voidInvoiceById: jest.fn().mockResolvedValue({ id: 555, status: 'void' }),
+        }));
+        const freshDb = require('../src/config/database');
+        const freshBilling = require('../src/services/billingService');
+        const freshService = require('../src/services/inventorySerialService');
+
+        const state = makeState({
+          devices: [{
+            id: 55, organization_id: 42, serial_number: 'SN-SOLD-UNDO', inventory_item_id: 1,
+            lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'sold', sale_invoice_id: 555,
+          }],
+          invoices: [{ id: 555, organization_id: 42, status: 'issued' }],
+          paymentAllocations: [],
+          ...overrides,
+        });
+        freshDb.query.mockImplementation((sql, params) => route(sql, params, state));
+        const conn = {
+          beginTransaction: jest.fn().mockResolvedValue(undefined),
+          commit: jest.fn().mockResolvedValue(undefined),
+          rollback: jest.fn().mockResolvedValue(undefined),
+          release: jest.fn(),
+          execute: jest.fn((sql, params) => route(sql, params, state)),
+          query: jest.fn((sql, params) => route(sql, params, state)),
+        };
+        freshDb.getConnection.mockResolvedValue(conn);
+        return { state, freshService, freshBilling };
+      }
+
+      afterEach(() => jest.dontMock('../src/services/billingService'));
+
+      test('unpaid: voids the invoice and performs the same stock/unit reversal', async () => {
+        const { state, freshService, freshBilling } = wireSoldState();
+
+        const { unit, warnings } = await freshService.uninstallEquipment({ orgId: 42, cpeDeviceId: 55, performedBy: 4 });
+
+        expect(freshBilling.voidInvoiceById).toHaveBeenCalledTimes(1);
+        expect(freshBilling.voidInvoiceById).toHaveBeenCalledWith(555, 42, 4);
+        expect(unit.lifecycle_state).toBe('in_stock');
+        expect(unit.sale_invoice_id).toBeNull();
+        expect(state.stock.find(s => s.id === 10).quantity).toBe(4); // 3 -> 4
+        expect(state.txns).toHaveLength(1);
+        expect(warnings).toEqual([]);
+      });
+
+      test('paid: 422s and writes NOTHING (no void, no stock/ledger change)', async () => {
+        const { state, freshService, freshBilling } = wireSoldState({
+          paymentAllocations: [{ invoice_id: 555, amount: 150 }],
+        });
+
+        await expect(freshService.uninstallEquipment({ orgId: 42, cpeDeviceId: 55 }))
+          .rejects.toThrow(/resolve the payment/);
+
+        expect(freshBilling.voidInvoiceById).not.toHaveBeenCalled();
+        expect(state.stock.find(s => s.id === 10).quantity).toBe(3);
+        expect(state.txns).toHaveLength(0);
+        expect(state.devices.find(d => d.id === 55).lifecycle_state).toBe('assigned');
+      });
+
+      test('partially paid: still 422s (any payment blocks undo, not just full payment)', async () => {
+        const { freshService, freshBilling } = wireSoldState({
+          paymentAllocations: [{ invoice_id: 555, amount: 10 }],
+        });
+
+        await expect(freshService.uninstallEquipment({ orgId: 42, cpeDeviceId: 55 }))
+          .rejects.toThrow(/resolve the payment/);
+        expect(freshBilling.voidInvoiceById).not.toHaveBeenCalled();
+      });
     });
   });
 

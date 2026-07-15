@@ -20,7 +20,53 @@ router.use(authenticate);
 router.use(orgScope);
 
 // Inventory items
-router.get('/items', requirePermission('inventory.view'), ctrl.list);
+//
+// GET /items is hand-rolled instead of the generic crudController.list —
+// the response is enriched with `quantity_on_hand` (SUM of stock across all
+// warehouses via a single grouped LEFT JOIN, no N+1 — see
+// InventoryItem.findAllWithStock) so items sell directly in the invoice/quote
+// product picker and so InventoryManagement's Stock tab shows a real number
+// instead of always "—". Filter/sort/pagination semantics and response shape
+// are otherwise byte-identical to crudController.list.
+router.get('/items', requirePermission('inventory.view'), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50, order_by, order, include_deleted, only_deleted, ...filters } = req.query;
+    // Cap ONCE and use the capped value for offset and meta too — mixing the
+    // raw requested limit into offset/totalPages while querying with the cap
+    // makes page math lie to paginating clients (the product picker pages
+    // through this endpoint trusting meta.totalPages).
+    const effectiveLimit = Math.min(Math.max(1, parseInt(limit) || 50), 100);
+    const offset = (Math.max(1, parseInt(page)) - 1) * effectiveLimit;
+    const withDeleted = include_deleted === 'true';
+    const onlyDeleted = only_deleted === 'true';
+
+    const [rows, total] = await Promise.all([
+      InventoryItem.findAllWithStock({
+        where: filters,
+        orderBy: order_by || 'id',
+        order: order || 'ASC',
+        limit: effectiveLimit,
+        offset,
+        orgId: req.orgId,
+        withDeleted,
+        onlyDeleted,
+      }),
+      InventoryItem.count({ where: filters, orgId: req.orgId, withDeleted, onlyDeleted }),
+    ]);
+
+    res.json({
+      data: rows,
+      meta: {
+        total,
+        page: parseInt(page),
+        limit: effectiveLimit,
+        totalPages: Math.ceil(total / effectiveLimit),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 router.get('/items/:id', requirePermission('inventory.view'), ctrl.get);
 router.post('/items', requirePermission('inventory.create'), validate(createInventoryItem), ctrl.create);
 router.put('/items/:id', requirePermission('inventory.update'), validate(updateInventoryItem), ctrl.update);

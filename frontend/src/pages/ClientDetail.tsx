@@ -36,6 +36,7 @@ import { GenerateInvoiceModal } from '@/components/GenerateInvoiceModal';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { NewTicketModal } from '@/components/NewTicketModal';
 import { NewContractModal } from '@/components/NewContractModal';
+import { UndoInstallButton } from '@/components/UndoInstallButton';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the client + all sub-resources in one request
@@ -485,7 +486,7 @@ async function fetchAssignedEquipment(clientId: number): Promise<AssignedEquipme
 
 function AssignedEquipmentSection({ clientId }: { clientId: number }) {
   const { t } = useTranslation();
-  const { data: units = [], isLoading } = useQuery({
+  const { data: units = [], isLoading, refetch } = useQuery({
     queryKey: ['client-assigned-equipment', clientId],
     queryFn: () => fetchAssignedEquipment(clientId),
   });
@@ -504,6 +505,7 @@ function AssignedEquipmentSection({ clientId }: { clientId: number }) {
               <th style={styles.th}>{t('clientDetail.assignedEquipment.product', 'Product')}</th>
               <th style={styles.th}>{t('clientDetail.assignedEquipment.state', 'State')}</th>
               <th style={styles.th}>{t('clientDetail.assignedEquipment.ownership', 'Ownership')}</th>
+              <th style={styles.th}>{t('clientDetail.assignedEquipment.actions', 'Actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -514,6 +516,15 @@ function AssignedEquipmentSection({ clientId }: { clientId: number }) {
                 <td style={{ ...styles.td, textTransform: 'capitalize' }}>{u.lifecycle_state}</td>
                 <td style={{ ...styles.td, textTransform: 'capitalize' }}>
                   {u.ownership ? t(`clientDetail.assignedEquipment.ownership_${u.ownership}`, u.ownership) : '—'}
+                </td>
+                <td style={styles.td}>
+                  <UndoInstallButton
+                    deviceId={u.id}
+                    serialNumber={u.serial_number}
+                    itemName={u.item_name}
+                    lifecycleState={u.lifecycle_state}
+                    onDone={() => void refetch()}
+                  />
                 </td>
               </tr>
             ))}

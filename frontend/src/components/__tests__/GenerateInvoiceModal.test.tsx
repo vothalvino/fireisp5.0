@@ -39,8 +39,18 @@ function setupApi() {
     return Promise.resolve({ data: { data: [] }, error: undefined });
   });
   (api.POST as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: { id: 99 } }, error: undefined });
-  (authedFetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-    ok: true, json: () => Promise.resolve({ data: ADDONS }),
+  // Branch by URL — the addon catalog and the (Inventory follow-up) sellable
+  // inventory items fetch both go through authedFetch; a blanket
+  // mockResolvedValue would leak the ADDONS fixture into the items fetch too
+  // (same id space, producing bogus duplicate-looking options).
+  (authedFetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+    if (url.includes('/plans/addons/catalog')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: ADDONS }) });
+    }
+    if (url.includes('/inventory/items')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
   });
 }
 
@@ -115,5 +125,42 @@ describe('GenerateInvoiceModal', () => {
     expect(opts.body.client_id).toBe(5);
     expect(opts.body.items[0]).toMatchObject({ type: 'product', description: 'Static IP', unit_price: 50 });
     await waitFor(() => expect(onGenerated).toHaveBeenCalled());
+  });
+
+  // Inventory follow-up: the product picker also offers raw inventory items
+  // not already linked by a curated addon, de-duping against linked ones.
+  it('unions in a raw inventory item and hides one already linked by an addon', async () => {
+    (authedFetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/plans/addons/catalog')) {
+        // ADDONS[1] ("Router rental") is linked to inventory_item_id 55.
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [ADDONS[0], { ...ADDONS[1], inventory_item_id: 55 }] }),
+        });
+      }
+      if (url.includes('/inventory/items')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [
+              { id: 55, name: 'Router rental', sku: 'RT-55', sale_price: null, unit_cost: '30.00', status: 'active' },
+              { id: 56, name: 'Loose Cable', sku: 'CBL-1', sale_price: '9.99', unit_cost: null, status: 'active' },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByTitle('Add Product'));
+
+    // The raw item NOT linked by any addon appears in the union.
+    expect(await screen.findByRole('option', { name: /Loose Cable \(CBL-1\) \(9\.99\)/ })).toBeInTheDocument();
+    // The raw item that IS already linked by addon id 2 does NOT get a
+    // second, duplicate entry — only the curated addon's option exists.
+    expect(screen.queryByRole('option', { name: /Router rental \(RT-55\)/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^Router rental \(150\.00\)$/ })).toBeInTheDocument();
   });
 });

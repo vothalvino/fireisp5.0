@@ -32717,6 +32717,52 @@
         }
       }
     },
+    "/cpe-management/devices/{id}/uninstall": {
+      "post": {
+        "tags": [
+          "CPE Management"
+        ],
+        "summary": "Undo a mistaken install on a still-live contract — unassigns the unit, restores stock/ledger for a tracked unit, and voids the (unpaid) sale invoice for a sold unit",
+        "operationId": "uninstallCpeEquipment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "inventorySerials_uninstallEquipment",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CpeUninstallResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cpe-profiles": {
       "get": {
         "tags": [
@@ -57092,6 +57138,15 @@
           "disposition"
         ]
       },
+      "inventorySerials_uninstallEquipment": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string",
+            "maximum": 10000
+          }
+        }
+      },
       "invoices_createInvoice": {
         "type": "object",
         "properties": {
@@ -61898,6 +61953,10 @@
           "inventory_item_id": {
             "type": "number",
             "minimum": 1
+          },
+          "description": {
+            "type": "string",
+            "maximum": 5000
           },
           "price": {
             "type": "number",

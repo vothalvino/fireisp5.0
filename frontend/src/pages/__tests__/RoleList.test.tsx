@@ -339,7 +339,10 @@ describe('RoleList page (User Groups)', () => {
     const dialog = await openPermissionsFor('Administrators');
 
     await waitFor(() => expect(within(dialog).getByText(/not editable/i)).toBeInTheDocument());
-    expect(within(dialog).getByRole('radio', { name: /clients — Denied/i })).toBeDisabled();
+    // The matrix rows come from a separate permissions fetch and can render
+    // after the notice on slow CI runners — wait for them instead of assuming
+    // they arrived with the notice (this exact line flaked in CI).
+    await waitFor(() => expect(within(dialog).getByRole('radio', { name: /clients — Denied/i })).toBeDisabled());
     expect(within(dialog).queryByRole('button', { name: /Save Changes/i })).not.toBeInTheDocument();
     // Two elements share the accessible name "Close": the header ✕ button
     // (aria-label) and the footer action button (text) — the read-only

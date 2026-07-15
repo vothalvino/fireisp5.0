@@ -176,6 +176,91 @@ describe('POST /api/v1/cpe-management/devices/install', () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /cpe-management/devices/:id/uninstall (migration 392 follow-up)
+// ---------------------------------------------------------------------------
+describe('POST /api/v1/cpe-management/devices/:id/uninstall', () => {
+  test('undoes a rented install: 200, unit back in_stock, stock restored', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isAuthLookup(sql)) return Promise.resolve(ADMIN_ROW);
+      // Pre-flight (unlocked) unit read.
+      if (sql === 'SELECT * FROM cpe_devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL') {
+        return Promise.resolve([[{
+          id: 50, organization_id: 42, serial_number: 'SN-1', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented', sale_invoice_id: null,
+        }]]);
+      }
+      if (sql.startsWith('SELECT id, status FROM contracts WHERE id = ?')) {
+        return Promise.resolve([[{ id: 900, status: 'active' }]]);
+      }
+      // Post-commit re-select goes through db.query (not conn).
+      if (sql === 'SELECT * FROM cpe_devices WHERE id = ?') {
+        return Promise.resolve([[{ id: 50, lifecycle_state: 'in_stock', ownership: null, contract_id: null }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+    const conn = buildConn((sql) => {
+      if (sql.includes('FOR UPDATE') && sql.includes('cpe_devices')) {
+        return Promise.resolve([[{
+          id: 50, organization_id: 42, serial_number: 'SN-1', inventory_item_id: 1,
+          lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented',
+        }]]);
+      }
+      if (sql.includes('SELECT s.id FROM inventory_stock')) return Promise.resolve([[{ id: 10 }]]);
+      if (sql.includes('UPDATE inventory_stock')) return Promise.resolve([{ affectedRows: 1 }]);
+      if (sql.includes('INSERT INTO inventory_transactions')) return Promise.resolve([{ insertId: 1 }]);
+      if (sql.includes('SELECT id, lifecycle_state, organization_id FROM cpe_devices')) {
+        return Promise.resolve([[{ id: 50, lifecycle_state: 'assigned', organization_id: 42 }]]);
+      }
+      if (sql.includes('UPDATE cpe_devices SET lifecycle_state')) return Promise.resolve([{ affectedRows: 1 }]);
+      if (sql.includes('INSERT INTO cpe_lifecycle_history')) return Promise.resolve([{ insertId: 1 }]);
+      if (sql.includes('UPDATE cpe_devices SET contract_id = NULL')) return Promise.resolve([{ affectedRows: 1 }]);
+      return Promise.resolve([[]]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/cpe-management/devices/50/uninstall')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ notes: 'wrong item installed' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.lifecycle_state).toBe('in_stock');
+    expect(res.body.warnings).toEqual([]);
+    expect(conn.commit).toHaveBeenCalled();
+  });
+
+  test('404s for a unit that does not exist / belongs to another org', async () => {
+    db.query.mockImplementation((sql) => (isAuthLookup(sql) ? Promise.resolve(ADMIN_ROW) : Promise.resolve([[]])));
+
+    const res = await request(app)
+      .post('/api/v1/cpe-management/devices/999/uninstall')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  test('422s when the unit is not currently installed (e.g. already in_stock)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isAuthLookup(sql)) return Promise.resolve(ADMIN_ROW);
+      if (sql === 'SELECT * FROM cpe_devices WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) AND deleted_at IS NULL') {
+        return Promise.resolve([[{ id: 51, organization_id: 42, lifecycle_state: 'in_stock' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/cpe-management/devices/51/uninstall')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GET/POST /work-orders/:id/pickup-items
 // ---------------------------------------------------------------------------
 describe('GET /api/v1/work-orders/:id/pickup-items', () => {

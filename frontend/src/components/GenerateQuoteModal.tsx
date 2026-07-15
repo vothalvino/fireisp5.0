@@ -27,11 +27,12 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, authedFetch } from '@/api/client';
+import { api } from '@/api/client';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
   extractApiError,
 } from '@/components/ClientFormModal';
+import { fetchAddonCatalog, fetchSellableInventoryItems, buildProductPickerEntries } from '@/api/addonCatalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,7 +40,6 @@ import {
 
 interface Client { id: number; name: string; }
 interface Contract { id: number; client_id: number; }
-interface PlanAddon { id: number; name: string; addon_type?: string; price: string | number; }
 
 type ItemType = 'contract' | 'product' | 'custom';
 
@@ -94,26 +94,12 @@ async function fetchContracts(): Promise<Contract[]> {
   return (res.data as unknown as { data: Contract[] }).data;
 }
 
-// GET /plans/addons/catalog isn't in the generated OpenAPI schema, so use the
-// authed raw fetch (same pattern as GenerateInvoiceModal / InvoiceList.voidInvoice).
-async function fetchAddonCatalog(): Promise<PlanAddon[]> {
-  const res = await authedFetch('/api/v1/plans/addons/catalog');
-  if (!res.ok) throw new Error('Failed to load product catalog');
-  const json = await res.json() as { data: PlanAddon[] };
-  return json.data ?? [];
-}
-
 async function generateFlexibleQuote(clientId: number, items: FlexItem[]): Promise<GeneratedQuote> {
   const { data, error: e } = await api.POST('/quotes/generate', {
     body: { client_id: clientId, items } as never,
   });
   if (e) throw new Error(extractApiError(e, 'Failed to generate quote'));
   return (data as unknown as { data: GeneratedQuote }).data;
-}
-
-function addonPrice(a: PlanAddon): string {
-  const n = typeof a.price === 'number' ? a.price : parseFloat(a.price || '0');
-  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +127,17 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
   // Self-fetch data. Client list only needed when the client isn't locked.
   const { data: clients = [], isError: clientsError } = useQuery({ queryKey: ['clients-slim'], queryFn: fetchClients, enabled: !lockedClientId });
   const { data: contracts = [] } = useQuery({ queryKey: ['contracts-slim'], queryFn: fetchContracts });
-  const { data: addons = [], isError: addonsError } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+  const { data: addonCatalog = [], isError: addonsError } = useQuery({ queryKey: ['addon-catalog'], queryFn: fetchAddonCatalog });
+  const { data: sellableItems = [] } = useQuery({ queryKey: ['sellable-inventory-items'], queryFn: fetchSellableInventoryItems });
+  // Product picker: UNION of the curated addon catalog and active inventory
+  // items not already linked by one of those addons (Inventory follow-up —
+  // an item is sellable directly, no addon detour required). Note: unlike
+  // InvoiceDetail/QuoteDetail's picker, this modal's `type: 'product'` line
+  // does NOT carry inventory_item_id through to POST /quotes/generate
+  // (pre-existing gap, out of this follow-up's scope — see addonCatalog.ts);
+  // this only extends the SAME pre-existing "prefill only" behavior to more
+  // entries, it does not add a new one.
+  const addons = buildProductPickerEntries(addonCatalog, sellableItems);
   const loadError = (!lockedClientId && clientsError) || addonsError;
 
   const clientContracts = contracts.filter(c => String(c.client_id) === clientId);
@@ -152,11 +148,11 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
     setItems(prev => prev.map(i => i.localId === localId ? { ...i, ...patch } : i));
   }
   function selectAddon(localId: string, addonId: string) {
-    const addon = addons.find(a => String(a.id) === addonId);
+    const addon = addons.find(a => a.value === addonId);
     updateItem(localId, {
       productAddonId: addonId,
-      description: addon ? addon.name : '',
-      unitPrice: addon ? addonPrice(addon) : '',
+      description: addon ? addon.label : '',
+      unitPrice: addon ? addon.price : '',
     });
   }
 
@@ -305,7 +301,7 @@ export function GenerateQuoteModal({ lockedClientId, lockedClientName, onClose, 
                           : addonsError ? '— failed to load products —' : '— no products in catalog —'}
                       </option>
                       {addons.map(a => (
-                        <option key={a.id} value={a.id}>{a.name} ({addonPrice(a)})</option>
+                        <option key={a.value} value={a.value}>{a.label} ({a.price})</option>
                       ))}
                     </select>
                     {addons.length === 0 && !addonsError && (

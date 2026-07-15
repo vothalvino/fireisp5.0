@@ -57,8 +57,12 @@ describe('cpeInventoryService lifecycle FSM', () => {
     expect(() => assertTransitionAllowed('in_stock', 'active')).toThrow(/not allowed/);
   });
 
-  test('active → in_stock is NOT allowed', () => {
-    expect(() => assertTransitionAllowed('active', 'in_stock')).toThrow(/not allowed/);
+  // Migration 392 follow-up: undo-install needs a direct active -> in_stock
+  // path (a unit that already came online can still be undone on a live
+  // contract, not just one still 'assigned') — see inventorySerialService.
+  // uninstallEquipment and TRANSITIONS.active's comment.
+  test('active → in_stock is allowed (undo-install)', () => {
+    expect(() => assertTransitionAllowed('active', 'in_stock')).not.toThrow();
   });
 
   test('in_stock → rma is NOT allowed', () => {

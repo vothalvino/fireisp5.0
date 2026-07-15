@@ -1694,6 +1694,9 @@ function generateSpec() {
       '/cpe-management/devices/install': {
         post: { tags: ['CPE Management'], summary: 'Install a serialized unit on a contract — picks an in-stock serial or registers a new one, decrements stock (rent: ledger only; sold: real invoice line)', operationId: 'installCpeEquipment', security: [{ bearerAuth: [] }], requestBody: jsonBody('inventorySerials_installEquipment'), responses: r201('CpeInstallResult') },
       },
+      '/cpe-management/devices/{id}/uninstall': {
+        post: { tags: ['CPE Management'], summary: 'Undo a mistaken install on a still-live contract — unassigns the unit, restores stock/ledger for a tracked unit, and voids the (unpaid) sale invoice for a sold unit', operationId: 'uninstallCpeEquipment', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('inventorySerials_uninstallEquipment'), responses: r200('CpeUninstallResult') },
+      },
 
       // ---- CPE Profiles §8.2 ----
       '/cpe-profiles': {

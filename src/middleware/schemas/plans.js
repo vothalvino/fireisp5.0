@@ -47,6 +47,10 @@ const createPlanAddon = {
   // backed by (migration 390) — org-ownership is verified in the route
   // handler (422 on cross-org/nonexistent), not here.
   inventory_item_id: { type: 'number', min: 1 },
+  // The column has existed since migration 111 (table creation); the create
+  // schema/route just never accepted it, so the UI silently dropped it
+  // (migration 392 follow-up — no schema change needed, it's app-layer only).
+  description: { type: 'string', max: 5000 },
   price: { type: 'number', required: true, min: 0 },
   billing_cycle: { type: 'string', enum: ['monthly', 'one_time', 'yearly'] },
   taxable: { type: 'boolean' },

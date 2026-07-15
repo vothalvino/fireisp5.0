@@ -47,7 +47,7 @@ router.get('/addons/catalog', requirePermission('plans.view'), async (req, res, 
 
 router.post('/addons', requirePermission('plans.create'), validate(createPlanAddon), async (req, res, next) => {
   try {
-    const { name, addon_type, inventory_item_id, price, billing_cycle, taxable, status } = req.body;
+    const { name, addon_type, inventory_item_id, description, price, billing_cycle, taxable, status } = req.body;
 
     // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
     // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
@@ -68,9 +68,11 @@ router.post('/addons', requirePermission('plans.create'), validate(createPlanAdd
       // Column is `is_taxable` (database/schema.sql); the request field stays `taxable`.
       // billing_cycle is optional in the request but a bare `undefined` bind
       // param makes mysql2 throw — apply the column's DEFAULT 'monthly' here.
-      `INSERT INTO plan_addons (organization_id, name, addon_type, inventory_item_id, price, billing_cycle, is_taxable, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.orgId, name, addon_type, inventory_item_id || null, price, billing_cycle || 'monthly', taxable !== false, status || 'active'],
+      // description was accepted by the UI but silently dropped before this
+      // (column has existed since migration 111 — migration 392 follow-up).
+      `INSERT INTO plan_addons (organization_id, name, addon_type, inventory_item_id, description, price, billing_cycle, is_taxable, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.orgId, name, addon_type, inventory_item_id || null, description || null, price, billing_cycle || 'monthly', taxable !== false, status || 'active'],
     );
     const [rows] = await db.query('SELECT * FROM plan_addons WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: rows[0] });
