@@ -30,3 +30,33 @@ is a fast way to sanity-check a module loads before running the full test
 suite. See also [[env-setup]] for the Windows-path variant of this note from
 a different machine — both boil down to "verify the toolchain resolves before
 trusting a bare `pnpm` script failure as a real code problem."
+
+**`frontend/` needs its OWN node_modules — the walk-up trick doesn't reach
+it.** `frontend/` is a separate pnpm workspace package; `npx tsc`/`npx
+openapi-typescript` run from inside `frontend/` walk up looking for
+`node_modules` and can find the wrong thing (root `node_modules`, which
+lacks frontend-only deps) or nothing at all — `tsc --noEmit` then fails with
+unrelated-looking errors (`Cannot find type definition file for
+'@testing-library/jest-dom'`) or `npx` silently downloads an ad-hoc fresh
+copy of the tool instead of using the pinned version. Two more failure
+modes worth recognizing as environment noise, not real bugs: (1) the MAIN
+checkout's own `frontend/node_modules` can itself be stale (missing a
+recently-added dependency like `dompurify` if nobody has run `pnpm install`
+there since) — don't assume main checkout is ground truth; (2) `git commit`
+invokes husky's pre-commit hook, which runs `pnpm --dir frontend run
+gen:api && tsc --noEmit` and `eslint --fix` for real (not via npx) — those
+fail outright with `sh: 1: openapi-typescript: not found` if no
+`node_modules` is resolvable, and commit does not go through.
+**Fix that worked**: find ANY sibling worktree under
+`.claude/worktrees/*/` whose `frontend/package.json` and root
+`pnpm-lock.yaml` are byte-identical to yours (`diff` both — usually true,
+since they all descend from the same recent main) and has a REAL
+(non-symlinked) `frontend/node_modules` with the dependency in question
+present; symlink both `frontend/node_modules` and root `node_modules` from
+that worktree into yours (`ln -s <other>/frontend/node_modules
+frontend/node_modules`, same for root `node_modules`) before running
+`pnpm run lint`/`tsc --noEmit`/`git commit`. Remove both symlinks
+afterward — they're untracked but git still lists them under `??` (a
+symlink doesn't match a `node_modules/`-with-trailing-slash gitignore
+pattern the same way a real directory does), so leaving them risks an
+accidental `git add -A`.
