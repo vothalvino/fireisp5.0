@@ -27,7 +27,7 @@ import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 import { Badge, Sparkline, type BadgeTone } from '@/components/ui';
 import { seriesToRates, currentRate, fmtBps, type TrafficSample } from './snmpMetrics/rateTransform';
-import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency } from './snmpMetrics/format';
+import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency, normalizeCpuSpark } from './snmpMetrics/format';
 
 // ---------------------------------------------------------------------------
 // Local page-root CSS custom properties (chart series colors) — validated
@@ -559,9 +559,11 @@ function FleetCard({ device, onSelect, t }: { device: FleetDevice; onSelect: (id
   const uptime = fmtUptimeTicks(device.latest?.uptime_ticks ?? null);
   const { inBps, outBps } = currentRate(device.traffic_samples);
   const lastPolled = fmtRelativeTime(device.last_polled_at, t);
-  const sparkPoints = device.cpu_spark
-    .filter(p => p.v != null)
-    .map(p => Number(p.v));
+  // normalizeCpuSpark maps the raw 0-100 CPU% samples into Sparkline's
+  // viewBox coordinate space — Sparkline plots values verbatim as y, so an
+  // un-normalized percentage clips off the bottom of the vbH=24 viewBox
+  // above ~24% (busiest devices would render a flat/empty line).
+  const sparkPoints = normalizeCpuSpark(device.cpu_spark.map(p => p.v), 24);
 
   const activate = () => onSelect(device.id);
   const linkProps = linkableProps(activate, t('snmpMetrics.fleet.viewHistory', { name: device.name }));

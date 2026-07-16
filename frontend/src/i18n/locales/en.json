@@ -3741,7 +3741,8 @@
       "empty": "No SNMP metrics found.",
       "polledAt": "Polled At",
       "latestReadings": "Latest Readings",
-      "viewHistory": "View metric history"
+      "viewHistory": "View metric history",
+      "allReadings": "All readings"
     },
     "backups": {
       "empty": "No config backups found.",

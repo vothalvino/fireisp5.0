@@ -689,9 +689,93 @@ describe('DeviceDetail — SNMP Metrics tab', () => {
     expect(screen.getByText('55.4 %')).toBeInTheDocument();
     expect(screen.getByText('-62 dBm')).toBeInTheDocument();
     expect(screen.getByText('12.3 ms')).toBeInTheDocument();
-    // Never falls back to a raw Object.keys() column dump.
+    // Never falls back to a raw Object.keys() column dump (collapsed by default).
     expect(screen.queryByText('cpu_usage')).not.toBeInTheDocument();
     expect(screen.queryByText('memory_usage')).not.toBeInTheDocument();
+  });
+
+  it('finds the real device-level reading even when interface rows sort first (the backend\'s REAL shape, newest-first with device-level and per-interface rows interleaved)', async () => {
+    // GET /devices/{id}/snmp-metrics has no interface_id IS NULL filter by
+    // default — row[0] is frequently a per-interface row (null cpu/mem/
+    // signal/uptime). Blindly reading row[0] would show "—" everywhere even
+    // though a real, recent device-level reading exists a few rows down.
+    const interfaceRowNewest = {
+      id: 903, polled_at: '2026-07-16T10:10:00.000Z', interface_id: 'eth1',
+      cpu_usage: null, memory_usage: null, signal_strength: null, latency_ms: null, uptime_ticks: null,
+      if_in_octets: 5000, if_out_octets: 2000,
+    };
+    const interfaceRowMiddle = {
+      id: 902, polled_at: '2026-07-16T10:05:00.000Z', interface_id: 'eth0',
+      cpu_usage: null, memory_usage: null, signal_strength: null, latency_ms: null, uptime_ticks: null,
+      if_in_octets: 4000, if_out_octets: 1500,
+    };
+    const deviceLevelRow = {
+      id: 901, polled_at: '2026-07-16T10:00:00.000Z', interface_id: null,
+      cpu_usage: 42, memory_usage: 55.4, signal_strength: -62, latency_ms: 12.3, uptime_ticks: 123456,
+    };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+      if (path === '/devices/{id}/snmp-metrics') {
+        return Promise.resolve({ data: { data: [interfaceRowNewest, interfaceRowMiddle, deviceLevelRow] }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    await openSnmpTab();
+
+    expect(await screen.findByText('42.0 %')).toBeInTheDocument();
+    expect(screen.getByText('55.4 %')).toBeInTheDocument();
+    expect(screen.getByText('-62 dBm')).toBeInTheDocument();
+    expect(screen.getByText('12.3 ms')).toBeInTheDocument();
+  });
+
+  describe('"All readings" expandable section', () => {
+    const mixedRows = [
+      {
+        id: 902, polled_at: '2026-07-16T10:05:00.000Z', interface_id: 'eth0',
+        cpu_usage: null, memory_usage: null, signal_strength: null, latency_ms: null, uptime_ticks: null,
+        if_in_errors: 3, if_in_discards: 1,
+      },
+      {
+        id: 901, polled_at: '2026-07-16T10:00:00.000Z', interface_id: null,
+        cpu_usage: 42, memory_usage: 55.4, signal_strength: -62, latency_ms: 12.3, uptime_ticks: 123456,
+        temperature_c: 38.5, voltage_mv: 12000, fan_speed_rpm: 3200, ups_battery_pct: null,
+      },
+    ];
+
+    it('is collapsed by default — environmental/error fields are not visible until expanded', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+        if (path === '/devices/{id}/snmp-metrics') return Promise.resolve({ data: { data: mixedRows }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      await openSnmpTab();
+
+      await screen.findByText('42.0 %');
+      expect(screen.queryByText('temperature_c')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /All readings/ })).toBeInTheDocument();
+    });
+
+    it('expanding shows every non-null column (temperature, voltage, fan speed, interface errors/discards) with units — nothing lost from the old raw dump', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+        if (path === '/devices/{id}/snmp-metrics') return Promise.resolve({ data: { data: mixedRows }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      await openSnmpTab();
+      await screen.findByText('42.0 %');
+
+      await userEvent.click(screen.getByRole('button', { name: /All readings/ }));
+
+      expect(screen.getByText('temperature_c')).toBeInTheDocument();
+      expect(screen.getByText('38.5 °C')).toBeInTheDocument();
+      expect(screen.getByText('12000 mV')).toBeInTheDocument();
+      expect(screen.getByText('3200 RPM')).toBeInTheDocument();
+      expect(screen.getByText('if_in_errors')).toBeInTheDocument();
+      expect(screen.getByText('if_in_discards')).toBeInTheDocument();
+      // A column that's null on EVERY row (ups_battery_pct here) is dropped
+      // entirely rather than cluttering the table with a wall of "—".
+      expect(screen.queryByText('ups_battery_pct')).not.toBeInTheDocument();
+    });
   });
 });
 

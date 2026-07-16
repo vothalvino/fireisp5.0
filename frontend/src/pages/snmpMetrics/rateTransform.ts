@@ -13,12 +13,30 @@
 //   - A missing sample (null value on either side) also produces `null`.
 //   - The very first sample in any series has no predecessor, so its rate is
 //     always `null`.
+//   - A fleet traffic_samples pair is a SUM across every interface reporting
+//     that poll cycle. The poller logs-and-swallows per-interface ingest
+//     failures, so two samples for the same device can legitimately sum a
+//     DIFFERENT set of interfaces (one dropped out, or one that was missing
+//     reappears). A negative-delta guard alone only catches an interface
+//     disappearing (the sum goes down); an interface REAPPEARING makes the
+//     sum jump by that interface's entire multi-month cumulative counter —
+//     a normal-looking positive delta that would fabricate a multi-Gbps
+//     spike. `currentRate()` refuses to compute a rate at all when the two
+//     samples' `interface_signature` don't match exactly — same "honest
+//     gap" treatment as a negative delta.
 // =============================================================================
 
 export interface TrafficSample {
   t: string;
   in_octets: number | string | null;
   out_octets: number | string | null;
+  /** Exact set of interface ids summed into this sample (from the backend's
+   * `GROUP_CONCAT(DISTINCT interface_id ORDER BY interface_id)`), e.g.
+   * `"1,2,3"`. Two samples are only comparable — safe to diff — when this
+   * string matches exactly. Optional so callers/tests that don't care about
+   * this guard (e.g. a single, already-verified-comparable pair) can omit
+   * it; `undefined === undefined` still allows the comparison through. */
+  interface_signature?: string | null;
 }
 
 /**
@@ -75,6 +93,15 @@ export function seriesToRates(
 export function currentRate(samples: TrafficSample[]): { inBps: number | null; outBps: number | null } {
   if (samples.length < 2) return { inBps: null, outBps: null };
   const [a, b] = samples;
+
+  // Interface membership changed between the two samples (one dropped out
+  // or reappeared) — the sums aren't comparable. Treat as a gap, exactly
+  // like a negative delta, rather than risk a fabricated spike from a
+  // reappearing interface's full cumulative counter landing in the delta.
+  if (a.interface_signature !== b.interface_signature) {
+    return { inBps: null, outBps: null };
+  }
+
   return {
     inBps: deltaToRate(a.in_octets, a.t, b.in_octets, b.t),
     outBps: deltaToRate(a.out_octets, a.t, b.out_octets, b.t),

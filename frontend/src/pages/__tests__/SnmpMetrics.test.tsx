@@ -51,8 +51,8 @@ const fleetResponse = {
         { t: '2026-07-16T11:30:00.000Z', v: 42 },
       ],
       traffic_samples: [
-        { t: '2026-07-16T11:50:00.000Z', in_octets: 1_000_000, out_octets: 500_000 },
-        { t: '2026-07-16T11:55:00.000Z', in_octets: 2_000_000, out_octets: 600_000 },
+        { t: '2026-07-16T11:50:00.000Z', in_octets: 1_000_000, out_octets: 500_000, interface_signature: '1,2' },
+        { t: '2026-07-16T11:55:00.000Z', in_octets: 2_000_000, out_octets: 600_000, interface_signature: '1,2' },
       ],
     },
     {
@@ -129,6 +129,34 @@ describe('SnmpMetrics — fleet glance (level 1)', () => {
     expect(screen.getByText('Offline')).toBeInTheDocument();
     expect(screen.getByText('No data yet')).toBeInTheDocument();
     expect(screen.getByText('3 failed polls')).toBeInTheDocument();
+  });
+
+  it('shows an honest gap (—), never a fabricated multi-Gbps spike, when the paired traffic buckets have different interface membership', async () => {
+    // Interface "3" is missing from the older bucket and reappears in the
+    // newer one — its own multi-month cumulative counter would land in a
+    // naive delta, producing a huge but non-negative "rate" that the
+    // negative-delta guard alone would miss.
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/snmp-metrics/fleet')) {
+        return Promise.resolve(okResponse({
+          data: [{
+            ...fleetResponse.data[0],
+            traffic_samples: [
+              { t: '2026-07-16T11:50:00.000Z', in_octets: 1_000_000, out_octets: 500_000, interface_signature: '1,2' },
+              { t: '2026-07-16T11:55:00.000Z', in_octets: 50_000_000_000, out_octets: 20_000_000_000, interface_signature: '1,2,3' },
+            ],
+          }],
+        }));
+      }
+      return Promise.resolve(okResponse({ data: [] }));
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Core-Router-01')).toBeInTheDocument());
+
+    expect(screen.getByText('In: —')).toBeInTheDocument();
+    expect(screen.getByText('Out: —')).toBeInTheDocument();
+    expect(screen.queryByText(/Gbps/)).not.toBeInTheDocument();
   });
 
   it('filters the grid by name/IP', async () => {

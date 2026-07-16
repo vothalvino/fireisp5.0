@@ -1347,6 +1347,36 @@ describe('Device Routes — /api/devices', () => {
 
       expect(res.status).toBe(404);
     });
+
+    test('default (no ?device_level param) returns every row — device-level AND per-interface — unchanged', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]])
+        .mockResolvedValueOnce([[]]);
+
+      await request(app)
+        .get('/api/devices/1/snmp-metrics')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      const metricsCall = db.query.mock.calls[1];
+      expect(metricsCall[0]).not.toMatch(/interface_id IS NULL/);
+    });
+
+    test('?device_level=1 filters to interface_id IS NULL (device-level scalar rows only)', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]])
+        .mockResolvedValueOnce([[]]);
+
+      const res = await request(app)
+        .get('/api/devices/1/snmp-metrics?device_level=1')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      const metricsCall = db.query.mock.calls[1];
+      expect(metricsCall[0]).toMatch(/device_id = \?/);
+      expect(metricsCall[0]).toMatch(/interface_id IS NULL/);
+    });
   });
 
   // --- client_id FK org-scoping (fix/diagnostic-engine-blindness-client-id) ---

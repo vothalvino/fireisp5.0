@@ -108,6 +108,47 @@ function fmt(dateStr: string | null | undefined): string {
   return d.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// GET /devices/{id}/snmp-metrics returns EVERY row (device-level scalar rows
+// AND per-interface rows) newest-first, interleaved — a per-interface row
+// has null cpu_usage/memory_usage/signal_strength/uptime_ticks, so row[0] is
+// frequently an interface row and blindly reading it renders "—" for every
+// field even when a real, recent device-level reading exists a few rows
+// down. Scan forward (rows are already newest-first) for the first row that
+// actually has a value for this specific field.
+function firstNonNull(rows: SnmpMetric[], key: string): unknown {
+  for (const row of rows) {
+    if (row[key] != null) return row[key];
+  }
+  return null;
+}
+
+// Known units for the SNMP columns the "all readings" expandable dump
+// surfaces — environmental/power/error counters the compact 6-field summary
+// above doesn't show (temperature, voltage, fan speed, UPS, PoE, humidity,
+// SFP optics, interface errors/discards). Anything not listed here still
+// renders, just without a unit suffix.
+const SNMP_COLUMN_UNITS: Record<string, string> = {
+  cpu_usage: ' %',
+  memory_usage: ' %',
+  signal_strength: ' dBm',
+  latency_ms: ' ms',
+  temperature_c: ' °C',
+  voltage_mv: ' mV',
+  fan_speed_rpm: ' RPM',
+  ups_battery_pct: ' %',
+  ups_runtime_min: ' min',
+  poe_power_mw: ' mW',
+  humidity_pct: ' %',
+  sfp_tx_power_dbm: ' dBm',
+  sfp_rx_power_dbm: ' dBm',
+  sfp_temperature_c: ' °C',
+};
+
+function fmtRawSnmpValue(key: string, value: unknown): string {
+  if (value == null) return '—';
+  return `${String(value)}${SNMP_COLUMN_UNITS[key] ?? ''}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const colorMap: Record<string, { bg: string; color: string }> = {
     online:      { bg: '#d1fae5', color: '#065f46' },
@@ -455,6 +496,7 @@ export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [snmpAllReadingsOpen, setSnmpAllReadingsOpen] = useState(false);
 
   const qc = useQueryClient();
 
@@ -801,12 +843,60 @@ export function DeviceDetail() {
                 <div style={styles.infoLabel}>{t('deviceDetail.snmp.latestReadings')}</div>
                 <div style={styles.snmpSummaryGrid}>
                   <InfoRow label={t('deviceDetail.fields.lastPolledAt')} value={fmt(snmpMetrics[0].polled_at)} />
-                  <InfoRow label={t('snmpMetrics.fleet.cpu')} value={fmtPct(snmpMetrics[0].cpu_usage as number | string | null)} />
-                  <InfoRow label={t('snmpMetrics.fleet.memory')} value={fmtPct(snmpMetrics[0].memory_usage as number | string | null)} />
-                  <InfoRow label={t('snmpMetrics.history.summary.signal')} value={fmtSignal(snmpMetrics[0].signal_strength as number | string | null)} />
-                  <InfoRow label={t('snmpMetrics.history.summary.latency')} value={fmtLatency(snmpMetrics[0].latency_ms as number | string | null)} />
-                  <InfoRow label={t('snmpMetrics.fleet.uptime')} value={fmtUptimeTicks(snmpMetrics[0].uptime_ticks as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.fleet.cpu')} value={fmtPct(firstNonNull(snmpMetrics, 'cpu_usage') as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.fleet.memory')} value={fmtPct(firstNonNull(snmpMetrics, 'memory_usage') as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.history.summary.signal')} value={fmtSignal(firstNonNull(snmpMetrics, 'signal_strength') as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.history.summary.latency')} value={fmtLatency(firstNonNull(snmpMetrics, 'latency_ms') as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.fleet.uptime')} value={fmtUptimeTicks(firstNonNull(snmpMetrics, 'uptime_ticks') as number | string | null)} />
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSnmpAllReadingsOpen(o => !o)}
+                  style={styles.snmpExpandToggle}
+                >
+                  {snmpAllReadingsOpen ? '▾ ' : '▸ '}{t('deviceDetail.snmp.allReadings')}
+                </button>
+
+                {snmpAllReadingsOpen && (() => {
+                  // Every column seen across the fetched rows, minus id/polled_at
+                  // (already shown as its own column) — then keep only the
+                  // columns that are non-null on AT LEAST one row, so a column
+                  // that's always null on this device doesn't clutter the table
+                  // with a wall of "—". This is the environmental/power/error
+                  // detail (temperature, voltage, fan, UPS, PoE, SFP optics,
+                  // interface errors/discards) that the compact summary above
+                  // doesn't show — nothing is lost, just collapsed by default.
+                  const allKeys = Array.from(
+                    new Set(snmpMetrics.flatMap(m => Object.keys(m))),
+                  ).filter(k => k !== 'id' && k !== 'polled_at');
+                  const nonNullKeys = allKeys.filter(k => snmpMetrics.some(m => m[k] != null));
+
+                  return (
+                    <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>{t('deviceDetail.snmp.polledAt')}</th>
+                            {nonNullKeys.map(k => (
+                              <th key={k} style={styles.th}>{k}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {snmpMetrics.map(m => (
+                            <tr key={m.id} style={styles.tr}>
+                              <td style={styles.td}>{fmt(m.polled_at)}</td>
+                              {nonNullKeys.map(k => (
+                                <td key={k} style={styles.td}>{fmtRawSnmpValue(k, m[k])}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -967,6 +1057,10 @@ const styles = {
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
   snmpHistoryLink: { color: 'var(--accent)', fontWeight: 600, fontSize: '0.9rem', textDecoration: 'none' as const },
   snmpSummaryGrid: { display: 'grid' as const, gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.5rem 1.5rem', marginTop: '0.5rem' },
+  snmpExpandToggle: {
+    marginTop: '1rem', padding: 0, border: 'none', background: 'none',
+    color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer',
+  },
   rfThresholdsPanel: { maxWidth: 420, display: 'flex' as const, flexDirection: 'column' as const, gap: '0.35rem' },
   rfThresholdsIntro: { fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' },
   rfThresholdsLabel: { display: 'flex' as const, flexDirection: 'column' as const, gap: '0.3rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '0.5rem' },

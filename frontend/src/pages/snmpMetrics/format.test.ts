@@ -2,7 +2,45 @@
 // FireISP 5.0 — SNMP fleet-glance formatting helper tests
 // =============================================================================
 import { describe, it, expect, vi } from 'vitest';
-import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency } from './format';
+import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency, normalizeCpuSpark } from './format';
+
+describe('normalizeCpuSpark', () => {
+  const VB_H = 24;
+
+  it('keeps every y-coordinate within the viewBox for values across the whole 0-100 range', () => {
+    // 95% previously clipped off the bottom of a vbH=24 viewBox when the raw
+    // percentage was plotted verbatim (Sparkline plots y=v by design).
+    const points = normalizeCpuSpark([10, 50, 95], VB_H);
+    expect(points).toHaveLength(3);
+    for (const y of points) {
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(VB_H);
+    }
+  });
+
+  it('higher CPU values map to a smaller y (visually higher, since SVG y grows downward)', () => {
+    const [yLow, yMid, yHigh] = normalizeCpuSpark([10, 50, 95], VB_H);
+    expect(yHigh).toBeLessThan(yMid);
+    expect(yMid).toBeLessThan(yLow);
+  });
+
+  it('clamps out-of-range values instead of producing an out-of-viewBox y', () => {
+    const points = normalizeCpuSpark([-10, 150], VB_H);
+    for (const y of points) {
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(VB_H);
+    }
+  });
+
+  it('drops null/invalid entries rather than plotting them as 0 (which would read as "idle")', () => {
+    const points = normalizeCpuSpark([10, null, 'bad', 50], VB_H);
+    expect(points).toHaveLength(2);
+  });
+
+  it('returns an empty array for no data', () => {
+    expect(normalizeCpuSpark([], VB_H)).toEqual([]);
+  });
+});
 
 describe('fmtPct', () => {
   it('formats a numeric percentage to one decimal', () => {

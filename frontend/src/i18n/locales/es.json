@@ -3741,7 +3741,8 @@
       "empty": "No se encontraron métricas SNMP.",
       "polledAt": "Fecha Sondeo",
       "latestReadings": "Lecturas Recientes",
-      "viewHistory": "Ver historial de métricas"
+      "viewHistory": "Ver historial de métricas",
+      "allReadings": "Todas las lecturas"
     },
     "backups": {
       "empty": "No se encontraron respaldos de configuración.",

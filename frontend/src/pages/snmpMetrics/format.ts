@@ -46,6 +46,29 @@ export function fmtUptimeTicks(ticks: number | string | null): string {
   return `${minutes}m`;
 }
 
+/**
+ * Normalizes a 0-100 percentage series (e.g. CPU utilization samples) into
+ * y-coordinates for a `Sparkline` of viewBox height `vbH`. `Sparkline`
+ * plots each point's value directly as its SVG y-coordinate by design
+ * (every other caller pre-normalizes — see `consoleModel.ts`'s
+ * `sparkFromSeries`) — an un-normalized 0-100 value clips off the bottom of
+ * a `vbH=24` viewBox for anything above ~24, making busy devices render a
+ * flat/empty sparkline. Values are clamped to [0, 100] first; null/invalid
+ * entries are dropped rather than plotted as 0 (which would read as "idle").
+ */
+export function normalizeCpuSpark(values: (number | string | null)[], vbH = 24): number[] {
+  const PAD = 2;
+  const usable = Math.max(0, vbH - PAD * 2);
+  return values
+    .filter((v): v is number | string => v != null)
+    .map(v => Number(v))
+    .filter(n => Number.isFinite(n))
+    .map(n => {
+      const clamped = Math.min(100, Math.max(0, n));
+      return vbH - PAD - (clamped / 100) * usable;
+    });
+}
+
 /** Minimal structural shape of i18next's `t()` — avoids a hard dependency on
  * the `i18next` package's type exports for this small pure-logic module. */
 type TFn = (key: string, opts?: Record<string, unknown>) => string;

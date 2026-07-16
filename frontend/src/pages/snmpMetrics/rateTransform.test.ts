@@ -83,6 +83,47 @@ describe('currentRate', () => {
     expect(inBps).toBeNull();
     expect(outBps).toBeNull();
   });
+
+  it('identical interface_signature pair → computes the correct rate', () => {
+    const { inBps, outBps } = currentRate([
+      { t: '2026-01-01T00:00:00.000Z', in_octets: 1_000_000, out_octets: 500_000, interface_signature: '1,2,3' },
+      { t: '2026-01-01T00:00:10.000Z', in_octets: 2_000_000, out_octets: 600_000, interface_signature: '1,2,3' },
+    ]);
+    expect(inBps).toBe(800_000);
+    expect(outBps).toBe(80_000);
+  });
+
+  it('a REAPPEARING interface (different interface_signature) → null, never a fabricated spike', () => {
+    // Interface "4" was missing from the first bucket (dropped that poll)
+    // and reappears in the second — its own multi-month cumulative counter
+    // lands in the SUM, producing a huge but non-negative "delta" that the
+    // negative-delta guard alone would NOT catch. The signature mismatch
+    // must short-circuit before any delta math runs.
+    const { inBps, outBps } = currentRate([
+      { t: '2026-01-01T00:00:00.000Z', in_octets: 1_000_000, out_octets: 500_000, interface_signature: '1,2,3' },
+      { t: '2026-01-01T00:00:10.000Z', in_octets: 50_000_000_000, out_octets: 20_000_000_000, interface_signature: '1,2,3,4' },
+    ]);
+    expect(inBps).toBeNull();
+    expect(outBps).toBeNull();
+  });
+
+  it('a DISAPPEARING interface (different interface_signature, lower sum) → null via the signature check (not just the negative-delta guard)', () => {
+    const { inBps, outBps } = currentRate([
+      { t: '2026-01-01T00:00:00.000Z', in_octets: 5_000_000, out_octets: 2_000_000, interface_signature: '1,2,3,4' },
+      { t: '2026-01-01T00:00:10.000Z', in_octets: 1_000_000, out_octets: 500_000, interface_signature: '1,2,3' },
+    ]);
+    expect(inBps).toBeNull();
+    expect(outBps).toBeNull();
+  });
+
+  it('samples with no interface_signature at all (single-interface device history, not a fleet sum) still compute normally', () => {
+    const { inBps, outBps } = currentRate([
+      { t: '2026-01-01T00:00:00.000Z', in_octets: 1_000_000, out_octets: 500_000 },
+      { t: '2026-01-01T00:00:10.000Z', in_octets: 2_000_000, out_octets: 600_000 },
+    ]);
+    expect(inBps).toBe(800_000);
+    expect(outBps).toBe(80_000);
+  });
 });
 
 describe('fmtBps', () => {

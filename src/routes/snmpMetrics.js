@@ -78,7 +78,10 @@ router.get('/devices', requirePermission('devices.view'), async (req, res, next)
 // Returns, for every SNMP-enabled device of req.orgId: device identity/health
 // fields, the latest device-level (interface_id IS NULL) reading, a short CPU
 // sparkline, and up to two recent per-device interface-summed traffic samples
-// so the frontend can compute a current in/out rate via delta. Bounded to
+// (each carrying an `interface_signature` — the exact set of interfaces that
+// contributed to that bucket's sums) so the frontend can compute a current
+// in/out rate via delta, refusing to do so when the two samples' interface
+// sets don't match (see rateTransform.currentRate). Bounded to
 // `polled_at >= NOW() - INTERVAL 3 HOUR` for partition pruning against the
 // range-partitioned snmp_metrics table. Four set-based queries total — never
 // N-per-device.
@@ -139,12 +142,26 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
     // (each interface's row is inserted with its own NOW(), so exact polled_at
     // values can differ by a second or two within a single poll pass). Take
     // the two most recent buckets per device for a delta-based rate.
+    //
+    // iface_count/iface_signature capture EXACTLY which interfaces contributed
+    // to each bucket's sums. The poller logs-and-swallows per-interface ingest
+    // failures, so two buckets for the same device can legitimately sum a
+    // DIFFERENT set of interfaces (one dropped out, or one that was missing
+    // reappears). A negative-delta guard alone only catches an interface
+    // disappearing (sum goes down); an interface REAPPEARING makes the sum
+    // jump by that interface's entire multi-month cumulative counter, which
+    // reads as a normal positive delta and would otherwise fabricate a
+    // multi-Gbps spike. The frontend (rateTransform.currentRate) refuses to
+    // compute a rate at all when the two buckets' signatures don't match
+    // exactly — same "honest gap" treatment as a negative delta.
     const [trafficRows] = await db.query(
       `SELECT device_id,
               FLOOR(UNIX_TIMESTAMP(polled_at) / 60) AS minute_bucket,
               MAX(polled_at) AS ts,
               SUM(if_in_octets) AS in_octets,
-              SUM(if_out_octets) AS out_octets
+              SUM(if_out_octets) AS out_octets,
+              COUNT(DISTINCT interface_id) AS iface_count,
+              GROUP_CONCAT(DISTINCT interface_id ORDER BY interface_id) AS iface_signature
        FROM snmp_metrics
        WHERE device_id IN (?) AND interface_id IS NOT NULL
          AND polled_at >= NOW() - INTERVAL 3 HOUR
@@ -157,7 +174,12 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
       if (!trafficByDevice.has(row.device_id)) trafficByDevice.set(row.device_id, []);
       const arr = trafficByDevice.get(row.device_id);
       if (arr.length < 2) {
-        arr.push({ t: row.ts, in_octets: row.in_octets, out_octets: row.out_octets });
+        arr.push({
+          t: row.ts,
+          in_octets: row.in_octets,
+          out_octets: row.out_octets,
+          interface_signature: row.iface_signature,
+        });
       }
     }
     // Rows arrive newest-bucket-first per device; reverse so samples are
