@@ -228,6 +228,16 @@ async function _businessHours(context, messageContent, orgId) {
 }
 
 async function _damageReport(context, messageContent, orgId) {
+  // tickets.client_id is NOT NULL — without an identified customer the INSERT
+  // would 500. Ask the subscriber to call in instead of faking a ticket.
+  if (!context?.customer?.id) {
+    return {
+      response: 'Para crear el reporte de daño necesitamos identificar tu cuenta. Por favor comunícate con soporte para que un técnico atienda tu caso.',
+      requiresConfirmation: false,
+      actionType: 'damage_report',
+      actionData: { ticketCreated: false },
+    };
+  }
   try {
     await db.query(
       'INSERT INTO tickets (organization_id, client_id, subject, description, status, priority, category, source) VALUES (?,?,?,?,?,?,?,?)',
@@ -251,6 +261,14 @@ async function _damageReport(context, messageContent, orgId) {
 }
 
 async function _obstructionReport(context, messageContent, orgId) {
+  if (!context?.customer?.id) {
+    return {
+      response: 'Para registrar el reporte de obstrucción necesitamos identificar tu cuenta. Por favor comunícate con soporte para agendar una visita técnica.',
+      requiresConfirmation: false,
+      actionType: 'obstruction_report',
+      actionData: { ticketCreated: false },
+    };
+  }
   try {
     await db.query(
       'INSERT INTO tickets (organization_id, client_id, subject, description, status, priority, category, source) VALUES (?,?,?,?,?,?,?,?)',
@@ -310,6 +328,14 @@ async function _nearestTower(context) {
 }
 
 async function _technicianComplaint(context, messageContent, orgId) {
+  if (!context?.customer?.id) {
+    return {
+      response: 'Para registrar tu queja necesitamos identificar tu cuenta. Por favor comunícate con soporte y un supervisor dará seguimiento a tu caso.',
+      requiresConfirmation: false,
+      actionType: 'technician_complaint',
+      actionData: { ticketCreated: false },
+    };
+  }
   try {
     await db.query(
       'INSERT INTO tickets (organization_id, client_id, subject, description, status, priority, category, source) VALUES (?,?,?,?,?,?,?,?)',

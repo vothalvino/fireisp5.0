@@ -66809,6 +66809,10 @@
               "resolved",
               "closed"
             ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           }
         },
         "required": [
@@ -66868,6 +66872,10 @@
               "resolved",
               "closed"
             ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           }
         }
       },
@@ -66922,6 +66930,10 @@
               "resolved",
               "closed"
             ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
           }
         }
       },

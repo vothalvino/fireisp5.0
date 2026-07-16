@@ -18,6 +18,7 @@ const createTicket = {
   priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
   category: { type: 'string', required: true, enum: TICKET_CATEGORIES },
   status: { type: 'string', enum: ['open', 'in_progress', 'waiting', 'resolved', 'closed'] },
+  notes: { type: 'string', max: 5000 },
 };
 
 const updateTicket = {
@@ -29,6 +30,9 @@ const updateTicket = {
   priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
   category: { type: 'string', enum: TICKET_CATEGORIES },
   status: { type: 'string', enum: ['open', 'in_progress', 'waiting', 'resolved', 'closed'] },
+  // Internal operator notes — the column always existed on tickets but
+  // validate() silently dropped it because it was never declared here.
+  notes: { type: 'string', max: 5000 },
 };
 
 const createComment = {
