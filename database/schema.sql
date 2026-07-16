@@ -13759,4 +13759,20 @@ CREATE TABLE IF NOT EXISTS organization_quote_sequences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Atomic per-organization quote-number counter (migration 389) — mirrors organization_invoice_sequences (migration 381)';
 
+-- ---------------------------------------------------------------------------
+-- Seed: maintenance_window_expiry scheduled task (migration 400)
+-- Purpose: Completes maintenance_windows past their ends_at — see
+--          alertService.expireMaintenanceWindows(). Placed here (after all
+--          table definitions) since scheduled_tasks already exists earlier
+--          in this file — mirrors migration 284's wireless_ap_sector_poll
+--          seed placement above.
+-- ---------------------------------------------------------------------------
+INSERT INTO scheduled_tasks
+    (task_name, cron_expression, description, is_enabled, priority, organization_id)
+SELECT 'maintenance_window_expiry', '*/15 * * * *', 'Complete maintenance windows whose end time has passed', TRUE, 'low', NULL
+WHERE NOT EXISTS (
+    SELECT 1 FROM scheduled_tasks
+    WHERE task_name = 'maintenance_window_expiry' AND organization_id IS NULL
+);
+
 SET FOREIGN_KEY_CHECKS = 1;

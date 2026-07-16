@@ -232,9 +232,11 @@ router.delete('/escalation-chains/:id/steps/:stepId', requirePermission('alert_e
 
 router.get('/maintenance-windows/active', requirePermission('maintenance_windows.view'), async (req, res, next) => {
   try {
+    // Time-bound regardless of status (migration 400) — see the identical
+    // predicate + rationale in alertService.activeMaintenanceWindowId.
     const [rows] = await db.query(
       `SELECT * FROM maintenance_windows WHERE organization_id = ? AND deleted_at IS NULL
-       AND (status = 'active' OR (status = 'scheduled' AND starts_at <= NOW() AND ends_at >= NOW()))
+       AND status IN ('active', 'scheduled') AND starts_at <= NOW() AND ends_at >= NOW()
        ORDER BY starts_at`,
       [req.orgId],
     );

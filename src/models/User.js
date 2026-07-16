@@ -293,6 +293,47 @@ class User extends BaseModel {
   }
 
   /**
+   * Staff recipients for a set of legacy role names, resolved the RBAC-
+   * authoritative way (migration 400) instead of querying `users.role`
+   * directly: an `organization_users` membership row for the TARGET org is
+   * authoritative when one exists (its `role`, not the user's legacy role,
+   * decides inclusion); only a user with NO membership row falls back to
+   * their legacy `users.role`, and only when they are homed in this org.
+   * Mirrors `getUsersWithPermission`'s `LEFT JOIN organization_users` shape,
+   * keyed on role name instead of permission slug. Used by
+   * `notificationHooks.resolveStaffRecipients()` for bell/email fan-out
+   * (device online/offline, alert triggered/escalated, outage
+   * reported/resolved, ip_pool.threshold).
+   *
+   * Deliberately does NOT filter `email IS NOT NULL` — a staffer with no
+   * email on file must still receive an in-app bell row; callers gate their
+   * own email leg on `recipient.email` truthiness.
+   *
+   * Cross-org members (homed in another organization, holding a membership
+   * row for THIS org) ARE included — same precedent as
+   * `getUsersWithPermission`/`hasEffectivePermission`.
+   *
+   * Bind order: [orgId (ou join), ...roles (membership branch), orgId
+   * (homed-fallback branch), ...roles (legacy-role branch)].
+   */
+  static async getStaffByEffectiveRole(organizationId, roles) {
+    const db = require('../config/database');
+    const placeholders = roles.map(() => '?').join(', ');
+    const [rows] = await db.query(`
+      SELECT DISTINCT u.id, u.email, u.first_name
+      FROM users u
+      LEFT JOIN organization_users ou
+        ON ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+      WHERE u.status = 'active' AND u.deleted_at IS NULL
+        AND (
+          (ou.id IS NOT NULL AND ou.role IN (${placeholders}))
+          OR (ou.id IS NULL AND u.organization_id = ? AND u.role IN (${placeholders}))
+        )
+    `, [organizationId, ...roles, organizationId, ...roles]);
+    return rows;
+  }
+
+  /**
    * Whether a single user is authorized for `permissionSlug` in an organization
    * (see #EFFECTIVE_PERMISSION_PREDICATE — includes cross-org members). Used to
    * validate an assignee before it is written to a record. Deliberately does NOT

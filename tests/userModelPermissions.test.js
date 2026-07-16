@@ -117,6 +117,34 @@ describe('User.getOrgRole', () => {
   });
 });
 
+// Migration 400 — used by notificationHooks.resolveStaffRecipients() so bell/
+// email fan-out resolves recipients the RBAC-authoritative way (organization_users
+// membership role for the target org, falling back to legacy users.role only
+// for users homed here with no membership row) instead of querying users.role
+// directly, which silently excluded anyone whose real access came from a
+// membership row alone.
+describe('User.getStaffByEffectiveRole', () => {
+  test('bind contract: [orgId (ou join), ...roles (membership branch), orgId (homed fallback), ...roles (legacy branch)]', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 1, email: 'a@demo-isp.com', first_name: 'A' }]]);
+    const rows = await User.getStaffByEffectiveRole(1, ['admin', 'technician']);
+
+    expect(rows).toEqual([{ id: 1, email: 'a@demo-isp.com', first_name: 'A' }]);
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/LEFT JOIN organization_users ou/);
+    expect(sql).toMatch(/ou\.id IS NOT NULL AND ou\.role IN/);
+    expect(sql).toMatch(/ou\.id IS NULL AND u\.organization_id = \? AND u\.role IN/);
+    expect(sql).not.toMatch(/email IS NOT NULL/); // deliberate — see resolveStaffRecipients
+    expect(params).toEqual([1, 'admin', 'technician', 1, 'admin', 'technician']);
+  });
+
+  test('does not filter out staff with a NULL email — the caller decides whether to skip the email leg', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 4, email: null, first_name: 'Dana' }]]);
+    const rows = await User.getStaffByEffectiveRole(1, ['admin']);
+    expect(rows).toEqual([{ id: 4, email: null, first_name: 'Dana' }]);
+  });
+});
+
 describe('User.resolveGroupMirror', () => {
   test('group_id forces role to the group kind', async () => {
     db.query.mockResolvedValueOnce([[{ id: 7, name: 'NOC Night Shift', kind: 'technician' }]]);

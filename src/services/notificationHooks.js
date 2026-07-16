@@ -33,30 +33,22 @@ function getBroadcast() {
 // ---------------------------------------------------------------------------
 // Shared helper: active staff recipients for in-app + email notifications.
 //
-// NOTE (flagged, not fixed in this PR): this follows the SAME precedent every
-// existing recipient-resolution query in this file already uses — filtering
-// on the legacy `users.role` column (outage.reported's admin/support email
-// leg, ip_pool.threshold's admin/technician email leg) — rather than the
-// authoritative `organization_users` per-org membership role used everywhere
-// else in the RBAC system (see User.getPermissions). A user whose real
-// access comes only from an organization_users membership, with no legacy
-// users.role set, will not receive these notifications. Redesigning
-// recipient resolution is out of scope for this PR; this just keeps new
-// listeners consistent with the file's existing (inconsistent) convention.
+// Migration 400: this used to query the legacy `users.role` column directly
+// — a fallback-only field per User.getPermissions, applied only when a user
+// has NO organization_users membership row for the org. A staffer whose real
+// access came from an organization_users membership (with a different or no
+// legacy role) was silently excluded from every notification in this file.
+// Now delegates to User.getStaffByEffectiveRole(), which resolves recipients
+// the RBAC-authoritative way: membership role for the target org when a
+// membership row exists, else the legacy role fallback for users homed here.
+//
+// No `email IS NOT NULL` filter — a staffer with no email on file still gets
+// an in-app bell row; every call site below gates its OWN email leg on
+// `recipient.email` truthiness.
 // ---------------------------------------------------------------------------
 async function resolveStaffRecipients(organizationId, roles) {
-  const db = require('../config/database');
-  const placeholders = roles.map(() => '?').join(', ');
-  const [rows] = await db.query(
-    `SELECT id, email, first_name FROM users
-     WHERE organization_id = ?
-       AND role IN (${placeholders})
-       AND status = 'active'
-       AND email IS NOT NULL
-       AND deleted_at IS NULL`,
-    [organizationId, ...roles],
-  );
-  return rows;
+  const User = require('../models/User');
+  return User.getStaffByEffectiveRole(organizationId, roles);
 }
 
 /**
@@ -469,18 +461,10 @@ function registerHooks() {
 
       // Notify admins/support by email when a new outage is reported — §1.4
       // (also creates the in-app bell row for the same recipient set, off
-      // the same SELECT — no second query needed for the bell leg)
+      // the same query — no second lookup needed for the bell leg)
       try {
-        const db = require('../config/database');
         const Notification = require('../models/Notification');
-        const [admins] = await db.query(
-          `SELECT u.id, u.email, u.first_name FROM users u
-           WHERE u.organization_id = ?
-             AND u.role IN ('admin', 'support')
-             AND u.status = 'active'
-             AND u.email IS NOT NULL`,
-          [organizationId],
-        );
+        const admins = await resolveStaffRecipients(organizationId, ['admin', 'support']);
         const html = '<p>Se reportó una interrupción de servicio:</p>'
           + `<p><strong>${esc(outage.title)}</strong></p>`
           + (outage.severity ? `<p>Severidad: ${esc(outage.severity)}</p>` : '')
@@ -495,12 +479,14 @@ function registerHooks() {
             entity_id:   outage.id,
           }).catch(err2 => logger.warn({ err: err2, event: 'outage.reported', userId: admin.id }, 'Outage in-app notification error'));
 
-          await emailTransport.sendEmail({
-            organizationId,
-            to: admin.email,
-            subject: `Interrupción reportada: ${outage.title}`,
-            html,
-          }).catch(err2 => logger.warn({ err: err2, event: 'outage.reported' }, 'Admin outage email error'));
+          if (admin.email) {
+            await emailTransport.sendEmail({
+              organizationId,
+              to: admin.email,
+              subject: `Interrupción reportada: ${outage.title}`,
+              html,
+            }).catch(err2 => logger.warn({ err: err2, event: 'outage.reported' }, 'Admin outage email error'));
+          }
         }
       } catch (notifyErr) {
         logger.warn({ err: notifyErr, event: 'outage.reported' }, 'Admin outage notification error');
@@ -527,16 +513,8 @@ function registerHooks() {
       // Bell rows only — quiet, no new email leg (an email was already sent
       // when the outage was reported; resolution is lower-urgency).
       try {
-        const db = require('../config/database');
         const Notification = require('../models/Notification');
-        const [admins] = await db.query(
-          `SELECT u.id FROM users u
-           WHERE u.organization_id = ?
-             AND u.role IN ('admin', 'support')
-             AND u.status = 'active'
-             AND u.deleted_at IS NULL`,
-          [organizationId],
-        );
+        const admins = await resolveStaffRecipients(organizationId, ['admin', 'support']);
         for (const admin of admins) {
           await Notification.create({
             user_id:     admin.id,
@@ -1157,20 +1135,13 @@ function registerHooks() {
   // --- IP Pool Utilization Threshold ---
   eventBus.on('ip_pool.threshold', async ({ organizationId, pool, percent, threshold, assigned, usable }) => {
     try {
-      const db = require('../config/database');
-      const [admins] = await db.query(
-        `SELECT u.email, u.first_name FROM users u
-         WHERE u.organization_id = ?
-           AND u.role IN ('admin', 'technician')
-           AND u.status = 'active'
-           AND u.email IS NOT NULL`,
-        [organizationId],
-      );
+      const admins = await resolveStaffRecipients(organizationId, ['admin', 'technician']);
       const html = `<p>IP Pool <strong>${esc(pool.name)}</strong> (${esc(pool.network)}) has reached `
         + `<strong>${percent}%</strong> utilization (${assigned}/${usable} addresses assigned).</p>`
         + `<p>Threshold crossed: ${threshold}%</p>`
         + '<p>Consider expanding the pool or adding a new one.</p>';
       for (const admin of admins) {
+        if (!admin.email) continue;
         await emailTransport.sendEmail({
           organizationId,
           to: admin.email,
