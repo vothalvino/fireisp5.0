@@ -476,7 +476,9 @@ describe('notificationHooks', () => {
       db.query.mockImplementation((sql, params) => {
         if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
         if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
-          expect(params).toEqual([1, 'admin', 'technician', 1, 'admin', 'technician']);
+          // Membership branch is 'owner'-expanded because 'admin' was requested
+          // (see getStaffByEffectiveRole); legacy branch is not.
+          expect(params).toEqual([1, 'admin', 'technician', 'owner', 1, 'admin', 'technician']);
           // Priya's legacy users.role is 'billing' (not in the roles list),
           // but her organization_users.role for THIS org is 'technician' —
           // membership is authoritative, so she is included.
@@ -503,6 +505,61 @@ describe('notificationHooks', () => {
           // org 1 is 'readonly' (not in ['admin','technician']) — she HAS a
           // membership row, so the legacy-role fallback branch never applies
           // to her; the membership branch excludes her.
+          return Promise.resolve([[]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(false);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    // Regression test (adversarial review of PR #436): organization_users.role
+    // is a SUPERSET ENUM that also allows 'owner'/'manager', neither of which
+    // is a valid users.role value. Before the fix, an org OWNER requesting
+    // ['admin', ...] failed BOTH branches — not in the membership role list,
+    // and excluded from the legacy fallback because they DO have a membership
+    // row — so they were silently dropped from every notification. This is
+    // exactly the default install's shape: src/scripts/seed.js creates user 1
+    // with users.role='admin' + organization_users.role='owner' for org 1.
+    test("the default-install org owner (users.role='admin', membership role='owner') still receives bell/email — regression test", async () => {
+      db.query.mockImplementation((sql, params) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // 'owner' must appear in the membership-branch role list.
+          expect(params).toEqual([1, 'admin', 'technician', 'owner', 1, 'admin', 'technician']);
+          return Promise.resolve([[{ id: 1, email: 'admin@demo-isp.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert[1]).toContain(1);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'admin@demo-isp.com' }));
+    });
+
+    // Locks the documented product-semantics call: 'owner' is expanded
+    // because it outranks 'admin' throughout this codebase, but 'manager' is
+    // NOT — a user whose membership role is 'manager' is excluded even when
+    // their legacy users.role is 'admin', because membership resolution is
+    // now authoritative and their real role is manager, not admin.
+    test("a membership role of 'manager' (even with legacy users.role='admin') is EXCLUDED — only 'owner' is expanded, not 'manager'", async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // 'manager' is not in the expanded membership role list
+          // ['admin','technician','owner']; she HAS a membership row, so the
+          // legacy-role fallback branch never applies to her either.
           return Promise.resolve([[]]);
         }
         return Promise.resolve([[]]);

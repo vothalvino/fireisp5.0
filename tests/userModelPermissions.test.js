@@ -124,7 +124,7 @@ describe('User.getOrgRole', () => {
 // directly, which silently excluded anyone whose real access came from a
 // membership row alone.
 describe('User.getStaffByEffectiveRole', () => {
-  test('bind contract: [orgId (ou join), ...roles (membership branch), orgId (homed fallback), ...roles (legacy branch)]', async () => {
+  test("bind contract: requesting 'admin' expands the MEMBERSHIP branch to include 'owner' (never the legacy branch)", async () => {
     db.query.mockResolvedValueOnce([[{ id: 1, email: 'a@demo-isp.com', first_name: 'A' }]]);
     const rows = await User.getStaffByEffectiveRole(1, ['admin', 'technician']);
 
@@ -135,7 +135,17 @@ describe('User.getStaffByEffectiveRole', () => {
     expect(sql).toMatch(/ou\.id IS NOT NULL AND ou\.role IN/);
     expect(sql).toMatch(/ou\.id IS NULL AND u\.organization_id = \? AND u\.role IN/);
     expect(sql).not.toMatch(/email IS NOT NULL/); // deliberate — see resolveStaffRecipients
-    expect(params).toEqual([1, 'admin', 'technician', 1, 'admin', 'technician']);
+    // membership branch: ['admin', 'technician', 'owner'] (expanded);
+    // legacy branch: ['admin', 'technician'] (UN-expanded — 'owner' is not a
+    // valid users.role value, so expanding it there would be a no-op at best).
+    expect(params).toEqual([1, 'admin', 'technician', 'owner', 1, 'admin', 'technician']);
+  });
+
+  test("does NOT expand 'owner' when 'admin' is not requested", async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    await User.getStaffByEffectiveRole(1, ['technician']);
+    const [, params] = db.query.mock.calls[0];
+    expect(params).toEqual([1, 'technician', 1, 'technician']);
   });
 
   test('does not filter out staff with a NULL email — the caller decides whether to skip the email leg', async () => {
