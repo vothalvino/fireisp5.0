@@ -59,6 +59,7 @@ describe('E2E Workflow: Alert → Outage → Notification', () => {
       .mockResolvedValueOnce([[]])                // maintenance-window check: none
       .mockResolvedValueOnce([{ insertId: 1 }])  // INSERT alert_event (recordAlert)
       .mockResolvedValueOnce([[]])                // dedup check: no prior episode
+      .mockResolvedValueOnce([[]])                // autoCreateOutage: existing-outage check (none)
       .mockResolvedValueOnce([{ insertId: 1 }]); // INSERT outage (autoCreateOutage)
 
     const result = await alertService.evaluateAlerts(ORG);

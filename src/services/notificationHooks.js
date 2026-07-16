@@ -865,15 +865,21 @@ function registerHooks() {
           // webhookService.dispatch() only targets an organization's
           // REGISTERED webhooks (matched by subscribed event name) — it has
           // no concept of an arbitrary one-off URL, so step.webhook_url
-          // itself is never directly called. Dispatched at the org level as
-          // the closest available approximation; flagged as a gap in the PR
-          // body (a per-step external webhook URL needs a dedicated one-off
-          // HTTP call, not webhookService.dispatch()).
+          // itself is never directly called; a per-step external webhook URL
+          // needs a dedicated, signed one-off HTTP sender, which is NOT
+          // implemented in this PR (flagged as a gap in the PR body — this
+          // 'webhook' branch is dispatched at the org level as the closest
+          // available approximation, exactly like the honest stubs below).
+          //
+          // SECURITY: dispatch() broadcasts to EVERY active webhook
+          // subscriber for the org, so the payload below must never carry
+          // step.webhook_url (a secret Slack/PagerDuty-style incoming-webhook
+          // URL) or any recipient PII (recipient_email/recipient_phone) —
+          // only non-sensitive alert identifiers.
           await webhookService.dispatch(organizationId, 'alert.escalated', {
             alert_event_id: alertEventId,
             step_number:    stepNumber,
             rule_name:      eventRow.rule_name,
-            webhook_url:    step.webhook_url,
           }).catch(err2 => logger.warn({ err: err2, event: 'alert.escalated' }, 'Escalation webhook error'));
           break;
         case 'sms':

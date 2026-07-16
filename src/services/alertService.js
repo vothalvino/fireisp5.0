@@ -282,18 +282,42 @@ async function hasRecentAlertEpisode(organizationId, ruleId, deviceId, excludeEv
 
 /**
  * Auto-create an outage record when an alert fires.
+ *
+ * `autoCreateOutage` is called on EVERY evaluation cycle a rule with
+ * `auto_create_outage` stays breached — the alert.triggered dedup
+ * (hasRecentAlertEpisode) only gates the *notification* emit for the alert
+ * itself, it has no effect on this side effect. Without an idempotency
+ * guard, a sustained breach would insert a brand new 'ongoing' outage row
+ * AND fire the full admin/support bell+email fan-out every single 5-minute
+ * cron tick until the rule recovers (12/hour, forever). `outages` has no
+ * alert_rule_id/alert_event_id column linking it back to the rule that
+ * created it, so `title` — which deterministically encodes the rule
+ * identity (name+metric+operator+threshold) — combined with device_id and
+ * status='ongoing' (the only non-terminal outage status; 'resolved' and
+ * 'post_mortem' are both closed) is the most precise predicate available
+ * without a schema change.
  */
 async function autoCreateOutage(organizationId, rule, breach) {
   try {
+    const title = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
+
+    const [existing] = await db.query(
+      `SELECT id FROM outages
+       WHERE device_id = ? AND title = ? AND status = 'ongoing'
+       LIMIT 1`,
+      [breach.device_id, title],
+    );
+    if (existing.length > 0) {
+      return;
+    }
+
     // `outages` has no organization_id column — it is scoped through its
     // device/site — and status is ENUM('ongoing','resolved','post_mortem'), so
     // an outage that has just started is 'ongoing' (database/schema.sql).
     const [result] = await db.query(
       `INSERT INTO outages (device_id, title, severity, status, started_at)
        VALUES (?, ?, ?, 'ongoing', NOW())`,
-      [breach.device_id,
-        `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
-        rule.severity || 'major'],
+      [breach.device_id, title, rule.severity || 'major'],
     );
 
     // Unlike POST /outages (src/routes/outages.js), this bypasses the route
@@ -304,7 +328,7 @@ async function autoCreateOutage(organizationId, rule, breach) {
       outage: {
         id: result.insertId,
         device_id: breach.device_id,
-        title: `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
+        title,
         severity: rule.severity || 'major',
         status: 'ongoing',
         started_at: new Date(),
@@ -318,10 +342,31 @@ async function autoCreateOutage(organizationId, rule, breach) {
 /**
  * Auto-create a support ticket when an alert fires.
  * The ticket is linked to the device that breached the threshold.
+ *
+ * Same per-tick duplication risk as autoCreateOutage above (called on every
+ * cycle a rule stays breached) — mirrors the same guard: `tickets` has no
+ * alert_rule_id/device_id-on-alert linkage either, so subject (which
+ * deterministically encodes the rule identity) + organization_id + a
+ * not-yet-closed status is the equivalent precision tradeoff. Unlike the
+ * outage side, this was "only" a duplicate-ROW bug, not a notification
+ * flood — nothing here emits an event (no ticket.created wiring on this
+ * code path) — but it is the same one-line pattern, so it's fixed here too
+ * rather than just flagged.
  */
 async function autoCreateTicket(organizationId, rule, breach) {
   try {
     const subject = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
+
+    const [existing] = await db.query(
+      `SELECT id FROM tickets
+       WHERE organization_id = ? AND subject = ? AND status NOT IN ('resolved', 'closed')
+       LIMIT 1`,
+      [organizationId, subject],
+    );
+    if (existing.length > 0) {
+      return;
+    }
+
     const description = [
       'Threshold alert automatically opened by the monitoring system.',
       `Rule: ${rule.name}`,

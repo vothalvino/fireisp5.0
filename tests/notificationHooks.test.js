@@ -871,9 +871,38 @@ describe('notificationHooks', () => {
 
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'alert.escalated', expect.objectContaining({
         alert_event_id: 201,
-        webhook_url: 'https://noc.example.com/hook',
       }));
       expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    // Security regression (review finding): the dispatched payload must
+    // never leak the step's secret webhook_url (a Slack/PagerDuty-style
+    // incoming-webhook URL) or recipient PII — webhookService.dispatch()
+    // broadcasts to EVERY active webhook subscriber for the org, not just
+    // the intended on-call contact.
+    test('does NOT leak the step webhook_url or recipient PII into the org-broadcast webhook payload', async () => {
+      const step = {
+        notification_channel: 'webhook',
+        webhook_url: 'https://hooks.slack.com/services/SECRET/TOKEN/xyz',
+        recipient_email: 'oncall@example.com',
+        recipient_phone: '+5215500000000',
+      };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 204, escalationChainId: 3, stepNumber: 2, step });
+
+      const call = webhookService.dispatch.mock.calls.find(c => c[1] === 'alert.escalated');
+      expect(call).toBeDefined();
+      const payload = call[2];
+      expect(payload).not.toHaveProperty('webhook_url');
+      expect(payload).not.toHaveProperty('recipient_email');
+      expect(payload).not.toHaveProperty('recipient_phone');
+      expect(JSON.stringify(payload)).not.toContain('hooks.slack.com');
+      expect(JSON.stringify(payload)).not.toContain('oncall@example.com');
     });
 
     test('sms/whatsapp/telegram channels log a not-implemented warning and send no email/webhook', async () => {

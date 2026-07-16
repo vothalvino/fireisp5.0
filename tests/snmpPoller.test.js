@@ -66,8 +66,8 @@ describe('snmpPoller', () => {
         }]])
         .mockResolvedValueOnce([])           // INSERT metric row
         // deviceStatusService.recordPollResult(1, true):
-        .mockResolvedValueOnce([[{ id: 1, organization_id: 9, name: 'R1', status: 'online', consecutive_poll_failures: 0 }]]) // SELECT current device state
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_polled_at/status
+        .mockResolvedValueOnce([{ affectedRows: 0 }]) // flip-to-online UPDATE (already online, no match)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // quiet bookkeeping UPDATE (last_polled_at/status)
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(null, [{ oid: '1.3.6.1.2.1.1.3', value: 55 }]);
@@ -91,8 +91,8 @@ describe('snmpPoller', () => {
           label: 'CPU', oid_type: 'gauge', is_per_interface: false,
         }]])
         // deviceStatusService.recordPollResult(2, false, ...):
-        .mockResolvedValueOnce([[{ id: 2, organization_id: 9, name: 'R2', status: 'online', consecutive_poll_failures: 0 }]]) // SELECT current device state
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_poll_error/consecutive_poll_failures
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // increment UPDATE (last_poll_error/consecutive_poll_failures)
+        .mockResolvedValueOnce([{ affectedRows: 0 }]); // flip-to-offline UPDATE (below threshold, no match)
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(new Error('SNMP timeout'));
