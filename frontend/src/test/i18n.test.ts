@@ -113,8 +113,8 @@ describe('i18n — critical EN values', () => {
   it('common.signOut is "Sign out"', () => {
     expect(enFlat['common.signOut']).toBe('Sign out');
   });
-  it('nav.dashboard starts with 📊', () => {
-    expect(enFlat['nav.dashboard']).toMatch(/📊/);
+  it('nav.dashboard is emoji-free (icons are SVGs since the Faro nav)', () => {
+    expect(enFlat['nav.dashboard']).toBe('Dashboard');
   });
 });
 

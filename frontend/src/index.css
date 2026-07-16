@@ -380,6 +380,123 @@ button:disabled {
   z-index: 200;
 }
 
+/* -- Sidebar accordion nav ("Faro") ----------------------------------------- */
+.nav-sec {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 2px;
+}
+.nav-sec-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: calc(100% - 12px);
+  margin: 1px 6px;
+  padding: 8px 10px 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--sidebar-fg);
+  font: 600 0.855rem var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-sec-head:hover {
+  background: var(--sidebar-hover-bg);
+}
+.nav-sec-head:focus-visible {
+  outline: 2px solid var(--sidebar-active-bg);
+  outline-offset: -2px;
+}
+.nav-sec-head.on-trail {
+  color: #fff;
+}
+.nav-sec-head.on-trail::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--sidebar-active-bg);
+}
+.nav-sec-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.nav-sec-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-chev {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.15s;
+}
+.nav-sec-head[aria-expanded='true'] .nav-chev {
+  transform: rotate(90deg);
+}
+.nav-subhead {
+  padding: 8px 14px 3px 37px;
+  color: var(--sidebar-fg-dim);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-leaf {
+  display: block;
+  margin: 1px 6px;
+  padding: 6px 10px 6px 37px;
+  border-radius: 6px;
+  color: var(--sidebar-fg-muted);
+  font-size: 0.845rem;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-leaf:hover {
+  background: var(--sidebar-hover-bg);
+  color: var(--sidebar-fg);
+}
+.nav-leaf:focus-visible {
+  outline: 2px solid var(--sidebar-active-bg);
+  outline-offset: -2px;
+}
+.nav-leaf.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-fg);
+}
+.nav-viewall {
+  color: var(--sidebar-fg-dim);
+  font-size: 0.78rem;
+}
+.nav-viewall:hover {
+  color: var(--sidebar-fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-sec-head,
+  .nav-leaf,
+  .nav-chev {
+    transition: none;
+  }
+}
+
 .app-main {
   flex: 1;
   overflow: auto;

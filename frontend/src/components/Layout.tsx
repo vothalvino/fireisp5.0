@@ -2,8 +2,8 @@
 // FireISP 5.0 — App Layout (shell + nav)
 // =============================================================================
 
-import { useState, type ChangeEvent } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useState, type ChangeEvent } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
@@ -14,202 +14,39 @@ import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-
-interface NavItem {
-  to: string;
-  labelKey: string;
-  requiredRole?: string;
-  /** Only show when the active org's compliance locale matches (e.g. 'MX' for SAT/IFT modules). */
-  requiredLocale?: 'MX';
-}
-
-interface NavGroup {
-  /** i18n key for the section heading; omit for the top-level (ungrouped) items. */
-  titleKey?: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    items: [{ to: '/', labelKey: 'nav.dashboard' }],
-  },
-  {
-    titleKey: 'nav.sections.clients',
-    items: [
-      { to: '/clients', labelKey: 'nav.clients' },
-      { to: '/client-groups', labelKey: 'nav.clientGroups' },
-      { to: '/leads', labelKey: 'nav.leads' },
-      { to: '/service-orders', labelKey: 'nav.serviceOrders' },
-      { to: '/contracts', labelKey: 'nav.contracts' },
-      { to: '/winback-campaigns', labelKey: 'nav.winbackCampaigns', requiredRole: 'billing' },
-      { to: '/churn-analytics', labelKey: 'nav.churnAnalytics', requiredRole: 'billing' },
-      { to: '/communication-campaigns', labelKey: 'nav.communicationCampaigns', requiredRole: 'support' },
-      { to: '/tickets', labelKey: 'nav.tickets' },
-      { to: '/satisfaction-surveys', labelKey: 'nav.surveys' },
-      { to: '/noc-dashboard', labelKey: 'nav.nocDashboard', requiredRole: 'technician' },
-      { to: '/work-orders', labelKey: 'nav.workOrders', requiredRole: 'technician' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.billing',
-    items: [
-      { to: '/invoices', labelKey: 'nav.invoices' },
-      { to: '/payments', labelKey: 'nav.payments' },
-      { to: '/cfdi', labelKey: 'nav.cfdi', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/plans', labelKey: 'nav.plans', requiredRole: 'billing' },
-      { to: '/quotes', labelKey: 'nav.quotes', requiredRole: 'billing' },
-      { to: '/credit-notes', labelKey: 'nav.creditNotes', requiredRole: 'billing' },
-      { to: '/expenses', labelKey: 'nav.expenses', requiredRole: 'billing' },
-      { to: '/promotions', labelKey: 'nav.promotions', requiredRole: 'billing' },
-      { to: '/tax-rules', labelKey: 'nav.taxRules', requiredRole: 'billing' },
-      { to: '/tax-rates', labelKey: 'nav.taxRates', requiredRole: 'billing' },
-      { to: '/payment-gateways', labelKey: 'nav.paymentGateways', requiredRole: 'billing' },
-      { to: '/payment-transactions', labelKey: 'nav.paymentTransactions', requiredRole: 'billing' },
-      { to: '/recurring-payment-profiles', labelKey: 'nav.recurringPaymentProfiles', requiredRole: 'billing' },
-      { to: '/reports', labelKey: 'nav.reports', requiredRole: 'billing' },
-      { to: '/tax-reports', labelKey: 'nav.taxReports', requiredRole: 'billing' },
-      { to: '/invoice-settings', labelKey: 'nav.invoiceSettings', requiredRole: 'billing' },
-      { to: '/late-fee-rules', labelKey: 'nav.lateFeeRules', requiredRole: 'billing' },
-      { to: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', requiredRole: 'billing' },
-      { to: '/payment-plans', labelKey: 'nav.paymentPlans', requiredRole: 'billing' },
-      { to: '/cash-reconciliation', labelKey: 'nav.cashReconciliation', requiredRole: 'billing' },
-      { to: '/refund-requests', labelKey: 'nav.refundRequests', requiredRole: 'billing' },
-      { to: '/billing-disputes', labelKey: 'nav.billingDisputes', requiredRole: 'billing' },
-      { to: '/chargebacks', labelKey: 'nav.chargebacks', requiredRole: 'billing' },
-      { to: '/billing-adjustments', labelKey: 'nav.billingAdjustments', requiredRole: 'billing' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.network',
-    items: [
-      { to: '/devices', labelKey: 'nav.devices' },
-      { to: '/wireless', labelKey: 'nav.wireless', requiredRole: 'technician' },
-      { to: '/inventory', labelKey: 'nav.inventory', requiredRole: 'technician' },
-      { to: '/warehouses', labelKey: 'nav.warehouses', requiredRole: 'technician' },
-      { to: '/vendors', labelKey: 'nav.vendors', requiredRole: 'technician' },
-      { to: '/purchase-orders', labelKey: 'nav.purchaseOrders', requiredRole: 'technician' },
-      { to: '/inventory-management', labelKey: 'nav.inventoryManagement', requiredRole: 'technician' },
-      { to: '/cpe-inventory', labelKey: 'nav.cpeInventory', requiredRole: 'technician' },
-      { to: '/radius-sessions', labelKey: 'nav.radiusSessions', requiredRole: 'technician' },
-      { to: '/subscriber-certificates', labelKey: 'nav.subscriberCertificates', requiredRole: 'technician' },
-      { to: '/session-accounting', labelKey: 'nav.sessionAccounting', requiredRole: 'technician' },
-      { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics', requiredRole: 'technician' },
-      { to: '/snmp-traps', labelKey: 'nav.snmpTraps', requiredRole: 'technician' },
-      { to: '/coverage-zones', labelKey: 'nav.coverageZones', requiredRole: 'technician' },
-      { to: '/sites', labelKey: 'nav.sites', requiredRole: 'technician' },
-      { to: '/nas', labelKey: 'nav.nas', requiredRole: 'technician' },
-      { to: '/ip-pools', labelKey: 'nav.ipPools', requiredRole: 'technician' },
-      { to: '/ip-assignments', labelKey: 'nav.ipAssignments', requiredRole: 'technician' },
-      { to: '/vlans', labelKey: 'nav.vlans', requiredRole: 'technician' },
-      { to: '/service-areas', labelKey: 'nav.serviceAreas', requiredRole: 'technician' },
-      { to: '/outages', labelKey: 'nav.outages', requiredRole: 'technician' },
-      { to: '/speed-tests', labelKey: 'nav.speedTests', requiredRole: 'technician' },
-      { to: '/connection-logs', labelKey: 'nav.connectionLogs', requiredRole: 'technician' },
-      { to: '/network-health', labelKey: 'nav.networkHealth', requiredRole: 'technician' },
-      { to: '/snmp-profiles', labelKey: 'nav.snmpProfiles', requiredRole: 'technician' },
-      { to: '/device-config-backups', labelKey: 'nav.deviceConfigBackups', requiredRole: 'technician' },
-      { to: '/suspension-rules', labelKey: 'nav.suspensionRules', requiredRole: 'technician' },
-      { to: '/dhcp-servers', labelKey: 'nav.dhcpServers', requiredRole: 'technician' },
-      { to: '/nat-management', labelKey: 'nav.natManagement', requiredRole: 'technician' },
-      { to: '/ptr-records', labelKey: 'nav.ptrRecords', requiredRole: 'technician' },
-      { to: '/ipv6-management', labelKey: 'nav.ipv6Management', requiredRole: 'technician' },
-      { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms', requiredRole: 'technician' },
-      { to: '/wg-tunnels', labelKey: 'nav.myWgTunnels' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.compliance',
-    items: [
-      { to: '/csd-certificates', labelKey: 'nav.csdCertificates', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/pac-providers', labelKey: 'nav.pacProviders', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/sat-catalogs', labelKey: 'nav.satCatalogs', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/regulatory-filings', labelKey: 'nav.regulatoryFilings', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/concession-titles', labelKey: 'nav.concessionTitles', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/facturas-publicas', labelKey: 'nav.facturasPublicas', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/profeco-complaints', labelKey: 'nav.profecoComplaints', requiredRole: 'billing', requiredLocale: 'MX' },
-      { to: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', requiredRole: 'billing' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.admin',
-    items: [
-      { to: '/users', labelKey: 'nav.users', requiredRole: 'admin' },
-      { to: '/organizations', labelKey: 'nav.organizations', requiredRole: 'admin' },
-      { to: '/dsar', labelKey: 'nav.dsar', requiredRole: 'admin' },
-      { to: '/dr-drill', labelKey: 'nav.drDrill', requiredRole: 'admin' },
-      { to: '/sla-definitions', labelKey: 'nav.slaDefinitions', requiredRole: 'admin' },
-      { to: '/roles', labelKey: 'nav.roles', requiredRole: 'admin' },
-      { to: '/api-tokens', labelKey: 'nav.apiTokens', requiredRole: 'admin' },
-      { to: '/webhooks', labelKey: 'nav.webhooks', requiredRole: 'admin' },
-      { to: '/audit-logs', labelKey: 'nav.auditLogs', requiredRole: 'admin' },
-      { to: '/scheduled-tasks', labelKey: 'nav.scheduledTasks', requiredRole: 'admin' },
-      { to: '/queue-stats', labelKey: 'nav.queueStats', requiredRole: 'admin' },
-      { to: '/ai-assistant', labelKey: 'nav.aiAssistant', requiredRole: 'admin' },
-      { to: '/settings', labelKey: 'nav.settings', requiredRole: 'admin' },
-      { to: '/message-templates', labelKey: 'nav.messageTemplates', requiredRole: 'admin' },
-      { to: '/security-access-control', labelKey: 'nav.securityAccessControl', requiredRole: 'admin' },
-      { to: '/automation', labelKey: 'nav.automation', requiredRole: 'admin' },
-      { to: '/resellers', labelKey: 'nav.resellers', requiredRole: 'admin' },
-      { to: '/integrations', labelKey: 'nav.integrations', requiredRole: 'admin' },
-      { to: '/ai-support', labelKey: 'nav.aiSupport', requiredRole: 'admin' },
-      { to: '/admin/user-tunnels', labelKey: 'nav.adminUserTunnels', requiredRole: 'admin' },
-    ],
-  },
-];
+import { NavSection } from '@/components/NavSection';
+import {
+  SECTIONS,
+  canSeeHub,
+  defaultExpandedSection,
+  sectionForPath,
+  visibleRailItems,
+  visibleSectionCount,
+  type SectionId,
+} from '@/nav/routes';
 
 // ---------------------------------------------------------------------------
-// Technician navigation — a curated field/NOC menu.
-//
-// The technician role has a rank-equal collision with `billing` in hasRole(),
-// so the generic NAV_GROUPS would show technicians the full Clients, Billing,
-// Network AND Compliance sections — most of which 403 on load because the
-// technician role lacks those permissions ("everything fails to load"). Rather
-// than rely on per-item role gates, technicians get their own list containing
-// ONLY the pages that actually load for the technician permission set (verified
-// against the backend requirePermission slugs). Admin/billing/support keep the
-// generic NAV_GROUPS unchanged.
+// Sidebar accordion state — which sections are open, persisted per browser.
+// The nav tree itself lives in src/nav/routes.ts (single route registry);
+// the old NAV_GROUPS / TECHNICIAN_NAV_GROUPS fork is gone.
 // ---------------------------------------------------------------------------
-const TECHNICIAN_NAV_GROUPS: NavGroup[] = [
-  {
-    items: [{ to: '/', labelKey: 'nav.dashboard' }],
-  },
-  {
-    titleKey: 'nav.sections.fieldWork',
-    items: [
-      { to: '/work-orders', labelKey: 'nav.workOrders' },
-      { to: '/service-orders', labelKey: 'nav.serviceOrders' },
-      { to: '/clients', labelKey: 'nav.clients' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.network',
-    items: [
-      { to: '/nas', labelKey: 'nav.nas' },
-      { to: '/wireless', labelKey: 'nav.wireless' },
-      { to: '/snmp-metrics', labelKey: 'nav.snmpMetrics' },
-      { to: '/snmp-traps', labelKey: 'nav.snmpTraps' },
-      { to: '/dhcp-servers', labelKey: 'nav.dhcpServers' },
-      { to: '/nat-management', labelKey: 'nav.natManagement' },
-      { to: '/ptr-records', labelKey: 'nav.ptrRecords' },
-      { to: '/ipv6-management', labelKey: 'nav.ipv6Management' },
-      { to: '/transition-mechanisms', labelKey: 'nav.transitionMechanisms' },
-      { to: '/subscriber-certificates', labelKey: 'nav.subscriberCertificates' },
-      { to: '/wg-tunnels', labelKey: 'nav.myWgTunnels' },
-    ],
-  },
-  {
-    titleKey: 'nav.sections.inventory',
-    items: [
-      { to: '/inventory', labelKey: 'nav.inventory' },
-      { to: '/warehouses', labelKey: 'nav.warehouses' },
-      { to: '/vendors', labelKey: 'nav.vendors' },
-      { to: '/purchase-orders', labelKey: 'nav.purchaseOrders' },
-      { to: '/inventory-management', labelKey: 'nav.inventoryManagement' },
-      { to: '/cpe-inventory', labelKey: 'nav.cpeInventory' },
-    ],
-  },
-];
+const EXPANDED_KEY = 'fireisp.nav.expanded';
+
+function loadExpanded(role: string | undefined): SectionId[] {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((x): x is SectionId => typeof x === 'string');
+      }
+    }
+  } catch {
+    // corrupted state — fall through to the persona default
+  }
+  const primary = role ? defaultExpandedSection(role) : null;
+  return primary ? [primary] : [];
+}
 
 export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
@@ -224,9 +61,47 @@ export function Layout() {
   // the orgs they belong to (from /auth/me → user.organizations).
   const isAdmin = !!user && hasRole(user.role, 'admin');
 
-  // Technicians get a curated field/NOC menu of only the pages that load for
-  // their permission set; every other role keeps the generic grouped nav.
-  const navGroups = user?.role === 'technician' ? TECHNICIAN_NAV_GROUPS : NAV_GROUPS;
+  // Accordion state: which sections are open. Persisted per browser; seeded
+  // with the persona's primary section on first load.
+  const location = useLocation();
+  const [expanded, setExpanded] = useState<SectionId[]>(() => loadExpanded(user?.role));
+  const trailSection = sectionForPath(location.pathname);
+
+  // Active trail: the section owning the current route auto-expands. Keyed on
+  // the section (not the pathname) so collapsing it while on the route sticks.
+  useEffect(() => {
+    if (trailSection && trailSection !== 'dashboard') {
+      setExpanded(prev => (prev.includes(trailSection) ? prev : [...prev, trailSection]));
+    }
+  }, [trailSection]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded));
+    } catch {
+      // storage unavailable (private mode/quota) — accordion still works in-memory
+    }
+  }, [expanded]);
+
+  // Stranding fix: after a role change the stored sections may all be invisible
+  // to the new role — re-seed the persona default so the nav never opens empty.
+  useEffect(() => {
+    if (!user) return;
+    const visibleIds = SECTIONS.filter(
+      s => s.kind !== 'link' && visibleRailItems(user, s.id).length > 0,
+    ).map(s => s.id);
+    setExpanded(prev => {
+      if (prev.some(id => visibleIds.includes(id))) return prev;
+      const primary = defaultExpandedSection(user.role);
+      return primary && visibleIds.includes(primary) ? [...prev, primary] : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
+
+  function toggleSection(id: SectionId) {
+    setExpanded(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  }
+
   const { data: allOrgs } = useQuery({
     queryKey: ['org-switcher-all'],
     queryFn: async (): Promise<{ id: number; name: string }[]> => {
@@ -294,35 +169,25 @@ export function Layout() {
         <div style={styles.logo}>{t('layout.brandName')}</div>
 
         <nav style={styles.nav}>
-          {navGroups.map((group, idx) => {
-            const visibleItems = group.items.filter(
-              item =>
-                (!item.requiredRole || (user && hasRole(user.role, item.requiredRole))) &&
-                (!item.requiredLocale || user?.organization_locale === item.requiredLocale),
-            );
-            if (visibleItems.length === 0) return null;
-            return (
-              <div key={group.titleKey ?? `group-${idx}`} style={styles.navGroup}>
-                {group.titleKey && (
-                  <div style={styles.navGroupTitle}>{t(group.titleKey)}</div>
-                )}
-                {visibleItems.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/'}
-                    onClick={closeSidebar}
-                    style={({ isActive }) => ({
-                      ...styles.navLink,
-                      ...(isActive ? styles.navLinkActive : {}),
-                    })}
-                  >
-                    {t(item.labelKey)}
-                  </NavLink>
-                ))}
-              </div>
-            );
-          })}
+          {user &&
+            SECTIONS.map(section => {
+              const items = section.kind === 'link' ? [] : visibleRailItems(user, section.id);
+              const hubVisible = canSeeHub(user, section);
+              if (section.kind !== 'link' && items.length === 0 && !hubVisible) return null;
+              return (
+                <NavSection
+                  key={section.id}
+                  section={section}
+                  items={items}
+                  sectionCount={visibleSectionCount(user, section.id)}
+                  hubVisible={hubVisible}
+                  expanded={expanded.includes(section.id)}
+                  onTrail={trailSection === section.id}
+                  onToggle={toggleSection}
+                  onNavigate={closeSidebar}
+                />
+              );
+            })}
         </nav>
 
         {/* User info + logout */}
@@ -414,32 +279,6 @@ const styles = {
     flexDirection: 'column' as const,
     padding: '0.5rem 0',
     overflowY: 'auto' as const,
-  },
-  navGroup: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    paddingBottom: '0.35rem',
-  },
-  navGroupTitle: {
-    padding: '0.6rem 1rem 0.25rem',
-    color: 'var(--sidebar-fg-dim)',
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.08em',
-  },
-  navLink: {
-    display: 'block',
-    padding: '0.5rem 1rem',
-    color: 'var(--sidebar-fg-muted)',
-    textDecoration: 'none',
-    borderRadius: 6,
-    margin: '1px 8px',
-    transition: 'background .15s, color .15s',
-  },
-  navLinkActive: {
-    background: 'var(--sidebar-active-bg)',
-    color: 'var(--sidebar-active-fg)',
   },
   userArea: {
     padding: '0.75rem 1rem',
