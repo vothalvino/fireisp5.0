@@ -167,10 +167,22 @@ async function poll() {
  * row per device (scalar metrics) plus one row per interface (per-interface
  * metrics) into snmp_metrics.
  *
- * Reachability is tracked positively: pollDevice only succeeds if at least
- * one varbind actually responded (scalar GET or interface subtree walk) —
- * presence-based via snmp.isVarbindError(), never value-based, so e.g. a
- * freshly-rebooted device reporting sysUpTime=0 still counts as reachable.
+ * Reachability means "the SNMP transport completed at least one exchange",
+ * NOT "we parsed at least one data row". A completed snmpGet/snmpSubtree
+ * proves the agent is up even if every varbind it returned is an SNMP error
+ * varbind (noSuchObject etc. — still a real reply from the agent) or if a
+ * walked table is legitimately empty right now (e.g. an AP with no
+ * associated clients during an overnight lull). `agentResponded` is a plain
+ * boolean, deliberately decoupled from the data-row bookkeeping in
+ * scalarRow/ifMap — see the review that caught the previous row-count-based
+ * version conflating "no data" with "device down".
+ *
+ * A profile whose every OID maps to an unrecognized metric_column (so
+ * nothing is even attemptable) is a CONFIGURATION problem, not a device
+ * failure — this returns early without creating a session or touching the
+ * failure counters. Only throws 'device unreachable: no OIDs responded' when
+ * at least one SNMP call was attempted and none of them completed.
+ *
  * A metric-ingest failure (bad value, DB error) is a completely separate
  * concern from reachability and must never be conflated with it — see
  * insertMetricRow()'s per-column sanitation and the scalar insert's own
@@ -187,27 +199,39 @@ async function pollDevice(device) {
 
   if (oids.length === 0) return;
 
+  // Scalar OIDs are always attempted together in one batched GET regardless
+  // of metric_column recognition (extraction, not the call, filters them).
+  const scalarOids = oids.filter(o => !o.is_per_interface);
+  // Per-interface OIDs are pre-filtered HERE, before any SNMP call is even
+  // attempted for them — an unrecognized metric_column must never silently
+  // remove the only reachability signal a per-interface-only profile has.
+  const ifOids = oids.filter(o => o.is_per_interface && VALID_METRIC_COLUMNS.has(o.metric_column));
+
+  if (scalarOids.length === 0 && ifOids.length === 0) {
+    logger.warn(
+      { deviceId: device.id, profileId: device.snmp_profile_id },
+      'pollDevice: profile has no attemptable OIDs after metric_column filtering (config issue, not a device failure) — skipping this poll cycle',
+    );
+    return;
+  }
+
   const session = createSnmpSession(device);
-  let respondedCount = 0;
+  let agentResponded = false;
 
   try {
-    const scalarOids = oids.filter(o => !o.is_per_interface);
-    const ifOids = oids.filter(o => o.is_per_interface);
-
     // --- Scalar (device-level) metrics ------------------------------------
     const scalarRow = {};
     if (scalarOids.length > 0) {
       const oidStrings = scalarOids.map(o => o.oid);
       const varbinds = await snmpGet(session, oidStrings);
+      // The exchange completed — the agent responded, regardless of whether
+      // any individual varbind is data or an SNMP error varbind.
+      agentResponded = true;
 
       for (let i = 0; i < scalarOids.length; i++) {
         const oid = scalarOids[i];
         const varbind = varbinds[i];
         if (!varbind || snmp.isVarbindError(varbind)) continue;
-
-        // Presence-based: this OID answered, regardless of its value.
-        respondedCount++;
-
         if (!VALID_METRIC_COLUMNS.has(oid.metric_column)) continue;
 
         const rawValue = extractNumericValue(varbind);
@@ -230,10 +254,11 @@ async function pollDevice(device) {
 
     // --- Per-interface metrics ---------------------------------------------
     if (ifOids.length > 0) {
-      respondedCount += await pollInterfaces(session, device, ifOids);
+      const interfacesResponded = await pollInterfaces(session, device, ifOids);
+      agentResponded = agentResponded || interfacesResponded;
     }
 
-    if (respondedCount === 0) {
+    if (!agentResponded) {
       throw new Error('device unreachable: no OIDs responded');
     }
   } finally {
@@ -243,19 +268,19 @@ async function pollDevice(device) {
 
 /**
  * Walk the interface table for per-interface OIDs and insert one row per
- * interface into snmp_metrics. Returns the number of varbinds that actually
- * responded across all walked OIDs (for pollDevice's reachability tally) —
- * snmpSubtree() already filters out isVarbindError entries, so every
- * returned varbind is a real response.
+ * interface into snmp_metrics. `ifOids` is expected to already be filtered
+ * to recognized metric_columns by the caller (pollDevice). Returns a boolean:
+ * did at least one subtree walk complete (resolve without throwing),
+ * regardless of how many (if any) varbinds it yielded? A walk that resolves
+ * to zero varbinds is a legitimate "nothing in this table right now" reply,
+ * not evidence the device is unreachable.
  */
 async function pollInterfaces(session, device, ifOids) {
   // Collect values keyed by ifIndex → { metric_column: value }
   const ifMap = new Map();
-  let respondedCount = 0;
+  let anyWalkCompleted = false;
 
   for (const oid of ifOids) {
-    if (!VALID_METRIC_COLUMNS.has(oid.metric_column)) continue;
-
     let varbinds;
     try {
       varbinds = await snmpSubtree(session, oid.oid);
@@ -267,7 +292,9 @@ async function pollInterfaces(session, device, ifOids) {
       continue;
     }
 
-    respondedCount += varbinds.length;
+    // The walk completed — the agent responded, even if the table is
+    // legitimately empty (varbinds.length === 0 is not a failure signal).
+    anyWalkCompleted = true;
 
     for (const vb of varbinds) {
       // Last element of the returned OID is the ifIndex.
@@ -293,7 +320,7 @@ async function pollInterfaces(session, device, ifOids) {
     }
   }
 
-  return respondedCount;
+  return anyWalkCompleted;
 }
 
 /**

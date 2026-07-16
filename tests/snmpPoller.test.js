@@ -297,13 +297,34 @@ describe('snmpPoller', () => {
       const [, params] = insertCall;
       expect(params[params.length - 1]).toBe(0); // uptime_ticks is the last bound column
     });
+
+    test('a profile whose OIDs all map to unrecognized metric_columns is a config issue, not a device failure — no session created, poll succeeds as a no-op', async () => {
+      const device = {
+        id: 27, ip_address: '10.0.1.8', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 8,
+      };
+      db.query.mockResolvedValueOnce([[
+        { id: 1, oid: '1.3.6.1.4.1.99999.1.1', metric_column: 'totally_bogus_column', label: 'Bogus', oid_type: 'gauge', is_per_interface: true, transform: null },
+      ]]);
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      // Nothing attemptable -> never even opens an SNMP session.
+      expect(snmp.createSession).not.toHaveBeenCalled();
+      expect(snmp.createV3Session).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 27, profileId: 8 }),
+        expect.stringContaining('no attemptable OIDs'),
+      );
+    });
   });
 
   // =========================================================================
-  // poll() — reachability failure still reports through recordPollResult
+  // poll() — reachability semantics: transport completion, not row/varbind
+  // counts (migration 398 review follow-up)
   // =========================================================================
-  describe('poll() — reachability (migration 398)', () => {
-    test('a device that answers no OIDs at all is recorded as a poll failure', async () => {
+  describe('poll() — reachability (migration 398 review follow-up)', () => {
+    test('a scalar GET that resolves with only SNMP error varbinds (noSuchObject) still proves the agent responded — poll SUCCEEDS with no data rows', async () => {
       const device = {
         id: 25, ip_address: '10.0.1.6', snmp_community: 'public',
         snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 6,
@@ -313,20 +334,53 @@ describe('snmpPoller', () => {
         .mockResolvedValueOnce([[           // profile OIDs — scalar only
           { id: 1, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
         ]])
-        // deviceStatusService.recordPollResult(25, false, ...):
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ affectedRows: 0 }]);
+        // deviceStatusService.recordPollResult(25, true):
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
-      // Every varbind comes back as an SNMP error (isVarbindError=true) —
-      // nothing actually responded, even though session.get() itself succeeds.
+      // Every varbind comes back as an SNMP error (isVarbindError=true) — the
+      // GET itself still completed, so the agent is up. This must NOT be
+      // treated as unreachable (that was the confirmed review defect).
       snmp.isVarbindError.mockReturnValue(true);
       mockSession.get.mockImplementation((oids, cb) => {
         cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: null }]);
       });
 
       const result = await snmpPoller.poll();
-      expect(result.errors).toBe(1);
-      expect(result.polled).toBe(0);
+      expect(result.errors).toBe(0);
+      expect(result.polled).toBe(1);
+
+      // No data was extracted (every varbind was an error varbind), so no row.
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeUndefined();
+    });
+
+    test('a per-interface-only profile whose subtree walk resolves with zero varbinds is still reachable — poll SUCCEEDS, recordPollResult(true)', async () => {
+      const device = {
+        id: 26, ip_address: '10.0.1.7', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 7,
+      };
+      db.query
+        .mockResolvedValueOnce([[device]]) // devices list
+        .mockResolvedValueOnce([[           // profile OIDs — per-interface only
+          { id: 1, oid: '1.3.6.1.2.1.2.2.1.10', metric_column: 'if_in_octets', label: 'In Octets', oid_type: 'counter', is_per_interface: true, transform: null },
+        ]])
+        // deviceStatusService.recordPollResult(26, true):
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      // The walk completes without error but yields nothing — e.g. an AP
+      // whose client/radio interface table is legitimately empty overnight.
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        doneCb(null); // no feedCb invocation at all: zero varbinds
+      });
+
+      const result = await snmpPoller.poll();
+      expect(result.errors).toBe(0);
+      expect(result.polled).toBe(1);
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeUndefined();
     });
   });
 
