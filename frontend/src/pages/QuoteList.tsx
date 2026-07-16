@@ -32,6 +32,7 @@ import {
   capitalize,
 } from './crudStyles';
 import { Pagination } from '@/components/Pagination';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,6 +145,7 @@ type Confirmable = { type: 'delete'; id: number };
 
 export function QuoteList() {
   const queryClient = useQueryClient();
+  const orgCurrency = useOrgCurrency();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -237,7 +239,7 @@ export function QuoteList() {
                           {clientName(q.client_id)}
                         </Link>
                       </td>
-                      <td style={styles.td}>{fmtMoney(q.total, q.currency ?? 'USD')}</td>
+                      <td style={styles.td}>{fmtMoney(q.total, q.currency ?? orgCurrency)}</td>
                       <td style={styles.td}>{fmtDate(q.valid_until)}</td>
                       <td style={styles.td}><StatusBadge status={q.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>

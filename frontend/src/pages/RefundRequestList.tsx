@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import { styles } from './crudStyles';
 import {
   extractApiError,
@@ -73,11 +74,13 @@ function fmt(dateStr: string | null | undefined): string {
   });
 }
 
-function fmtAmount(amount: string | null | undefined): string {
+// refund_requests rows carry no currency column — amounts are in the
+// organization's currency, so the caller passes useOrgCurrency().
+function fmtAmount(amount: string | null | undefined, currency: string): string {
   if (!amount) return '—';
   const n = parseFloat(amount);
   if (Number.isNaN(n)) return amount;
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(n);
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(n);
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +309,7 @@ function ProcessModal({
 export function RefundRequestList() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const orgCurrency = useOrgCurrency();
   const qc = useQueryClient();
 
   const [page, setPage] = useState(1);
@@ -388,7 +392,7 @@ export function RefundRequestList() {
                     <tr key={req.id} style={styles.tr}>
                       <td style={styles.td}>#{req.id}</td>
                       <td style={styles.td}>{req.client_id}</td>
-                      <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>{fmtAmount(req.amount)}</td>
+                      <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>{fmtAmount(req.amount, orgCurrency)}</td>
                       <td style={styles.td}>{t(`refundRequests.reason.${req.reason}`)}</td>
                       <td style={styles.td}><RefundStatusBadge status={req.status} /></td>
                       <td style={{ ...styles.td, color: '#6b7280' }}>{req.requested_by ?? '—'}</td>

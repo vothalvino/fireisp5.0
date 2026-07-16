@@ -12,6 +12,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const Organization = require('../models/Organization');
 
 /**
  * Returns the flat list of reseller IDs that are in the subtree rooted at
@@ -142,12 +143,16 @@ async function recordCommission(invoiceId, orgId) {
 
   const commissionAmount = ((parseFloat(inv.total) * reseller.commission_rate) / 100).toFixed(2);
 
+  // invoices.currency is NOT NULL so the fallback should never fire — but
+  // when it does, use the org's currency, never a hardcoded 'USD'.
+  const currency = inv.currency || await Organization.getCurrency(orgId);
+
   await db.query(
     `INSERT IGNORE INTO reseller_commissions
        (reseller_id, invoice_id, client_id, commission_rate, invoice_total, commission_amount, currency)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [reseller.id, invoiceId, inv.client_id, reseller.commission_rate,
-      inv.total, commissionAmount, inv.currency || 'USD'],
+      inv.total, commissionAmount, currency],
   );
 }
 

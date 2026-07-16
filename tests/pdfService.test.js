@@ -21,8 +21,10 @@ describe('PDF Service', () => {
     });
 
     it('handles null/undefined amounts', () => {
-      expect(pdfService.fmt(null)).toBe('USD 0.00');
-      expect(pdfService.fmt(undefined)).toBe('USD 0.00');
+      // Default currency is the platform fallback 'MXN' (mirrors
+      // Organization.getCurrency); every real caller passes the doc currency.
+      expect(pdfService.fmt(null)).toBe('MXN 0.00');
+      expect(pdfService.fmt(undefined)).toBe('MXN 0.00');
     });
 
     it('handles string amounts', () => {

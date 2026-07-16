@@ -104,7 +104,7 @@ function invoiceEmail(vars) {
   const orgName = escapeHtml(vars.orgName || 'FireISP');
   const invoiceNumber = vars.invoiceNumber ? escapeHtml(vars.invoiceNumber) : '';
   const itemsHtml = (items || []).map(i =>
-    `<tr><td>${escapeHtml(i.description || '')}</td><td style="text-align:right">${currency || 'USD'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
+    `<tr><td>${escapeHtml(i.description || '')}</td><td style="text-align:right">${currency || 'MXN'} ${parseFloat(i.amount || 0).toFixed(2)}</td></tr>`,
   ).join('');
 
   const content = `
@@ -114,7 +114,7 @@ function invoiceEmail(vars) {
     </div>
     <p>Hello <strong>${clientName}</strong>,</p>
     <p>A new invoice has been generated for your account:</p>
-    <div class="amount">${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</div>
+    <div class="amount">${currency || 'MXN'} ${parseFloat(total || 0).toFixed(2)}</div>
     ${itemsHtml ? `<table class="table"><thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead><tbody>${itemsHtml}</tbody></table>` : ''}
     <p><strong>Due Date:</strong> ${dueDate || 'N/A'}</p>
     <p style="text-align: center; margin: 24px 0;">
@@ -127,7 +127,7 @@ function invoiceEmail(vars) {
     // vars.invoiceNumber, not the escaped local above (escaping it here
     // would show literal "&lt;...&gt;" to the recipient in their inbox
     // subject line instead of protecting against anything).
-    subject: `Invoice ${vars.invoiceNumber || ''} — ${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
+    subject: `Invoice ${vars.invoiceNumber || ''} — ${currency || 'MXN'} ${parseFloat(total || 0).toFixed(2)} Due ${dueDate || ''}`,
     html: baseLayout(content),
   };
 }
@@ -156,7 +156,7 @@ function paymentReceiptEmail(vars) {
     </div>
     <p>Hello <strong>${clientName}</strong>,</p>
     <p>We have received your payment. Here are the details:</p>
-    <div class="amount">${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}</div>
+    <div class="amount">${currency || 'MXN'} ${parseFloat(amount || 0).toFixed(2)}</div>
     <table class="table">
       <tbody>
         <tr><td><strong>Date</strong></td><td>${paymentDate || new Date().toISOString().slice(0, 10)}</td></tr>
@@ -169,7 +169,7 @@ function paymentReceiptEmail(vars) {
     <p class="meta">${orgName}</p>`;
 
   return {
-    subject: `Payment Confirmed — ${currency || 'USD'} ${parseFloat(amount || 0).toFixed(2)}`,
+    subject: `Payment Confirmed — ${currency || 'MXN'} ${parseFloat(amount || 0).toFixed(2)}`,
     html: baseLayout(content),
   };
 }
@@ -250,7 +250,7 @@ function suspensionWarningEmail(vars) {
     <table class="table">
       <tbody>
         <tr><td><strong>Invoice</strong></td><td>${invoiceNumber || 'N/A'}</td></tr>
-        <tr><td><strong>Amount Due</strong></td><td>${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</td></tr>
+        <tr><td><strong>Amount Due</strong></td><td>${currency || 'MXN'} ${parseFloat(total || 0).toFixed(2)}</td></tr>
         <tr><td><strong>Due Date</strong></td><td>${dueDate || 'N/A'}</td></tr>
         <tr><td><strong>Days Overdue</strong></td><td><span class="badge badge-danger">${daysOverdue || 0} days</span></td></tr>
       </tbody>
@@ -283,7 +283,7 @@ function serviceSuspendedEmail(vars) {
     </div>
     <p>Hello <strong>${clientName}</strong>,</p>
     <p>Your internet service (contract #${contractId || ''}) has been suspended due to non-payment.</p>
-    <p>Outstanding balance: <strong>${currency || 'USD'} ${parseFloat(total || 0).toFixed(2)}</strong></p>
+    <p>Outstanding balance: <strong>${currency || 'MXN'} ${parseFloat(total || 0).toFixed(2)}</strong></p>
     <p>To restore your service, please make a payment as soon as possible:</p>
     <p style="text-align: center; margin: 24px 0;">
       <a href="${portalUrl || '#'}" class="btn btn-danger">Pay & Restore Service</a>

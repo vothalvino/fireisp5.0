@@ -513,14 +513,16 @@ router.post('/:id/reassign', requirePermission('payments.update'), async (req, r
       [new_client_id, paymentId],
     );
 
-    // Record the credit for the new client
+    // Record the credit for the new client. payments.currency is NOT NULL so
+    // the org-currency fallback should never fire — but never default 'USD'.
+    const ledgerCurrency = payment.currency || await Organization.getCurrency(req.orgId);
     await conn.execute(
       `INSERT INTO client_balance_ledger
          (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
        VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,
       [
         new_client_id, req.orgId,
-        payment.amount, payment.currency || 'USD',
+        payment.amount, ledgerCurrency,
         paymentId, 'Payment ' + (payment.reference_number || paymentId),
       ],
     );

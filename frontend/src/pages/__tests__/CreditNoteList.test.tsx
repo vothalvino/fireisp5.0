@@ -8,6 +8,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { CreditNoteList } from '../CreditNoteList';
 
 const mockApiGet = vi.fn();
+vi.mock('@/auth/useOrgCurrency', () => ({ useOrgCurrency: () => 'MXN' }));
+
 vi.mock('@/api/client', () => ({
   api: { GET: (...args: unknown[]) => mockApiGet(...args) },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },

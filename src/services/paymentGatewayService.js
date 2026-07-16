@@ -614,6 +614,10 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
     // Auto-create a chargeback record when a dispute is received — §2.5.3
     if (newStatus === 'disputed') {
       try {
+        // payment_transactions.currency is NOT NULL so the fallback should
+        // never fire — but when it does, use the org's currency, never 'USD'.
+        const cbCurrency = tx.currency
+          || await require('../models/Organization').getCurrency(tx.organization_id);
         await db.query(
           `INSERT INTO chargebacks
              (organization_id, payment_id, gateway, gateway_dispute_id, amount, currency, reason_code, status)
@@ -625,7 +629,7 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
             provider,
             gatewayRef,
             tx.amount,
-            tx.currency || 'USD',
+            cbCurrency,
             eventType,
           ],
         );

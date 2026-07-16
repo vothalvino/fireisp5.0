@@ -19,6 +19,8 @@ const mockApiPost = vi.fn();
 // GenerateQuoteModal (opened by "New Quote") also fetches the product/add-on
 // catalog via the raw authedFetch, not the typed `api` client — mock it too.
 const mockAuthedFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [] }) });
+vi.mock('@/auth/useOrgCurrency', () => ({ useOrgCurrency: () => 'MXN' }));
+
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
