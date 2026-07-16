@@ -413,6 +413,10 @@ button:disabled {
 }
 /* Standalone top-level link (Dashboard) — not wrapped in a nav-sec-row */
 .nav-sec-link {
+  /* .nav-sec-head sets flex:1/min-width:0 for use inside the flex .nav-sec-row;
+     this link is instead a direct child of the column-flex <nav>, where
+     flex-grow:1 would stretch it to absorb all leftover sidebar space. */
+  flex: none;
   width: calc(100% - 12px);
   margin: 1px 6px;
   padding-right: 10px;

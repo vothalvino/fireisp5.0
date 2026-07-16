@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
@@ -36,7 +36,7 @@ import {
 const EXPANDED_KEY = 'fireisp.nav.expanded';
 const WORKSPACE_KEY = 'fireisp.nav.workspace';
 
-function loadExpanded(role: string | undefined): SectionId[] {
+function loadExpanded(): SectionId[] {
   try {
     const raw = localStorage.getItem(EXPANDED_KEY);
     if (raw) {
@@ -46,10 +46,12 @@ function loadExpanded(role: string | undefined): SectionId[] {
       }
     }
   } catch {
-    // corrupted state — fall through to the persona default
+    // corrupted state — fall through to fully collapsed
   }
-  const primary = role ? defaultExpandedSection(role) : null;
-  return primary ? [primary] : [];
+  // No valid stored state: the sidebar starts fully collapsed. The persona
+  // default is only used to recover from a genuine role switch — see the
+  // stranding-fix effect below — never to seed the very first render.
+  return [];
 }
 
 export function Layout() {
@@ -65,10 +67,11 @@ export function Layout() {
   // the orgs they belong to (from /auth/me → user.organizations).
   const isAdmin = !!user && hasRole(user.role, 'admin');
 
-  // Accordion state: which sections are open. Persisted per browser; seeded
-  // with the persona's primary section on first load.
+  // Accordion state: which sections are open. Persisted per browser; starts
+  // fully collapsed (see loadExpanded) unless a stored value says otherwise.
   const location = useLocation();
-  const [expanded, setExpanded] = useState<SectionId[]>(() => loadExpanded(user?.role));
+  const navigate = useNavigate();
+  const [expanded, setExpanded] = useState<SectionId[]>(() => loadExpanded());
   const trailSection = sectionForPath(location.pathname);
 
   // Active trail: the section owning the current route auto-expands. Keyed on
@@ -87,14 +90,18 @@ export function Layout() {
     }
   }, [expanded]);
 
-  // Stranding fix: after a role change the stored sections may all be invisible
-  // to the new role — re-seed the persona default so the nav never opens empty.
+  // Stranding fix: after a role change the previously-open sections may all be
+  // invisible to the new role — re-seed the persona default so the nav never
+  // opens empty. An empty `expanded` is never "stranded" — it's either the
+  // sidebar's intentional fully-collapsed starting state (see loadExpanded)
+  // or the user closed everything on purpose — leave it alone either way.
   useEffect(() => {
     if (!user) return;
-    const visibleIds = SECTIONS.filter(
-      s => s.kind !== 'link' && visibleRailItems(user, s.id).length > 0,
-    ).map(s => s.id);
     setExpanded(prev => {
+      if (prev.length === 0) return prev;
+      const visibleIds = SECTIONS.filter(
+        s => s.kind !== 'link' && visibleRailItems(user, s.id).length > 0,
+      ).map(s => s.id);
       if (prev.some(id => visibleIds.includes(id))) return prev;
       const primary = defaultExpandedSection(user.role);
       return primary && visibleIds.includes(primary) ? [...prev, primary] : prev;
@@ -168,6 +175,9 @@ export function Layout() {
       await switchOrganization(newOrgId);
       // Every list/detail query is scoped to the old org — refetch them all.
       await qc.invalidateQueries();
+      // Whatever page the user was on (e.g. a client detail page) likely makes
+      // no sense in the new org — land somewhere that's always valid.
+      navigate('/');
     } catch (err) {
       // Restore the select to the current org and surface the error
       // eslint-disable-next-line no-alert
