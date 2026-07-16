@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_CARDS, ROUTES, SECTIONS, type Guard } from '@/nav/routes';
+import { HUB_CARDS, ROUTES, SECTIONS, WORKSPACES, type Guard } from '@/nav/routes';
 import en from '@/i18n/locales/en.json';
 import es from '@/i18n/locales/es.json';
 import ptBR from '@/i18n/locales/pt-BR.json';
@@ -134,6 +134,10 @@ describe('nav registry i18n coverage', () => {
     }
     keys.add('nav.viewAll');
     keys.add('nav.hubs.empty');
+    keys.add('nav.toggleSection');
+    for (const w of WORKSPACES) keys.add(w.labelKey);
+    for (const k of ['title', 'placeholder', 'searchButton', 'noResults', 'hint']) keys.add(`nav.palette.${k}`);
+    keys.add('nav.workspaces.label');
     for (const hub of Object.values(SECTIONS).filter(s => s.kind === 'hub')) {
       keys.add(`nav.hubs.${hub.id}.title`);
       keys.add(`nav.hubs.${hub.id}.hint`);

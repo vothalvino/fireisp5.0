@@ -15,8 +15,10 @@ import { useDarkMode } from '@/auth/DarkModeContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NavSection } from '@/components/NavSection';
+import { CommandPalette } from '@/components/CommandPalette';
 import {
   SECTIONS,
+  WORKSPACES,
   canSeeHub,
   defaultExpandedSection,
   sectionForPath,
@@ -31,6 +33,7 @@ import {
 // the old NAV_GROUPS / TECHNICIAN_NAV_GROUPS fork is gone.
 // ---------------------------------------------------------------------------
 const EXPANDED_KEY = 'fireisp.nav.expanded';
+const WORKSPACE_KEY = 'fireisp.nav.workspace';
 
 function loadExpanded(role: string | undefined): SectionId[] {
   try {
@@ -102,6 +105,41 @@ export function Layout() {
     setExpanded(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   }
 
+  // Command palette (Ctrl/Cmd+K) — jumps to any page this role can see.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Workspace presets: admins/readonly wear many hats — let them prune the
+  // rendered sidebar to one job without touching permissions. The palette
+  // stays unfiltered as the escape hatch.
+  const canUseWorkspaces = user?.role === 'admin' || user?.role === 'readonly';
+  const [workspace, setWorkspace] = useState<string>(() => {
+    try {
+      return localStorage.getItem(WORKSPACE_KEY) ?? 'full';
+    } catch {
+      return 'full';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSPACE_KEY, workspace);
+    } catch {
+      // storage unavailable — preset just won't persist
+    }
+  }, [workspace]);
+  const workspaceSections = canUseWorkspaces
+    ? WORKSPACES.find(w => w.id === workspace)?.sections
+    : undefined;
+
   const { data: allOrgs } = useQuery({
     queryKey: ['org-switcher-all'],
     queryFn: async (): Promise<{ id: number; name: string }[]> => {
@@ -168,9 +206,32 @@ export function Layout() {
       <aside className={`app-sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
         <div style={styles.logo}>{t('layout.brandName')}</div>
 
+        <button className="nav-search-btn" onClick={() => setPaletteOpen(true)}>
+          <span className="nav-search-label">{t('nav.palette.searchButton')}</span>
+          <kbd className="nav-search-kbd">⌘K</kbd>
+        </button>
+
+        {canUseWorkspaces && (
+          <select
+            className="nav-workspace-select"
+            aria-label={t('nav.workspaces.label')}
+            value={workspace}
+            onChange={e => setWorkspace(e.target.value)}
+          >
+            {WORKSPACES.map(w => (
+              <option key={w.id} value={w.id}>
+                {t(w.labelKey)}
+              </option>
+            ))}
+          </select>
+        )}
+
         <nav style={styles.nav}>
           {user &&
             SECTIONS.map(section => {
+              if (workspaceSections && section.id !== 'dashboard' && !workspaceSections.includes(section.id)) {
+                return null;
+              }
               const items = section.kind === 'link' ? [] : visibleRailItems(user, section.id);
               const hubVisible = canSeeHub(user, section);
               if (section.kind !== 'link' && items.length === 0 && !hubVisible) return null;
@@ -246,6 +307,17 @@ export function Layout() {
         <EmailVerificationBanner />
         <Outlet />
       </main>
+
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => {
+            setPaletteOpen(false);
+            // On mobile the drawer would otherwise stay open over the page the
+            // palette just navigated to.
+            closeSidebar();
+          }}
+        />
+      )}
     </div>
   );
 }

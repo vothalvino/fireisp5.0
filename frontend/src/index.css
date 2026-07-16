@@ -526,6 +526,125 @@ button:disabled {
   }
 }
 
+/* -- Sidebar search button + workspace preset (Faro power layer) ------------ */
+.nav-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 10px 2px;
+  padding: 6px 10px;
+  background: var(--sidebar-hover-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 6px;
+  color: var(--sidebar-fg-muted);
+  font: 400 0.8rem var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+}
+.nav-search-btn:hover {
+  color: var(--sidebar-fg);
+}
+.nav-search-btn:focus-visible {
+  outline: 2px solid var(--sidebar-active-bg);
+  outline-offset: -2px;
+}
+.nav-search-kbd {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  color: var(--sidebar-fg-dim);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.nav-workspace-select {
+  margin: 4px 10px 0;
+  padding: 4px 6px;
+  background: var(--sidebar-hover-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 6px;
+  color: var(--sidebar-fg-muted);
+  font: 400 0.75rem var(--font-sans);
+  /* sidebar is always dark; keep the native popup legible */
+  color-scheme: dark;
+}
+
+/* -- Command palette --------------------------------------------------------- */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(9, 9, 11, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+}
+.palette-box {
+  width: min(560px, 100%);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font: 0.95rem var(--font-sans);
+  outline: none;
+}
+.palette-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.87rem;
+}
+.palette-item.selected {
+  background: var(--accent-soft);
+}
+.palette-item.selected .palette-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.palette-section {
+  color: var(--text-secondary);
+  font-size: 0.73rem;
+}
+.palette-path {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+}
+.palette-empty {
+  padding: 14px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.palette-foot {
+  border-top: 1px solid var(--border);
+  padding: 7px 14px;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
 .app-main {
   flex: 1;
   overflow: auto;

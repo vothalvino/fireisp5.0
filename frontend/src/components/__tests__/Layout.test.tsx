@@ -172,6 +172,58 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('NAS Devices')).toBeInTheDocument();
   });
 
+  it('opens the command palette from the sidebar button and filters by role', async () => {
+    mockUseAuth(makeUser('technician'));
+    renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
+
+    fireEvent.click(screen.getByText('Search…'));
+    const input = screen.getByRole('combobox', { name: 'Go to page' });
+    expect(input).toBeInTheDocument();
+
+    // Technician can jump to work orders…
+    fireEvent.change(input, { target: { value: 'Work Or' } });
+    expect(screen.getByRole('option', { name: /Work Orders/ })).toBeInTheDocument();
+
+    // …but pages their role can't load never appear (leads — no leads.view).
+    fireEvent.change(input, { target: { value: 'Leads' } });
+    expect(screen.queryByRole('option', { name: /Leads/ })).not.toBeInTheDocument();
+
+    // Esc closes.
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('combobox', { name: 'Go to page' })).not.toBeInTheDocument();
+  });
+
+  it('opens the command palette with Ctrl+K', async () => {
+    mockUseAuth(makeUser('admin'));
+    renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(screen.getByRole('combobox', { name: 'Go to page' })).toBeInTheDocument();
+  });
+
+  it('offers workspace presets to admins only, and they prune the sidebar', async () => {
+    mockUseAuth(makeUser('technician'));
+    const first = renderLayout();
+    expect(screen.queryByLabelText('Workspace')).not.toBeInTheDocument();
+    first.unmount();
+
+    mockUseAuth(makeUser('admin'));
+    renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
+    const select = screen.getByLabelText('Workspace');
+    fireEvent.change(select, { target: { value: 'billing' } });
+    // Billing preset keeps Dashboard + billing-side sections, hides the rest.
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Billing')).toBeInTheDocument();
+    expect(screen.getByText('Compliance')).toBeInTheDocument();
+    expect(screen.queryByText('Network')).not.toBeInTheDocument();
+    expect(screen.queryByText('Field Work')).not.toBeInTheDocument();
+    // Back to full restores everything.
+    fireEvent.change(select, { target: { value: 'full' } });
+    expect(screen.getByText('Network')).toBeInTheDocument();
+  });
+
   it('shows an org switcher listing all organizations for an admin', async () => {
     mockUseAuth(makeUser('admin'));
     mockApiGet.mockImplementation((path: string) => {

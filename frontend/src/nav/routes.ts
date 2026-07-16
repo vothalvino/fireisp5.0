@@ -60,6 +60,11 @@ export interface RouteDef {
   roles?: Role[];
   /** Only shown when the active org's compliance locale matches. */
   requiredLocale?: 'MX';
+  /**
+   * Extra command-palette search terms (untranslated: domain jargon and
+   * Spanish synonyms operators actually type — "iva", "corte", "timbrado").
+   */
+  keywords?: string[];
 }
 
 export interface SectionDef {
@@ -87,6 +92,26 @@ export const SECTIONS: SectionDef[] = [
   { id: 'admin', labelKey: 'nav.sections.admin', kind: 'hub', hubPath: '/admin', hubGuard: 'admin' },
 ];
 
+/**
+ * Workspace presets — an admin/readonly convenience that prunes the rendered
+ * sidebar to one job's sections without touching permissions ("admin, but
+ * doing billing today"). 'full' = no pruning. Dashboard is always shown.
+ */
+export interface WorkspaceDef {
+  id: string;
+  labelKey: string;
+  /** Sections kept visible; undefined = all. */
+  sections?: SectionId[];
+}
+
+export const WORKSPACES: WorkspaceDef[] = [
+  { id: 'full', labelKey: 'nav.workspaces.full' },
+  { id: 'billing', labelKey: 'nav.workspaces.billing', sections: ['clients', 'billing', 'support', 'compliance'] },
+  { id: 'field', labelKey: 'nav.workspaces.field', sections: ['clients', 'support', 'fieldops', 'network', 'inventory'] },
+  { id: 'support', labelKey: 'nav.workspaces.support', sections: ['clients', 'support', 'network'] },
+  { id: 'noc', labelKey: 'nav.workspaces.noc', sections: ['network', 'fieldops'] },
+];
+
 /** Hub card ordering per hub section (card id → nav.cards.<id>). */
 export const HUB_CARDS: Record<string, string[]> = {
   billing: ['receivables', 'collections', 'processing', 'catalogPricing', 'reportsAnalytics', 'configuration'],
@@ -108,34 +133,34 @@ export const ROUTES: RouteDef[] = [
   { path: '/churn-analytics', labelKey: 'nav.churnAnalytics', section: 'clients', guard: 'billing', sub: 'retention', rail: true, roles: ['billing'] },
 
   // --- Billing (hub: /billing) ------------------------------------------------
-  { path: '/invoices', labelKey: 'nav.invoices', section: 'billing', guard: 'any', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
-  { path: '/payments', labelKey: 'nav.payments', section: 'billing', guard: 'any', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
-  { path: '/cfdi', labelKey: 'nav.cfdi', section: 'billing', guard: 'billing', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'], requiredLocale: 'MX' },
+  { path: '/invoices', keywords: ['facturas', 'cobro'], labelKey: 'nav.invoices', section: 'billing', guard: 'any', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
+  { path: '/payments', keywords: ['pagos', 'abonos'], labelKey: 'nav.payments', section: 'billing', guard: 'any', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
+  { path: '/cfdi', keywords: ['sat', 'timbrado', 'stamp', 'factura'], labelKey: 'nav.cfdi', section: 'billing', guard: 'billing', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'], requiredLocale: 'MX' },
   { path: '/credit-notes', labelKey: 'nav.creditNotes', section: 'billing', guard: 'billing', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
-  { path: '/cash-reconciliation', labelKey: 'nav.cashReconciliation', section: 'billing', guard: 'billing', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
+  { path: '/cash-reconciliation', keywords: ['corte', 'caja'], labelKey: 'nav.cashReconciliation', section: 'billing', guard: 'billing', sub: 'receivables', card: 'receivables', rail: true, roles: ['billing'] },
   { path: '/plans', labelKey: 'nav.plans', section: 'billing', guard: 'billing', sub: 'catalog', card: 'catalogPricing', rail: true, roles: ['billing'] },
   { path: '/billing-disputes', labelKey: 'nav.billingDisputes', section: 'billing', guard: 'billing', sub: 'catalog', card: 'collections', rail: true, roles: ['billing'] },
   { path: '/reports', labelKey: 'nav.reports', section: 'billing', guard: 'billing', sub: 'catalog', card: 'reportsAnalytics', rail: true, roles: ['billing'] },
   { path: '/billing-adjustments', labelKey: 'nav.billingAdjustments', section: 'billing', guard: 'billing', card: 'receivables', roles: ['billing'] },
   { path: '/expenses', labelKey: 'nav.expenses', section: 'billing', guard: 'billing', card: 'receivables', roles: ['billing'] },
-  { path: '/payment-plans', labelKey: 'nav.paymentPlans', section: 'billing', guard: 'billing', card: 'collections', roles: ['billing'] },
+  { path: '/payment-plans', keywords: ['morosos', 'convenio'], labelKey: 'nav.paymentPlans', section: 'billing', guard: 'billing', card: 'collections', roles: ['billing'] },
   { path: '/refund-requests', labelKey: 'nav.refundRequests', section: 'billing', guard: 'billing', card: 'collections', roles: ['billing'] },
   { path: '/chargebacks', labelKey: 'nav.chargebacks', section: 'billing', guard: 'billing', card: 'collections', roles: ['billing'] },
   { path: '/payment-gateways', labelKey: 'nav.paymentGateways', section: 'billing', guard: 'billing', card: 'processing', roles: ['billing'] },
   { path: '/payment-transactions', labelKey: 'nav.paymentTransactions', section: 'billing', guard: 'billing', card: 'processing', roles: ['billing'] },
   { path: '/recurring-payment-profiles', labelKey: 'nav.recurringPaymentProfiles', section: 'billing', guard: 'billing', card: 'processing', roles: ['billing'] },
-  { path: '/tax-reports', labelKey: 'nav.taxReports', section: 'billing', guard: 'billing', card: 'reportsAnalytics', roles: ['billing'] },
+  { path: '/tax-reports', keywords: ['iva', 'impuestos', 'fiscal'], labelKey: 'nav.taxReports', section: 'billing', guard: 'billing', card: 'reportsAnalytics', roles: ['billing'] },
   { path: '/analytics-dashboard', labelKey: 'nav.analyticsDashboard', section: 'billing', guard: 'billing', card: 'reportsAnalytics', roles: ['billing'] },
-  { path: '/tax-rules', labelKey: 'nav.taxRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
-  { path: '/tax-rates', labelKey: 'nav.taxRates', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
+  { path: '/tax-rules', keywords: ['iva', 'impuestos'], labelKey: 'nav.taxRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
+  { path: '/tax-rates', keywords: ['iva', 'impuestos'], labelKey: 'nav.taxRates', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/invoice-settings', labelKey: 'nav.invoiceSettings', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
-  { path: '/late-fee-rules', labelKey: 'nav.lateFeeRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
+  { path: '/late-fee-rules', keywords: ['mora', 'morosos', 'recargos'], labelKey: 'nav.lateFeeRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
 
   // --- Support -----------------------------------------------------------------
   // tickets.view: support (119) + technician (394; sees all categories except
   // billing — tickets.view_billing gates those). Billing still lacks tickets.view.
-  { path: '/tickets', labelKey: 'nav.tickets', section: 'support', guard: 'any', rail: true, roles: ['support', 'technician'] },
+  { path: '/tickets', keywords: ['soporte', 'casos'], labelKey: 'nav.tickets', section: 'support', guard: 'any', rail: true, roles: ['support', 'technician'] },
   // escalations.view: technician+support (197) + billing (394)
   { path: '/escalations', labelKey: 'nav.escalations', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support', 'billing'] },
   { path: '/follow-up-reminders', labelKey: 'nav.followUps', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support', 'billing'] },
@@ -143,7 +168,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/satisfaction-surveys', labelKey: 'nav.surveys', section: 'support', guard: 'any', rail: true, roles: ['support', 'billing'] },
 
   // --- Field Ops -----------------------------------------------------------------
-  { path: '/work-orders', labelKey: 'nav.workOrders', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
+  { path: '/work-orders', keywords: ['visita', 'instalacion'], labelKey: 'nav.workOrders', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
   { path: '/maintenance-windows', labelKey: 'nav.maintenanceWindows', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
   { path: '/sites', labelKey: 'nav.sites', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
   { path: '/coverage-zones', labelKey: 'nav.coverageZones', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
@@ -158,12 +183,12 @@ export const ROUTES: RouteDef[] = [
   // any-auth guard + support in the allowlist: support has network_health.view /
   // outages.view via mig 377 — the "is it down?" subset
   { path: '/network-health', labelKey: 'nav.networkHealth', section: 'network', guard: 'any', card: 'monitoringNoc', rail: true, roles: ['technician', 'support'] },
-  { path: '/outages', labelKey: 'nav.outages', section: 'network', guard: 'any', card: 'monitoringNoc', rail: true, roles: ['technician', 'support'] },
-  { path: '/radius-sessions', labelKey: 'nav.radiusSessions', section: 'network', guard: 'technician', card: 'radiusAaa', rail: true, roles: ['technician'] },
-  { path: '/nas', labelKey: 'nav.nas', section: 'network', guard: 'technician', card: 'devicesConfig', rail: true, roles: ['technician'] },
+  { path: '/outages', keywords: ['down', 'caida', 'fuera de servicio'], labelKey: 'nav.outages', section: 'network', guard: 'any', card: 'monitoringNoc', rail: true, roles: ['technician', 'support'] },
+  { path: '/radius-sessions', keywords: ['pppoe', 'sesiones', 'online'], labelKey: 'nav.radiusSessions', section: 'network', guard: 'technician', card: 'radiusAaa', rail: true, roles: ['technician'] },
+  { path: '/nas', keywords: ['mikrotik', 'router', 'bras'], labelKey: 'nav.nas', section: 'network', guard: 'technician', card: 'devicesConfig', rail: true, roles: ['technician'] },
   { path: '/ip-pools', labelKey: 'nav.ipPools', section: 'network', guard: 'technician', card: 'ipam', rail: true, roles: ['technician'] },
   // carries a card so the hub shows it and "View all N" counts stay honest
-  { path: '/wg-tunnels', labelKey: 'nav.myWgTunnels', section: 'network', guard: 'any', card: 'accessProvisioning', rail: true },
+  { path: '/wg-tunnels', keywords: ['wireguard', 'vpn'], labelKey: 'nav.myWgTunnels', section: 'network', guard: 'any', card: 'accessProvisioning', rail: true },
   { path: '/speed-tests', labelKey: 'nav.speedTests', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
   { path: '/connection-logs', labelKey: 'nav.connectionLogs', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
   { path: '/topology-map', labelKey: 'nav.topologyMap', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
@@ -197,7 +222,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/alert-escalation-chains', labelKey: 'nav.alertEscalationChains', section: 'network', guard: 'technician', card: 'pollingAlerting', roles: ['technician'] },
   { path: '/alert-suppression-rules', labelKey: 'nav.alertSuppressionRules', section: 'network', guard: 'technician', card: 'pollingAlerting', roles: ['technician'] },
   { path: '/olt-management', labelKey: 'nav.oltManagement', section: 'network', guard: 'technician', card: 'ftthPon', roles: ['technician'] },
-  { path: '/onu-management', labelKey: 'nav.onuManagement', section: 'network', guard: 'technician', card: 'ftthPon', roles: ['technician'] },
+  { path: '/onu-management', keywords: ['ftth', 'fibra', 'provision'], labelKey: 'nav.onuManagement', section: 'network', guard: 'technician', card: 'ftthPon', roles: ['technician'] },
   { path: '/pon-port-management', labelKey: 'nav.ponPortManagement', section: 'network', guard: 'technician', card: 'ftthPon', roles: ['technician'] },
   { path: '/fiber-plant-management', labelKey: 'nav.fiberPlantManagement', section: 'network', guard: 'technician', card: 'ftthPon', roles: ['technician'] },
   { path: '/cpe-management', labelKey: 'nav.cpeManagement', section: 'network', guard: 'technician', card: 'cpe', roles: ['technician'] },
