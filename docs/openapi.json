@@ -66793,7 +66793,12 @@
           },
           "category": {
             "type": "string",
-            "maximum": 100
+            "enum": [
+              "technical",
+              "billing",
+              "installation",
+              "general"
+            ]
           },
           "status": {
             "type": "string",
@@ -66807,7 +66812,8 @@
           }
         },
         "required": [
-          "subject"
+          "subject",
+          "category"
         ]
       },
       "tickets_updateTicket": {
@@ -66845,7 +66851,12 @@
           },
           "category": {
             "type": "string",
-            "maximum": 100
+            "enum": [
+              "technical",
+              "billing",
+              "installation",
+              "general"
+            ]
           },
           "status": {
             "type": "string",
@@ -66894,7 +66905,12 @@
           },
           "category": {
             "type": "string",
-            "maximum": 100
+            "enum": [
+              "technical",
+              "billing",
+              "installation",
+              "general"
+            ]
           },
           "status": {
             "type": "string",

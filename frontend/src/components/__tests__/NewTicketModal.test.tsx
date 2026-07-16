@@ -21,11 +21,14 @@ describe('NewTicketModal', () => {
 
     expect(screen.getByDisplayValue('Acme Corp')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('Brief description of the issue'), { target: { value: 'Internet down' } });
+    // Category is required since migration 394 — submit stays disabled until picked.
+    expect(screen.getByRole('button', { name: 'Create Ticket' })).toBeDisabled();
+    fireEvent.change(screen.getByDisplayValue('— select a category —'), { target: { value: 'technical' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' }));
 
     await waitFor(() => expect(api.POST).toHaveBeenCalledWith(
       '/tickets',
-      expect.objectContaining({ body: expect.objectContaining({ subject: 'Internet down', client_id: 7 }) }),
+      expect.objectContaining({ body: expect.objectContaining({ subject: 'Internet down', client_id: 7, category: 'technical' }) }),
     ));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
   });

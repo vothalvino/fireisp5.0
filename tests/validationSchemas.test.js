@@ -242,7 +242,7 @@ describe('Ticket validation schemas', () => {
   test('createTicket accepts all valid priorities', () => {
     const priorities = ['low', 'medium', 'high', 'critical'];
     for (const priority of priorities) {
-      const next = run(createTicket, { subject: 'Test', priority });
+      const next = run(createTicket, { subject: 'Test', priority, category: 'technical' });
       expect(next).toHaveBeenCalledWith();
     }
   });

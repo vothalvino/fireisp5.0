@@ -34,6 +34,7 @@ jest.mock('../src/middleware/orgScope', () => ({
   orgScope: (req, _res, next) => { req.orgId = 1; next(); },
 }));
 jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
   requirePermission: () => (_req, _res, next) => next(),
   requireRole:       () => (_req, _res, next) => next(),
 }));

@@ -272,7 +272,7 @@ async function autoCreateTicket(organizationId, rule, breach) {
     await db.query(
       `INSERT INTO tickets
          (organization_id, subject, description, priority, category, status)
-       VALUES (?, ?, ?, ?, 'network', 'open')`,
+       VALUES (?, ?, ?, ?, 'technical', 'open')`,
       [organizationId, subject, description, rule.severity === 'critical' ? 'high' : 'medium'],
     );
   } catch (_err) {

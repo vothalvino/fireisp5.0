@@ -10,7 +10,7 @@ const Ticket = require('../models/Ticket');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createTicket, updateTicket, patchTicket, createComment, updateComment } = require('../middleware/schemas/tickets');
 const db = require('../config/database');
@@ -78,15 +78,87 @@ const ctrl = crudController(Ticket, {
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('tickets.view'), ctrl.list);
+// ---------------------------------------------------------------------------
+// Billing-category visibility (migration 394)
+// ---------------------------------------------------------------------------
+// Roles without tickets.view_billing (e.g. technician) see every ticket EXCEPT
+// category='billing'. requireTicketPermission is the chokepoint for /:id and
+// every subresource (comments, time logs, attachments, relations, AI triage):
+// after the route's normal permission check passes, a billing ticket 404s for
+// them, indistinguishable from a nonexistent one. Running AFTER
+// requirePermission keeps 403-before-404 ordering, so unauthorized callers
+// can't use the status code as a category oracle.
+async function guardBillingTicketMw(req, res, next) {
+  try {
+    const ticketId = req.params.id ?? req.params.ticketId;
+    if (!/^\d+$/.test(String(ticketId))) return next();
+    // Legacy admins and view_billing holders skip the category lookup entirely.
+    if (await userHasPermission(req, 'tickets.view_billing')) return next();
+    const [[ticket]] = await db.query(
+      'SELECT category FROM tickets WHERE id = ? AND organization_id = ?',
+      [ticketId, req.orgId],
+    );
+    if (ticket && ticket.category === 'billing') {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
+/** requirePermission + the billing-category guard, for every ticket :id route. */
+function requireTicketPermission(...perms) {
+  return [requirePermission(...perms), guardBillingTicketMw];
+}
+
+router.get('/', requirePermission('tickets.view'), async (req, res, next) => {
+  try {
+    if (await userHasPermission(req, 'tickets.view_billing')) {
+      return ctrl.list(req, res, next);
+    }
+    // Scoped list: same contract as crudController.list (filters on fillable
+    // columns, pagination meta) but excluding billing-category tickets.
+    const { page = 1, limit = 50, order_by, order, ...filters } = req.query;
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 100);
+    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
+    const conditions = ['organization_id = ?', 'deleted_at IS NULL', "category <> 'billing'"];
+    const params = [req.orgId];
+    for (const [col, val] of Object.entries(filters)) {
+      if (Ticket.fillable.includes(col) || col === 'id') {
+        conditions.push(`\`${col}\` = ?`);
+        params.push(val);
+      }
+    }
+    const safeOrderBy = Ticket.sortable.includes(order_by) ? order_by : 'id';
+    const dir = order === 'DESC' ? 'DESC' : 'ASC';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+    const [[rows], [[{ total }]]] = await Promise.all([
+      db.query(
+        `SELECT * FROM tickets ${whereClause} ORDER BY \`${safeOrderBy}\` ${dir} LIMIT ${safeLimit} OFFSET ${offset}`,
+        params,
+      ),
+      db.query(`SELECT COUNT(*) AS total FROM tickets ${whereClause}`, params),
+    ]);
+    res.json({
+      data: rows,
+      meta: {
+        total,
+        page: Math.max(1, parseInt(page, 10) || 1),
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    });
+  } catch (err) { next(err); }
+});
 
 // GET /tickets/stats — ticket counts by status (must be before /:id)
 router.get('/stats', requirePermission('tickets.view'), async (req, res, next) => {
   try {
+    const canSeeBilling = await userHasPermission(req, 'tickets.view_billing');
     const [rows] = await db.query(
       `SELECT status, COUNT(*) AS count
        FROM tickets
        WHERE organization_id = ? AND deleted_at IS NULL
+         ${canSeeBilling ? '' : "AND category <> 'billing'"}
        GROUP BY status`,
       [req.orgId],
     );
@@ -103,8 +175,8 @@ router.post('/from-alert', requirePermission('tickets.create'), async (req, res,
     }
     const [result] = await db.query(
       `INSERT INTO tickets
-         (organization_id, client_id, subject, description, priority, status, source)
-       VALUES (?, ?, ?, ?, ?, 'open', 'alert')`,
+         (organization_id, client_id, subject, description, priority, category, status, source)
+       VALUES (?, ?, ?, ?, ?, 'technical', 'open', 'alert')`,
       [req.orgId, client_id, subject, description || null, priority || 'medium'],
     );
     const [[row]] = await db.query('SELECT * FROM tickets WHERE id = ?', [result.insertId]);
@@ -112,7 +184,7 @@ router.post('/from-alert', requirePermission('tickets.create'), async (req, res,
   } catch (err) { next(err); }
 });
 
-router.get('/:id', requirePermission('tickets.view'), ctrl.get);
+router.get('/:id', requireTicketPermission('tickets.view'), ctrl.get);
 router.post('/', requirePermission('tickets.create'), validate(createTicket), async (req, res, next) => {
   try {
     if (Ticket.hasOrgScope && req.orgId) {
@@ -134,13 +206,13 @@ router.post('/', requirePermission('tickets.create'), validate(createTicket), as
     res.status(201).json({ data: record });
   } catch (err) { next(err); }
 });
-router.put('/:id', requirePermission('tickets.update'), validate(updateTicket), ctrl.update);
-router.patch('/:id', requirePermission('tickets.update'), validate(patchTicket), ctrl.partialUpdate);
-router.delete('/:id', requirePermission('tickets.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('tickets.update'), ctrl.restore);
+router.put('/:id', requireTicketPermission('tickets.update'), validate(updateTicket), ctrl.update);
+router.patch('/:id', requireTicketPermission('tickets.update'), validate(patchTicket), ctrl.partialUpdate);
+router.delete('/:id', requireTicketPermission('tickets.delete'), ctrl.destroy);
+router.post('/:id/restore', requireTicketPermission('tickets.update'), ctrl.restore);
 
 // Ticket comments
-router.get('/:id/comments', requirePermission('tickets.view'), async (req, res, next) => {
+router.get('/:id/comments', requireTicketPermission('tickets.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
       'SELECT tc.*, u.first_name, u.last_name FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id WHERE tc.ticket_id = ? AND tc.deleted_at IS NULL ORDER BY tc.created_at ASC',
@@ -150,7 +222,7 @@ router.get('/:id/comments', requirePermission('tickets.view'), async (req, res, 
   } catch (err) { next(err); }
 });
 
-router.post('/:id/comments', requirePermission('tickets.update'), validate(createComment), async (req, res, next) => {
+router.post('/:id/comments', requireTicketPermission('tickets.update'), validate(createComment), async (req, res, next) => {
   try {
     const { body, is_internal } = req.body;
     const [result] = await db.query(
@@ -181,7 +253,7 @@ router.post('/:id/comments', requirePermission('tickets.update'), validate(creat
   } catch (err) { next(err); }
 });
 
-router.put('/:id/comments/:commentId', requirePermission('tickets.update'), validate(updateComment), async (req, res, next) => {
+router.put('/:id/comments/:commentId', requireTicketPermission('tickets.update'), validate(updateComment), async (req, res, next) => {
   try {
     const { body, is_internal } = req.body;
     const [result] = await db.query(
@@ -196,7 +268,7 @@ router.put('/:id/comments/:commentId', requirePermission('tickets.update'), vali
   } catch (err) { next(err); }
 });
 
-router.delete('/:id/comments/:commentId', requirePermission('tickets.delete'), async (req, res, next) => {
+router.delete('/:id/comments/:commentId', requireTicketPermission('tickets.delete'), async (req, res, next) => {
   try {
     const [result] = await db.query(
       'UPDATE ticket_comments SET deleted_at = NOW() WHERE id = ? AND ticket_id = ? AND deleted_at IS NULL',
@@ -212,21 +284,31 @@ router.delete('/:id/comments/:commentId', requirePermission('tickets.delete'), a
 // ---------------------------------------------------------------------------
 // Ticket relations
 // ---------------------------------------------------------------------------
-router.get('/:id/relations', requirePermission('ticket_relations.view'), async (req, res, next) => {
+router.get('/:id/relations', requireTicketPermission('ticket_relations.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      `SELECT tr.*, ta.subject AS ticket_a_subject, tb.subject AS ticket_b_subject
+      `SELECT tr.*, ta.subject AS ticket_a_subject, tb.subject AS ticket_b_subject,
+              ta.category AS ticket_a_category, tb.category AS ticket_b_category
        FROM ticket_relations tr
        JOIN tickets ta ON ta.id = tr.ticket_id_a
        JOIN tickets tb ON tb.id = tr.ticket_id_b
        WHERE tr.ticket_id_a = ? OR tr.ticket_id_b = ?`,
       [req.params.id, req.params.id],
     );
-    res.json({ data: rows });
+    // The requested ticket is already non-billing for restricted users (guard),
+    // but the JOIN pulls the RELATED ticket's subject — drop relations that
+    // touch a billing ticket so those subjects never leak.
+    const canSeeBilling = await userHasPermission(req, 'tickets.view_billing');
+    const visible = canSeeBilling
+      ? rows
+      : rows.filter(r => r.ticket_a_category !== 'billing' && r.ticket_b_category !== 'billing');
+    res.json({
+      data: visible.map(({ ticket_a_category: _a, ticket_b_category: _b, ...rest }) => rest),
+    });
   } catch (err) { next(err); }
 });
 
-router.post('/:id/relations', requirePermission('ticket_relations.manage'), async (req, res, next) => {
+router.post('/:id/relations', requireTicketPermission('ticket_relations.manage'), async (req, res, next) => {
   try {
     const { related_ticket_id, relation_type } = req.body;
     if (!related_ticket_id) return res.status(422).json({ error: 'related_ticket_id is required' });
@@ -239,7 +321,7 @@ router.post('/:id/relations', requirePermission('ticket_relations.manage'), asyn
   } catch (err) { next(err); }
 });
 
-router.delete('/:id/relations/:relId', requirePermission('ticket_relations.manage'), async (req, res, next) => {
+router.delete('/:id/relations/:relId', requireTicketPermission('ticket_relations.manage'), async (req, res, next) => {
   try {
     const [result] = await db.query(
       'DELETE FROM ticket_relations WHERE id = ? AND (ticket_id_a = ? OR ticket_id_b = ?)',
@@ -253,7 +335,7 @@ router.delete('/:id/relations/:relId', requirePermission('ticket_relations.manag
 // ---------------------------------------------------------------------------
 // Ticket time logs
 // ---------------------------------------------------------------------------
-router.get('/:id/time-logs', requirePermission('ticket_time_logs.view'), async (req, res, next) => {
+router.get('/:id/time-logs', requireTicketPermission('ticket_time_logs.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
       `SELECT tl.*, u.first_name, u.last_name
@@ -267,7 +349,7 @@ router.get('/:id/time-logs', requirePermission('ticket_time_logs.view'), async (
   } catch (err) { next(err); }
 });
 
-router.post('/:id/time-logs', requirePermission('ticket_time_logs.manage'), async (req, res, next) => {
+router.post('/:id/time-logs', requireTicketPermission('ticket_time_logs.manage'), async (req, res, next) => {
   try {
     const { minutes, work_date, description } = req.body;
     if (!minutes || !work_date) {
@@ -282,7 +364,7 @@ router.post('/:id/time-logs', requirePermission('ticket_time_logs.manage'), asyn
   } catch (err) { next(err); }
 });
 
-router.put('/:id/time-logs/:logId', requirePermission('ticket_time_logs.manage'), async (req, res, next) => {
+router.put('/:id/time-logs/:logId', requireTicketPermission('ticket_time_logs.manage'), async (req, res, next) => {
   try {
     const { minutes, work_date, description } = req.body;
     if (!minutes || !work_date) {
@@ -298,7 +380,7 @@ router.put('/:id/time-logs/:logId', requirePermission('ticket_time_logs.manage')
   } catch (err) { next(err); }
 });
 
-router.delete('/:id/time-logs/:logId', requirePermission('ticket_time_logs.manage'), async (req, res, next) => {
+router.delete('/:id/time-logs/:logId', requireTicketPermission('ticket_time_logs.manage'), async (req, res, next) => {
   try {
     const [result] = await db.query(
       'DELETE FROM ticket_time_logs WHERE id = ? AND ticket_id = ?',
@@ -312,7 +394,7 @@ router.delete('/:id/time-logs/:logId', requirePermission('ticket_time_logs.manag
 // ---------------------------------------------------------------------------
 // Ticket AI triage
 // ---------------------------------------------------------------------------
-router.get('/:id/ai-triage', requirePermission('tickets.view'), async (req, res, next) => {
+router.get('/:id/ai-triage', requireTicketPermission('tickets.view'), async (req, res, next) => {
   try {
     // ticket_ai_triage has no organization_id column — scope through the ticket
     // so one tenant can never read another tenant's triage (suggested_resolution
@@ -331,7 +413,7 @@ router.get('/:id/ai-triage', requirePermission('tickets.view'), async (req, res,
 // ---------------------------------------------------------------------------
 // Ticket AI summary
 // ---------------------------------------------------------------------------
-router.post('/:id/ai-summary', requirePermission('tickets.view'), async (req, res, next) => {
+router.post('/:id/ai-summary', requireTicketPermission('tickets.view'), async (req, res, next) => {
   try {
     const [[ticket]] = await db.query(
       'SELECT id, subject, description, organization_id, contract_id FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -352,7 +434,7 @@ router.post('/:id/ai-summary', requirePermission('tickets.view'), async (req, re
 // ---------------------------------------------------------------------------
 // Ticket attachments
 // ---------------------------------------------------------------------------
-router.get('/:id/attachments', requirePermission('ticket_attachments.view'), async (req, res, next) => {
+router.get('/:id/attachments', requireTicketPermission('ticket_attachments.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
       'SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM ticket_attachments WHERE ticket_id = ? AND organization_id = ? ORDER BY created_at DESC',
@@ -362,7 +444,7 @@ router.get('/:id/attachments', requirePermission('ticket_attachments.view'), asy
   } catch (err) { next(err); }
 });
 
-router.post('/:id/attachments', requirePermission('ticket_attachments.create'), uploadAttachment, async (req, res, next) => {
+router.post('/:id/attachments', requireTicketPermission('ticket_attachments.create'), uploadAttachment, async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ error: 'No file uploaded' });
     const [result] = await db.query(
@@ -374,7 +456,7 @@ router.post('/:id/attachments', requirePermission('ticket_attachments.create'), 
   } catch (err) { next(err); }
 });
 
-router.delete('/:ticketId/attachments/:attachmentId', requirePermission('ticket_attachments.delete'), async (req, res, next) => {
+router.delete('/:ticketId/attachments/:attachmentId', requireTicketPermission('ticket_attachments.delete'), async (req, res, next) => {
   try {
     const [[row]] = await db.query(
       'SELECT storage_path FROM ticket_attachments WHERE id = ? AND ticket_id = ? AND organization_id = ?',
@@ -387,7 +469,7 @@ router.delete('/:ticketId/attachments/:attachmentId', requirePermission('ticket_
   } catch (err) { next(err); }
 });
 
-router.get('/:ticketId/attachments/:attachmentId/download', requirePermission('ticket_attachments.view'), async (req, res, next) => {
+router.get('/:ticketId/attachments/:attachmentId/download', requireTicketPermission('ticket_attachments.view'), async (req, res, next) => {
   try {
     const [[row]] = await db.query(
       'SELECT * FROM ticket_attachments WHERE id = ? AND ticket_id = ? AND organization_id = ?',
@@ -403,10 +485,21 @@ router.get('/:ticketId/attachments/:attachmentId/download', requirePermission('t
 // ---------------------------------------------------------------------------
 // Ticket merge
 // ---------------------------------------------------------------------------
-router.post('/:id/merge', requirePermission('tickets.update'), async (req, res, next) => {
+router.post('/:id/merge', requireTicketPermission('tickets.update'), async (req, res, next) => {
   try {
     const { source_ticket_id } = req.body;
     if (!source_ticket_id) return res.status(422).json({ error: 'source_ticket_id is required' });
+    // The guard only covers the :id param — validate the body-supplied source
+    // ticket the same way: it must exist in this org, and users without
+    // tickets.view_billing can't merge (and thereby read) a billing ticket.
+    const [[source]] = await db.query(
+      'SELECT category FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [source_ticket_id, req.orgId],
+    );
+    if (!source) return res.status(404).json({ error: 'Source ticket not found' });
+    if (source.category === 'billing' && !(await userHasPermission(req, 'tickets.view_billing'))) {
+      return res.status(404).json({ error: 'Source ticket not found' });
+    }
     // Move comments from source to target, then close source
     await db.query(
       'UPDATE ticket_comments SET ticket_id = ? WHERE ticket_id = ?',

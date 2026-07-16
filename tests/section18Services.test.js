@@ -21,6 +21,7 @@ jest.mock('../src/services/reportService', () => ({
 jest.mock('../src/middleware/auth',     () => ({ authenticate: (_q, _r, next) => { _q.user = { id: 1, role: 'admin' }; next(); } }));
 jest.mock('../src/middleware/orgScope', () => ({ orgScope: (_q, _r, next) => { _q.orgId = 1; next(); } }));
 jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
   requirePermission: () => (_q, _r, next) => next(),
   requireRole:       () => (_q, _r, next) => next(),
 }));

@@ -39,9 +39,12 @@ const SURVEY_SCORE_RANGES = {
  * @param {number|null} organizationId
  * @param {object} [options]
  * @param {number} [options.limit=100]
+ * @param {boolean} [options.includeBillingTickets=true] false for callers
+ *        without tickets.view_billing (migration 394) — billing-category
+ *        tickets are omitted from the feed
  * @returns {Promise<{ client_id: number, events: object[] }>}
  */
-async function activityTimeline(clientId, organizationId, { limit = 100 } = {}) {
+async function activityTimeline(clientId, organizationId, { limit = 100, includeBillingTickets = true } = {}) {
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
 
   // email_logs has no organization_id column — it is scoped via the client.
@@ -60,6 +63,7 @@ async function activityTimeline(clientId, organizationId, { limit = 100 } = {}) 
       FROM tickets t
       WHERE t.client_id = ? AND t.deleted_at IS NULL
         AND (? IS NULL OR t.organization_id = ?)
+        ${includeBillingTickets ? '' : "AND t.category <> 'billing'"}
 
       UNION ALL
 
@@ -408,7 +412,7 @@ async function autoEscalateTickets(organizationId = null, { hours = 48 } = {}) {
  * @param {number} [options.hours=24]
  * @param {number} [options.limit=50]
  */
-async function escalationCandidates(organizationId, { hours = 24, limit = 50 } = {}) {
+async function escalationCandidates(organizationId, { hours = 24, limit = 50, includeBillingTickets = true } = {}) {
   const safeHours = Math.min(Math.max(parseInt(hours, 10) || 24, 1), 720);
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
 
@@ -424,6 +428,7 @@ async function escalationCandidates(organizationId, { hours = 24, limit = 50 } =
       AND t.created_at <= DATE_SUB(NOW(), INTERVAL ? HOUR)
       AND e.id IS NULL
       AND (? IS NULL OR t.organization_id = ?)
+      ${includeBillingTickets ? '' : "AND t.category <> 'billing'"}
     ORDER BY FIELD(t.priority, 'critical', 'high', 'medium', 'low'), t.created_at ASC
     LIMIT ${safeLimit}
   `, [safeHours, organizationId, organizationId]);

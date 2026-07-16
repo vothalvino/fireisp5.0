@@ -75,6 +75,7 @@ jest.mock('../src/middleware/ipAllowlist', () => ({
   parseAllowlist:    () => [],
 }));
 jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
   requirePermission: () => (_r, _s, n) => n(),
   requireRole:       () => (_r, _s, n) => n(),
 }));

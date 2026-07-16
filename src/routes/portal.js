@@ -113,7 +113,9 @@ const createTicketSchema = {
   subject: { type: 'string', required: true, min: 1, max: 300 },
   description: { type: 'string', max: 5000 },
   priority: { type: 'string', enum: ['low', 'medium', 'high'] },
-  category: { type: 'string', max: 100 },
+  // Mirrors the tickets.category ENUM (migration 394). Optional for
+  // subscribers — omitted tickets land in 'general'.
+  category: { type: 'string', enum: ['technical', 'billing', 'installation', 'general'] },
 };
 
 const createCommentSchema = {
@@ -466,7 +468,7 @@ router.post('/tickets', validate(createTicketSchema), async (req, res, next) => 
         subject,
         description || null,
         priority || 'medium',
-        category || null,
+        category || 'general',
       ],
     );
 
@@ -1106,7 +1108,7 @@ router.post('/chat/:token/message', validate(chatMessageSchema), async (req, res
       const [ticketResult] = await db.query(
         `INSERT INTO tickets
            (organization_id, client_id, subject, description, priority, category, status)
-         VALUES (?, ?, ?, ?, 'medium', 'chat', 'open')`,
+         VALUES (?, ?, ?, ?, 'medium', 'general', 'open')`,
         [
           req.client.organizationId,
           req.client.id,
@@ -1180,7 +1182,7 @@ router.post('/callback-request', async (req, res, next) => {
     const [result] = await db.query(
       `INSERT INTO tickets
          (organization_id, client_id, subject, description, priority, category, status)
-       VALUES (?, ?, 'Callback Request', ?, 'medium', 'callback', 'open')`,
+       VALUES (?, ?, 'Callback Request', ?, 'medium', 'general', 'open')`,
       [req.client.organizationId, req.client.id, description],
     );
 

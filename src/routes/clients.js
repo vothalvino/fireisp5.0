@@ -243,8 +243,11 @@ router.get('/:id/balance-ledger', requirePermission('clients.view'), async (req,
 router.get('/:id/timeline', requirePermission('clients.view'), async (req, res, next) => {
   try {
     const interactionService = require('../services/interactionService');
+    const { userHasPermission } = require('../middleware/rbac');
     const timeline = await interactionService.activityTimeline(req.params.id, req.orgId, {
       limit: req.query.limit,
+      // Billing-category tickets are gated by tickets.view_billing (mig 394)
+      includeBillingTickets: await userHasPermission(req, 'tickets.view_billing'),
     });
     res.json({ data: timeline });
   } catch (err) { next(err); }

@@ -848,7 +848,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     subject      VARCHAR(255)    NOT NULL,
     description  TEXT            NULL,
     notes        TEXT            NULL COMMENT 'Internal operator notes on this ticket',
-    category     VARCHAR(100)    NULL COMMENT 'e.g. connectivity, billing, hardware',
+    category     ENUM('technical','billing','installation','general') NOT NULL DEFAULT 'general' COMMENT 'Ticket taxonomy; billing-category tickets are gated by tickets.view_billing (migration 394)',
     source       ENUM('manual','alert','portal','ai_escalated') NOT NULL DEFAULT 'manual' COMMENT 'How the ticket was created (migration 297)',
     priority     ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'medium',
     status       ENUM('open', 'in_progress', 'waiting', 'resolved', 'closed') NOT NULL DEFAULT 'open',

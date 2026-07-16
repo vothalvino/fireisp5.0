@@ -386,14 +386,21 @@ button:disabled {
   flex-direction: column;
   padding-bottom: 2px;
 }
+.nav-sec-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin: 1px 6px;
+  border-radius: 6px;
+}
 .nav-sec-head {
   position: relative;
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 9px;
-  width: calc(100% - 12px);
-  margin: 1px 6px;
-  padding: 8px 10px 8px 12px;
+  padding: 8px 4px 8px 12px;
   background: none;
   border: none;
   border-radius: 6px;
@@ -404,17 +411,27 @@ button:disabled {
   text-decoration: none;
   transition: background 0.15s, color 0.15s;
 }
-.nav-sec-head:hover {
+/* Standalone top-level link (Dashboard) — not wrapped in a nav-sec-row */
+.nav-sec-link {
+  width: calc(100% - 12px);
+  margin: 1px 6px;
+  padding-right: 10px;
+}
+.nav-sec-head:hover,
+.nav-chev-btn:hover {
   background: var(--sidebar-hover-bg);
 }
-.nav-sec-head:focus-visible {
+.nav-sec-head:focus-visible,
+.nav-chev-btn:focus-visible {
   outline: 2px solid var(--sidebar-active-bg);
   outline-offset: -2px;
 }
-.nav-sec-head.on-trail {
+.nav-sec-row.on-trail .nav-sec-head,
+.nav-sec-link.on-trail {
   color: #fff;
 }
-.nav-sec-head.on-trail::before {
+.nav-sec-row.on-trail::before,
+.nav-sec-link.on-trail::before {
   content: '';
   position: absolute;
   left: -6px;
@@ -423,6 +440,17 @@ button:disabled {
   width: 3px;
   border-radius: 2px;
   background: var(--sidebar-active-bg);
+}
+.nav-chev-btn {
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--sidebar-fg);
+  cursor: pointer;
+  transition: background 0.15s;
 }
 .nav-sec-icon {
   width: 16px;
@@ -443,7 +471,7 @@ button:disabled {
   opacity: 0.55;
   transition: transform 0.15s;
 }
-.nav-sec-head[aria-expanded='true'] .nav-chev {
+.nav-chev-btn[aria-expanded='true'] .nav-chev {
   transform: rotate(90deg);
 }
 .nav-subhead {
@@ -491,6 +519,7 @@ button:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .nav-sec-head,
+  .nav-chev-btn,
   .nav-leaf,
   .nav-chev {
     transition: none;
