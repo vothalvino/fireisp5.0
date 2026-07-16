@@ -164,6 +164,7 @@ import { NocDashboard } from '@/pages/NocDashboard';
 import { WorkOrders } from '@/pages/WorkOrders';
 import { TopologyMapPage } from '@/pages/TopologyMapPage';
 import { InventoryManagement } from '@/pages/InventoryManagement';
+import { HubPage } from '@/pages/HubPage';
 import { NotFound } from '@/pages/NotFound';
 import { SecurityAccessControlPage } from '@/pages/SecurityAccessControlPage';
 import AutomationPage from '@/pages/AutomationPage';
@@ -239,12 +240,18 @@ export function App() {
                 <Route path="devices" element={<DeviceMap />} />
                 <Route path="devices/:id" element={<DeviceDetail />} />
                 <Route path="wg-tunnels" element={<UserWgTunnels />} />
+                {/* any-auth so support can reach them (backend gates via
+                    outages.view / network_health.view — support has both,
+                    migration 377) */}
+                <Route path="outages" element={<OutageList />} />
+                <Route path="network-health" element={<NetworkHealthList />} />
               </Route>
             </Route>
 
             {/* Technician+ — technician, billing, or admin */}
             <Route element={<PrivateRoute requiredRole="technician" />}>
               <Route element={<Layout />}>
+                <Route path="network" element={<HubPage section="network" />} />
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="warehouses" element={<WarehouseList />} />
                 <Route path="vendors" element={<VendorList />} />
@@ -267,10 +274,8 @@ export function App() {
                 <Route path="ip-assignments" element={<IpAssignmentList />} />
                 <Route path="vlans" element={<VlanList />} />
                 <Route path="service-areas" element={<ServiceAreaList />} />
-                <Route path="outages" element={<OutageList />} />
                 <Route path="speed-tests" element={<SpeedTestList />} />
                 <Route path="connection-logs" element={<ConnectionLogList />} />
-                <Route path="network-health" element={<NetworkHealthList />} />
                 <Route path="snmp-profiles" element={<SnmpProfileList />} />
                 <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
                 <Route path="config-templates" element={<ConfigTemplateList />} />
@@ -314,6 +319,7 @@ export function App() {
             {/* Billing+ — billing or admin */}
             <Route element={<PrivateRoute requiredRole="billing" />}>
               <Route element={<Layout />}>
+                <Route path="billing" element={<HubPage section="billing" />} />
                 <Route path="cfdi" element={<CfdiList />} />
                 <Route path="plans" element={<PlanList />} />
                 <Route path="quotes" element={<QuoteList />} />
@@ -355,6 +361,7 @@ export function App() {
             {/* Admin-only */}
             <Route element={<PrivateRoute requiredRole="admin" />}>
               <Route element={<Layout />}>
+                <Route path="admin" element={<HubPage section="admin" />} />
                 <Route path="users" element={<UserList />} />
                 <Route path="organizations" element={<OrganizationList />} />
                 <Route path="dsar" element={<DsarTool />} />

@@ -80,6 +80,7 @@ describe('Layout — grouped sidebar navigation', () => {
     vi.clearAllMocks();
     mockApiGet.mockResolvedValue({ data: undefined, error: undefined });
     sessionStorage.clear();
+    localStorage.clear(); // accordion expanded-state persists here between renders
     // jsdom does not implement matchMedia, which DarkModeProvider relies on.
     if (!window.matchMedia) {
       window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -95,43 +96,60 @@ describe('Layout — grouped sidebar navigation', () => {
     }
   });
 
-  it('renders all section headings for an admin', () => {
+  it('renders every section header for an admin, with Clients open by default', () => {
     mockUseAuth(makeUser('admin'));
     renderLayout();
 
-    for (const heading of ['Clients', 'Billing', 'Network', 'Compliance', 'Administration']) {
+    // Section headers are always visible; collapsed sections hide their rows.
+    for (const heading of ['Dashboard', 'Billing', 'Support', 'Field Work', 'Network', 'Inventory', 'Compliance', 'Administration']) {
       expect(screen.getByText(heading)).toBeInTheDocument();
     }
+    // 'Clients' appears twice: the (default-open) section header and its first row.
+    expect(screen.getAllByText('Clients').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Leads')).toBeInTheDocument();
+    // Rows of collapsed sections are not rendered.
+    expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
   });
 
-  it('hides restricted sections for a low-privilege (support) user', () => {
+  it('gives support only its sections, with the support kit open', () => {
     mockUseAuth(makeUser('support'));
     renderLayout();
 
-    // Sections with at least one role-free item remain visible (e.g. Network
-    // keeps the role-free Devices link, Billing keeps Invoices/Payments).
     expect(screen.getByText('Clients')).toBeInTheDocument();
+    expect(screen.getByText('Support')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
-    // Sections whose every item requires a higher role are hidden entirely.
+    // Support's primary section opens by default.
+    expect(screen.getByText('Tickets')).toBeInTheDocument();
+    // Billing (all rows billing-only), Compliance, Field Work and Admin are gone —
+    // support lacks the permissions/route guards for every row in them.
+    expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Compliance')).not.toBeInTheDocument();
+    expect(screen.queryByText('Field Work')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
   });
 
-  it('shows a curated field/NOC nav for a technician', () => {
+  it('gives technicians their field kit from the shared registry (no hardcoded fork)', async () => {
     mockUseAuth(makeUser('technician'));
     renderLayout();
 
-    // Technicians get a dedicated menu of pages their role can actually load,
-    // grouped into Field Work / Network / Inventory.
     expect(screen.getByText('Field Work')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
     expect(screen.getByText('Inventory')).toBeInTheDocument();
-    expect(screen.getByText('🔧 Work Orders')).toBeInTheDocument();
-    expect(screen.getByText('🖧 NAS Devices')).toBeInTheDocument();
-    // Pages that 403 for a technician, and the billing/admin sections, are gone.
-    expect(screen.queryByText('🔌 VLANs')).not.toBeInTheDocument();
+    // Field Work opens by default for technicians.
+    expect(screen.getByText('Work Orders')).toBeInTheDocument();
+    // Pages the technician role 403s on (audit: tickets/leads/surveys) and the
+    // billing/admin sections are gone.
+    expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
+    expect(screen.queryByText('Leads')).not.toBeInTheDocument();
     expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+    // Expanding Network reveals the shortlist and the View-all row to the hub.
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.click(screen.getByText('Network'));
+    expect(screen.getByText('NAS Devices')).toBeInTheDocument();
+    expect(screen.getByText(/View all \d+/)).toBeInTheDocument();
+    // The long tail is hub-only, not rail rows.
+    expect(screen.queryByText('VLANs')).not.toBeInTheDocument();
   });
 
   it('shows an org switcher listing all organizations for an admin', async () => {
