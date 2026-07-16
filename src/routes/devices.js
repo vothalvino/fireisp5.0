@@ -92,11 +92,21 @@ router.post('/:id/restore', requirePermission('devices.update'), async (req, res
 });
 
 // Device SNMP metrics
+// Optional ?device_level=1 filters to interface_id IS NULL (device-level
+// scalar rows only — cpu_usage/memory_usage/signal_strength/uptime_ticks).
+// Default (no param) is unchanged — every row, device-level AND per-interface
+// — since other consumers (the DeviceDetail "all readings" dump) need both.
 router.get('/:id/snmp-metrics', requirePermission('devices.view'), async (req, res, next) => {
   try {
+    // Verify the device belongs to the org before returning its metric
+    // history — this was a raw device_id lookup with no org check, so any
+    // devices.view holder in any org could pull ANY org's SNMP history.
+    await Device.findByIdOrFail(req.params.id, req.orgId);
     const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
+    const conditions = ['device_id = ?'];
+    if (req.query.device_level === '1') conditions.push('interface_id IS NULL');
     const [rows] = await db.query(
-      `SELECT * FROM snmp_metrics WHERE device_id = ? ORDER BY polled_at DESC LIMIT ${limit}`,
+      `SELECT * FROM snmp_metrics WHERE ${conditions.join(' AND ')} ORDER BY polled_at DESC LIMIT ${limit}`,
       [req.params.id],
     );
     res.json({ data: rows });

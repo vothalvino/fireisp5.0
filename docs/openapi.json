@@ -26861,6 +26861,32 @@
         }
       }
     },
+    "/snmp-metrics/fleet": {
+      "get": {
+        "tags": [
+          "SNMP Metrics"
+        ],
+        "summary": "Fleet-wide at-a-glance SNMP health for every SNMP-enabled device",
+        "operationId": "getSnmpFleetGlance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnmpFleetGlanceResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/snmp-metrics/top-talkers": {
       "get": {
         "tags": [

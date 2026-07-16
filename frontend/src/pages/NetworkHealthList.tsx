@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, fmtDate } from './crudStyles';
@@ -130,7 +131,11 @@ export function NetworkHealthList() {
                     <tr key={s.id} style={styles.tr}>
                       <td style={styles.td}>#{s.id}</td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{s.snapshot_date ? fmtDate(s.snapshot_date) : '—'}</td>
-                      <td style={styles.td}>{s.device_id != null ? `#${s.device_id}` : '—'}</td>
+                      <td style={styles.td}>
+                        {s.device_id != null
+                          ? <Link to={`/devices/${s.device_id}`}>{`#${s.device_id}`}</Link>
+                          : '—'}
+                      </td>
                       <td style={styles.td}>{s.network_link_id != null ? `#${s.network_link_id}` : '—'}</td>
                       <td style={styles.td}><UptimeBadge value={s.uptime_pct} /></td>
                       <td style={styles.td}>{fmtNum(s.avg_latency_ms, ' ms')}</td>
