@@ -678,6 +678,24 @@ describe('supportGeneralModule', () => {
     const result = await generalModule.handle('general', mockCtx, 'quiero hacer una queja sobre el tecnico', 1);
     expect(result.actionType).toBe('technician_complaint');
   });
+
+  test('ticket-creating handlers never INSERT without an identified customer (tickets.client_id is NOT NULL)', async () => {
+    const noCustomerCtx = { ...mockCtx, customer: null };
+    const cases = [
+      ['el equipo esta roto se cayo al suelo', 'damage_report'],
+      ['un arbol obstruye la señal de mi antena', 'obstruction_report'],
+      ['quiero hacer una queja sobre el tecnico', 'technician_complaint'],
+    ];
+    for (const [msg, actionType] of cases) {
+      const result = await generalModule.handle('general', noCustomerCtx, msg, 1);
+      expect(result.actionType).toBe(actionType);
+      expect(result.actionData.ticketCreated).toBe(false);
+      expect(result.response).toMatch(/identificar tu cuenta/);
+    }
+    // The doomed INSERT must never have been attempted
+    const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO tickets/.test(sql));
+    expect(insert).toBeUndefined();
+  });
 });
 
 // ============================================================================

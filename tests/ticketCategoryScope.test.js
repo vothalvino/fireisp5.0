@@ -191,6 +191,38 @@ describe('GET /api/tickets/:id — billing tickets are 404 without the permissio
 });
 
 // ---------------------------------------------------------------------------
+// Editing: category + internal notes are PATCHable (notes used to be silently
+// dropped — column existed but the schema never declared it)
+// ---------------------------------------------------------------------------
+describe('PATCH /api/tickets/:id — editing', () => {
+  test('updates category and notes', async () => {
+    mockAuthUser('admin', []);
+    db.query
+      .mockResolvedValueOnce([[{ id: 5, organization_id: 1, subject: 'x', status: 'open', category: 'general', notes: null }]]) // findByIdOrFail
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE
+      .mockResolvedValueOnce([[{ id: 5, organization_id: 1, subject: 'x', status: 'open', category: 'installation', notes: 'ladder required' }]]); // fresh
+    const res = await request(app)
+      .patch('/api/tickets/5')
+      .set('Authorization', `Bearer ${tokenFor('admin')}`)
+      .send({ category: 'installation', notes: 'ladder required' });
+    expect(res.status).toBe(200);
+    const update = db.query.mock.calls.find(([sql]) => /^UPDATE `tickets` SET/.test(sql));
+    expect(update[0]).toMatch(/`category` = \?/);
+    expect(update[0]).toMatch(/`notes` = \?/);
+    expect(update[1]).toContain('ladder required');
+  });
+
+  test('rejects a category outside the taxonomy on edit', async () => {
+    mockAuthUser('admin', []);
+    const res = await request(app)
+      .patch('/api/tickets/5')
+      .set('Authorization', `Bearer ${tokenFor('admin')}`)
+      .send({ category: 'hardware' });
+    expect(res.status).toBe(422);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Sideways surfaces — the exclusion must hold beyond the tickets router
 // ---------------------------------------------------------------------------
 describe('billing-category exclusion on sideways surfaces', () => {

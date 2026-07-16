@@ -32,6 +32,7 @@ interface Ticket {
   priority: string;
   category: string | null;
   status: string;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -164,6 +165,9 @@ function fmt(dateStr: string | null | undefined): string {
 }
 
 const STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'];
+const PRIORITIES = ['low', 'medium', 'high', 'critical'];
+// Mirrors the tickets.category ENUM (migration 394)
+const CATEGORIES = ['technical', 'billing', 'installation', 'general'];
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string }> = {
@@ -296,6 +300,116 @@ function TicketActions({ ticket, users, onPatched }: ActionsProps) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Edit ticket modal — subject / description / category / priority / notes
+// (status + assignment live in the Actions panel)
+// ---------------------------------------------------------------------------
+
+interface EditTicketModalProps {
+  ticket: Ticket;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+export function EditTicketModal({ ticket, onClose, onSaved }: EditTicketModalProps) {
+  const [form, setForm] = useState({
+    subject: ticket.subject,
+    description: ticket.description ?? '',
+    category: ticket.category ?? 'general',
+    priority: ticket.priority,
+    notes: ticket.notes ?? '',
+  });
+  const [err, setErr] = useState('');
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      // PATCH only the dirty fields
+      const patch: TicketPatch = {};
+      if (form.subject.trim() !== ticket.subject) patch.subject = form.subject.trim();
+      if (form.description !== (ticket.description ?? '')) patch.description = form.description;
+      if (form.category !== (ticket.category ?? 'general')) patch.category = form.category;
+      if (form.priority !== ticket.priority) patch.priority = form.priority;
+      if (form.notes !== (ticket.notes ?? '')) patch.notes = form.notes;
+      return patchTicket(ticket.id, patch);
+    },
+    onSuccess: () => { setErr(''); onSaved(); onClose(); },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  const isDirty =
+    form.subject.trim() !== ticket.subject ||
+    form.description !== (ticket.description ?? '') ||
+    form.category !== (ticket.category ?? 'general') ||
+    form.priority !== ticket.priority ||
+    form.notes !== (ticket.notes ?? '');
+
+  return (
+    <div style={editOverlay} role="dialog" aria-modal="true" aria-label="Edit Ticket">
+      <div style={editBox}>
+        <h3 style={{ margin: '0 0 1rem' }}>Edit Ticket #{ticket.id}</h3>
+        {err && <div style={errStyle}>{err}</div>}
+
+        <label style={labelStyle}>Subject *</label>
+        <input style={inputStyle} value={form.subject} onChange={set('subject')} />
+
+        <label style={labelStyle}>Description</label>
+        <textarea
+          style={{ ...inputStyle, height: 90, resize: 'vertical' }}
+          value={form.description}
+          onChange={set('description')}
+        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+          <div>
+            <label style={labelStyle}>Category</label>
+            <select style={inputStyle} value={form.category} onChange={set('category')}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Priority</label>
+            <select style={inputStyle} value={form.priority} onChange={set('priority')}>
+              {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <label style={labelStyle}>Internal notes (never shown to the client)</label>
+        <textarea
+          style={{ ...inputStyle, height: 70, resize: 'vertical' }}
+          value={form.notes}
+          onChange={set('notes')}
+          placeholder="Operator notes for this ticket"
+        />
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <button style={btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            style={btnPrimary}
+            disabled={mutation.isPending || !isDirty || !form.subject.trim()}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const editOverlay: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.45)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+};
+const editBox: React.CSSProperties = {
+  background: 'var(--bg-card)', borderRadius: 8, padding: '1.5rem',
+  width: 'min(560px, 92vw)', maxHeight: '90vh', overflowY: 'auto',
+  border: '1px solid var(--border)',
+};
 
 // ---------------------------------------------------------------------------
 // Comments thread
@@ -1785,6 +1899,7 @@ function AttachmentsPanel({ ticketId }: { ticketId: number }) {
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const [showEdit, setShowEdit] = useState(false);
 
   const { data: ticket, isLoading, error } = useQuery({
     queryKey: ['ticket', id],
@@ -1874,8 +1989,11 @@ export function TicketDetail() {
         <div>
           {/* Metadata card */}
           <div style={card}>
-            <h3 style={cardTitle}>Details</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ ...cardTitle, margin: 0 }}>Details</h3>
+              <button style={btnSecondary} onClick={() => setShowEdit(true)}>✏️ Edit</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1.5rem', marginTop: '0.75rem' }}>
               <MetaRow label="Status"><StatusBadge status={ticket.status} /></MetaRow>
               <MetaRow label="Priority"><PriorityBadge priority={ticket.priority} /></MetaRow>
               <MetaRow label="Client">
@@ -1906,7 +2024,24 @@ export function TicketDetail() {
                 </p>
               </>
             )}
+
+            {ticket.notes && (
+              <div style={{ marginTop: '1rem', padding: '0.6rem 0.8rem', background: 'var(--warning-soft)', borderRadius: 6, fontSize: '0.82rem' }}>
+                <strong style={{ display: 'block', marginBottom: 4, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Internal notes
+                </strong>
+                <span style={{ whiteSpace: 'pre-wrap' }}>{ticket.notes}</span>
+              </div>
+            )}
           </div>
+
+          {showEdit && (
+            <EditTicketModal
+              ticket={ticket}
+              onClose={() => setShowEdit(false)}
+              onSaved={invalidate}
+            />
+          )}
 
           {/* Comments */}
           <CommentsThread
