@@ -1461,7 +1461,21 @@ async function createWorkOrderFromTicket(payload: {
   }
 }
 
-function WorkOrdersPanel({ ticket, users }: { ticket: Ticket; users: User[] }) {
+// A work order's `assigned_to` may only be a user authorized to work with
+// work orders (work_orders.update — enforced server-side, see
+// routes/workOrders.js's assigneeAuthError). The generic /users list (used
+// elsewhere on this page for ticket assignment / escalation targets) is NOT
+// scoped to that permission, so picking an arbitrary user there and creating
+// a work order with them silently 422s. Use the dedicated endpoint instead.
+interface AssignableUser { id: number; first_name: string; last_name: string }
+
+async function fetchWorkOrderAssignableUsers(): Promise<AssignableUser[]> {
+  const res = await api.GET('/work-orders/assignable-users' as never, {} as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data: unknown }).data as { data: AssignableUser[] }).data) ?? [];
+}
+
+function WorkOrdersPanel({ ticket }: { ticket: Ticket }) {
   const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
@@ -1473,6 +1487,11 @@ function WorkOrdersPanel({ ticket, users }: { ticket: Ticket; users: User[] }) {
   const { data: workOrders = [], refetch } = useQuery({
     queryKey: ['ticket-work-orders', ticket.id],
     queryFn: () => fetchWorkOrdersByTicket(ticket.id),
+  });
+
+  const { data: assignableUsers = [] } = useQuery({
+    queryKey: ['work-order-assignable-users'],
+    queryFn: fetchWorkOrderAssignableUsers,
   });
 
   const addMut = useMutation({
@@ -1516,7 +1535,7 @@ function WorkOrdersPanel({ ticket, users }: { ticket: Ticket; users: User[] }) {
           <label style={labelStyle}>{t('ticketDetail.workOrdersAssignee', 'Assign To')}</label>
           <select style={inputStyle} value={assignedTo} onChange={e => setAssignedTo(e.target.value)}>
             <option value="">{t('common.unassigned', '— unassigned —')}</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
+            {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button style={btnPrimary} disabled={!title.trim() || addMut.isPending} onClick={() => addMut.mutate()}>
@@ -2063,7 +2082,7 @@ export function TicketDetail() {
           <RelationsPanel ticketId={ticket.id} />
 
           {/* Work Orders (A) */}
-          <WorkOrdersPanel ticket={ticket} users={users} />
+          <WorkOrdersPanel ticket={ticket} />
 
           {/* Escalations (D) */}
           <EscalationsPanel ticket={ticket} users={users} />

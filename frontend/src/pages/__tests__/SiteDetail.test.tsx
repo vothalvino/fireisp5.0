@@ -2,7 +2,7 @@
 // FireISP 5.0 — SiteDetail page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { SiteDetail } from '../SiteDetail';
@@ -12,6 +12,7 @@ import { SiteDetail } from '../SiteDetail';
 // ---------------------------------------------------------------------------
 
 const mockApiGet = vi.fn();
+const mockAuthedFetch = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
@@ -26,6 +27,7 @@ vi.mock('@/api/client', () => ({
     setRefresh: vi.fn(),
     clear: vi.fn(),
   },
+  authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -50,6 +52,12 @@ const site = {
   status: 'active',
   notes: 'Primary data center',
 };
+
+// Distinct from any generic /users fixture — proves the assignee select is
+// populated from GET /work-orders/assignable-users, not the generic list.
+const assignableUsers = [
+  { id: 42, first_name: 'Ana', last_name: 'Technician' },
+];
 
 // ---------------------------------------------------------------------------
 // Render helper
@@ -82,7 +90,14 @@ describe('SiteDetail page', () => {
           error: undefined,
         });
       }
+      if (path === '/work-orders/assignable-users') {
+        return Promise.resolve({ data: { data: assignableUsers }, error: undefined });
+      }
       return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 501 } }),
     });
   });
 
@@ -148,5 +163,76 @@ describe('SiteDetail page', () => {
     mockApiGet.mockImplementation(() => new Promise(() => {}));
     renderDetail();
     expect(screen.getByText('Loading site…')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Create Work Order (inline form on the Work Orders tab)
+// ---------------------------------------------------------------------------
+
+describe('SiteDetail — create work order', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/sites/{id}') {
+        return Promise.resolve({ data: { data: site }, error: undefined });
+      }
+      if (path === '/work-orders/assignable-users') {
+        return Promise.resolve({ data: { data: assignableUsers }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 501 } }),
+    });
+  });
+
+  async function openCreateForm() {
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Main POP' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Work Orders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New Work Order' }));
+  }
+
+  it('populates the assignee select from /work-orders/assignable-users, not a generic /users list', async () => {
+    await openCreateForm();
+    await waitFor(() => expect(screen.getByText('Ana Technician')).toBeInTheDocument());
+    expect(mockApiGet).toHaveBeenCalledWith('/work-orders/assignable-users', expect.anything());
+  });
+
+  it('POSTs the create body with site_id pinned to this site, and never asks for a target picker', async () => {
+    await openCreateForm();
+
+    fireEvent.change(screen.getByPlaceholderText('Describe the work needed'), { target: { value: 'Replace antenna' } });
+    await waitFor(() => expect(screen.getByText('Ana Technician')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalled());
+    const [url, opts] = mockAuthedFetch.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toBe('/api/v1/work-orders');
+    expect(opts.method).toBe('POST');
+    const body = JSON.parse(opts.body);
+    expect(body.site_id).toBe(7);
+    expect(body.title).toBe('Replace antenna');
+    // Site-scoped creation fixes the target — no client/site/device picker.
+    expect(screen.queryByText('Target')).not.toBeInTheDocument();
+  });
+
+  it('collapses the form and refetches the site work-order list on success', async () => {
+    await openCreateForm();
+    fireEvent.change(screen.getByPlaceholderText('Describe the work needed'), { target: { value: 'Replace antenna' } });
+    const callsBeforeSubmit = mockApiGet.mock.calls.filter(([p]) => p === '/work-orders').length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalled());
+    // Form collapses back to the "New Work Order" toggle button.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New Work Order' })).toBeInTheDocument());
+    // The site-scoped work-orders list query was invalidated and refetched.
+    await waitFor(() => {
+      const callsAfter = mockApiGet.mock.calls.filter(([p]) => p === '/work-orders').length;
+      expect(callsAfter).toBeGreaterThan(callsBeforeSubmit);
+    });
   });
 });

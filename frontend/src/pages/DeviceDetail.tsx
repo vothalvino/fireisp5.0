@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
 import { ClientPicker } from '@/components/ClientPicker';
 import { extractApiError } from '@/components/ClientFormModal';
 
@@ -31,7 +31,11 @@ interface DeviceRecord {
   mac_address: string | null;
   ip_address: string | null;
   ipv6_address: string | null;
-  firmware_version: string | null;
+  // NB: the real column is `firmware` (schema.sql line 784) — there is no
+  // `firmware_version` column on `devices`. GET /devices/{id} is an
+  // unaliased `SELECT *`, so a mismatched interface field silently renders
+  // nothing (InfoRow returns null for a falsy value) rather than erroring.
+  firmware: string | null;
   snmp_enabled: boolean | number | null;
   snmp_version: string | null;
   status: string;
@@ -127,6 +131,173 @@ function InfoRow({ label, value, mono, capitalize }: { label: string; value: str
       <span style={{ ...styles.infoValue, ...(mono ? { fontFamily: 'monospace' } : {}), ...(capitalize ? { textTransform: 'capitalize' as const } : {}) }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Work order creation (inline, from the device's Work Orders tab)
+// ---------------------------------------------------------------------------
+// A work order's `assigned_to` may only be a user authorized to work with
+// work orders (work_orders.update — enforced server-side in
+// routes/workOrders.js's assigneeAuthError). The generic /users list is NOT
+// scoped to that permission, so the assignee picker here is populated from
+// the dedicated GET /work-orders/assignable-users endpoint, matching
+// WorkOrders.tsx's own create form.
+
+interface WoAssignableUser { id: number; first_name: string; last_name: string }
+
+async function fetchWoAssignableUsers(): Promise<WoAssignableUser[]> {
+  const res = await api.GET('/work-orders/assignable-users' as never, {} as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data: unknown }).data as { data: WoAssignableUser[] }).data) ?? [];
+}
+
+interface CreateWoBody {
+  title: string;
+  description?: string;
+  work_type?: string;
+  priority?: string;
+  scheduled_at?: string;
+  assigned_to?: number;
+  site_id?: number;
+  device_id?: number;
+  client_id?: number;
+}
+
+async function woErrorMessage(resp: Response, fallback: string): Promise<string> {
+  try {
+    const j = await resp.json() as { error?: string };
+    if (j && typeof j.error === 'string') return j.error;
+  } catch { /* non-JSON / empty body */ }
+  return fallback;
+}
+
+async function createWo(body: CreateWoBody): Promise<void> {
+  const resp = await authedFetch('/api/v1/work-orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(await woErrorMessage(resp, 'Failed to create work order'));
+}
+
+// 'YYYY-MM-DDTHH:mm' (datetime-local input) → 'YYYY-MM-DD HH:mm:00' for the API.
+function woToSqlDateTime(v: string): string {
+  return v.replace('T', ' ') + (v.length === 16 ? ':00' : '');
+}
+
+const WO_WORK_TYPES = ['installation', 'maintenance', 'repair', 'survey', 'other'];
+const WO_PRIORITIES = ['low', 'medium', 'high', 'critical'];
+
+// `clientId` is the device's own client_id (if any) — carried onto the work
+// order automatically so a technician dispatched to service this device also
+// sees the right subscriber context on the resulting work order.
+function DeviceWorkOrderCreateForm({ deviceId, clientId, onCreated }: { deviceId: number; clientId: number | null; onCreated: () => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [workType, setWorkType] = useState('other');
+  const [priority, setPriority] = useState('medium');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [formErr, setFormErr] = useState('');
+
+  const { data: assignableUsers = [] } = useQuery({
+    queryKey: ['work-order-assignable-users'],
+    queryFn: fetchWoAssignableUsers,
+    enabled: open,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => createWo({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      work_type: workType,
+      priority,
+      scheduled_at: scheduledAt ? woToSqlDateTime(scheduledAt) : undefined,
+      assigned_to: assignedTo ? Number(assignedTo) : undefined,
+      device_id: deviceId,
+      ...(clientId != null ? { client_id: clientId } : {}),
+    }),
+    onSuccess: () => {
+      setOpen(false);
+      setTitle(''); setDescription(''); setWorkType('other'); setPriority('medium');
+      setScheduledAt(''); setAssignedTo(''); setFormErr('');
+      onCreated();
+    },
+    onError: (e: unknown) => setFormErr(e instanceof Error ? e.message : t('deviceDetail.workOrders.createForm.saveFailed')),
+  });
+
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      <button type="button" style={open ? styles.woBtnSecondary : styles.woBtnPrimary} onClick={() => setOpen(v => !v)}>
+        {open ? t('common.cancel') : t('workOrders.new')}
+      </button>
+      {open && (
+        <div style={styles.woFormPanel}>
+          <label style={styles.woFormLabel}>
+            {t('deviceDetail.workOrders.createForm.title')} *
+            <input
+              style={styles.woFormInput}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder={t('deviceDetail.workOrders.createForm.titlePlaceholder')}
+            />
+          </label>
+          <label style={styles.woFormLabel}>
+            {t('deviceDetail.workOrders.createForm.description')}
+            <textarea
+              style={{ ...styles.woFormInput, height: 70 }}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+            />
+          </label>
+          <label style={styles.woFormLabel}>
+            {t('workOrders.type')}
+            <select style={styles.woFormInput} value={workType} onChange={e => setWorkType(e.target.value)}>
+              {WO_WORK_TYPES.map(w => <option key={w} value={w}>{t(`workOrders.workType.${w}`, w)}</option>)}
+            </select>
+          </label>
+          <label style={styles.woFormLabel}>
+            {t('deviceDetail.workOrders.createForm.priority')}
+            <select style={styles.woFormInput} value={priority} onChange={e => setPriority(e.target.value)}>
+              {WO_PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+            </select>
+          </label>
+          <label style={styles.woFormLabel}>
+            {t('deviceDetail.workOrders.createForm.scheduledAt')}
+            <input
+              type="datetime-local"
+              style={styles.woFormInput}
+              value={scheduledAt}
+              onChange={e => setScheduledAt(e.target.value)}
+            />
+          </label>
+          <label style={styles.woFormLabel}>
+            {t('deviceDetail.workOrders.createForm.assignedTo')}
+            <select style={styles.woFormInput} value={assignedTo} onChange={e => setAssignedTo(e.target.value)}>
+              <option value="">{t('common.unassigned')}</option>
+              {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
+            </select>
+          </label>
+          {formErr && <p style={styles.woFormError}>{formErr}</p>}
+          <div style={styles.woFormActions}>
+            <button
+              type="button"
+              style={styles.woBtnPrimary}
+              disabled={!title.trim() || createMut.isPending}
+              onClick={() => { setFormErr(''); createMut.mutate(); }}
+            >
+              {createMut.isPending ? t('common.saving') : t('deviceDetail.workOrders.createForm.submit')}
+            </button>
+            <button type="button" style={styles.woBtnSecondary} onClick={() => setOpen(false)}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -321,6 +492,19 @@ export function DeviceDetail() {
     enabled: device?.client_id != null,
   });
 
+  // Same resolution for device.site_id, so the info card and Overview tab can
+  // link to the site by name instead of a bare id.
+  const { data: linkedSite } = useQuery({
+    queryKey: ['device-linked-site', device?.site_id],
+    queryFn: async () => {
+      const res = await api.GET('/sites/{id}' as never, { params: { path: { id: device!.site_id! } } } as never);
+      if ((res as { error?: unknown }).error) return null;
+      const d = (res as { data: unknown }).data;
+      return (((d as { data?: { id: number; name: string } }).data) ?? d ?? null) as { id: number; name: string } | null;
+    },
+    enabled: device?.site_id != null,
+  });
+
   const [editingClient, setEditingClient] = useState(false);
   const [pickerValue, setPickerValue] = useState<number | ''>('');
   const [pickerName, setPickerName] = useState('');
@@ -431,9 +615,18 @@ export function DeviceDetail() {
           <InfoRow label={t('deviceDetail.fields.macAddress')}      value={device.mac_address}       mono />
           <InfoRow label={t('deviceDetail.fields.ipAddress')}       value={device.ip_address}        mono />
           <InfoRow label={t('deviceDetail.fields.ipv6Address')}     value={device.ipv6_address}      mono />
-          <InfoRow label={t('deviceDetail.fields.firmwareVersion')} value={device.firmware_version}  mono />
+          <InfoRow label={t('deviceDetail.fields.firmwareVersion')} value={device.firmware}          mono />
           <InfoRow label={t('deviceDetail.fields.snmpVersion')}     value={device.snmp_version}      />
-          <InfoRow label={t('deviceDetail.fields.siteId')}          value={device.site_id != null ? String(device.site_id) : null} />
+          {device.site_id != null && (
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>{t('deviceDetail.fields.siteId')}</span>
+              <span style={styles.infoValue}>
+                <Link to={`/sites/${device.site_id}`} style={{ color: 'var(--accent)' }}>
+                  {linkedSite?.name ?? `#${device.site_id}`}
+                </Link>
+              </span>
+            </div>
+          )}
           <div style={styles.infoRow}>
             <span style={styles.infoLabel}>{t('deviceDetail.fields.clientId')}</span>
             {!editingClient ? (
@@ -485,7 +678,16 @@ export function DeviceDetail() {
               </div>
             )}
           </div>
-          <InfoRow label={t('deviceDetail.fields.contractId')}      value={device.contract_id != null ? String(device.contract_id) : null} />
+          {device.contract_id != null && (
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>{t('deviceDetail.fields.contractId')}</span>
+              <span style={styles.infoValue}>
+                <Link to={`/contracts/${device.contract_id}`} style={{ color: 'var(--accent)' }}>
+                  #{device.contract_id}
+                </Link>
+              </span>
+            </div>
+          )}
           <InfoRow label={t('deviceDetail.fields.snmpEnabled')}     value={device.snmp_enabled ? 'Yes' : device.snmp_enabled === false ? 'No' : null} />
           <InfoRow label={t('deviceDetail.fields.lastPolledAt')}    value={fmt(device.last_polled_at)} />
           {device.last_poll_error && <InfoRow label={t('deviceDetail.fields.lastPollError')} value={device.last_poll_error} />}
@@ -513,7 +715,72 @@ export function DeviceDetail() {
       {/* Tab content */}
       <div style={styles.tabContent}>
         {activeTab === 'overview' && (
-          <p style={styles.msg}>{t('deviceDetail.overview.hint')}</p>
+          <div style={styles.overviewPanel}>
+            <div style={styles.infoGrid}>
+              <div style={styles.infoRow}>
+                <span style={styles.infoLabel}>{t('deviceDetail.overview.status')}</span>
+                <span style={styles.infoValue}><StatusBadge status={device.status} /></span>
+              </div>
+              <InfoRow label={t('deviceDetail.fields.type')} value={device.type} capitalize />
+              <InfoRow
+                label={t('deviceDetail.overview.vendorModel')}
+                value={[device.manufacturer, device.model].filter(Boolean).join(' ') || null}
+              />
+              <InfoRow
+                label={t('deviceDetail.overview.mgmtAddress')}
+                value={[device.ip_address, device.ipv6_address].filter(Boolean).join(' · ') || null}
+                mono
+              />
+              <div style={styles.infoRow}>
+                <span style={styles.infoLabel}>{t('deviceDetail.overview.site')}</span>
+                <span style={styles.infoValue}>
+                  {device.site_id != null ? (
+                    <Link to={`/sites/${device.site_id}`} style={{ color: 'var(--accent)' }}>
+                      {linkedSite?.name ?? `#${device.site_id}`}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--text-dimmed)', fontStyle: 'italic' }}>
+                      {t('deviceDetail.overview.noSite')}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div style={styles.infoRow}>
+                <span style={styles.infoLabel}>{t('deviceDetail.overview.client')}</span>
+                <span style={styles.infoValue}>
+                  {device.client_id != null ? (
+                    <Link to={`/clients/${device.client_id}`} style={{ color: 'var(--accent)' }}>
+                      {linkedClient?.name ?? `#${device.client_id}`}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--text-dimmed)', fontStyle: 'italic' }}>
+                      {t('deviceDetail.clientAssign.unassigned')}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div style={styles.infoRow}>
+                <span style={styles.infoLabel}>{t('deviceDetail.overview.contract')}</span>
+                <span style={styles.infoValue}>
+                  {device.contract_id != null ? (
+                    <Link to={`/contracts/${device.contract_id}`} style={{ color: 'var(--accent)' }}>
+                      #{device.contract_id}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--text-dimmed)', fontStyle: 'italic' }}>
+                      {t('deviceDetail.overview.noContract')}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <InfoRow label={t('deviceDetail.fields.lastPolledAt')} value={fmt(device.last_polled_at)} />
+            </div>
+            {device.last_poll_error && (
+              <div style={styles.overviewError}>
+                <strong>{t('deviceDetail.fields.lastPollError')}:</strong> {device.last_poll_error}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'snmp' && (
@@ -574,32 +841,41 @@ export function DeviceDetail() {
         )}
 
         {activeTab === 'workOrders' && (
-          <div style={{ overflowX: 'auto' }}>
-            {!workOrders?.length ? (
-              <p style={styles.msg}>{t('deviceDetail.workOrders.empty')}</p>
-            ) : (
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {[t('deviceDetail.workOrders.id'), t('deviceDetail.workOrders.title'), t('deviceDetail.workOrders.workType'), t('deviceDetail.workOrders.status'), t('deviceDetail.workOrders.scheduledAt')].map(h => (
-                      <th key={h} style={styles.th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(workOrders ?? []).map(wo => (
-                    <tr key={wo.id} style={styles.tr}>
-                      <td style={styles.td}>#{wo.id}</td>
-                      <td style={styles.td}>{wo.title}</td>
-                      <td style={styles.td}>{wo.work_type ?? '—'}</td>
-                      <td style={styles.td}><StatusBadge status={wo.status} /></td>
-                      <td style={styles.td}>{fmt(wo.scheduled_at)}</td>
+          <>
+            <div style={{ padding: '1rem 1rem 0' }}>
+              <DeviceWorkOrderCreateForm
+                deviceId={device.id}
+                clientId={device.client_id}
+                onCreated={() => qc.invalidateQueries({ queryKey: ['device-work-orders', id] })}
+              />
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              {!workOrders?.length ? (
+                <p style={styles.msg}>{t('deviceDetail.workOrders.empty')}</p>
+              ) : (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      {[t('deviceDetail.workOrders.id'), t('deviceDetail.workOrders.title'), t('deviceDetail.workOrders.workType'), t('deviceDetail.workOrders.status'), t('deviceDetail.workOrders.scheduledAt')].map(h => (
+                        <th key={h} style={styles.th}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+                  </thead>
+                  <tbody>
+                    {(workOrders ?? []).map(wo => (
+                      <tr key={wo.id} style={styles.tr}>
+                        <td style={styles.td}>#{wo.id}</td>
+                        <td style={styles.td}>{wo.title}</td>
+                        <td style={styles.td}>{wo.work_type ?? '—'}</td>
+                        <td style={styles.td}><StatusBadge status={wo.status} /></td>
+                        <td style={styles.td}>{fmt(wo.scheduled_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
         )}
 
         {activeTab === 'outages' && (
@@ -696,4 +972,13 @@ const styles = {
   rfThresholdsHint: { fontSize: '0.75rem', color: 'var(--text-dimmed)', margin: '0 0 0.25rem' },
   rfThresholdsSaved: { fontSize: '0.8rem', color: '#16a34a', margin: '0.25rem 0' },
   rfThresholdsSaveBtn: { marginTop: '0.75rem', alignSelf: 'flex-start' as const, padding: '0.5rem 1.2rem', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' },
+  overviewPanel: { padding: '1.25rem' },
+  overviewError: { marginTop: '1rem', padding: '0.6rem 0.8rem', background: 'var(--warning-soft, #fef3c7)', color: '#92400e', borderRadius: 6, fontSize: '0.82rem' },
+  woFormPanel: { background: 'var(--bg-secondary, #f8fafc)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.85rem 1rem', marginTop: '0.6rem', display: 'flex' as const, flexDirection: 'column' as const, gap: '0.55rem', maxWidth: 420 },
+  woFormLabel: { display: 'flex' as const, flexDirection: 'column' as const, gap: '0.3rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' },
+  woFormInput: { padding: '0.5rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.85rem', fontFamily: 'var(--font-sans)' },
+  woFormActions: { display: 'flex' as const, gap: 8, marginTop: '0.25rem' },
+  woFormError: { color: '#ef4444', fontSize: '0.8rem', margin: 0 },
+  woBtnPrimary: { padding: '0.45rem 1.1rem', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' },
+  woBtnSecondary: { padding: '0.45rem 1.1rem', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' },
 };

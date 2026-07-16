@@ -3683,7 +3683,15 @@
     "loading": "Carregando dispositivo…",
     "notFound": "Dispositivo não encontrado.",
     "overview": {
-      "hint": "Selecione uma aba para ver dados do dispositivo."
+      "hint": "Selecione uma aba para ver dados do dispositivo.",
+      "status": "Status",
+      "vendorModel": "Fabricante / Modelo",
+      "mgmtAddress": "Endereço de Gestão",
+      "site": "Site",
+      "noSite": "Nenhum site vinculado",
+      "client": "Cliente",
+      "contract": "Contrato",
+      "noContract": "Nenhum contrato vinculado"
     },
     "fields": {
       "category": "Categoria",
@@ -3746,7 +3754,17 @@
       "title": "Título",
       "workType": "Tipo",
       "status": "Status",
-      "scheduledAt": "Agendado"
+      "scheduledAt": "Agendado",
+      "createForm": {
+        "title": "Título",
+        "titlePlaceholder": "Descreva o trabalho necessário",
+        "description": "Descrição",
+        "priority": "Prioridade",
+        "scheduledAt": "Agendado Para",
+        "assignedTo": "Atribuído A",
+        "submit": "Criar",
+        "saveFailed": "Falha ao criar a ordem de serviço."
+      }
     },
     "outages": {
       "empty": "Nenhuma interrupção encontrada.",
@@ -3803,7 +3821,17 @@
       "id": "ID",
       "title": "Título",
       "workType": "Tipo",
-      "status": "Status"
+      "status": "Status",
+      "createForm": {
+        "title": "Título",
+        "titlePlaceholder": "Descreva o trabalho necessário",
+        "description": "Descrição",
+        "priority": "Prioridade",
+        "scheduledAt": "Agendado Para",
+        "assignedTo": "Atribuído A",
+        "submit": "Criar",
+        "saveFailed": "Falha ao criar a ordem de serviço."
+      }
     },
     "outages": {
       "empty": "Nenhuma interrupção para este site.",

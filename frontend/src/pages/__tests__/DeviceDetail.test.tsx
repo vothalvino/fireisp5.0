@@ -2,7 +2,7 @@
 // FireISP 5.0 — DeviceDetail page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -16,6 +16,7 @@ const mockApiGet = vi.fn();
 const mockApiPatch = vi.fn();
 const mockApiPost = vi.fn();
 const mockApiPut = vi.fn();
+const mockAuthedFetch = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
@@ -31,6 +32,7 @@ vi.mock('@/api/client', () => ({
     setRefresh: vi.fn(),
     clear: vi.fn(),
   },
+  authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -55,7 +57,7 @@ const device = {
   mac_address: 'AA:BB:CC:DD:EE:FF',
   ip_address: '10.0.0.1',
   ipv6_address: null,
-  firmware_version: '7.14',
+  firmware: '7.14',
   snmp_enabled: true,
   snmp_version: 'v2c',
   status: 'online',
@@ -63,6 +65,12 @@ const device = {
   last_polled_at: '2026-06-01T10:00:00.000Z',
   last_poll_error: null,
 };
+
+// Distinct from any generic /users fixture — proves the assignee select is
+// populated from GET /work-orders/assignable-users, not the generic list.
+const assignableUsers = [
+  { id: 42, first_name: 'Ana', last_name: 'Technician' },
+];
 
 // ---------------------------------------------------------------------------
 // Render helper
@@ -95,7 +103,14 @@ describe('DeviceDetail page', () => {
           error: undefined,
         });
       }
+      if (path === '/work-orders/assignable-users') {
+        return Promise.resolve({ data: { data: assignableUsers }, error: undefined });
+      }
       return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 501 } }),
     });
   });
 
@@ -108,7 +123,10 @@ describe('DeviceDetail page', () => {
 
   it('shows the device status badge', async () => {
     renderDetail();
-    await waitFor(() => expect(screen.getByText('online')).toBeInTheDocument());
+    // The header badge and the Overview tab (default active tab, real
+    // content since this PR) both legitimately show the status — assert at
+    // least one is present rather than assuming a single match.
+    await waitFor(() => expect(screen.getAllByText('online').length).toBeGreaterThan(0));
   });
 
   it('shows key device fields', async () => {
@@ -118,7 +136,10 @@ describe('DeviceDetail page', () => {
     );
     expect(screen.getByText('MikroTik')).toBeInTheDocument();
     expect(screen.getByText('CCR2004')).toBeInTheDocument();
-    expect(screen.getByText('10.0.0.1')).toBeInTheDocument();
+    // The info card's IP Address row and the Overview tab's management
+    // address row (no ipv6_address set, so it renders the bare IPv4) both
+    // legitimately show this value — assert at least one match.
+    expect(screen.getAllByText('10.0.0.1').length).toBeGreaterThan(0);
     expect(screen.getByText('SN-ABC123')).toBeInTheDocument();
   });
 
@@ -176,7 +197,9 @@ describe('DeviceDetail page', () => {
       await waitFor(() =>
         expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
       );
-      expect(screen.getByText('Unassigned')).toBeInTheDocument();
+      // The info card and the Overview tab (default active tab, real content
+      // since this PR) both legitimately show "Unassigned".
+      expect(screen.getAllByText('Unassigned').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Assign client' })).toBeInTheDocument();
     });
 
@@ -198,14 +221,17 @@ describe('DeviceDetail page', () => {
         expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument(),
       );
 
-      // Client-name lookup still pending — falls back to the raw id
-      expect(screen.getByRole('link', { name: '#7' })).toHaveAttribute('href', '/clients/7');
+      // Client-name lookup still pending — falls back to the raw id, shown
+      // both in the info card and in the Overview tab.
+      screen.getAllByRole('link', { name: '#7' }).forEach(l => expect(l).toHaveAttribute('href', '/clients/7'));
 
       resolveClientLookup({ data: { data: { id: 7, name: 'Acme Corp' } }, error: undefined });
 
-      await waitFor(() =>
-        expect(screen.getByRole('link', { name: 'Acme Corp' })).toHaveAttribute('href', '/clients/7'),
-      );
+      await waitFor(() => {
+        const links = screen.getAllByRole('link', { name: 'Acme Corp' });
+        expect(links.length).toBeGreaterThan(0);
+        links.forEach(l => expect(l).toHaveAttribute('href', '/clients/7'));
+      });
     });
 
     it('clicking Change reveals the ClientPicker seeded with the current client, plus Save/Cancel', async () => {
@@ -221,11 +247,14 @@ describe('DeviceDetail page', () => {
       });
 
       renderDetail();
-      await waitFor(() => expect(screen.getByRole('link', { name: 'Acme Corp' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByRole('link', { name: 'Acme Corp' }).length).toBeGreaterThan(0));
 
       await userEvent.click(screen.getByRole('button', { name: 'Change' }));
 
-      expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+      // "Acme Corp" now also appears as the ClientPicker's own selected-name
+      // chip, alongside the Overview tab's unaffected link — at least one
+      // occurrence confirms the picker seeded correctly.
+      expect(screen.getAllByText('Acme Corp').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     });
@@ -288,7 +317,7 @@ describe('DeviceDetail page', () => {
       });
 
       renderDetail();
-      await waitFor(() => expect(screen.getByRole('link', { name: 'Acme Corp' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByRole('link', { name: 'Acme Corp' }).length).toBeGreaterThan(0));
 
       await userEvent.click(screen.getByRole('button', { name: 'Change' }));
       // ClientPicker's own "Change" button clears the current selection (onChange(0, ''))
@@ -518,5 +547,151 @@ describe('DeviceDetail page', () => {
       );
       expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Create Work Order (inline form on the Work Orders tab)
+// ---------------------------------------------------------------------------
+
+describe('DeviceDetail — create work order', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 501 } }),
+    });
+  });
+
+  async function openCreateForm(deviceFixture: Omit<typeof device, 'client_id'> & { client_id: number | null }) {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: deviceFixture }, error: undefined });
+      if (path === '/work-orders/assignable-users') return Promise.resolve({ data: { data: assignableUsers }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Work Orders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New Work Order' }));
+  }
+
+  it('populates the assignee select from /work-orders/assignable-users, not a generic /users list', async () => {
+    await openCreateForm(device);
+    await waitFor(() => expect(screen.getByText('Ana Technician')).toBeInTheDocument());
+    expect(mockApiGet).toHaveBeenCalledWith('/work-orders/assignable-users', expect.anything());
+  });
+
+  it('POSTs the create body with device_id pinned, and no client_id when the device has none', async () => {
+    await openCreateForm(device); // device.client_id === null
+
+    fireEvent.change(screen.getByPlaceholderText('Describe the work needed'), { target: { value: 'Swap PSU' } });
+    await waitFor(() => expect(screen.getByText('Ana Technician')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalled());
+    const [url, opts] = mockAuthedFetch.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toBe('/api/v1/work-orders');
+    expect(opts.method).toBe('POST');
+    const body = JSON.parse(opts.body);
+    expect(body.device_id).toBe(42);
+    expect(body.title).toBe('Swap PSU');
+    expect(body.client_id).toBeUndefined();
+  });
+
+  it('carries the device\'s client_id onto the work order when the device has a linked client', async () => {
+    const deviceWithClient = { ...device, client_id: 7 };
+    await openCreateForm(deviceWithClient);
+
+    fireEvent.change(screen.getByPlaceholderText('Describe the work needed'), { target: { value: 'Reprovision CPE' } });
+    await waitFor(() => expect(screen.getByText('Ana Technician')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalled());
+    const [, opts] = mockAuthedFetch.mock.calls[0] as [string, { method: string; body: string }];
+    const body = JSON.parse(opts.body);
+    expect(body.device_id).toBe(42);
+    expect(body.client_id).toBe(7);
+  });
+
+  it('collapses the form and refetches the device work-order list on success', async () => {
+    await openCreateForm(device);
+    fireEvent.change(screen.getByPlaceholderText('Describe the work needed'), { target: { value: 'Swap PSU' } });
+    const callsBeforeSubmit = mockApiGet.mock.calls.filter(([p]) => p === '/work-orders').length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New Work Order' })).toBeInTheDocument());
+    await waitFor(() => {
+      const callsAfter = mockApiGet.mock.calls.filter(([p]) => p === '/work-orders').length;
+      expect(callsAfter).toBeGreaterThan(callsBeforeSubmit);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overview tab (real content — status, vendor/model, mgmt address, linked
+// site/client/contract, last polled / poll error)
+// ---------------------------------------------------------------------------
+
+describe('DeviceDetail — Overview tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Overview is the default active tab, so its content and the always-visible
+  // info card both render at once — a device with a linked site/contract gets
+  // TWO links with the same name/href (one per section), hence getAllByRole.
+  it('links the site and contract instead of showing raw ids, and shows the firmware value under the real `firmware` column', async () => {
+    const deviceWithLinks = { ...device, site_id: 3, contract_id: 9, client_id: null };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: deviceWithLinks }, error: undefined });
+      if (path === '/sites/{id}') return Promise.resolve({ data: { data: { id: 3, name: 'Main POP' } }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument());
+
+    // site_id and contract_id are links, not raw numbers (info card + Overview tab)
+    await waitFor(() => {
+      const siteLinks = screen.getAllByRole('link', { name: 'Main POP' });
+      expect(siteLinks.length).toBeGreaterThan(0);
+      siteLinks.forEach(l => expect(l).toHaveAttribute('href', '/sites/3'));
+    });
+    const contractLinks = screen.getAllByRole('link', { name: '#9' });
+    expect(contractLinks.length).toBeGreaterThan(0);
+    contractLinks.forEach(l => expect(l).toHaveAttribute('href', '/contracts/9'));
+    // Firmware renders from the real `firmware` column
+    expect(screen.getByText('7.14')).toBeInTheDocument();
+  });
+
+  it('shows "no site linked" / "no contract linked" placeholders when unset', async () => {
+    const bareDevice = { ...device, site_id: null, contract_id: null, client_id: null };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: bareDevice }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument());
+
+    expect(await screen.findByText('No site linked')).toBeInTheDocument();
+    expect(screen.getByText('No contract linked')).toBeInTheDocument();
+  });
+
+  it('shows the last poll error as a callout when present', async () => {
+    const erroringDevice = { ...device, last_poll_error: 'SNMP timeout after 3 retries' };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: erroringDevice }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument());
+
+    // The error also appears in the always-visible info card's InfoRow, so
+    // there may be more than one match — assert at least one is present.
+    await waitFor(() => expect(screen.getAllByText('SNMP timeout after 3 retries').length).toBeGreaterThan(0));
   });
 });
