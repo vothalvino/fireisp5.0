@@ -2266,8 +2266,12 @@ JOIN (
     SELECT '1.3.6.1.2.1.2.2.1.16',         'if_out_octets',               'Outbound Octets',             'counter', TRUE,  NULL,  20 UNION ALL
     SELECT '1.3.6.1.2.1.2.2.1.14',         'if_in_errors',                'Inbound Errors',              'counter', TRUE,  NULL,  30 UNION ALL
     SELECT '1.3.6.1.2.1.2.2.1.20',         'if_out_errors',               'Outbound Errors',             'counter', TRUE,  NULL,  40 UNION ALL
-    SELECT '1.3.6.1.2.1.25.3.3.1.2',       'cpu_usage',                   'CPU Usage (%)',               'gauge',   FALSE, NULL,  50 UNION ALL
-    SELECT '1.3.6.1.2.1.25.2.3.1.6',       'memory_usage',                'Memory Used (storage units)', 'gauge',   FALSE, NULL,  60
+    SELECT '1.3.6.1.2.1.25.3.3.1.2',       'cpu_usage',                   'CPU Usage (%)',               'gauge',   FALSE, NULL,  50
+    -- memory_usage (hrStorageUsed 1.3.6.1.2.1.25.2.3.1.6, migration 031) removed
+    -- by migration 398: a raw storage-allocation-unit count is never a
+    -- percentage on its own and overflowed the SMALLINT memory_usage column,
+    -- aborting the whole poll. Deferred: proper hrStorageUsed/hrStorageSize
+    -- ratio feature (needs a two-OID transform the `transform` column can't express).
 ) o
 WHERE p.name = 'Generic IF-MIB';
 
@@ -2314,7 +2318,8 @@ JOIN (
     SELECT '1.3.6.1.2.1.2.2.1.14',                 'if_in_errors',                'Inbound Errors',                 'counter', TRUE,  NULL, 30 UNION ALL
     SELECT '1.3.6.1.2.1.2.2.1.20',                 'if_out_errors',               'Outbound Errors',                'counter', TRUE,  NULL, 40 UNION ALL
     SELECT '1.3.6.1.2.1.25.3.3.1.2',               'cpu_usage',                   'CPU Usage (HOST-RESOURCES)',     'gauge',   FALSE, NULL, 50 UNION ALL
-    SELECT '1.3.6.1.2.1.25.2.3.1.6',               'memory_usage',                'Memory Used (hrStorageUsed)',    'gauge',   FALSE, NULL, 60 UNION ALL
+    -- memory_usage (hrStorageUsed 1.3.6.1.2.1.25.2.3.1.6, migration 031) removed
+    -- by migration 398 -- see the Generic IF-MIB block above for why.
     SELECT '1.3.6.1.4.1.14988.1.1.1.2.1.3',        'signal_strength',             'RouterOS Wireless Signal (dBm)', 'gauge',   FALSE, NULL, 70
 ) o
 WHERE p.name = 'MikroTik RouterOS';
@@ -2485,7 +2490,12 @@ SELECT
 FROM snmp_profiles p
 WHERE p.name = 'Mimosa Networks';
 
--- Standard MIB-II sysUpTime — device uptime for every profile (migration 372)
+-- Standard MIB-II sysUpTime — device uptime for every profile (migration 372).
+-- Migration 398 re-applies this same idempotent NOT-EXISTS-guarded backfill so
+-- any profile that somehow still lacks a scalar OID gets a reachability
+-- anchor (see snmpPoller.js's "device unreachable: no OIDs responded" guard);
+-- in the standard migration order this INSERT IGNORE below already covers
+-- every profile, so 398's re-seed is a no-op in schema.sql's cumulative view.
 INSERT IGNORE INTO snmp_profile_oids
     (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
 SELECT

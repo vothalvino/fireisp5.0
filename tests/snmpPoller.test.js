@@ -22,9 +22,21 @@ jest.mock('net-snmp', () => ({
   isVarbindError:  jest.fn(),
 }));
 
+jest.mock('../src/utils/logger', () => {
+  const mock = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    child: jest.fn(() => mock),
+  };
+  return mock;
+});
+
 const db = require('../src/config/database');
 const snmp = require('net-snmp');
 const { decrypt } = require('../src/utils/encryption');
+const logger = require('../src/utils/logger');
 const snmpPoller = require('../src/services/snmpPoller');
 
 describe('snmpPoller', () => {
@@ -146,6 +158,277 @@ describe('snmpPoller', () => {
       expect(insertSql).toContain('uptime_ticks');
       // Placeholder count must match the params array length.
       expect((insertSql.match(/\?/g) || []).length).toBe(insertParams.length);
+    });
+  });
+
+  // =========================================================================
+  // pollDevice() — metric sanitation, ingest/reachability decoupling,
+  // and honest reachability (migration 398)
+  // =========================================================================
+  describe('pollDevice() — sanitation & reachability (migration 398)', () => {
+    test('nulls an out-of-range scalar value but still inserts the row with the other valid columns; poll succeeds', async () => {
+      const device = {
+        id: 20, ip_address: '10.0.1.1', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 1,
+      };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', metric_column: 'cpu_usage', label: 'CPU', oid_type: 'gauge', is_per_interface: false, transform: null },
+          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: false, transform: null },
+        ]])
+        .mockResolvedValueOnce([]); // INSERT metric row
+
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [
+          { oid: '1.3.6.1.2.1.25.3.3.1.2', value: 42 },
+          // Raw hrStorageUsed allocation units (migration 031's broken seed,
+          // removed by migration 398) — must never overflow the SMALLINT
+          // memory_usage column and abort the poll.
+          { oid: '1.3.6.1.2.1.25.2.3.1.6', value: 302552 },
+        ]);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeDefined();
+      const [, params] = insertCall;
+      // Param order: deviceId, interfaceId, if_in_octets, if_out_octets,
+      // if_in_errors, if_out_errors, cpu_usage(6), memory_usage(7), ...
+      expect(params[6]).toBe(42);
+      expect(params[7]).toBeNull();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ column: 'memory_usage', value: 302552 }),
+        expect.stringContaining('out of range'),
+      );
+    });
+
+    test('a scalar metric ingest (DB) failure does not abort per-interface polling and does not fail the poll', async () => {
+      const device = {
+        id: 21, ip_address: '10.0.1.2', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 2,
+      };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
+          { id: 2, oid: '1.3.6.1.2.1.2.2.1.10', metric_column: 'if_in_octets', label: 'In Octets', oid_type: 'counter', is_per_interface: true, transform: null },
+        ]])
+        .mockRejectedValueOnce(new Error('DB write failed'))   // scalar INSERT rejects
+        .mockResolvedValueOnce([]);                             // per-interface INSERT succeeds
+
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: 12345 }]);
+      });
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        feedCb([{ oid: '1.3.6.1.2.1.2.2.1.10.1', value: 999 }]);
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      expect(mockSession.subtree).toHaveBeenCalled(); // pollInterfaces still ran
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 21 }),
+        expect.stringContaining('scalar metric ingest failed'),
+      );
+    });
+
+    test('a per-interface-only profile with every subtree walk failing is reported unreachable', async () => {
+      const device = {
+        id: 22, ip_address: '10.0.1.3', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 3,
+      };
+      db.query.mockResolvedValueOnce([[
+        { id: 1, oid: '1.3.6.1.2.1.2.2.1.10', metric_column: 'if_in_octets', label: 'In Octets', oid_type: 'counter', is_per_interface: true, transform: null },
+      ]]);
+
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        doneCb(new Error('timeout'));
+      });
+
+      await expect(snmpPoller.pollDevice(device)).rejects.toThrow(/unreachable/);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 22 }),
+        expect.stringContaining('subtree walk failed'),
+      );
+    });
+
+    test('a per-interface-only profile with a successful walk succeeds and inserts rows', async () => {
+      const device = {
+        id: 23, ip_address: '10.0.1.4', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 4,
+      };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, oid: '1.3.6.1.2.1.2.2.1.10', metric_column: 'if_in_octets', label: 'In Octets', oid_type: 'counter', is_per_interface: true, transform: null },
+        ]])
+        .mockResolvedValueOnce([]);
+
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        feedCb([{ oid: '1.3.6.1.2.1.2.2.1.10.7', value: 555 }]);
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeDefined();
+    });
+
+    test('a scalar varbind value of 0 (e.g. sysUpTime right after reboot) counts as reachable, not unreachable', async () => {
+      const device = {
+        id: 24, ip_address: '10.0.1.5', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 5,
+      };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
+        ]])
+        .mockResolvedValueOnce([]);
+
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: 0 }]);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeDefined();
+      const [, params] = insertCall;
+      expect(params[params.length - 1]).toBe(0); // uptime_ticks is the last bound column
+    });
+
+    test('a profile whose OIDs all map to unrecognized metric_columns is a config issue, not a device failure — no session created, poll succeeds as a no-op', async () => {
+      const device = {
+        id: 27, ip_address: '10.0.1.8', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 8,
+      };
+      db.query.mockResolvedValueOnce([[
+        { id: 1, oid: '1.3.6.1.4.1.99999.1.1', metric_column: 'totally_bogus_column', label: 'Bogus', oid_type: 'gauge', is_per_interface: true, transform: null },
+      ]]);
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      // Nothing attemptable -> never even opens an SNMP session.
+      expect(snmp.createSession).not.toHaveBeenCalled();
+      expect(snmp.createV3Session).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 27, profileId: 8 }),
+        expect.stringContaining('no attemptable OIDs'),
+      );
+    });
+  });
+
+  // =========================================================================
+  // poll() — reachability semantics: transport completion, not row/varbind
+  // counts (migration 398 review follow-up)
+  // =========================================================================
+  describe('poll() — reachability (migration 398 review follow-up)', () => {
+    test('a scalar GET that resolves with only SNMP error varbinds (noSuchObject) still proves the agent responded — poll SUCCEEDS with no data rows', async () => {
+      const device = {
+        id: 25, ip_address: '10.0.1.6', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 6,
+      };
+      db.query
+        .mockResolvedValueOnce([[device]]) // devices list
+        .mockResolvedValueOnce([[           // profile OIDs — scalar only
+          { id: 1, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
+        ]])
+        // deviceStatusService.recordPollResult(25, true):
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      // Every varbind comes back as an SNMP error (isVarbindError=true) — the
+      // GET itself still completed, so the agent is up. This must NOT be
+      // treated as unreachable (that was the confirmed review defect).
+      snmp.isVarbindError.mockReturnValue(true);
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: null }]);
+      });
+
+      const result = await snmpPoller.poll();
+      expect(result.errors).toBe(0);
+      expect(result.polled).toBe(1);
+
+      // No data was extracted (every varbind was an error varbind), so no row.
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeUndefined();
+    });
+
+    test('a per-interface-only profile whose subtree walk resolves with zero varbinds is still reachable — poll SUCCEEDS, recordPollResult(true)', async () => {
+      const device = {
+        id: 26, ip_address: '10.0.1.7', snmp_community: 'public',
+        snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 7,
+      };
+      db.query
+        .mockResolvedValueOnce([[device]]) // devices list
+        .mockResolvedValueOnce([[           // profile OIDs — per-interface only
+          { id: 1, oid: '1.3.6.1.2.1.2.2.1.10', metric_column: 'if_in_octets', label: 'In Octets', oid_type: 'counter', is_per_interface: true, transform: null },
+        ]])
+        // deviceStatusService.recordPollResult(26, true):
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      // The walk completes without error but yields nothing — e.g. an AP
+      // whose client/radio interface table is legitimately empty overnight.
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        doneCb(null); // no feedCb invocation at all: zero varbinds
+      });
+
+      const result = await snmpPoller.poll();
+      expect(result.errors).toBe(0);
+      expect(result.polled).toBe(1);
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
+  // applyTransform() — snmp_profile_oids.transform expression parser
+  // =========================================================================
+  describe('applyTransform()', () => {
+    test('applies a division transform', () => {
+      expect(snmpPoller.applyTransform(1000, 'value / 10')).toBe(100);
+    });
+
+    test('applies a multiplication transform', () => {
+      expect(snmpPoller.applyTransform(5, 'value * -1')).toBe(-5);
+    });
+
+    test('is whitespace-tolerant', () => {
+      expect(snmpPoller.applyTransform(20, '  value/4  ')).toBe(5);
+    });
+
+    test('falls back to the raw value and warns on an unrecognized expression', () => {
+      expect(snmpPoller.applyTransform(42, 'value + 1')).toBe(42);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ expr: 'value + 1' }),
+        expect.stringContaining('unrecognized transform expression'),
+      );
+    });
+
+    test('never evaluates an injection attempt — falls back to the raw value', () => {
+      const malicious = 'value; require("child_process").execSync("id")';
+      expect(snmpPoller.applyTransform(7, malicious)).toBe(7);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ expr: malicious }),
+        expect.any(String),
+      );
+    });
+
+    test('rejects a division by zero operand and falls back to the raw value', () => {
+      expect(snmpPoller.applyTransform(9, 'value / 0')).toBe(9);
+    });
+
+    test('returns null/undefined values unchanged without consulting the expression', () => {
+      expect(snmpPoller.applyTransform(null, 'value / 10')).toBeNull();
+      expect(snmpPoller.applyTransform(undefined, 'value / 10')).toBeUndefined();
+    });
+
+    test('passes through when there is no transform expression', () => {
+      expect(snmpPoller.applyTransform(15, null)).toBe(15);
+      expect(snmpPoller.applyTransform(15, undefined)).toBe(15);
     });
   });
 
