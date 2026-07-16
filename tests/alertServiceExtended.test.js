@@ -37,6 +37,66 @@ describe('alertService extended', () => {
     });
   });
 
+  // ===========================================================================
+  // Migration 400 — 'active' no longer bypasses the time-bound check. Before
+  // this fix, `mw.status = 'active' OR (mw.status = 'scheduled' AND ...)` let
+  // an 'active' window suppress alerts forever, regardless of ends_at, since
+  // nothing ever transitioned it out of 'active' automatically.
+  // ===========================================================================
+  describe("activeMaintenanceWindowId — 'active' is time-bounded (migration 400)", () => {
+    it("a status='active' window whose ends_at has already passed no longer suppresses", async () => {
+      // The (mocked) DB stands in for what a real MySQL WHERE clause would
+      // return: an 'active' window past its ends_at fails `ends_at >= NOW()`.
+      db.query.mockResolvedValueOnce([[]]);
+      const id = await alertService.activeMaintenanceWindowId(1, 5);
+      expect(id).toBeNull();
+
+      const [sql] = db.query.mock.calls[0];
+      // The regression: 'active' must never bypass the time bound.
+      expect(sql).not.toMatch(/status = 'active' OR/);
+      expect(sql).toMatch(/mw\.status IN \('active', 'scheduled'\)/);
+      expect(sql).toMatch(/mw\.starts_at <= NOW\(\) AND mw\.ends_at >= NOW\(\)/);
+    });
+
+    it("a status='active' window whose starts_at is still in the future does not suppress yet", async () => {
+      db.query.mockResolvedValueOnce([[]]); // starts_at <= NOW() fails
+      const id = await alertService.activeMaintenanceWindowId(1, 5);
+      expect(id).toBeNull();
+    });
+
+    it("a status='active' window currently inside [starts_at, ends_at] still suppresses", async () => {
+      db.query.mockResolvedValueOnce([[{ id: 9 }]]);
+      const id = await alertService.activeMaintenanceWindowId(1, 5);
+      expect(id).toBe(9);
+    });
+  });
+
+  describe('expireMaintenanceWindows (migration 400 scheduled task)', () => {
+    it('completes scheduled/active windows whose ends_at has passed, org-scoped when an organizationId is given', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 3 }]);
+      const result = await alertService.expireMaintenanceWindows(7);
+      expect(result).toEqual({ expired: 3 });
+
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toMatch(/UPDATE maintenance_windows/);
+      expect(sql).toMatch(/SET status = 'completed'/);
+      expect(sql).toMatch(/status IN \('scheduled', 'active'\)/);
+      expect(sql).toMatch(/ends_at < NOW\(\)/);
+      expect(sql).toMatch(/AND organization_id = \?/);
+      expect(params).toEqual([7]);
+    });
+
+    it('sweeps every organization when called with no organizationId (the seeded global task)', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+      const result = await alertService.expireMaintenanceWindows();
+      expect(result).toEqual({ expired: 0 });
+
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).not.toMatch(/organization_id = \?/);
+      expect(params).toEqual([]);
+    });
+  });
+
   describe('maintenance suppression on the scheduled path (evaluateAlerts v1)', () => {
     it('suppresses a breach inside a window: records history, no triggered alert', async () => {
       db.query.mockImplementation((sql) => {

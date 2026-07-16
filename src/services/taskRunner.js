@@ -96,6 +96,12 @@ async function runTask(taskName, organizationId = null) {
       return runCsdExpiryCheck(organizationId);
     case 'alert_evaluation':
       return alertService.evaluateAlerts(organizationId);
+    // Migration 400: closes out maintenance_windows past their ends_at. Seeded
+    // org-wide (organization_id NULL), so organizationId is normally null and
+    // every org is swept in one pass — expireMaintenanceWindows() itself
+    // makes the org filter optional, same shape as handleSlaBreachCheck below.
+    case 'maintenance_window_expiry':
+      return alertService.expireMaintenanceWindows(organizationId);
     case 'process_recurring_charges':
       return checkoutService.processRecurringCharges(organizationId);
     case 'retry_failed_charges':

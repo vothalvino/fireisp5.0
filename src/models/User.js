@@ -293,6 +293,78 @@ class User extends BaseModel {
   }
 
   /**
+   * Staff recipients for a set of legacy role names, resolved the RBAC-
+   * authoritative way (migration 400) instead of querying `users.role`
+   * directly: an `organization_users` membership row for the TARGET org is
+   * authoritative when one exists (its `role`, not the user's legacy role,
+   * decides inclusion); only a user with NO membership row falls back to
+   * their legacy `users.role`, and only when they are homed in this org.
+   * Mirrors `getUsersWithPermission`'s `LEFT JOIN organization_users` shape,
+   * keyed on role name instead of permission slug. Used by
+   * `notificationHooks.resolveStaffRecipients()` for bell/email fan-out
+   * (device online/offline, alert triggered/escalated, outage
+   * reported/resolved, ip_pool.threshold).
+   *
+   * `organization_users.role` is a SUPERSET ENUM of `users.role` — it also
+   * allows `'owner'` and `'manager'`, neither of which is a valid `users.role`
+   * value, so no caller can ever pass them in `roles`. Without special
+   * handling, an ORG OWNER (organization_users.role='owner') requesting
+   * `roles=['admin', ...]` would fail BOTH branches: the membership branch
+   * (`'owner'` isn't in the requested list) AND the legacy-fallback branch
+   * (they DO have a membership row, so the fallback never applies to them) —
+   * silently dropped from every notification. This is not hypothetical: the
+   * default install (`src/scripts/seed.js`) creates user 1 with
+   * `users.role='admin'` + `organization_users.role='owner'` for org 1 — the
+   * exact shape that regresses. Fix: when the caller asks for `'admin'`,
+   * ALSO match a membership role of `'owner'` — 'owner' outranks 'admin'
+   * everywhere else in this codebase (`requireRole('owner','admin')`
+   * patterns, `userTunnelService`'s `ou.role IN ('owner','admin')`,
+   * `roles.js`'s owner guards). This expansion applies ONLY to the
+   * membership branch (`'owner'` can never appear in the legacy branch,
+   * since it isn't a `users.role` value).
+   *
+   * Deliberately does NOT expand `'manager'` the same way: a user whose
+   * membership role is `'manager'` (even with a legacy `users.role` of
+   * `'admin'`) is intentionally EXCLUDED — their authoritative role really is
+   * manager, and this codebase's admin-tier shortcuts are owner/admin only.
+   * (Under the OLD users.role-only query, such a user WAS included via the
+   * legacy shortcut; this is a deliberate product-semantics change now that
+   * resolution is membership-authoritative, not a regression.)
+   *
+   * Deliberately does NOT filter `email IS NOT NULL` — a staffer with no
+   * email on file must still receive an in-app bell row; callers gate their
+   * own email leg on `recipient.email` truthiness.
+   *
+   * Cross-org members (homed in another organization, holding a membership
+   * row for THIS org) ARE included — same precedent as
+   * `getUsersWithPermission`/`hasEffectivePermission`.
+   *
+   * Bind order: [orgId (ou join), ...membershipRoles (membership branch,
+   * 'owner'-expanded when 'admin' was requested), orgId (homed-fallback
+   * branch), ...roles (legacy-role branch, UN-expanded)].
+   */
+  static async getStaffByEffectiveRole(organizationId, roles) {
+    const db = require('../config/database');
+    const membershipRoles = roles.includes('admin')
+      ? [...new Set([...roles, 'owner'])]
+      : roles;
+    const membershipPlaceholders = membershipRoles.map(() => '?').join(', ');
+    const legacyPlaceholders = roles.map(() => '?').join(', ');
+    const [rows] = await db.query(`
+      SELECT DISTINCT u.id, u.email, u.first_name
+      FROM users u
+      LEFT JOIN organization_users ou
+        ON ou.user_id = u.id AND ou.organization_id = ? AND ou.deleted_at IS NULL
+      WHERE u.status = 'active' AND u.deleted_at IS NULL
+        AND (
+          (ou.id IS NOT NULL AND ou.role IN (${membershipPlaceholders}))
+          OR (ou.id IS NULL AND u.organization_id = ? AND u.role IN (${legacyPlaceholders}))
+        )
+    `, [organizationId, ...membershipRoles, organizationId, ...roles]);
+    return rows;
+  }
+
+  /**
    * Whether a single user is authorized for `permissionSlug` in an organization
    * (see #EFFECTIVE_PERMISSION_PREDICATE — includes cross-org members). Used to
    * validate an assignee before it is written to a record. Deliberately does NOT

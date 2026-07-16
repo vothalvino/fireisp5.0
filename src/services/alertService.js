@@ -434,6 +434,15 @@ async function acknowledgeAlert(alertEventId, userId) {
  * The previous implementation treated ANY window without a device_id as
  * org-wide, so a window scheduled for one tower suppressed alerts for every
  * device in the organization.
+ *
+ * Time-bounding (migration 400): a window only suppresses while `NOW()` is
+ * actually inside [starts_at, ends_at], REGARDLESS of status — `status =
+ * 'active'` used to short-circuit the time check entirely, so a window left
+ * (or manually set, via the Edit form) at 'active' suppressed forever, even
+ * long after `ends_at`. The `maintenance_window_expiry` scheduled task seeded
+ * by this migration (`expireMaintenanceWindows`, below) is the only thing
+ * that ever flips a window out of 'active'/'scheduled' on its own — this time
+ * check is the real backstop, not a redundant belt-and-braces.
  */
 async function activeMaintenanceWindowId(organizationId, deviceId) {
   const [rows] = await db.query(
@@ -445,7 +454,8 @@ async function activeMaintenanceWindowId(organizationId, deviceId) {
          OR (mw.device_id IS NULL AND mw.site_id IS NOT NULL AND mw.site_id = d.site_id)
          OR (mw.device_id IS NULL AND mw.site_id IS NULL)
        )
-       AND (mw.status = 'active' OR (mw.status = 'scheduled' AND mw.starts_at <= NOW() AND mw.ends_at >= NOW()))
+       AND mw.status IN ('active', 'scheduled')
+       AND mw.starts_at <= NOW() AND mw.ends_at >= NOW()
      LIMIT 1`,
     [deviceId, organizationId, deviceId],
   );
@@ -457,6 +467,42 @@ async function activeMaintenanceWindowId(organizationId, deviceId) {
  */
 async function isInMaintenanceWindow(organizationId, deviceId) {
   return (await activeMaintenanceWindowId(organizationId, deviceId)) !== null;
+}
+
+/**
+ * Close out maintenance windows whose end time has passed. Runs on the
+ * `maintenance_window_expiry` scheduled task (migration 400), seeded org-wide
+ * (organization_id IS NULL) so `organizationId` is normally null and every
+ * organization's overdue windows are swept in one pass — mirrors the optional
+ * org-filter shape used by taskRunner.js's other global-or-scoped handlers
+ * (e.g. handleSlaBreachCheck, handleInventoryLowStockCheck).
+ *
+ * This is the ONLY thing that ever moves a window out of 'active'/'scheduled'
+ * automatically. Before this task existed, nothing did — an operator (or the
+ * Edit form, which lets status be set freely) could leave a window at
+ * 'active' forever, and activeMaintenanceWindowId() used to trust 'active'
+ * without checking ends_at, so alerts stayed silently suppressed with no
+ * expiry.
+ *
+ * IMPORTANT: `maintenance_windows.recurrence_cron`/`is_recurring` are
+ * captured on the row but deliberately NOT read here (or anywhere else in the
+ * codebase) — completing a window does NOT materialize its next occurrence.
+ * Recurrence is captured-but-unimplemented; do not assume this task creates
+ * new windows.
+ */
+async function expireMaintenanceWindows(organizationId = null) {
+  const orgFilter = organizationId ? 'AND organization_id = ?' : '';
+  const params = organizationId ? [organizationId] : [];
+  const [result] = await db.query(
+    `UPDATE maintenance_windows
+     SET status = 'completed'
+     WHERE deleted_at IS NULL
+       AND status IN ('scheduled', 'active')
+       AND ends_at < NOW()
+       ${orgFilter}`,
+    params,
+  );
+  return { expired: result.affectedRows || 0 };
 }
 
 /**
@@ -621,7 +667,7 @@ async function evaluateAlertsV2(organizationId) {
 
 module.exports = {
   evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket,
-  isInMaintenanceWindow, activeMaintenanceWindowId, isSuppressedByCorrelation, checkFlapping, triggerEscalation,
+  isInMaintenanceWindow, activeMaintenanceWindowId, expireMaintenanceWindows, isSuppressedByCorrelation, checkFlapping, triggerEscalation,
   evaluateAlertsV2, getActiveAlerts,
   // Exported so other services building a dynamic `snmp_metrics.<column>`
   // reference (e.g. automationService's remediation-rule engine) validate

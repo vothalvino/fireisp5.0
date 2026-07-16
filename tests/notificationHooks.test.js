@@ -309,7 +309,7 @@ describe('notificationHooks', () => {
     test('broadcasts SSE and dispatches webhook', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[]]);
-        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[]]);
         return Promise.resolve([[]]);
       });
 
@@ -325,7 +325,7 @@ describe('notificationHooks', () => {
     test('creates an in-app bell row for each admin/support recipient, off the same SELECT as the email leg', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[]]);
-        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 9, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -360,7 +360,7 @@ describe('notificationHooks', () => {
 
     test('creates a bell row (no new email leg) for each admin/support recipient', async () => {
       db.query.mockImplementation((sql) => {
-        if (/SELECT u\.id FROM users/.test(sql)) return Promise.resolve([[{ id: 9 }]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[{ id: 9 }]]);
         return Promise.resolve([[{ id: 1 }]]);
       });
 
@@ -404,7 +404,7 @@ describe('notificationHooks', () => {
     test('broadcasts SSE and dispatches webhook', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]); // not suppressed
-        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]); // no recipients here
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[]]); // no recipients here
         return Promise.resolve([[]]);
       });
 
@@ -420,7 +420,7 @@ describe('notificationHooks', () => {
     test('creates a bell row and emails admin/technician recipients', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 3, email: 'tech@example.com', first_name: 'Tech' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -446,7 +446,7 @@ describe('notificationHooks', () => {
     test('suppresses bell/email (but still broadcasts/webhooks) when the device is inside an active maintenance window', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[{ id: 11 }]]); // active window
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 3, email: 'tech@example.com' }]]);
         }
         return Promise.resolve([[]]);
@@ -461,6 +461,156 @@ describe('notificationHooks', () => {
       expect(webhookService.dispatch).toHaveBeenCalled();
       expect(emailTransport.sendEmail).not.toHaveBeenCalled();
       expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // resolveStaffRecipients — membership-aware role resolution (migration 400)
+  // Driven through device.offline (bell + gated email leg) since it already
+  // exercises both legs; resolveStaffRecipients itself isn't exported.
+  // =========================================================================
+  describe('resolveStaffRecipients — membership-aware role resolution (migration 400)', () => {
+    beforeEach(() => registerHooks());
+
+    test('membership role INCLUDES a user even when it conflicts with their legacy users.role', async () => {
+      db.query.mockImplementation((sql, params) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // Membership branch is 'owner'-expanded because 'admin' was requested
+          // (see getStaffByEffectiveRole); legacy branch is not.
+          expect(params).toEqual([1, 'admin', 'technician', 'owner', 1, 'admin', 'technician']);
+          // Priya's legacy users.role is 'billing' (not in the roles list),
+          // but her organization_users.role for THIS org is 'technician' —
+          // membership is authoritative, so she is included.
+          return Promise.resolve([[{ id: 11, email: 'priya@example.com', first_name: 'Priya' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert[1]).toContain(11);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'priya@example.com' }));
+    });
+
+    test('a legacy admin whose organization_users role for this org is readonly is EXCLUDED — membership overrides, not additive', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // Dana's users.role = 'admin' but her organization_users.role for
+          // org 1 is 'readonly' (not in ['admin','technician']) — she HAS a
+          // membership row, so the legacy-role fallback branch never applies
+          // to her; the membership branch excludes her.
+          return Promise.resolve([[]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(false);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    // Regression test (adversarial review of PR #436): organization_users.role
+    // is a SUPERSET ENUM that also allows 'owner'/'manager', neither of which
+    // is a valid users.role value. Before the fix, an org OWNER requesting
+    // ['admin', ...] failed BOTH branches — not in the membership role list,
+    // and excluded from the legacy fallback because they DO have a membership
+    // row — so they were silently dropped from every notification. This is
+    // exactly the default install's shape: src/scripts/seed.js creates user 1
+    // with users.role='admin' + organization_users.role='owner' for org 1.
+    test("the default-install org owner (users.role='admin', membership role='owner') still receives bell/email — regression test", async () => {
+      db.query.mockImplementation((sql, params) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // 'owner' must appear in the membership-branch role list.
+          expect(params).toEqual([1, 'admin', 'technician', 'owner', 1, 'admin', 'technician']);
+          return Promise.resolve([[{ id: 1, email: 'admin@demo-isp.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert[1]).toContain(1);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'admin@demo-isp.com' }));
+    });
+
+    // Locks the documented product-semantics call: 'owner' is expanded
+    // because it outranks 'admin' throughout this codebase, but 'manager' is
+    // NOT — a user whose membership role is 'manager' is excluded even when
+    // their legacy users.role is 'admin', because membership resolution is
+    // now authoritative and their real role is manager, not admin.
+    test("a membership role of 'manager' (even with legacy users.role='admin') is EXCLUDED — only 'owner' is expanded, not 'manager'", async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          // 'manager' is not in the expanded membership role list
+          // ['admin','technician','owner']; she HAS a membership row, so the
+          // legacy-role fallback branch never applies to her either.
+          return Promise.resolve([[]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(false);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    test('a homed user with no membership row falls back to their legacy users.role — still included', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 12, email: 'carl@example.com', first_name: 'Carl' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert[1]).toContain(12);
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'carl@example.com' }));
+    });
+
+    test('a staffer with no email on file still gets a bell row; the email leg is skipped', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 13, email: null, first_name: 'Dana' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(13);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
   });
 
@@ -480,7 +630,7 @@ describe('notificationHooks', () => {
 
     test('creates a bell row (no email) for admin/technician recipients', async () => {
       db.query.mockImplementation((sql) => {
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 3, email: 'tech@example.com', first_name: 'Tech' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -695,7 +845,7 @@ describe('notificationHooks', () => {
     test('HTML-escapes the outage title in the admin notification email', async () => {
       db.query.mockImplementation((sql) => {
         if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[{ client_id: 1 }]]);
-        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 9, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]); // Notification.create's INSERT + findByIdIncludingDeleted
@@ -764,7 +914,7 @@ describe('notificationHooks', () => {
     test('creates a bell row + email for admin/technician recipients when channels are unset (default: all enabled)', async () => {
       db.query.mockImplementation((sql) => {
         if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -790,7 +940,7 @@ describe('notificationHooks', () => {
       const ruleNoEmail = { ...rule, notification_channels: JSON.stringify(['webhook']) };
       db.query.mockImplementation((sql) => {
         if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -808,7 +958,7 @@ describe('notificationHooks', () => {
       const ruleEmailOnly = { ...rule, notification_channels: JSON.stringify(['email']) };
       db.query.mockImplementation((sql) => {
         if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -840,7 +990,7 @@ describe('notificationHooks', () => {
       db.query.mockImplementation((sql) => {
         if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
         if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
         }
         return Promise.resolve([[{ id: 1 }]]);
@@ -863,7 +1013,7 @@ describe('notificationHooks', () => {
       const step = { notification_channel: 'webhook', webhook_url: 'https://noc.example.com/hook' };
       db.query.mockImplementation((sql) => {
         if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[]]);
         return Promise.resolve([[{ id: 1 }]]);
       });
 
@@ -889,7 +1039,7 @@ describe('notificationHooks', () => {
       };
       db.query.mockImplementation((sql) => {
         if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[]]);
         return Promise.resolve([[{ id: 1 }]]);
       });
 
@@ -909,7 +1059,7 @@ describe('notificationHooks', () => {
       const step = { notification_channel: 'sms', recipient_phone: '+5215500000000' };
       db.query.mockImplementation((sql) => {
         if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) return Promise.resolve([[]]);
         return Promise.resolve([[{ id: 1 }]]);
       });
 
@@ -927,7 +1077,7 @@ describe('notificationHooks', () => {
       const step = { notification_channel: 'webhook', webhook_url: 'https://noc.example.com/hook' };
       db.query.mockImplementation((sql) => {
         if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
-        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+        if (/SELECT DISTINCT u\.id, u\.email, u\.first_name\s+FROM users/.test(sql)) {
           return Promise.resolve([[
             { id: 5, email: 'admin@example.com', first_name: 'Admin' },
             { id: 6, email: 'tech@example.com', first_name: 'Tech' },
