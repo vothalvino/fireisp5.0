@@ -14,7 +14,7 @@ import { useAuth } from './AuthContext';
 // Role hierarchy — higher index = broader privilege
 // ---------------------------------------------------------------------------
 const ROLE_RANK: Record<string, number> = {
-  'read-only': 1,
+  readonly: 1,
   support: 2,
   technician: 3,
   billing: 3,
@@ -24,6 +24,11 @@ const ROLE_RANK: Record<string, number> = {
 export function hasRole(userRole: string, required: string): boolean {
   // admin always passes
   if (userRole === 'admin') return true;
+  // readonly "must see everything, change nothing" (CLAUDE.md persona
+  // contract) — it passes every requiredRole gate so it reaches every page;
+  // the backend still rejects every mutation, and each page's own GETs are
+  // covered by the readonly permission grants (migration 399 and prior).
+  if (userRole === 'readonly') return true;
   // exact match
   if (userRole === required) return true;
   // rank-based fallback

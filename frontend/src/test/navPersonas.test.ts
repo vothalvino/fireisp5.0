@@ -3,8 +3,12 @@
 // =============================================================================
 // Locks the resolved sidebar for each role to the permission audit performed
 // for the redesign (role_permissions seeds in migrations 119/194/197/199/365/
-// 377/393). If a change here surprises you, re-run the audit before updating
-// the expectation — a row a role can see must never 403.
+// 377/393/399). If a change here surprises you, re-run the audit before
+// updating the expectation — a row a role can see must never 403.
+// readonly note (migration 399 + PrivateRoute.tsx fix): canSee()'s guard
+// check no longer blocks readonly (hasRole() bypasses for it, same as
+// admin), so readonly's resolved nav is now identical to admin's — see the
+// dedicated 'readonly' describe block below.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest';
@@ -155,20 +159,39 @@ describe('support', () => {
 
 describe('readonly', () => {
   const nav = resolve('readonly');
-  it('sees every any-auth page, organized (never a guard-blocked row)', () => {
-    expect(Object.keys(nav).sort()).toEqual(['billing', 'clients', 'network', 'support'].sort());
-    expect(nav.billing.items).toEqual(['/invoices', '/payments']);
-    expect(nav.support.items).toHaveLength(5);
-    expect(nav.network.items).toEqual(['/devices', '/network-health', '/outages', '/wg-tunnels']);
+  const adminNav = resolve('admin');
+
+  // Fixed 2026-07: readonly used to be locked out of nearly the whole app —
+  // ROLE_RANK was keyed 'read-only' (real role string is 'readonly', so rank
+  // resolved to 0) and even correctly spelled, rank 1 sat below every
+  // requiredRole gate. hasRole() now gives readonly an explicit bypass
+  // (mirrors the admin bypass), so canSee()'s guard check — `if (node.guard
+  // && !hasRole(user.role, node.guard)) return false` — never rejects it, and
+  // canSee()'s own `if (user.role === 'readonly') return true` (which existed
+  // all along but was unreachable) then skips the `roles[]` allowlist too.
+  // Net effect: readonly and admin hit the exact same two early-return lines
+  // in canSee() (only the locale gate applies to both), so their resolved
+  // nav trees are identical — "sees everything" is now literally true.
+  it('sees exactly what admin sees — canSee() no longer guard-blocks or roles[]-blocks it', () => {
+    expect(nav).toEqual(adminNav);
   });
-  it('never sees hub links (their routes are guard-blocked for readonly)', () => {
-    for (const s of Object.values(nav)) expect(s.hub).toBe(false);
+  it('sees all three hub links (billing/network/admin) now that the guard check passes', () => {
+    expect(nav.billing.hub).toBe(true);
+    expect(nav.network.hub).toBe(true);
+    expect(nav.admin.hub).toBe(true);
   });
-  it('never sees items behind technician/billing/admin route guards', () => {
+  it('sees admin-only rows too (e.g. /users, /cfdi, /work-orders) — page loads, backend still 403s any write', () => {
     const all = Object.values(nav).flatMap(s => s.items);
-    expect(all).not.toContain('/cfdi');
-    expect(all).not.toContain('/work-orders');
-    expect(all).not.toContain('/users');
+    expect(all).toContain('/cfdi');
+    expect(all).toContain('/work-orders');
+    expect(all).toContain('/users');
+  });
+  it('compliance collapses to the one non-MX item for non-Mexico orgs, same as admin', () => {
+    const global = resolve('readonly', 'global');
+    expect(global.compliance.items).toEqual(['/regulatory-compliance']);
+  });
+  it('has no default-expanded section — a "sees everything" persona has no obvious single home', () => {
+    expect(defaultExpandedSection('readonly')).toBeNull();
   });
 });
 
@@ -187,7 +210,7 @@ describe('shared behaviour', () => {
     expect(sectionForPath('/')).toBe('dashboard');
   });
   it('the View-all count equals what the hub page actually renders', () => {
-    for (const role of ['admin', 'technician', 'billing']) {
+    for (const role of ['admin', 'technician', 'billing', 'readonly']) {
       const user: NavUser = { role, organization_locale: 'MX' };
       for (const s of SECTIONS.filter(x => x.kind === 'hub')) {
         if (!canSeeHub(user, s)) continue;

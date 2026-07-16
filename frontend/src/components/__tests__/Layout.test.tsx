@@ -305,6 +305,41 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getAllByText('Org A').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('readonly (multi-org member) sees its own memberships in the switcher and never fires the admin-only all-orgs query', async () => {
+    // Regression for a review-caught bug: hasRole(user.role, 'admin') gives
+    // readonly a bypass for PAGE-REACHABILITY (PrivateRoute/canSee), but
+    // Layout's isAdmin decides a LITERAL privilege (can this user list every
+    // org on the platform?) — readonly must not inherit that bypass here, or
+    // the all-orgs query fires, 403s/returns something readonly has no real
+    // access to, and — worse — `orgs = isAdmin ? (allOrgs ?? memberships) :
+    // memberships` would stop falling back to `memberships`, so a readonly
+    // user who legitimately belongs to 2 orgs would lose the switcher.
+    const readonlyUser = makeUser('readonly');
+    readonlyUser.organizations = [
+      { id: 1, name: 'Org A' },
+      { id: 2, name: 'Org B' },
+    ];
+    mockUseAuth(readonlyUser);
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/organizations') {
+        // If this fired for readonly it would "succeed" here, which is
+        // exactly why the assertion below must prove it was never called.
+        return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }, { id: 3, name: 'Org C (not a member)' }] }, error: undefined });
+      }
+      return Promise.resolve({ data: undefined, error: undefined });
+    });
+    renderLayout();
+
+    // Own memberships render (from user.organizations, not the all-orgs query).
+    expect(await screen.findByLabelText('Active organization')).toBeInTheDocument();
+    expect(screen.getAllByText('Org A').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Org B')).toBeInTheDocument();
+    // Never sees an org it isn't a member of.
+    expect(screen.queryByText('Org C (not a member)')).not.toBeInTheDocument();
+    // The admin-only all-orgs query itself must never have fired.
+    expect(mockApiGet).not.toHaveBeenCalledWith('/organizations', expect.anything());
+  });
+
   it('navigates to the dashboard after a successful org switch, even from a non-dashboard page', async () => {
     const switchOrganization = vi.fn().mockResolvedValue(undefined);
     mockUseAuth(makeUser('admin'), { switchOrganization });

@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
-import { hasRole } from '@/auth/PrivateRoute';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
@@ -65,7 +64,17 @@ export function Layout() {
   // Admins can switch their active org to ANY organization (not just ones they're
   // a member of), so for them the switcher lists every org. Non-admins only see
   // the orgs they belong to (from /auth/me → user.organizations).
-  const isAdmin = !!user && hasRole(user.role, 'admin');
+  //
+  // Deliberately an EXACT role check, not hasRole(user.role, 'admin') — hasRole
+  // has readonly-passes-every-gate semantics meant for PrivateRoute's *page
+  // reachability* (readonly should reach every page), not for a *literal
+  // privilege* decision like this one. Readonly is not an admin: it is not a
+  // member of every org, so isAdmin=true here would enable the all-orgs query,
+  // and swapping `orgs` to that result (dropping the `memberships` fallback)
+  // for a role with no actual all-org access — mirrors how the backend gates
+  // switch-organization (an exact users.role==='admin'/membership check, not a
+  // permission slug).
+  const isAdmin = !!user && user.role === 'admin';
 
   // Accordion state: which sections are open. Persisted per browser; starts
   // fully collapsed (see loadExpanded) unless a stored value says otherwise.
