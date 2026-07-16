@@ -124,7 +124,7 @@ router.get('/events', requirePermission('noc.view'), async (req, res, next) => {
       `SELECT 'alert' AS event_type, ae.id, ae.metric AS detail, ar.severity, ae.created_at AS occurred_at
        FROM alert_events ae
        JOIN alert_rules ar ON ar.id = ae.alert_rule_id
-       WHERE ae.organization_id = ?
+       WHERE ae.organization_id = ? AND ae.suppressed = 0
        ORDER BY ae.created_at DESC LIMIT 20`,
       [req.orgId],
     );

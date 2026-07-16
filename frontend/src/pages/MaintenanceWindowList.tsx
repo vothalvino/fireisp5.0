@@ -44,9 +44,17 @@ const PAGE_SIZE = 25;
 const STATUSES = ['scheduled', 'active', 'completed', 'cancelled'];
 
 async function fetchNamed(path: '/sites' | '/devices'): Promise<NamedRow[]> {
-  const res = await api.GET(path as never, { params: { query: { limit: 500 } as never } } as never);
-  if ((res as { error?: unknown }).error) return [];
-  return (((res as { data?: { data?: NamedRow[] } }).data?.data) ?? []);
+  // crudController hard-caps limit at 100 — page through so orgs with more
+  // than 100 sites/devices can still pick any of them (bounded at 10 pages).
+  const all: NamedRow[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await api.GET(path as never, { params: { query: { page, limit: 100 } as never } } as never);
+    if ((res as { error?: unknown }).error) break;
+    const rows = (((res as { data?: { data?: NamedRow[] } }).data?.data) ?? []);
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
 }
 
 async function fetchWindows(page: number): Promise<WindowsResponse> {

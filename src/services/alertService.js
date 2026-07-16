@@ -414,7 +414,8 @@ async function checkFlapping(ruleId) {
   const { flap_count_threshold, flap_window_minutes } = ruleRows[0];
   const [rows] = await db.query(
     `SELECT COUNT(*) AS cnt FROM alert_events
-     WHERE alert_rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+     WHERE alert_rule_id = ? AND suppressed = 0
+       AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
     [ruleId, flap_window_minutes],
   );
   return parseInt(rows[0].cnt, 10) >= (flap_count_threshold || 3);
