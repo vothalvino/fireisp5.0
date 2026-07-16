@@ -28,18 +28,29 @@ fork is gone.
 
 ## Audit facts baked into current allowlists (re-verify before changing)
 
-- technician LACKS: tickets.view (119), leads.view (194), surveys.view (197),
-  noc.view (298), cpe_profiles.view (276).
-- billing LACKS: tickets.view, escalations.view (197), devices.view.
+- technician LACKS: leads.view (194), surveys.view (197), cpe_profiles.view
+  (276), tickets.view_billing (394 — sees all tickets EXCEPT billing-category;
+  enforced server-side across tickets router, client timeline, escalation
+  candidates, NOC feeds, GraphQL ticketCommentAdded). Migration 394 GRANTED
+  technician tickets.view, ticket_relations.view and noc.view.
+- billing LACKS: tickets.view, devices.view. Migration 394 granted billing
+  escalations.view.
 - support LACKS devices.view/sites.view/plans.view but HAS outages.view,
   network_health.view (377), work_orders.* (298) — that's why /outages and
   /network-health live in the any-auth App.tsx block.
 - Migration 393 granted wireguard.peers.view/create/delete → billing and
   .view → readonly (365 had skipped them while the row rendered for all).
+- tickets.category is a 4-value ENUM (technical/billing/installation/general,
+  mig 394), REQUIRED on staff create; any new INSERT INTO tickets must write a
+  valid enum value or omit the column (sql:check enforces literals). Use
+  rbac's `userHasPermission(req, 'tickets.view_billing')` for any new surface
+  that emits ticket rows.
 
-## Not built yet (PR-3 of the design spec)
+## Power layer (PR #424)
 
-Ctrl+K command palette over the registry, admin workspace presets, scoped
-count badges. Design spec + per-persona tables live in the session artifact
-(see chat history 2026-07-15) — the registry was built to feed the palette
-with zero extra data.
+Ctrl/Cmd+K command palette derives from the registry via nav/search.ts
+(canSee-filtered index + `keywords` synonyms on RouteDef); admin/readonly
+workspace presets (WORKSPACES in routes.ts) prune the rendered sidebar only —
+never permissions, and never the palette. Hub headers are split controls:
+label navigates + opens, chevron toggles (collapse regression test in
+Layout.test.tsx). Scoped count badges remain unbuilt.
