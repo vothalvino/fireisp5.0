@@ -6,7 +6,7 @@
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../Layout';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
@@ -46,7 +46,7 @@ function makeUser(role: string): AuthUser {
   };
 }
 
-function mockUseAuth(user: AuthUser | null) {
+function mockUseAuth(user: AuthUser | null, overrides?: Partial<ReturnType<typeof AuthContextModule.useAuth>>) {
   vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
     user,
     loading: false,
@@ -55,20 +55,39 @@ function mockUseAuth(user: AuthUser | null) {
     logout: vi.fn(),
     refresh: vi.fn(),
     switchOrganization: vi.fn(),
+    ...overrides,
   } as ReturnType<typeof AuthContextModule.useAuth>);
 }
 
-function renderLayout() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+// Most tests don't care about routing at all — Layout is just mounted as a
+// plain child. The org-switch navigation test needs real route matching (to
+// prove `navigate('/')` actually lands somewhere), so it opts into a Routes
+// stub with a sentinel standing in for the Dashboard page at '/'.
+function buildTree(qc: QueryClient, options?: { initialEntries?: string[]; withDashboardStub?: boolean }) {
+  const routed = options?.withDashboardStub;
+  const initialEntries = options?.initialEntries ?? ['/'];
+  return (
     <QueryClientProvider client={qc}>
       <DarkModeProvider>
-        <MemoryRouter>
-          <Layout />
+        <MemoryRouter initialEntries={initialEntries}>
+          {routed ? (
+            <Routes>
+              <Route path="/" element={<div>DASHBOARD_SENTINEL</div>} />
+              <Route path="*" element={<Layout />} />
+            </Routes>
+          ) : (
+            <Layout />
+          )}
         </MemoryRouter>
       </DarkModeProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderLayout(options?: { initialEntries?: string[]; withDashboardStub?: boolean }) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const utils = render(buildTree(qc, options));
+  return { ...utils, qc };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,53 +115,65 @@ describe('Layout — grouped sidebar navigation', () => {
     }
   });
 
-  it('renders every section header for an admin, with Clients open by default', () => {
+  it('renders every section header for an admin, fully collapsed until a section is opened', async () => {
     mockUseAuth(makeUser('admin'));
     renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
 
     // Section headers are always visible; collapsed sections hide their rows.
     for (const heading of ['Dashboard', 'Billing', 'Support', 'Field Work', 'Network', 'Inventory', 'Compliance', 'Administration']) {
       expect(screen.getByText(heading)).toBeInTheDocument();
     }
-    // 'Clients' appears twice: the (default-open) section header and its first row.
+    // Nothing auto-expands on first load — the sidebar starts fully collapsed.
+    expect(screen.queryByText('Leads')).not.toBeInTheDocument();
+    expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
+
+    // Clicking a section header opens it.
+    fireEvent.click(screen.getByText('Clients'));
+    // 'Clients' now appears twice: the (open) section header and its first row.
     expect(screen.getAllByText('Clients').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Leads')).toBeInTheDocument();
-    // Rows of collapsed sections are not rendered.
+    // Other sections remain collapsed.
     expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
   });
 
-  it('gives support only its sections, with the support kit open', () => {
+  it('gives support only its sections, all collapsed until the support kit is opened', async () => {
     mockUseAuth(makeUser('support'));
     renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
 
     expect(screen.getByText('Clients')).toBeInTheDocument();
     expect(screen.getByText('Support')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
-    // Support's primary section opens by default.
-    expect(screen.getByText('Tickets')).toBeInTheDocument();
     // Billing (all rows billing-only), Compliance, Field Work and Admin are gone —
     // support lacks the permissions/route guards for every row in them.
     expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Compliance')).not.toBeInTheDocument();
     expect(screen.queryByText('Field Work')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+    // Support's primary section stays collapsed until clicked.
+    expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Support'));
+    expect(screen.getByText('Tickets')).toBeInTheDocument();
   });
 
   it('gives technicians their field kit from the shared registry (no hardcoded fork)', async () => {
     mockUseAuth(makeUser('technician'));
     renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
 
     expect(screen.getByText('Field Work')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
     expect(screen.getByText('Inventory')).toBeInTheDocument();
-    // Field Work opens by default for technicians.
-    expect(screen.getByText('Work Orders')).toBeInTheDocument();
     // Pages the technician role 403s on (audit: leads/surveys) and the
     // billing/admin sections are gone.
     expect(screen.queryByText('Leads')).not.toBeInTheDocument();
     expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
-    const { fireEvent } = await import('@testing-library/react');
+    // Nothing auto-expands, including the technician's own primary section.
+    expect(screen.queryByText('Work Orders')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Field Work'));
+    expect(screen.getByText('Work Orders')).toBeInTheDocument();
     // Tickets lives in the (collapsed) Support section since migration 394
     // granted technicians tickets.view.
     fireEvent.click(screen.getByText('Support'));
@@ -153,6 +184,38 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText(/View all \d+/)).toBeInTheDocument();
     // The long tail is hub-only, not rail rows.
     expect(screen.queryByText('VLANs')).not.toBeInTheDocument();
+  });
+
+  it('honors a stored expanded-sections array from localStorage instead of collapsing it', () => {
+    // A section other than admin's persona default ('clients') so this test
+    // can't pass by accident via the (now-removed) persona-seeding behavior.
+    localStorage.setItem('fireisp.nav.expanded', JSON.stringify(['support']));
+    mockUseAuth(makeUser('admin'));
+    renderLayout();
+
+    // 'support' was explicitly persisted open — its rows render with no click.
+    expect(screen.getByText('Tickets')).toBeInTheDocument();
+    // Sections that were never stored/opened stay collapsed.
+    expect(screen.queryByText('Leads')).not.toBeInTheDocument();
+    expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
+  });
+
+  it('reseeds the persona default when a role switch stops the sidebar from stranding on an invisible section', async () => {
+    mockUseAuth(makeUser('billing'));
+    const { rerender, qc } = renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
+
+    // Billing opens its own section by clicking the header.
+    fireEvent.click(screen.getByText('Billing'));
+    expect(screen.getByText('Invoices')).toBeInTheDocument();
+
+    // Switch to a role that can't see Billing at all. The previously-open
+    // section is now invisible ("stranded") — the new persona's default
+    // section must open in its place rather than leaving the nav empty.
+    mockUseAuth(makeUser('support'));
+    rerender(buildTree(qc));
+    expect(screen.queryByText('Billing')).not.toBeInTheDocument();
+    expect(screen.getByText('Tickets')).toBeInTheDocument();
   });
 
   it('hub sections collapse again via the chevron after being opened (regression)', async () => {
@@ -240,5 +303,52 @@ describe('Layout — grouped sidebar navigation', () => {
     // and the topbar label.
     expect(await screen.findByText('Org B')).toBeInTheDocument();
     expect(screen.getAllByText('Org A').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('navigates to the dashboard after a successful org switch, even from a non-dashboard page', async () => {
+    const switchOrganization = vi.fn().mockResolvedValue(undefined);
+    mockUseAuth(makeUser('admin'), { switchOrganization });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/organizations') {
+        return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
+      }
+      return Promise.resolve({ data: undefined, error: undefined });
+    });
+    // Mounted on a page that is not the dashboard (the sentinel below stands
+    // in for it), proving the switch actually navigates rather than being a
+    // no-op because the user happened to already be there.
+    renderLayout({ withDashboardStub: true, initialEntries: ['/clients'] });
+    const { fireEvent } = await import('@testing-library/react');
+
+    await screen.findByText('Org B');
+    const select = screen.getByLabelText('Active organization');
+    fireEvent.change(select, { target: { value: '2' } });
+
+    expect(switchOrganization).toHaveBeenCalledWith(2);
+    expect(await screen.findByText('DASHBOARD_SENTINEL')).toBeInTheDocument();
+  });
+
+  it('does not navigate when the org switch fails, leaving the user on the current page', async () => {
+    const switchOrganization = vi.fn().mockRejectedValue(new Error('switch failed'));
+    mockUseAuth(makeUser('admin'), { switchOrganization });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/organizations') {
+        return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
+      }
+      return Promise.resolve({ data: undefined, error: undefined });
+    });
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    renderLayout({ withDashboardStub: true, initialEntries: ['/clients'] });
+    const { fireEvent, waitFor } = await import('@testing-library/react');
+
+    await screen.findByText('Org B');
+    const select = screen.getByLabelText('Active organization');
+    fireEvent.change(select, { target: { value: '2' } });
+
+    // The existing alert path fires and the user stays put — no navigation.
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('switch failed'));
+    expect(screen.queryByText('DASHBOARD_SENTINEL')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Active organization')).toBeInTheDocument();
+    alertSpy.mockRestore();
   });
 });
