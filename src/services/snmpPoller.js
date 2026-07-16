@@ -57,6 +57,61 @@ const VALID_METRIC_COLUMNS = new Set([
   'uptime_ticks',
 ]);
 
+// -----------------------------------------------------------------------------
+// Per-column value bounds, derived from the snmp_metrics column types in
+// database/schema.sql (~:1553-1588). insertMetricRow() nulls any value that
+// falls outside these ranges instead of letting a raw SNMP value overflow its
+// column and throw a MySQL "Out of range" error — that used to abort the
+// *entire* pollDevice() call (migration 398 fixed the concrete case: raw
+// hrStorageUsed storage-allocation units mapped straight into the SMALLINT
+// memory_usage "percentage" column).
+//
+// Every key in VALID_METRIC_COLUMNS must have exactly one entry here.
+// -----------------------------------------------------------------------------
+const METRIC_COLUMN_BOUNDS = {
+  // BIGINT, signed 64-bit (schema.sql:1557-1560,1569-1570,1588). JS doubles
+  // only carry 53 bits of integer precision, so the practical ceiling is
+  // Number.MAX_SAFE_INTEGER rather than the true BIGINT max — real counters
+  // never approach either before wrapping in SNMP itself.
+  if_in_octets:       { min: 0, max: Number.MAX_SAFE_INTEGER },
+  if_out_octets:      { min: 0, max: Number.MAX_SAFE_INTEGER },
+  if_in_errors:       { min: 0, max: Number.MAX_SAFE_INTEGER },
+  if_out_errors:      { min: 0, max: Number.MAX_SAFE_INTEGER },
+  if_in_discards:     { min: 0, max: Number.MAX_SAFE_INTEGER },
+  if_out_discards:    { min: 0, max: Number.MAX_SAFE_INTEGER },
+  uptime_ticks:       { min: 0, max: Number.MAX_SAFE_INTEGER },
+
+  // SMALLINT, signed 16-bit (schema.sql:1561-1562,1574,1581,1584-1585)
+  cpu_usage:          { min: -32768, max: 32767 },
+  memory_usage:       { min: -32768, max: 32767 },
+  ups_battery_pct:    { min: -32768, max: 32767 },
+  noise_floor_dbm:    { min: -32768, max: 32767 },
+  snr_db:             { min: -32768, max: 32767 },
+  ccq_pct:            { min: -32768, max: 32767 },
+
+  // TINYINT, signed 8-bit (schema.sql:1579,1582-1583)
+  if_oper_status:     { min: -128, max: 127 },
+  air_util_pct:       { min: -128, max: 127 },
+  gps_sync_status:    { min: -128, max: 127 },
+
+  // INT/INTEGER, signed 32-bit (schema.sql:1563,1566,1568,1575-1576)
+  signal_strength:    { min: -2147483648, max: 2147483647 },
+  voltage_mv:         { min: -2147483648, max: 2147483647 },
+  fan_speed_rpm:      { min: -2147483648, max: 2147483647 },
+  ups_runtime_min:    { min: -2147483648, max: 2147483647 },
+  poe_power_mw:       { min: -2147483648, max: 2147483647 },
+
+  // DECIMAL(p,s) — max magnitude is (10^(p-s) - 1) + (1 - 10^-s)
+  latency_ms:         { min: -99999999.99, max: 99999999.99 },   // DECIMAL(10,2), schema.sql:1564
+  temperature_c:      { min: -9999.99, max: 9999.99 },           // DECIMAL(6,2), schema.sql:1567
+  sfp_tx_power_dbm:   { min: -9999.9999, max: 9999.9999 },       // DECIMAL(8,4), schema.sql:1571
+  sfp_rx_power_dbm:   { min: -9999.9999, max: 9999.9999 },       // DECIMAL(8,4), schema.sql:1572
+  sfp_temperature_c:  { min: -9999.99, max: 9999.99 },           // DECIMAL(6,2), schema.sql:1573
+  humidity_pct:       { min: -999.99, max: 999.99 },             // DECIMAL(5,2), schema.sql:1577
+  tx_rate_mbps:       { min: -999999.99, max: 999999.99 },       // DECIMAL(8,2), schema.sql:1586
+  rx_rate_mbps:       { min: -999999.99, max: 999999.99 },       // DECIMAL(8,2), schema.sql:1587
+};
+
 // Configurable concurrency for parallel polling (default: 10 devices at a time)
 const POLL_CONCURRENCY = parseInt(process.env.SNMP_POLL_CONCURRENCY || '10', 10);
 
@@ -111,10 +166,19 @@ async function poll() {
  * Poll a single device for all OIDs defined in its SNMP profile and write one
  * row per device (scalar metrics) plus one row per interface (per-interface
  * metrics) into snmp_metrics.
+ *
+ * Reachability is tracked positively: pollDevice only succeeds if at least
+ * one varbind actually responded (scalar GET or interface subtree walk) —
+ * presence-based via snmp.isVarbindError(), never value-based, so e.g. a
+ * freshly-rebooted device reporting sysUpTime=0 still counts as reachable.
+ * A metric-ingest failure (bad value, DB error) is a completely separate
+ * concern from reachability and must never be conflated with it — see
+ * insertMetricRow()'s per-column sanitation and the scalar insert's own
+ * try/catch below.
  */
 async function pollDevice(device) {
   const [oids] = await db.query(
-    `SELECT id, oid, metric_column, label, oid_type, is_per_interface
+    `SELECT id, oid, metric_column, label, oid_type, is_per_interface, transform
      FROM snmp_profile_oids
      WHERE profile_id = ? AND status = 'active' AND deleted_at IS NULL
      ORDER BY sort_order`,
@@ -124,6 +188,7 @@ async function pollDevice(device) {
   if (oids.length === 0) return;
 
   const session = createSnmpSession(device);
+  let respondedCount = 0;
 
   try {
     const scalarOids = oids.filter(o => !o.is_per_interface);
@@ -139,20 +204,37 @@ async function pollDevice(device) {
         const oid = scalarOids[i];
         const varbind = varbinds[i];
         if (!varbind || snmp.isVarbindError(varbind)) continue;
+
+        // Presence-based: this OID answered, regardless of its value.
+        respondedCount++;
+
         if (!VALID_METRIC_COLUMNS.has(oid.metric_column)) continue;
 
-        scalarRow[oid.metric_column] = extractNumericValue(varbind);
+        const rawValue = extractNumericValue(varbind);
+        scalarRow[oid.metric_column] = applyTransform(rawValue, oid.transform);
       }
     }
 
     // Insert a device-level row when we have at least one scalar metric.
+    // Wrapped in its own try/catch: an ingest/DB failure here (e.g. a value
+    // that still doesn't fit its column, or a transient DB error) must never
+    // abort per-interface polling below, and must never be mistaken for the
+    // device being unreachable.
     if (Object.keys(scalarRow).length > 0) {
-      await insertMetricRow(device.id, null, scalarRow);
+      try {
+        await insertMetricRow(device.id, null, scalarRow);
+      } catch (err) {
+        logger.error({ err, deviceId: device.id }, 'pollDevice: scalar metric ingest failed (device still reachable)');
+      }
     }
 
     // --- Per-interface metrics ---------------------------------------------
     if (ifOids.length > 0) {
-      await pollInterfaces(session, device, ifOids);
+      respondedCount += await pollInterfaces(session, device, ifOids);
+    }
+
+    if (respondedCount === 0) {
+      throw new Error('device unreachable: no OIDs responded');
     }
   } finally {
     session.close();
@@ -161,11 +243,15 @@ async function pollDevice(device) {
 
 /**
  * Walk the interface table for per-interface OIDs and insert one row per
- * interface into snmp_metrics.
+ * interface into snmp_metrics. Returns the number of varbinds that actually
+ * responded across all walked OIDs (for pollDevice's reachability tally) —
+ * snmpSubtree() already filters out isVarbindError entries, so every
+ * returned varbind is a real response.
  */
 async function pollInterfaces(session, device, ifOids) {
   // Collect values keyed by ifIndex → { metric_column: value }
   const ifMap = new Map();
+  let respondedCount = 0;
 
   for (const oid of ifOids) {
     if (!VALID_METRIC_COLUMNS.has(oid.metric_column)) continue;
@@ -173,9 +259,15 @@ async function pollInterfaces(session, device, ifOids) {
     let varbinds;
     try {
       varbinds = await snmpSubtree(session, oid.oid);
-    } catch {
-      continue; // skip OIDs that fail to walk
+    } catch (err) {
+      logger.warn(
+        { err, deviceId: device.id, oid: oid.oid, metricColumn: oid.metric_column },
+        'pollInterfaces: OID subtree walk failed, skipping this metric',
+      );
+      continue;
     }
+
+    respondedCount += varbinds.length;
 
     for (const vb of varbinds) {
       // Last element of the returned OID is the ifIndex.
@@ -183,15 +275,51 @@ async function pollInterfaces(session, device, ifOids) {
       const ifIndex = parts[parts.length - 1];
 
       if (!ifMap.has(ifIndex)) ifMap.set(ifIndex, {});
-      ifMap.get(ifIndex)[oid.metric_column] = extractNumericValue(vb);
+      const rawValue = extractNumericValue(vb);
+      ifMap.get(ifIndex)[oid.metric_column] = applyTransform(rawValue, oid.transform);
     }
   }
 
   for (const [ifIndex, metrics] of ifMap) {
     if (Object.keys(metrics).length > 0) {
-      await insertMetricRow(device.id, ifIndex, metrics);
+      try {
+        await insertMetricRow(device.id, ifIndex, metrics);
+      } catch (err) {
+        logger.error(
+          { err, deviceId: device.id, interfaceId: ifIndex },
+          'pollInterfaces: metric ingest failed for interface (device still reachable)',
+        );
+      }
     }
   }
+
+  return respondedCount;
+}
+
+/**
+ * Validate a metrics object against METRIC_COLUMN_BOUNDS before it is bound
+ * into the INSERT. Out-of-range or non-finite values are nulled — never
+ * thrown — so a single bad OID/profile mapping (the root cause of the
+ * hrStorageUsed → memory_usage bug fixed by migration 398) can never abort
+ * the whole row. Warns once per offending column per row.
+ */
+function sanitizeMetrics(deviceId, interfaceId, metrics) {
+  const clean = { ...metrics };
+  for (const [column, value] of Object.entries(clean)) {
+    if (value === null || value === undefined) continue;
+
+    const bounds = METRIC_COLUMN_BOUNDS[column];
+    if (!bounds) continue; // not expected — VALID_METRIC_COLUMNS covers every key
+
+    if (!Number.isFinite(value) || value < bounds.min || value > bounds.max) {
+      logger.warn(
+        { deviceId, interfaceId, column, value },
+        'snmpPoller: metric value out of range for its column, discarding',
+      );
+      clean[column] = null;
+    }
+  }
+  return clean;
 }
 
 /**
@@ -199,6 +327,7 @@ async function pollInterfaces(session, device, ifOids) {
  * `metrics` is an object whose keys are valid column names.
  */
 async function insertMetricRow(deviceId, interfaceId, metrics) {
+  const safe = sanitizeMetrics(deviceId, interfaceId, metrics);
   await db.query(
     `INSERT INTO snmp_metrics
        (device_id, interface_id,
@@ -217,37 +346,37 @@ async function insertMetricRow(deviceId, interfaceId, metrics) {
     [
       deviceId,
       interfaceId,
-      metrics.if_in_octets ?? null,
-      metrics.if_out_octets ?? null,
-      metrics.if_in_errors ?? null,
-      metrics.if_out_errors ?? null,
-      metrics.cpu_usage ?? null,
-      metrics.memory_usage ?? null,
-      metrics.signal_strength ?? null,
-      metrics.latency_ms ?? null,
-      metrics.voltage_mv ?? null,
-      metrics.temperature_c ?? null,
-      metrics.fan_speed_rpm ?? null,
-      metrics.if_in_discards ?? null,
-      metrics.if_out_discards ?? null,
-      metrics.sfp_tx_power_dbm ?? null,
-      metrics.sfp_rx_power_dbm ?? null,
-      metrics.sfp_temperature_c ?? null,
-      metrics.ups_battery_pct ?? null,
-      metrics.ups_runtime_min ?? null,
-      metrics.poe_power_mw ?? null,
-      metrics.humidity_pct ?? null,
-      metrics.if_oper_status ?? null,
+      safe.if_in_octets ?? null,
+      safe.if_out_octets ?? null,
+      safe.if_in_errors ?? null,
+      safe.if_out_errors ?? null,
+      safe.cpu_usage ?? null,
+      safe.memory_usage ?? null,
+      safe.signal_strength ?? null,
+      safe.latency_ms ?? null,
+      safe.voltage_mv ?? null,
+      safe.temperature_c ?? null,
+      safe.fan_speed_rpm ?? null,
+      safe.if_in_discards ?? null,
+      safe.if_out_discards ?? null,
+      safe.sfp_tx_power_dbm ?? null,
+      safe.sfp_rx_power_dbm ?? null,
+      safe.sfp_temperature_c ?? null,
+      safe.ups_battery_pct ?? null,
+      safe.ups_runtime_min ?? null,
+      safe.poe_power_mw ?? null,
+      safe.humidity_pct ?? null,
+      safe.if_oper_status ?? null,
       // §9.1 wireless/RF metrics — previously collected but dropped (never in the
       // INSERT list); now persisted. Plus sysUpTime (migration 372).
-      metrics.noise_floor_dbm ?? null,
-      metrics.air_util_pct ?? null,
-      metrics.gps_sync_status ?? null,
-      metrics.snr_db ?? null,
-      metrics.ccq_pct ?? null,
-      metrics.tx_rate_mbps ?? null,
-      metrics.rx_rate_mbps ?? null,
-      metrics.uptime_ticks ?? null,
+      safe.noise_floor_dbm ?? null,
+      safe.air_util_pct ?? null,
+      safe.gps_sync_status ?? null,
+      safe.snr_db ?? null,
+      safe.ccq_pct ?? null,
+      safe.tx_rate_mbps ?? null,
+      safe.rx_rate_mbps ?? null,
+      safe.uptime_ticks ?? null,
     ],
   );
 }
@@ -398,4 +527,48 @@ function extractNumericValue(varbind) {
   return Number.isFinite(num) ? num : null;
 }
 
-module.exports = { poll, pollDevice, createSnmpSession, mapAuthProtocol, mapPrivProtocol, resolveSecurityLevel };
+// Recognizes only "value / <number>" and "value * <number>" (whitespace
+// tolerant, optional leading minus on the operand). Anything else is rejected.
+const TRANSFORM_EXPR = /^\s*value\s*([/*])\s*(-?\d+(?:\.\d+)?)\s*$/;
+
+/**
+ * Apply a profile OID's optional `transform` expression (snmp_profile_oids
+ * .transform, schema.sql:1992) to a raw numeric value.
+ *
+ * SECURITY: `transform` is admin/API-editable free text — this function must
+ * NEVER eval() or `new Function()` it. Only the two whitelisted forms above
+ * are recognized; anything else (garbage, or an injection attempt) is
+ * rejected, logged once, and the raw value is returned unchanged.
+ */
+function applyTransform(value, expr) {
+  if (value === null || value === undefined || !Number.isFinite(value) || !expr) {
+    return value;
+  }
+
+  const match = TRANSFORM_EXPR.exec(expr);
+  if (!match) {
+    logger.warn({ expr }, 'applyTransform: unrecognized transform expression, using raw value');
+    return value;
+  }
+
+  const [, operator, operandStr] = match;
+  const operand = Number(operandStr);
+  if (!Number.isFinite(operand) || (operator === '/' && operand === 0)) {
+    logger.warn({ expr }, 'applyTransform: invalid transform operand, using raw value');
+    return value;
+  }
+
+  return operator === '/' ? value / operand : value * operand;
+}
+
+module.exports = {
+  poll,
+  pollDevice,
+  createSnmpSession,
+  mapAuthProtocol,
+  mapPrivProtocol,
+  resolveSecurityLevel,
+  applyTransform,
+  sanitizeMetrics,
+  METRIC_COLUMN_BOUNDS,
+};
