@@ -70,8 +70,8 @@ describe('ClientDetail page', () => {
     expect(screen.getByText('🔑 Portal Password')).toBeInTheDocument();
   });
 
-  it('hides write actions for read-only role', async () => {
-    mockRole = 'read-only';
+  it('hides write actions for readonly role', async () => {
+    mockRole = 'readonly';
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeInTheDocument());
     expect(screen.queryByText('✏️ Edit')).not.toBeInTheDocument();
@@ -134,8 +134,8 @@ describe('ClientDetail page', () => {
     expect(clientSelect).toBeDisabled();
   });
 
-  it('hides credit note write actions for read-only role', async () => {
-    mockRole = 'read-only';
+  it('hides credit note write actions for readonly role', async () => {
+    mockRole = 'readonly';
     mockApiGet.mockImplementation((path: string) =>
       path === '/credit-notes'
         ? Promise.resolve({

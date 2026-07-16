@@ -45,7 +45,6 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'campaigns.view', 'campaigns.create', 'campaigns.update', 'campaigns.delete',
     'dnd.view', 'dnd.update',
   ],
-  'read-only': ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health'],
   readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health'],
 };
 

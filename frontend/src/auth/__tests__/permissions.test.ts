@@ -52,10 +52,16 @@ describe('can()', () => {
       expect(can({ role: 'technician' }, 'clients.create')).toBe(false);
     });
 
-    it('denies billing and read-only roles for actions outside their map', () => {
+    it('denies billing and readonly roles for actions outside their map', () => {
       expect(can({ role: 'billing' }, 'clients.create')).toBe(false);
-      expect(can({ role: 'read-only' }, 'devices.create')).toBe(false);
       expect(can({ role: 'readonly' }, 'devices.create')).toBe(false);
+    });
+
+    it('has no dead "read-only" (mis-spelled) key — an unrecognized role denies by default', () => {
+      // 'read-only' was never the real role string (users.role ENUM value is
+      // 'readonly') and has been removed from ROLE_PERMISSIONS; this just
+      // locks in that an unmapped role string still safely denies.
+      expect(can({ role: 'read-only' }, 'winback.view')).toBe(false);
     });
 
     it('denies when role is undefined or unknown', () => {

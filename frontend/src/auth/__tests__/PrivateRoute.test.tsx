@@ -43,6 +43,13 @@ const billingUser: AuthUser = {
   role: 'billing',
 };
 
+const readonlyUser: AuthUser = {
+  ...adminUser,
+  id: 3,
+  email: 'readonly@test.com',
+  role: 'readonly',
+};
+
 // ---------------------------------------------------------------------------
 // hasRole unit tests
 // ---------------------------------------------------------------------------
@@ -51,7 +58,14 @@ describe('hasRole', () => {
   it('admin always returns true for any role', () => {
     expect(hasRole('admin', 'billing')).toBe(true);
     expect(hasRole('admin', 'technician')).toBe(true);
-    expect(hasRole('admin', 'read-only')).toBe(true);
+    expect(hasRole('admin', 'readonly')).toBe(true);
+  });
+
+  it('readonly passes every requiredRole gate ("sees everything, changes nothing")', () => {
+    expect(hasRole('readonly', 'technician')).toBe(true);
+    expect(hasRole('readonly', 'billing')).toBe(true);
+    expect(hasRole('readonly', 'admin')).toBe(true);
+    expect(hasRole('readonly', 'readonly')).toBe(true);
   });
 
   it('exact match returns true', () => {
@@ -59,15 +73,21 @@ describe('hasRole', () => {
     expect(hasRole('support', 'support')).toBe(true);
   });
 
-  it('lower-rank role returns false for higher required role', () => {
+  it('lower-rank role returns false for higher required role (readonly excluded — it always passes)', () => {
     expect(hasRole('support', 'admin')).toBe(false);
-    expect(hasRole('read-only', 'billing')).toBe(false);
+    expect(hasRole('support', 'billing')).toBe(false);
   });
 
   it('equal-rank roles return true', () => {
     // billing and technician have same rank (3)
     expect(hasRole('billing', 'technician')).toBe(true);
     expect(hasRole('technician', 'billing')).toBe(true);
+  });
+
+  it('support/technician/billing ranks are unchanged by the readonly bypass', () => {
+    expect(hasRole('support', 'technician')).toBe(false);
+    expect(hasRole('technician', 'support')).toBe(true);
+    expect(hasRole('billing', 'support')).toBe(true);
   });
 });
 
@@ -119,5 +139,14 @@ describe('PrivateRoute', () => {
     renderRoute(<PrivateRoute requiredRole="admin" />);
     expect(screen.getByText('403 — Not Allowed')).toBeInTheDocument();
     expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
+  });
+
+  it('renders outlet for readonly under every requiredRole gate', () => {
+    for (const requiredRole of ['technician', 'billing', 'admin']) {
+      mockAuth({ user: readonlyUser, loading: false, initialized: true });
+      const { unmount } = renderRoute(<PrivateRoute requiredRole={requiredRole} />);
+      expect(screen.getByText('Protected content')).toBeInTheDocument();
+      unmount();
+    }
   });
 });
