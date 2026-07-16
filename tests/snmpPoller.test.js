@@ -166,26 +166,36 @@ describe('snmpPoller', () => {
   // and honest reachability (migration 398)
   // =========================================================================
   describe('pollDevice() — sanitation & reachability (migration 398)', () => {
-    test('nulls an out-of-range scalar value but still inserts the row with the other valid columns; poll succeeds', async () => {
+    test('nulls an out-of-range aggregate value but still inserts the row with the other valid (walked) columns; poll succeeds', async () => {
+      // Post-migration-401 shape: both cpu_usage (hrProcessorLoad) and
+      // memory_usage (hrStorageTable ratio) are is_per_interface=TRUE and
+      // route through subtree walks, not session.get().
       const device = {
         id: 20, ip_address: '10.0.1.1', snmp_community: 'public',
         snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 1,
       };
       db.query
         .mockResolvedValueOnce([[
-          { id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', metric_column: 'cpu_usage', label: 'CPU', oid_type: 'gauge', is_per_interface: false, transform: null },
-          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: false, transform: null },
+          { id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', metric_column: 'cpu_usage', label: 'CPU', oid_type: 'gauge', is_per_interface: true, aggregate: true, transform: null },
+          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: true, aggregate: false, transform: null },
         ]])
         .mockResolvedValueOnce([]); // INSERT metric row
 
-      mockSession.get.mockImplementation((oids, cb) => {
-        cb(null, [
-          { oid: '1.3.6.1.2.1.25.3.3.1.2', value: 42 },
-          // Raw hrStorageUsed allocation units (migration 031's broken seed,
-          // removed by migration 398) — must never overflow the SMALLINT
-          // memory_usage column and abort the poll.
-          { oid: '1.3.6.1.2.1.25.2.3.1.6', value: 302552 },
-        ]);
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        if (oid === '1.3.6.1.2.1.25.3.3.1.2') {
+          // A misbehaving agent reporting a huge hrProcessorLoad value —
+          // averaging still leaves it out of the SMALLINT cpu_usage range;
+          // must be nulled, never overflow the column and abort the poll
+          // (migration 398's fix, still true post-401's walk-based path).
+          feedCb([{ oid: '1.3.6.1.2.1.25.3.3.1.2.1', value: 999999 }]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.2') { // hrStorageType
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.2.1', value: '1.3.6.1.2.1.25.2.1.2' }]); // hrStorageRam
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.6') { // hrStorageUsed
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.6.1', value: 300924 }]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.5') { // hrStorageSize
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.5.1', value: 1048576 }]);
+        }
+        doneCb(null);
       });
 
       await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
@@ -195,11 +205,11 @@ describe('snmpPoller', () => {
       const [, params] = insertCall;
       // Param order: deviceId, interfaceId, if_in_octets, if_out_octets,
       // if_in_errors, if_out_errors, cpu_usage(6), memory_usage(7), ...
-      expect(params[6]).toBe(42);
-      expect(params[7]).toBeNull();
+      expect(params[6]).toBeNull();
+      expect(params[7]).toBeCloseTo(28.7, 1); // 300924/1048576*100, RAM row only
 
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ column: 'memory_usage', value: 302552 }),
+        expect.objectContaining({ column: 'cpu_usage', value: 999999 }),
         expect.stringContaining('out of range'),
       );
     });
@@ -315,6 +325,161 @@ describe('snmpPoller', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ deviceId: 27, profileId: 8 }),
         expect.stringContaining('no attemptable OIDs'),
+      );
+    });
+  });
+
+  // =========================================================================
+  // pollDevice() — multi-core CPU averaging + RAM-matched memory percentage
+  // (migration 401)
+  // =========================================================================
+  describe('pollDevice() — aggregate CPU averaging & hrStorageTable memory ratio (migration 401)', () => {
+    function mockCpuAndMemoryOids() {
+      return [[
+        { id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', metric_column: 'cpu_usage', label: 'CPU', oid_type: 'gauge', is_per_interface: true, aggregate: true, transform: null },
+        { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: true, aggregate: false, transform: null },
+      ]];
+    }
+
+    test('averages a multi-core hrProcessorLoad walk into one device-level cpu_usage value', async () => {
+      const device = { id: 30, ip_address: '10.0.2.1', snmp_community: 'public', snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 10 };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', metric_column: 'cpu_usage', label: 'CPU', oid_type: 'gauge', is_per_interface: true, aggregate: true, transform: null },
+        ]])
+        .mockResolvedValueOnce([]); // INSERT metric row
+
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        feedCb([
+          { oid: '1.3.6.1.2.1.25.3.3.1.2.1', value: 10 },
+          { oid: '1.3.6.1.2.1.25.3.3.1.2.2', value: 20 },
+          { oid: '1.3.6.1.2.1.25.3.3.1.2.3', value: 90 },
+        ]);
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      const [, params] = insertCall;
+      expect(params[6]).toBe(40); // (10+20+90)/3
+    });
+
+    test('hrStorageTable: correlates type/used/size by trailing index and uses ONLY the RAM row, ignoring a disk row', async () => {
+      const device = { id: 31, ip_address: '10.0.2.2', snmp_community: 'public', snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 11 };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: true, aggregate: false, transform: null },
+        ]])
+        .mockResolvedValueOnce([]); // INSERT metric row
+
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        if (oid === '1.3.6.1.2.1.25.2.3.1.2') { // hrStorageType
+          feedCb([
+            { oid: '1.3.6.1.2.1.25.2.3.1.2.1', value: '1.3.6.1.2.1.25.2.1.4' }, // hrStorageFixedDisk — index 1
+            { oid: '1.3.6.1.2.1.25.2.3.1.2.2', value: '1.3.6.1.2.1.25.2.1.2' }, // hrStorageRam — index 2
+          ]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.6') { // hrStorageUsed
+          feedCb([
+            { oid: '1.3.6.1.2.1.25.2.3.1.6.1', value: 900000000 }, // disk — must be ignored
+            { oid: '1.3.6.1.2.1.25.2.3.1.6.2', value: 300924 },     // RAM
+          ]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.5') { // hrStorageSize
+          feedCb([
+            { oid: '1.3.6.1.2.1.25.2.3.1.5.1', value: 2000000000 }, // disk — must be ignored
+            { oid: '1.3.6.1.2.1.25.2.3.1.5.2', value: 1048576 },     // RAM
+          ]);
+        }
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      const [, params] = insertCall;
+      expect(params[7]).toBeCloseTo(28.7, 1); // 300924/1048576*100 — RAM row only
+    });
+
+    test('a zero-row walk for both aggregate cpu_usage and memory_usage folds null but still counts as reachable', async () => {
+      const device = { id: 32, ip_address: '10.0.2.3', snmp_community: 'public', snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 12 };
+      db.query.mockResolvedValueOnce(mockCpuAndMemoryOids()); // no INSERT expected — scalarRow ends up empty
+
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        // Every walk (cpu + all three hrStorageTable OIDs) completes with zero rows.
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      expect(insertCall).toBeUndefined(); // scalarRow stayed empty — nothing to insert, but no throw
+    });
+
+    test('divide-by-zero guard: a zero hrStorageSize at the matched RAM index yields null, not Infinity/NaN', async () => {
+      const device = { id: 33, ip_address: '10.0.2.4', snmp_community: 'public', snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 13 };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: true, aggregate: false, transform: null },
+          { id: 3, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
+        ]])
+        .mockResolvedValueOnce([]); // INSERT metric row (uptime_ticks still present)
+
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: 500 }]);
+      });
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        if (oid === '1.3.6.1.2.1.25.2.3.1.2') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.2.1', value: '1.3.6.1.2.1.25.2.1.2' }]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.6') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.6.1', value: 12345 }]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.5') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.5.1', value: 0 }]); // zero size at the matched index
+        }
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      const [, params] = insertCall;
+      expect(params[7]).toBeNull(); // memory_usage
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 33, used: 12345, size: 0 }),
+        expect.stringContaining('zero hrStorageSize'),
+      );
+    });
+
+    test('no hrStorageRam row found (only a disk row) yields null and logs once, without crashing', async () => {
+      const device = { id: 34, ip_address: '10.0.2.5', snmp_community: 'public', snmp_version: 'v2c', snmp_port: 161, snmp_profile_id: 14 };
+      db.query
+        .mockResolvedValueOnce([[
+          { id: 2, oid: '1.3.6.1.2.1.25.2.3.1.6', metric_column: 'memory_usage', label: 'Mem', oid_type: 'gauge', is_per_interface: true, aggregate: false, transform: null },
+          { id: 3, oid: '1.3.6.1.2.1.1.3.0', metric_column: 'uptime_ticks', label: 'Uptime', oid_type: 'timeticks', is_per_interface: false, transform: null },
+        ]])
+        .mockResolvedValueOnce([]); // INSERT metric row (uptime_ticks still present)
+
+      mockSession.get.mockImplementation((oids, cb) => {
+        cb(null, [{ oid: '1.3.6.1.2.1.1.3.0', value: 500 }]);
+      });
+      mockSession.subtree.mockImplementation((oid, feedCb, doneCb) => {
+        if (oid === '1.3.6.1.2.1.25.2.3.1.2') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.2.1', value: '1.3.6.1.2.1.25.2.1.4' }]); // disk only, no RAM row
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.6') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.6.1', value: 900000000 }]);
+        } else if (oid === '1.3.6.1.2.1.25.2.3.1.5') {
+          feedCb([{ oid: '1.3.6.1.2.1.25.2.3.1.5.1', value: 2000000000 }]);
+        }
+        doneCb(null);
+      });
+
+      await expect(snmpPoller.pollDevice(device)).resolves.toBeUndefined();
+
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_metrics'));
+      const [, params] = insertCall;
+      expect(params[7]).toBeNull(); // memory_usage
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 34 }),
+        expect.stringContaining('no hrStorageRam row found'),
       );
     });
   });

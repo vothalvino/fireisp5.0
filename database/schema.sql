@@ -1989,6 +1989,7 @@ CREATE TABLE IF NOT EXISTS snmp_profile_oids (
     oid_type        ENUM('gauge','counter','counter64','string','timeticks') NOT NULL DEFAULT 'gauge'
                                              COMMENT 'SNMP value type for proper delta/rate calculation',
     is_per_interface BOOLEAN        NOT NULL DEFAULT FALSE COMMENT 'TRUE = walk ifTable with ifIndex, FALSE = scalar',
+    aggregate       BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Only meaningful when is_per_interface=TRUE: TRUE means walk this OID subtree and reduce every returned row to ONE averaged device-level value (e.g. multi-core hrProcessorLoad) instead of one row per index (migration 401)',
     transform       VARCHAR(255)    NULL     COMMENT 'Optional transform expression e.g. "value / 10", "value * -1"',
     sort_order      INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'Display ordering within the profile',
     status          ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
@@ -2250,7 +2251,7 @@ VALUES
 
 -- Generic IF-MIB OIDs
 INSERT IGNORE INTO snmp_profile_oids
-    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, aggregate, transform, sort_order)
 SELECT
     p.id,
     o.oid,
@@ -2258,20 +2259,26 @@ SELECT
     o.label,
     o.oid_type,
     o.is_per_interface,
+    o.aggregate,
     o.transform,
     o.sort_order
 FROM snmp_profiles p
 JOIN (
-    SELECT '1.3.6.1.2.1.2.2.1.10'   AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'           AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL        AS transform, 10 AS sort_order UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.16',         'if_out_octets',               'Outbound Octets',             'counter', TRUE,  NULL,  20 UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.14',         'if_in_errors',                'Inbound Errors',              'counter', TRUE,  NULL,  30 UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.20',         'if_out_errors',               'Outbound Errors',             'counter', TRUE,  NULL,  40 UNION ALL
-    SELECT '1.3.6.1.2.1.25.3.3.1.2',       'cpu_usage',                   'CPU Usage (%)',               'gauge',   FALSE, NULL,  50
-    -- memory_usage (hrStorageUsed 1.3.6.1.2.1.25.2.3.1.6, migration 031) removed
-    -- by migration 398: a raw storage-allocation-unit count is never a
-    -- percentage on its own and overflowed the SMALLINT memory_usage column,
-    -- aborting the whole poll. Deferred: proper hrStorageUsed/hrStorageSize
-    -- ratio feature (needs a two-OID transform the `transform` column can't express).
+    SELECT '1.3.6.1.2.1.2.2.1.10'   AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'           AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, FALSE AS aggregate, NULL        AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',         'if_out_octets',               'Outbound Octets',             'counter', TRUE,  FALSE, NULL,  20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',         'if_in_errors',                'Inbound Errors',              'counter', TRUE,  FALSE, NULL,  30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',         'if_out_errors',               'Outbound Errors',             'counter', TRUE,  FALSE, NULL,  40 UNION ALL
+    -- cpu_usage: hrProcessorLoad, walked (not GET) + averaged across every
+    -- hrProcessorTable row (aggregate=TRUE) as of migration 401 -- a bare
+    -- scalar GET against this table OID returns NoSuchName on real hardware.
+    SELECT '1.3.6.1.2.1.25.3.3.1.2',       'cpu_usage',                   'CPU Usage (%, avg across cores)', 'gauge', TRUE,  TRUE,  NULL,  50 UNION ALL
+    -- memory_usage: hrStorageUsed/hrStorageSize RAM-row ratio, re-seeded by
+    -- migration 401 after migration 398 removed the broken bare-scalar
+    -- hrStorageUsed mapping. `oid` here is label-only -- snmpPoller.js's
+    -- collectHrMemoryPercent() hardcodes and walks the real three OIDs
+    -- (hrStorageType/hrStorageUsed/hrStorageSize) itself and computes
+    -- (used/size)*100 for only the row matching hrStorageRam.
+    SELECT '1.3.6.1.2.1.25.2.3.1.6',       'memory_usage',                'Memory Used % (hrStorageTable RAM row)', 'gauge', TRUE, FALSE, NULL, 60
 ) o
 WHERE p.name = 'Generic IF-MIB';
 
@@ -2301,7 +2308,7 @@ WHERE p.name = 'Ubiquiti airOS';
 
 -- MikroTik RouterOS OIDs
 INSERT IGNORE INTO snmp_profile_oids
-    (profile_id, oid, metric_column, label, oid_type, is_per_interface, transform, sort_order)
+    (profile_id, oid, metric_column, label, oid_type, is_per_interface, aggregate, transform, sort_order)
 SELECT
     p.id,
     o.oid,
@@ -2309,18 +2316,22 @@ SELECT
     o.label,
     o.oid_type,
     o.is_per_interface,
+    o.aggregate,
     o.transform,
     o.sort_order
 FROM snmp_profiles p
 JOIN (
-    SELECT '1.3.6.1.2.1.2.2.1.10'           AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'             AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, NULL AS transform, 10 AS sort_order UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.16',                 'if_out_octets',               'Outbound Octets',                'counter', TRUE,  NULL, 20 UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.14',                 'if_in_errors',                'Inbound Errors',                 'counter', TRUE,  NULL, 30 UNION ALL
-    SELECT '1.3.6.1.2.1.2.2.1.20',                 'if_out_errors',               'Outbound Errors',                'counter', TRUE,  NULL, 40 UNION ALL
-    SELECT '1.3.6.1.2.1.25.3.3.1.2',               'cpu_usage',                   'CPU Usage (HOST-RESOURCES)',     'gauge',   FALSE, NULL, 50 UNION ALL
-    -- memory_usage (hrStorageUsed 1.3.6.1.2.1.25.2.3.1.6, migration 031) removed
-    -- by migration 398 -- see the Generic IF-MIB block above for why.
-    SELECT '1.3.6.1.4.1.14988.1.1.1.2.1.3',        'signal_strength',             'RouterOS Wireless Signal (dBm)', 'gauge',   FALSE, NULL, 70
+    SELECT '1.3.6.1.2.1.2.2.1.10'           AS oid, 'if_in_octets'   AS metric_column, 'Inbound Octets'             AS label, 'counter' AS oid_type, TRUE  AS is_per_interface, FALSE AS aggregate, NULL AS transform, 10 AS sort_order UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.16',                 'if_out_octets',               'Outbound Octets',                'counter', TRUE,  FALSE, NULL, 20 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.14',                 'if_in_errors',                'Inbound Errors',                 'counter', TRUE,  FALSE, NULL, 30 UNION ALL
+    SELECT '1.3.6.1.2.1.2.2.1.20',                 'if_out_errors',               'Outbound Errors',                'counter', TRUE,  FALSE, NULL, 40 UNION ALL
+    -- cpu_usage: hrProcessorLoad, walked + averaged across cores (aggregate=TRUE)
+    -- as of migration 401 -- see the Generic IF-MIB block above for why.
+    SELECT '1.3.6.1.2.1.25.3.3.1.2',               'cpu_usage',                   'CPU Usage (HOST-RESOURCES, avg across cores)', 'gauge', TRUE, TRUE, NULL, 50 UNION ALL
+    -- memory_usage: hrStorageUsed/hrStorageSize RAM-row ratio, re-seeded by
+    -- migration 401 -- see the Generic IF-MIB block above for why.
+    SELECT '1.3.6.1.2.1.25.2.3.1.6',               'memory_usage',                'Memory Used % (hrStorageTable RAM row)', 'gauge', TRUE, FALSE, NULL, 60 UNION ALL
+    SELECT '1.3.6.1.4.1.14988.1.1.1.2.1.3',        'signal_strength',             'RouterOS Wireless Signal (dBm)', 'gauge',   FALSE, FALSE, NULL, 70
 ) o
 WHERE p.name = 'MikroTik RouterOS';
 

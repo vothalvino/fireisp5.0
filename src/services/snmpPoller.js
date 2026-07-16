@@ -187,10 +187,19 @@ async function poll() {
  * concern from reachability and must never be conflated with it — see
  * insertMetricRow()'s per-column sanitation and the scalar insert's own
  * try/catch below.
+ *
+ * `is_per_interface` OIDs (migration 401) split into three dispatch buckets,
+ * checked in this order: (1) memory_usage → collectHrMemoryPercent(), a
+ * hardcoded HOST-RESOURCES-MIB hrStorageTable ratio, one device-level value;
+ * (2) aggregate=TRUE → collectTableAverage(), a generic walk-and-average
+ * (e.g. multi-core hrProcessorLoad); (3) everything else → the original
+ * pollInterfaces() one-row-per-index behavior, unchanged. Both (1) and (2)
+ * fold their result into scalarRow and insert through the same single
+ * device-level insertMetricRow() call as true scalar OIDs.
  */
 async function pollDevice(device) {
   const [oids] = await db.query(
-    `SELECT id, oid, metric_column, label, oid_type, is_per_interface, transform
+    `SELECT id, oid, metric_column, label, oid_type, is_per_interface, transform, aggregate
      FROM snmp_profile_oids
      WHERE profile_id = ? AND status = 'active' AND deleted_at IS NULL
      ORDER BY sort_order`,
@@ -202,12 +211,32 @@ async function pollDevice(device) {
   // Scalar OIDs are always attempted together in one batched GET regardless
   // of metric_column recognition (extraction, not the call, filters them).
   const scalarOids = oids.filter(o => !o.is_per_interface);
+  const perInterfaceOids = oids.filter(o => o.is_per_interface);
+
+  // memory_usage is a hardcoded one-off (migration 401): dispatched to
+  // collectHrMemoryPercent(), which internally walks the three real
+  // HOST-RESOURCES-MIB hrStorageTable OIDs itself — this row's own `oid`
+  // column is label-only. At most one such row is expected per profile;
+  // if a profile is misconfigured with more than one, only the first is
+  // processed rather than crashing.
+  const memoryOids = perInterfaceOids.filter(o => o.metric_column === 'memory_usage');
+  // aggregate=TRUE (migration 401) means "walk this OID's subtree and reduce
+  // every returned row to one averaged device-level value" — generic and
+  // schema-driven (e.g. multi-core hrProcessorLoad), unlike memory_usage
+  // above. Pre-filtered by VALID_METRIC_COLUMNS for the same reason ifOids
+  // is below: each OID gets its own separate walk call, so an unrecognized
+  // metric_column must be excluded before the call, not just at extraction.
+  const aggregateOids = perInterfaceOids.filter(
+    o => o.metric_column !== 'memory_usage' && o.aggregate && VALID_METRIC_COLUMNS.has(o.metric_column),
+  );
   // Per-interface OIDs are pre-filtered HERE, before any SNMP call is even
   // attempted for them — an unrecognized metric_column must never silently
   // remove the only reachability signal a per-interface-only profile has.
-  const ifOids = oids.filter(o => o.is_per_interface && VALID_METRIC_COLUMNS.has(o.metric_column));
+  const ifOids = perInterfaceOids.filter(
+    o => o.metric_column !== 'memory_usage' && !o.aggregate && VALID_METRIC_COLUMNS.has(o.metric_column),
+  );
 
-  if (scalarOids.length === 0 && ifOids.length === 0) {
+  if (scalarOids.length === 0 && ifOids.length === 0 && memoryOids.length === 0 && aggregateOids.length === 0) {
     logger.warn(
       { deviceId: device.id, profileId: device.snmp_profile_id },
       'pollDevice: profile has no attemptable OIDs after metric_column filtering (config issue, not a device failure) — skipping this poll cycle',
@@ -236,6 +265,37 @@ async function pollDevice(device) {
 
         const rawValue = extractNumericValue(varbind);
         scalarRow[oid.metric_column] = applyTransform(rawValue, oid.transform);
+      }
+    }
+
+    // --- memory_usage (hardcoded HOST-RESOURCES-MIB hrStorageTable ratio) --
+    // At most one such row is expected per profile; don't crash on more.
+    if (memoryOids.length > 0) {
+      const [memOid] = memoryOids;
+      const { value: memPct, responded: memResponded } = await collectHrMemoryPercent(session, device.id);
+      agentResponded = agentResponded || memResponded;
+      if (memPct !== null) {
+        scalarRow.memory_usage = applyTransform(memPct, memOid.transform);
+      }
+    }
+
+    // --- aggregate (average-of-table) metrics, e.g. multi-core CPU load ----
+    if (aggregateOids.length > 0) {
+      for (const oid of aggregateOids) {
+        let avg;
+        try {
+          avg = await collectTableAverage(session, oid.oid);
+          agentResponded = true;
+        } catch (err) {
+          logger.warn(
+            { err, deviceId: device.id, oid: oid.oid, metricColumn: oid.metric_column },
+            'pollDevice: aggregate OID subtree walk failed, skipping this metric',
+          );
+          continue;
+        }
+        if (avg !== null) {
+          scalarRow[oid.metric_column] = applyTransform(avg, oid.transform);
+        }
       }
     }
 
@@ -321,6 +381,148 @@ async function pollInterfaces(session, device, ifOids) {
   }
 
   return anyWalkCompleted;
+}
+
+/**
+ * Walk a single OID's subtree and average every valid numeric row it returns
+ * into one device-level number (migration 401's `aggregate` column). Used
+ * for metrics that are inherently table-indexed on the device but represent
+ * one logical device-level quantity once combined — e.g. multi-core
+ * hrProcessorLoad (HOST-RESOURCES-MIB, one row per hrDeviceIndex).
+ *
+ * Returns null when the walk completes but yields zero usable numeric rows
+ * (empty table, or every row was an SNMP error varbind — both already
+ * filtered out by snmpSubtree()/isVarbindError before this function sees
+ * them); never NaN. Throws if the subtree walk itself fails — the caller
+ * decides how that affects reachability (mirrors collectHrMemoryPercent's
+ * and pollInterfaces' per-walk-call error handling).
+ */
+async function collectTableAverage(session, oid) {
+  const varbinds = await snmpSubtree(session, oid);
+  const values = varbinds
+    .map(extractNumericValue)
+    .filter(v => v !== null);
+
+  if (values.length === 0) return null;
+  return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+// HOST-RESOURCES-MIB (RFC 2790) OIDs used by collectHrMemoryPercent(). These
+// are hardcoded, not schema-driven — see migration 401 and this file's
+// pollDevice() doc comment for why memory_usage is a deliberate one-off
+// rather than a generic mechanism.
+const HR_STORAGE_TYPE_OID = '1.3.6.1.2.1.25.2.3.1.2';
+const HR_STORAGE_USED_OID = '1.3.6.1.2.1.25.2.3.1.6';
+const HR_STORAGE_SIZE_OID = '1.3.6.1.2.1.25.2.3.1.5';
+const HR_STORAGE_RAM_TYPE = '1.3.6.1.2.1.25.2.1.2'; // hrStorageRam
+
+/**
+ * Normalize an hrStorageType varbind value for comparison against
+ * HR_STORAGE_RAM_TYPE. hrStorageType's SYNTAX is OBJECT IDENTIFIER — the
+ * installed net-snmp version (verified against its asn1-ber dependency's
+ * Reader.prototype.readOID, which always returns a plain dotted-decimal
+ * string such as "1.3.6.1.2.1.25.2.1.2" with no prefix) hands this back as a
+ * string, but this is written defensively in case a future net-snmp version
+ * (or an unusual agent) returns an array of sub-identifiers instead. Any
+ * other representation (e.g. a raw Buffer of undecoded BER bytes) cannot be
+ * safely interpreted here and returns null (never matches, never throws).
+ */
+function normalizeOidValue(value) {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.join('.');
+  return null;
+}
+
+/**
+ * Collect a single device-level memory-usage percentage from the standard
+ * HOST-RESOURCES-MIB hrStorageTable (RFC 2790). hrStorageUsed is a raw
+ * storage-allocation-unit count, not a percentage on its own — it must be
+ * divided by the matching row's hrStorageSize (same hrStorageIndex) to
+ * derive a 0-100 value. Migration 398 removed a bare-scalar hrStorageUsed
+ * seed after it overflowed the SMALLINT memory_usage column on a real
+ * device; this is the deferred proper fix (migration 401).
+ *
+ * Walks hrStorageType, hrStorageUsed, and hrStorageSize (all indexed by the
+ * same trailing hrStorageIndex, mirroring the ifIndex-correlation pattern
+ * pollInterfaces() already uses), finds the row whose hrStorageType equals
+ * hrStorageRam, and computes (used/size)*100 for THAT row only — a
+ * disk/swap/buffers row elsewhere in the same walk is intentionally ignored.
+ * Live-verified against a real RouterOS lab device: RAM row
+ * used=300924/size=1048576 = 28.70%, with a disk row present and correctly
+ * skipped.
+ *
+ * This is a hardcoded one-off (not schema-driven like collectTableAverage)
+ * because snmp_profile_oids.transform can only express a single-value
+ * expression, not a two-OID ratio filtered to one matching row — see
+ * CLAUDE.md's guidance against building a generic mechanism for a pattern
+ * used exactly once.
+ *
+ * Returns { value, responded }: value is a 0-100 number, or null on walk
+ * failure / no matching RAM row / a zero or missing hrStorageSize at the
+ * matched index. responded is true if at least one of the three walks
+ * completed (resolved without throwing) — matching pollInterfaces()'s
+ * reachability semantics: a genuinely empty or unmatched result is still
+ * evidence the agent replied. Never throws.
+ */
+async function collectHrMemoryPercent(session, deviceId) {
+  let responded = false;
+
+  const walk = async (oid, label) => {
+    try {
+      const varbinds = await snmpSubtree(session, oid);
+      responded = true;
+      return varbinds;
+    } catch (err) {
+      logger.warn(
+        { err, deviceId, oid },
+        `collectHrMemoryPercent: ${label} subtree walk failed, skipping this metric`,
+      );
+      return null;
+    }
+  };
+
+  const [typeVarbinds, usedVarbinds, sizeVarbinds] = await Promise.all([
+    walk(HR_STORAGE_TYPE_OID, 'hrStorageType'),
+    walk(HR_STORAGE_USED_OID, 'hrStorageUsed'),
+    walk(HR_STORAGE_SIZE_OID, 'hrStorageSize'),
+  ]);
+
+  if (!typeVarbinds || !usedVarbinds || !sizeVarbinds) {
+    return { value: null, responded };
+  }
+
+  const indexOf = vb => {
+    const parts = vb.oid.split('.');
+    return parts[parts.length - 1];
+  };
+
+  let ramIndex = null;
+  for (const vb of typeVarbinds) {
+    if (normalizeOidValue(vb.value) === HR_STORAGE_RAM_TYPE) {
+      ramIndex = indexOf(vb);
+      break;
+    }
+  }
+
+  if (ramIndex === null) {
+    logger.warn({ deviceId }, 'collectHrMemoryPercent: no hrStorageRam row found in hrStorageTable walk');
+    return { value: null, responded };
+  }
+
+  const usedVb = usedVarbinds.find(vb => indexOf(vb) === ramIndex);
+  const sizeVb = sizeVarbinds.find(vb => indexOf(vb) === ramIndex);
+  const used = usedVb ? extractNumericValue(usedVb) : null;
+  const size = sizeVb ? extractNumericValue(sizeVb) : null;
+
+  if (used === null || size === null || size === 0) {
+    logger.warn(
+      { deviceId, used, size },
+      'collectHrMemoryPercent: missing hrStorageUsed/hrStorageSize (or zero hrStorageSize) at the matched RAM index',
+    );
+    return { value: null, responded };
+  }
+
+  return { value: (used / size) * 100, responded };
 }
 
 /**
@@ -597,5 +799,7 @@ module.exports = {
   resolveSecurityLevel,
   applyTransform,
   sanitizeMetrics,
+  collectTableAverage,
+  collectHrMemoryPercent,
   METRIC_COLUMN_BOUNDS,
 };
