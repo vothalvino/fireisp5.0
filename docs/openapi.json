@@ -66812,6 +66812,7 @@
           }
         },
         "required": [
+          "client_id",
           "subject",
           "category"
         ]

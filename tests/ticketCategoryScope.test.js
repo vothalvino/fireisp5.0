@@ -82,7 +82,7 @@ describe('POST /api/tickets — category taxonomy', () => {
     const res = await request(app)
       .post('/api/tickets')
       .set('Authorization', `Bearer ${tokenFor('admin')}`)
-      .send({ subject: 'ok', category: 'technical' });
+      .send({ subject: 'ok', category: 'technical', client_id: 37 });
     expect(res.status).toBe(201);
     expect(res.body.data.category).toBe('technical');
   });

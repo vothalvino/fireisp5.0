@@ -8,7 +8,9 @@
 const TICKET_CATEGORIES = ['technical', 'billing', 'installation', 'general'];
 
 const createTicket = {
-  client_id: { type: 'number', min: 1 },
+  // tickets.client_id is NOT NULL in the schema — omitting it used to reach
+  // the INSERT and 500. Required here so the API answers 422 with a message.
+  client_id: { type: 'number', required: true, min: 1 },
   contract_id: { type: 'number', min: 1 },
   assigned_to: { type: 'number', min: 1 },
   subject: { type: 'string', required: true, min: 1, max: 300 },
