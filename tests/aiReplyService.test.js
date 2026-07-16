@@ -417,7 +417,7 @@ describe('aiReplyService.generate — suggest mode', () => {
     expect(r.action).toBe('proposed');
     expect(mockTicketAddComment).toHaveBeenCalled();
     expect(mockNotificationCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: 7, type: 'ai_reply_suggested' }),
+      expect.objectContaining({ user_id: 7, type: 'ticket', entity_type: 'tickets' }),
     );
   });
 

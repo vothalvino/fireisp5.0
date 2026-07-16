@@ -1380,7 +1380,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     user_id     BIGINT UNSIGNED NOT NULL COMMENT 'Recipient user',
     title       VARCHAR(255)    NOT NULL,
     body        TEXT            NULL,
-    type        ENUM('info', 'warning', 'error', 'billing', 'network', 'ticket') NOT NULL DEFAULT 'info',
+    type        ENUM('info', 'warning', 'error', 'billing', 'network', 'ticket', 'work_order', 'maintenance') NOT NULL DEFAULT 'info',
     entity_type VARCHAR(50)     NULL     COMMENT 'Related entity e.g. invoices, tickets',
     entity_id   BIGINT UNSIGNED NULL     COMMENT 'Related entity ID for deep linking',
     is_read     TINYINT(1)      NOT NULL DEFAULT 0,

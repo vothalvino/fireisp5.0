@@ -180,6 +180,7 @@ function generateSpec() {
       { name: 'Portal Push', description: 'Web Push notification subscription management — §11.5' },
       { name: 'NOC Dashboard', description: 'Network Operations Center dashboard — health, alarms, outages, ticket queue, SLA compliance — §12.2' },
       { name: 'Work Orders', description: 'Field work order management with GPS scheduling and material tracking — §12.3' },
+      { name: 'Notifications', description: 'Staff in-app notifications (personal: always scoped to the authenticated user)' },
       { name: 'Technician Tracking', description: 'Real-time technician GPS breadcrumbs, last-known positions, and route optimization — §12.3' },
       { name: 'Topology Map', description: 'Network topology map — device graph, link utilization, geographic layers, geofences, dependency analysis — §13' },
       { name: 'Inventory & Asset Management', description: 'Vendor management, purchase orders, asset tracking, assignments, and RMA workflow' },
@@ -2166,6 +2167,28 @@ function generateSpec() {
       },
       '/work-orders/{id}/restore': {
         post: { tags: ['Work Orders'], summary: 'Restore a soft-deleted work order', operationId: 'restoreWorkOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrder') },
+      },
+      '/notifications': {
+        get: {
+          tags: ['Notifications'],
+          summary: 'List own notifications, newest first',
+          operationId: 'listNotifications',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'unread', in: 'query', schema: { type: 'boolean' }, description: 'Only unread when true' },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: r200('Notification[] (meta.unread = total unread count)'),
+        },
+      },
+      '/notifications/unread-count': {
+        get: { tags: ['Notifications'], summary: 'Unread notification count for the badge', operationId: 'getUnreadNotificationCount', security: [{ bearerAuth: [] }], responses: r200('{ count }') },
+      },
+      '/notifications/read-all': {
+        post: { tags: ['Notifications'], summary: 'Mark all own notifications read', operationId: 'markAllNotificationsRead', security: [{ bearerAuth: [] }], responses: r200('{ updated }') },
+      },
+      '/notifications/{id}/read': {
+        post: { tags: ['Notifications'], summary: 'Mark one own notification read', operationId: 'markNotificationRead', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('{ id, is_read }') },
       },
       '/work-orders/{id}/materials': {
         get: { tags: ['Work Orders'], summary: 'List materials used on a work order', operationId: 'listWorkOrderMaterials', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrderMaterial[]') },

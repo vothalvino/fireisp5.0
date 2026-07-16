@@ -4368,5 +4368,11 @@
     "billing": "Facturación",
     "installation": "Instalación",
     "general": "General"
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "markAllRead": "Marcar todo como leído",
+    "empty": "Sin notificaciones",
+    "bellLabel": "Notificaciones ({{count}} sin leer)"
   }
 }

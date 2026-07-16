@@ -4368,5 +4368,11 @@
     "billing": "Faturamento",
     "installation": "Instalação",
     "general": "Geral"
+  },
+  "notifications": {
+    "title": "Notificações",
+    "markAllRead": "Marcar tudo como lido",
+    "empty": "Sem notificações",
+    "bellLabel": "Notificações ({{count}} não lidas)"
   }
 }

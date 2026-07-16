@@ -314,6 +314,72 @@ function registerHooks() {
     }
   });
 
+  // --- Work Order Assigned (technician dispatch) ---
+  // Emitted by routes/workOrders.js on create-with-assignee and whenever
+  // assigned_to changes to a new user. Notifies the assignee in-app (bell) and
+  // by email, and dispatches the org webhook.
+  eventBus.on('work_order.assigned', async ({ organizationId, workOrder }) => {
+    try {
+      const db = require('../config/database');
+      const Notification = require('../models/Notification');
+      const scheduled = workOrder.scheduled_at
+        ? new Date(workOrder.scheduled_at).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+        : null;
+
+      await Notification.create({
+        user_id:     workOrder.assigned_to,
+        type:        'work_order',
+        title:       `Work order assigned: ${workOrder.title}`,
+        body:        [
+          workOrder.work_type ? `Type: ${workOrder.work_type}` : null,
+          workOrder.priority ? `Priority: ${workOrder.priority}` : null,
+          scheduled ? `Scheduled: ${scheduled}` : null,
+          workOrder.address ? `Address: ${workOrder.address}` : null,
+        ].filter(Boolean).join('\n') || null,
+        entity_type: 'work_orders',
+        entity_id:   workOrder.id,
+      }).catch(err2 => logger.warn({ err: err2, workOrderId: workOrder.id }, 'Work order in-app notification error'));
+
+      await webhookService.dispatch(organizationId, 'work_order.assigned', {
+        id: workOrder.id,
+        title: workOrder.title,
+        work_type: workOrder.work_type,
+        priority: workOrder.priority,
+        assigned_to: workOrder.assigned_to,
+        scheduled_at: workOrder.scheduled_at,
+      }).catch(err2 => logger.warn({ err: err2, workOrderId: workOrder.id }, 'Work order webhook error'));
+
+      // Email the assignee
+      try {
+        const [[assignee]] = await db.query(
+          `SELECT email, first_name FROM users
+           WHERE id = ? AND organization_id = ? AND status = 'active' AND email IS NOT NULL AND deleted_at IS NULL`,
+          [workOrder.assigned_to, organizationId],
+        );
+        if (assignee?.email) {
+          const html = `<p>Hola ${esc(assignee.first_name || '')},</p>`
+            + '<p>Se te asignó una orden de trabajo:</p>'
+            + `<p><strong>#${workOrder.id} — ${esc(workOrder.title)}</strong></p>`
+            + (workOrder.work_type ? `<p>Tipo: ${esc(workOrder.work_type)}</p>` : '')
+            + (workOrder.priority ? `<p>Prioridad: ${esc(workOrder.priority)}</p>` : '')
+            + (scheduled ? `<p>Programada: ${esc(scheduled)}</p>` : '')
+            + (workOrder.address ? `<p>Dirección: ${esc(workOrder.address)}</p>` : '')
+            + '<p>Consulta los detalles en tu panel de técnico.</p>';
+          await emailTransport.sendEmail({
+            organizationId,
+            to: assignee.email,
+            subject: `Orden de trabajo asignada: #${workOrder.id} ${workOrder.title}`,
+            html,
+          }).catch(err2 => logger.warn({ err: err2, workOrderId: workOrder.id }, 'Work order assignee email error'));
+        }
+      } catch (mailErr) {
+        logger.warn({ err: mailErr, event: 'work_order.assigned' }, 'Work order assignee lookup error');
+      }
+    } catch (err) {
+      logger.error({ err, event: 'work_order.assigned' }, 'Notification hook error');
+    }
+  });
+
   // --- Outage Reported ---
   eventBus.on('outage.reported', async ({ organizationId, outage }) => {
     try {

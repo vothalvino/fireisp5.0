@@ -569,6 +569,135 @@ button:disabled {
   color-scheme: dark;
 }
 
+/* -- Notification bell -------------------------------------------------------- */
+.notif-bell-root {
+  position: relative;
+  display: inline-flex;
+}
+.notif-bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.notif-bell-btn:hover {
+  color: var(--text-primary);
+}
+.notif-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(360px, 90vw);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.45);
+  z-index: 400;
+  overflow: hidden;
+}
+.notif-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.notif-mark-all {
+  background: none;
+  border: none;
+  color: var(--link);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+}
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.notif-empty {
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.notif-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.notif-item:hover {
+  background: var(--bg-subtle);
+}
+.notif-item.unread {
+  background: var(--accent-soft);
+}
+.notif-item-title {
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+.notif-item-body {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+.notif-item-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+/* the mobile topbar is a flex row: brand left, bell right */
+.mobile-topbar {
+  justify-content: space-between;
+  align-items: center;
+}
+.mobile-topbar-bell {
+  display: inline-flex;
+}
+/* the mobile bar is always dark — restyle the bell for it */
+.mobile-topbar .notif-bell-btn {
+  border-color: var(--sidebar-border);
+  color: var(--sidebar-fg-muted);
+}
+.mobile-topbar .notif-bell-btn:hover {
+  color: #fff;
+}
+
 /* -- Command palette --------------------------------------------------------- */
 .palette-overlay {
   position: fixed;

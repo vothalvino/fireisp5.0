@@ -543,13 +543,15 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
       is_internal: true,
     });
     if (ticket?.assigned_to) {
+      // Never let a notification hiccup fail the reply pipeline.
       await Notification.create({
-        organization_id: orgId,
-        user_id:         ticket.assigned_to,
-        type:            'ai_reply_suggested',
-        title:           'AI Reply Suggested',
-        message:         `An AI reply has been suggested for ticket #${ticketId}. Review and send if appropriate.`,
-      });
+        user_id:     ticket.assigned_to,
+        type:        'ticket',
+        title:       'AI Reply Suggested',
+        body:        `An AI reply has been suggested for ticket #${ticketId}. Review and send if appropriate.`,
+        entity_type: 'tickets',
+        entity_id:   ticketId,
+      }).catch(err => logger.warn({ err: err.message, ticketId }, 'aiReplyService: agent notification failed'));
     }
     logger.info({ orgId, ticketId, logId: logEntry.id }, 'aiReplyService: draft attached + agent notified (suggest)');
     return { skipped: false, logId: logEntry.id, draftText: finalText, action: 'proposed' };
@@ -582,12 +584,13 @@ async function generate({ orgId, ticketId, channel = 'portal', inboundText, cont
     if (ticket?.assigned_to) {
       const pct = Math.round(classification.confidence * 100);
       await Notification.create({
-        organization_id: orgId,
-        user_id:         ticket.assigned_to,
-        type:            'ai_reply_suggested',
-        title:           `AI Reply Suggested (confidence ${pct}% < auto-send threshold)`,
-        message:         `An AI reply was generated for ticket #${ticketId} but confidence (${pct}%) is below the auto-send threshold. Review and send if appropriate.`,
-      });
+        user_id:     ticket.assigned_to,
+        type:        'ticket',
+        title:       `AI Reply Suggested (confidence ${pct}% < auto-send threshold)`,
+        body:        `An AI reply was generated for ticket #${ticketId} but confidence (${pct}%) is below the auto-send threshold. Review and send if appropriate.`,
+        entity_type: 'tickets',
+        entity_id:   ticketId,
+      }).catch(err => logger.warn({ err: err.message, ticketId }, 'aiReplyService: agent notification failed'));
     }
     logger.info({ orgId, ticketId, logId: logEntry.id }, 'aiReplyService: auto_send fell back to suggest (low confidence)');
     return { skipped: false, logId: logEntry.id, draftText: finalText, action: 'proposed' };
