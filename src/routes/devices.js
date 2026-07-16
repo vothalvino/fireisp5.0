@@ -94,6 +94,10 @@ router.post('/:id/restore', requirePermission('devices.update'), async (req, res
 // Device SNMP metrics
 router.get('/:id/snmp-metrics', requirePermission('devices.view'), async (req, res, next) => {
   try {
+    // Verify the device belongs to the org before returning its metric
+    // history — this was a raw device_id lookup with no org check, so any
+    // devices.view holder in any org could pull ANY org's SNMP history.
+    await Device.findByIdOrFail(req.params.id, req.orgId);
     const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
     const [rows] = await db.query(
       `SELECT * FROM snmp_metrics WHERE device_id = ? ORDER BY polled_at DESC LIMIT ${limit}`,

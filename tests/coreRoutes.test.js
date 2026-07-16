@@ -1307,7 +1307,10 @@ describe('Device Routes — /api/devices', () => {
         id: 1, device_id: 1, oid: '1.3.6.1.2.1.1.1.0',
         value: 'RouterOS', polled_at: '2025-06-01T00:00:00Z',
       };
-      db.query.mockResolvedValueOnce([[metric]]);
+      // Ownership check (Device.findByIdOrFail) runs first, then the metrics query.
+      db.query
+        .mockResolvedValueOnce([[mockDevice]])
+        .mockResolvedValueOnce([[metric]]);
 
       const res = await request(app)
         .get('/api/devices/1/snmp-metrics')
@@ -1320,7 +1323,9 @@ describe('Device Routes — /api/devices', () => {
 
     test('returns empty array when no metrics', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);
+      db.query
+        .mockResolvedValueOnce([[mockDevice]])
+        .mockResolvedValueOnce([[]]);
 
       const res = await request(app)
         .get('/api/devices/1/snmp-metrics')
@@ -1328,6 +1333,19 @@ describe('Device Routes — /api/devices', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(0);
+    });
+
+    test('returns 404 when the device belongs to a different org (cross-org leak regression)', async () => {
+      mockAuthUser();
+      // Ownership check finds no matching row for this org — mirrors every
+      // other org-scoped 404 in this suite.
+      db.query.mockResolvedValueOnce([[]]);
+
+      const res = await request(app)
+        .get('/api/devices/1/snmp-metrics')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
     });
   });
 

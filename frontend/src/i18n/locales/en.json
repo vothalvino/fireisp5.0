@@ -3739,7 +3739,9 @@
     },
     "snmp": {
       "empty": "No SNMP metrics found.",
-      "polledAt": "Polled At"
+      "polledAt": "Polled At",
+      "latestReadings": "Latest Readings",
+      "viewHistory": "View metric history"
     },
     "backups": {
       "empty": "No config backups found.",
@@ -4421,5 +4423,95 @@
     "markAllRead": "Mark all read",
     "empty": "No notifications",
     "bellLabel": "Notifications ({{count}} unread)"
+  },
+  "snmpMetrics": {
+    "title": "SNMP Metrics",
+    "refresh": "↻ Refresh",
+    "refreshing": "Loading…",
+    "fleet": {
+      "filterPlaceholder": "Filter by name or IP…",
+      "loading": "Loading fleet status…",
+      "error": "Failed to load fleet status.",
+      "noDevices": "No SNMP-enabled devices found.",
+      "noMatch": "No devices match this filter.",
+      "noDataYet": "No data yet",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "uptime": "Uptime",
+      "lastPolled": "Last polled",
+      "inRate": "In",
+      "outRate": "Out",
+      "pollFailures": "{{count}} failed polls",
+      "viewHistory": "View metric history for {{name}}",
+      "status": {
+        "online": "Online",
+        "offline": "Offline",
+        "maintenance": "Maintenance"
+      }
+    },
+    "history": {
+      "backToFleet": "← All devices",
+      "deviceFallback": "Device #{{id}}",
+      "range": "Range",
+      "interface": "Interface",
+      "allInterfaces": "All interfaces",
+      "rangeOptions": {
+        "raw24h": "24 h (raw)",
+        "hourly7d": "7 d (hourly)",
+        "daily30d": "30 d (daily)"
+      },
+      "notFound": {
+        "title": "Device not found",
+        "message": "This device doesn't exist, or doesn't belong to your organization."
+      },
+      "noData": {
+        "title": "No SNMP data found for the selected device and time range.",
+        "hint": "Make sure the SNMP poller has run and the device is online."
+      },
+      "error": "Failed to load metrics",
+      "summary": {
+        "cpu": "CPU (latest)",
+        "memory": "Memory (latest)",
+        "signal": "Signal (latest)",
+        "latency": "Latency (latest)",
+        "uptime": "Uptime",
+        "lastPoll": "Last poll",
+        "dataPoints": "Data points"
+      },
+      "charts": {
+        "throughput": "Throughput",
+        "cpu": "CPU Usage (%)",
+        "memory": "Memory Usage (%)",
+        "signal": "Signal Strength (dBm)",
+        "latency": "Latency (ms)",
+        "noData": "No data in selected range"
+      },
+      "legend": {
+        "in": "↓ In",
+        "out": "↑ Out"
+      },
+      "switchPorts": {
+        "title": "Switch Port Status",
+        "loading": "Loading port status…",
+        "error": "Failed to load port data.",
+        "port": "Port",
+        "status": "Status",
+        "inAvg": "In (avg)",
+        "outAvg": "Out (avg)",
+        "inErrors": "In Errors",
+        "discards": "Discards",
+        "poeRx": "PoE / RxPwr",
+        "statusUp": "Up",
+        "statusDown": "Down",
+        "statusTesting": "Testing",
+        "statusLowerLayerDown": "LowerLayerDown"
+      }
+    },
+    "relativeTime": {
+      "justNow": "just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
+    }
   }
 }

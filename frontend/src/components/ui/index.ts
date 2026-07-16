@@ -21,3 +21,6 @@ export type { FieldProps } from './Field';
 
 export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
+
+export { Sparkline } from './Sparkline';
+export type { SparklineProps } from './Sparkline';

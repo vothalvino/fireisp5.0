@@ -630,6 +630,72 @@ describe('DeviceDetail — create work order', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SNMP Metrics tab — connects to the /snmp-metrics fleet-glance/history page
+// instead of a raw Object.keys column dump.
+// ---------------------------------------------------------------------------
+
+describe('DeviceDetail — SNMP Metrics tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function openSnmpTab() {
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router-01' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'SNMP Metrics' }));
+  }
+
+  it('always shows a "View metric history" link to /snmp-metrics?device_id=42', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+      if (path === '/devices/{id}/snmp-metrics') return Promise.resolve({ data: { data: [] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    await openSnmpTab();
+
+    const link = await screen.findByRole('link', { name: /View metric history/ });
+    expect(link).toHaveAttribute('href', '/snmp-metrics?device_id=42');
+  });
+
+  it('shows the empty message when no SNMP metrics exist', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+      if (path === '/devices/{id}/snmp-metrics') return Promise.resolve({ data: { data: [] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    await openSnmpTab();
+
+    expect(await screen.findByText('No SNMP metrics found.')).toBeInTheDocument();
+  });
+
+  it('shows a compact latest-readings summary (not a raw column dump) when metrics exist', async () => {
+    const latestReading = {
+      id: 900,
+      polled_at: '2026-07-16T10:00:00.000Z',
+      cpu_usage: 42,
+      memory_usage: 55.4,
+      signal_strength: -62,
+      latency_ms: 12.3,
+      uptime_ticks: 123456,
+    };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/devices/{id}') return Promise.resolve({ data: { data: device }, error: undefined });
+      if (path === '/devices/{id}/snmp-metrics') return Promise.resolve({ data: { data: [latestReading] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    await openSnmpTab();
+
+    expect(await screen.findByText('42.0 %')).toBeInTheDocument();
+    expect(screen.getByText('55.4 %')).toBeInTheDocument();
+    expect(screen.getByText('-62 dBm')).toBeInTheDocument();
+    expect(screen.getByText('12.3 ms')).toBeInTheDocument();
+    // Never falls back to a raw Object.keys() column dump.
+    expect(screen.queryByText('cpu_usage')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory_usage')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Overview tab (real content — status, vendor/model, mgmt address, linked
 // site/client/contract, last polled / poll error)
 // ---------------------------------------------------------------------------

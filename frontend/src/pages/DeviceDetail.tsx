@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
 import { ClientPicker } from '@/components/ClientPicker';
 import { extractApiError } from '@/components/ClientFormModal';
+import { fmtPct, fmtSignal, fmtLatency, fmtUptimeTicks } from './snmpMetrics/format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -787,30 +788,26 @@ export function DeviceDetail() {
         )}
 
         {activeTab === 'snmp' && (
-          <div style={{ overflowX: 'auto' }}>
+          <div>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <Link to={`/snmp-metrics?device_id=${id}`} style={styles.snmpHistoryLink}>
+                {t('deviceDetail.snmp.viewHistory')} →
+              </Link>
+            </div>
             {!snmpMetrics?.length ? (
               <p style={styles.msg}>{t('deviceDetail.snmp.empty')}</p>
             ) : (
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>{t('deviceDetail.snmp.polledAt')}</th>
-                    {Object.keys(snmpMetrics[0]).filter(k => k !== 'id' && k !== 'polled_at').map(k => (
-                      <th key={k} style={styles.th}>{k}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {snmpMetrics.map(m => (
-                    <tr key={m.id} style={styles.tr}>
-                      <td style={styles.td}>{fmt(m.polled_at)}</td>
-                      {Object.keys(m).filter(k => k !== 'id' && k !== 'polled_at').map(k => (
-                        <td key={k} style={styles.td}>{String(m[k] ?? '—')}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                <div style={styles.infoLabel}>{t('deviceDetail.snmp.latestReadings')}</div>
+                <div style={styles.snmpSummaryGrid}>
+                  <InfoRow label={t('deviceDetail.fields.lastPolledAt')} value={fmt(snmpMetrics[0].polled_at)} />
+                  <InfoRow label={t('snmpMetrics.fleet.cpu')} value={fmtPct(snmpMetrics[0].cpu_usage as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.fleet.memory')} value={fmtPct(snmpMetrics[0].memory_usage as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.history.summary.signal')} value={fmtSignal(snmpMetrics[0].signal_strength as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.history.summary.latency')} value={fmtLatency(snmpMetrics[0].latency_ms as number | string | null)} />
+                  <InfoRow label={t('snmpMetrics.fleet.uptime')} value={fmtUptimeTicks(snmpMetrics[0].uptime_ticks as number | string | null)} />
+                </div>
+              </>
             )}
           </div>
         )}
@@ -968,6 +965,8 @@ const styles = {
   td: { padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle' as const },
   msg:      { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
+  snmpHistoryLink: { color: 'var(--accent)', fontWeight: 600, fontSize: '0.9rem', textDecoration: 'none' as const },
+  snmpSummaryGrid: { display: 'grid' as const, gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.5rem 1.5rem', marginTop: '0.5rem' },
   rfThresholdsPanel: { maxWidth: 420, display: 'flex' as const, flexDirection: 'column' as const, gap: '0.35rem' },
   rfThresholdsIntro: { fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' },
   rfThresholdsLabel: { display: 'flex' as const, flexDirection: 'column' as const, gap: '0.3rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '0.5rem' },

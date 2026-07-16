@@ -204,4 +204,140 @@ describe('SNMP Metrics extended routes (§6.2/6.3)', () => {
     const res = await request(app).get('/api/v1/snmp-metrics/top-talkers');
     expect(res.status).toBe(401);
   });
+
+  // ---------------------------------------------------------------------
+  // Cross-tenant leak regressions
+  // ---------------------------------------------------------------------
+
+  test('GET /api/v1/snmp-metrics/devices scopes the device list to the caller org', async () => {
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics/devices')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(200);
+
+    const deviceListCall = db.query.mock.calls.find(
+      ([sql]) => sql.includes('FROM devices') && sql.includes('snmp_enabled'),
+    );
+    expect(deviceListCall).toBeDefined();
+    expect(deviceListCall[0]).toMatch(/organization_id = \?/);
+    expect(deviceListCall[1]).toEqual([10]);
+  });
+
+  test('GET /api/v1/snmp-metrics returns 404 when device_id belongs to a different org', async () => {
+    db.query.mockImplementation((sql) => {
+      // Ownership check first (more specific match) — simulate "no row in this org".
+      if (sql.includes('FROM devices') && sql.includes('organization_id = ?')) {
+        return Promise.resolve([[]]);
+      }
+      if (sql.includes('WHERE id = ?')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics?device_id=999&resolution=1hr')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(404);
+  });
+
+  test('GET /api/v1/snmp-metrics raw resolution now selects uptime_ticks', async () => {
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics?device_id=5&resolution=raw')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(200);
+
+    const rawCall = db.query.mock.calls.find(
+      ([sql]) => sql.includes('FROM snmp_metrics') && sql.includes('polled_at AS ts'),
+    );
+    expect(rawCall).toBeDefined();
+    expect(rawCall[0]).toMatch(/uptime_ticks/);
+  });
+
+  // ---------------------------------------------------------------------
+  // Fleet at-a-glance endpoint
+  // ---------------------------------------------------------------------
+
+  describe('GET /api/v1/snmp-metrics/fleet', () => {
+    const fleetDevices = [
+      { id: 5, name: 'Core-Router-01', type: 'router', status: 'online', site_id: 1, consecutive_poll_failures: 0, last_polled_at: '2026-07-16T10:00:00.000Z', last_poll_error: null },
+      { id: 6, name: 'Switch-02', type: 'switch', status: 'online', site_id: 1, consecutive_poll_failures: 0, last_polled_at: null, last_poll_error: null },
+    ];
+    const fleetLatest = [
+      { device_id: 5, cpu_usage: 42, memory_usage: 55, uptime_ticks: 123456, polled_at: '2026-07-16T10:00:00.000Z' },
+    ];
+    const fleetSpark = [
+      { device_id: 5, polled_at: '2026-07-16T09:00:00.000Z', cpu_usage: 40 },
+      { device_id: 5, polled_at: '2026-07-16T09:30:00.000Z', cpu_usage: 41 },
+    ];
+    const fleetTraffic = [
+      // newest bucket first, as the query's ORDER BY minute_bucket DESC returns them
+      { device_id: 5, minute_bucket: 1000, ts: '2026-07-16T10:00:00.000Z', in_octets: 2000, out_octets: 1000 },
+      { device_id: 5, minute_bucket: 999, ts: '2026-07-16T09:55:00.000Z', in_octets: 1000, out_octets: 500 },
+    ];
+
+    function mockFleetDb({ devices = fleetDevices, latest = fleetLatest, spark = fleetSpark, traffic = fleetTraffic } = {}) {
+      db.query.mockImplementation((sql) => {
+        if (sql.includes('minute_bucket')) return Promise.resolve([traffic]);
+        if (sql.includes('INTERVAL 2 HOUR')) return Promise.resolve([spark]);
+        if (sql.includes('uptime_ticks')) return Promise.resolve([latest]);
+        if (sql.includes('consecutive_poll_failures')) return Promise.resolve([devices]);
+        if (sql.includes('WHERE id = ?')) {
+          return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+    }
+
+    test('returns per-device latest/spark/traffic shape, org-scoped with LIMIT 500', async () => {
+      mockFleetDb();
+
+      const res = await request(app)
+        .get('/api/v1/snmp-metrics/fleet')
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-Org-Id', '10');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(2);
+
+      const withData = res.body.data.find(d => d.id === 5);
+      expect(withData.latest).toEqual(expect.objectContaining({ cpu_usage: 42, memory_usage: 55, uptime_ticks: 123456 }));
+      expect(withData.cpu_spark).toHaveLength(2);
+      expect(withData.traffic_samples).toHaveLength(2);
+      // Reversed into chronological (oldest-first) order for a straightforward delta calc.
+      expect(withData.traffic_samples[0].in_octets).toBe(1000);
+      expect(withData.traffic_samples[1].in_octets).toBe(2000);
+
+      const noData = res.body.data.find(d => d.id === 6);
+      expect(noData.latest).toBeNull();
+      expect(noData.cpu_spark).toEqual([]);
+      expect(noData.traffic_samples).toEqual([]);
+
+      const devicesCall = db.query.mock.calls.find(([sql]) => sql.includes('consecutive_poll_failures'));
+      expect(devicesCall[0]).toMatch(/organization_id = \?/);
+      expect(devicesCall[0]).toMatch(/LIMIT 500/);
+      expect(devicesCall[1]).toEqual([10]);
+    });
+
+    test('returns an empty data array when the org has no SNMP-enabled devices (no N+1 follow-up queries)', async () => {
+      mockFleetDb({ devices: [] });
+
+      const res = await request(app)
+        .get('/api/v1/snmp-metrics/fleet')
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-Org-Id', '10');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+
+      // Short-circuits before issuing the latest/spark/traffic follow-up queries.
+      expect(db.query.mock.calls.some(([sql]) => sql.includes('minute_bucket'))).toBe(false);
+    });
+  });
 });

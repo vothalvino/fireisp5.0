@@ -51,6 +51,12 @@ describe('NetworkHealthList page', () => {
     await waitFor(() => expect(screen.getByText('99.95%')).toBeInTheDocument());
   });
 
+  it('links the device_id cell to the device detail page', async () => {
+    renderList();
+    await waitFor(() => expect(screen.getByRole('link', { name: '#4' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: '#4' })).toHaveAttribute('href', '/devices/4');
+  });
+
   it('shows empty message when no snapshots', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/network-health')

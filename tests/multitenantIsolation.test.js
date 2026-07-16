@@ -310,6 +310,7 @@ describe('Route-level cross-org isolation — GET /:id returns 404', () => {
     ['payments',     `/api/v1/payments/${RECORD_ID}`],
     ['tickets',      `/api/v1/tickets/${RECORD_ID}`],
     ['devices',      `/api/v1/devices/${RECORD_ID}`],
+    ['device snmp-metrics', `/api/v1/devices/${RECORD_ID}/snmp-metrics`],
     ['plans',        `/api/v1/plans/${RECORD_ID}`],
     ['credit-notes', `/api/v1/credit-notes/${RECORD_ID}`],
     ['ip-pools',     `/api/v1/ip-pools/${RECORD_ID}`],

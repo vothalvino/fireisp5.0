@@ -1383,6 +1383,9 @@ function generateSpec() {
       '/snmp-metrics/devices': {
         get: { tags: ['SNMP Metrics'], summary: 'List SNMP-enabled devices', operationId: 'listSnmpDevices', security: [{ bearerAuth: [] }], responses: r200('Device[]') },
       },
+      '/snmp-metrics/fleet': {
+        get: { tags: ['SNMP Metrics'], summary: 'Fleet-wide at-a-glance SNMP health for every SNMP-enabled device', operationId: 'getSnmpFleetGlance', security: [{ bearerAuth: [] }], responses: r200('SnmpFleetGlanceResponse') },
+      },
       '/snmp-metrics/top-talkers': {
         get: { tags: ['SNMP Metrics'], summary: 'Top interfaces by total bytes', operationId: 'getTopTalkers', security: [{ bearerAuth: [] }], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer', default: 24 } }, { name: 'limit', in: 'query', schema: { type: 'integer', default: 10, maximum: 100 } }], responses: r200('TopTalkersResponse') },
       },

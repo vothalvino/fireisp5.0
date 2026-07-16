@@ -3739,7 +3739,9 @@
     },
     "snmp": {
       "empty": "Nenhuma métrica SNMP encontrada.",
-      "polledAt": "Data da Sondagem"
+      "polledAt": "Data da Sondagem",
+      "latestReadings": "Leituras Recentes",
+      "viewHistory": "Ver histórico de métricas"
     },
     "backups": {
       "empty": "Nenhum backup de configuração encontrado.",
@@ -4421,5 +4423,95 @@
     "markAllRead": "Marcar tudo como lido",
     "empty": "Sem notificações",
     "bellLabel": "Notificações ({{count}} não lidas)"
+  },
+  "snmpMetrics": {
+    "title": "Métricas SNMP",
+    "refresh": "↻ Atualizar",
+    "refreshing": "Carregando…",
+    "fleet": {
+      "filterPlaceholder": "Filtrar por nome ou IP…",
+      "loading": "Carregando status da frota…",
+      "error": "Falha ao carregar o status da frota.",
+      "noDevices": "Nenhum dispositivo com SNMP habilitado encontrado.",
+      "noMatch": "Nenhum dispositivo corresponde a este filtro.",
+      "noDataYet": "Sem dados ainda",
+      "cpu": "CPU",
+      "memory": "Memória",
+      "uptime": "Atividade",
+      "lastPolled": "Última consulta",
+      "inRate": "Entrada",
+      "outRate": "Saída",
+      "pollFailures": "{{count}} consultas com falha",
+      "viewHistory": "Ver histórico de métricas de {{name}}",
+      "status": {
+        "online": "Online",
+        "offline": "Offline",
+        "maintenance": "Manutenção"
+      }
+    },
+    "history": {
+      "backToFleet": "← Todos os dispositivos",
+      "deviceFallback": "Dispositivo #{{id}}",
+      "range": "Período",
+      "interface": "Interface",
+      "allInterfaces": "Todas as interfaces",
+      "rangeOptions": {
+        "raw24h": "24 h (bruto)",
+        "hourly7d": "7 d (por hora)",
+        "daily30d": "30 d (diário)"
+      },
+      "notFound": {
+        "title": "Dispositivo não encontrado",
+        "message": "Este dispositivo não existe ou não pertence à sua organização."
+      },
+      "noData": {
+        "title": "Nenhum dado SNMP encontrado para o dispositivo e período selecionados.",
+        "hint": "Verifique se o coletor SNMP foi executado e se o dispositivo está online."
+      },
+      "error": "Falha ao carregar métricas",
+      "summary": {
+        "cpu": "CPU (mais recente)",
+        "memory": "Memória (mais recente)",
+        "signal": "Sinal (mais recente)",
+        "latency": "Latência (mais recente)",
+        "uptime": "Atividade",
+        "lastPoll": "Última consulta",
+        "dataPoints": "Pontos de dados"
+      },
+      "charts": {
+        "throughput": "Vazão",
+        "cpu": "Uso de CPU (%)",
+        "memory": "Uso de Memória (%)",
+        "signal": "Intensidade do Sinal (dBm)",
+        "latency": "Latência (ms)",
+        "noData": "Sem dados no período selecionado"
+      },
+      "legend": {
+        "in": "↓ Entrada",
+        "out": "↑ Saída"
+      },
+      "switchPorts": {
+        "title": "Status das Portas do Switch",
+        "loading": "Carregando status das portas…",
+        "error": "Falha ao carregar dados das portas.",
+        "port": "Porta",
+        "status": "Status",
+        "inAvg": "Entrada (méd.)",
+        "outAvg": "Saída (méd.)",
+        "inErrors": "Erros de Entrada",
+        "discards": "Descartes",
+        "poeRx": "PoE / RxPwr",
+        "statusUp": "Ativo",
+        "statusDown": "Inativo",
+        "statusTesting": "Em teste",
+        "statusLowerLayerDown": "Camada Inferior Inativa"
+      }
+    },
+    "relativeTime": {
+      "justNow": "agora mesmo",
+      "minutesAgo": "há {{count}}m",
+      "hoursAgo": "há {{count}}h",
+      "daysAgo": "há {{count}}d"
+    }
   }
 }

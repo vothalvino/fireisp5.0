@@ -17,6 +17,13 @@
 //   Returns a short list of SNMP-enabled devices (id, name, ip_address,
 //   snmp_profile_id) for the device-selector dropdown.
 //
+// GET /snmp-metrics/fleet
+//   Returns, for every SNMP-enabled device of the caller's org: identity +
+//   poll-health fields, the latest device-level cpu/memory/uptime reading,
+//   a short CPU sparkline, and up to two recent interface-summed traffic
+//   samples (for a client-side rate calc). Backs the /snmp-metrics fleet
+//   at-a-glance card grid.
+//
 // GET /snmp-metrics/top-talkers  §6.3
 //   Query params:
 //     hours     lookback window (default 24, max 8760)
@@ -52,12 +59,119 @@ router.get('/devices', requirePermission('devices.view'), async (req, res, next)
     const [rows] = await db.query(
       `SELECT id, name, ip_address, snmp_profile_id, status
        FROM devices
-       WHERE snmp_enabled = 1
+       WHERE organization_id = ?
+         AND snmp_enabled = 1
          AND deleted_at IS NULL
        ORDER BY name ASC
        LIMIT 500`,
+      [req.orgId],
     );
     res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /snmp-metrics/fleet  — fleet-wide at-a-glance card data
+// ---------------------------------------------------------------------------
+// Returns, for every SNMP-enabled device of req.orgId: device identity/health
+// fields, the latest device-level (interface_id IS NULL) reading, a short CPU
+// sparkline, and up to two recent per-device interface-summed traffic samples
+// so the frontend can compute a current in/out rate via delta. Bounded to
+// `polled_at >= NOW() - INTERVAL 3 HOUR` for partition pruning against the
+// range-partitioned snmp_metrics table. Four set-based queries total — never
+// N-per-device.
+// ---------------------------------------------------------------------------
+router.get('/fleet', requirePermission('devices.view'), async (req, res, next) => {
+  try {
+    const [devices] = await db.query(
+      `SELECT id, name, ip_address, type, status, site_id, consecutive_poll_failures,
+              last_polled_at, last_poll_error
+       FROM devices
+       WHERE organization_id = ?
+         AND snmp_enabled = 1
+         AND deleted_at IS NULL
+       ORDER BY name ASC
+       LIMIT 500`,
+      [req.orgId],
+    );
+
+    if (devices.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    const deviceIds = devices.map(d => d.id);
+
+    // Latest device-level (interface_id IS NULL) cpu/memory/uptime reading per device.
+    const [latestRows] = await db.query(
+      `SELECT m.device_id, m.cpu_usage, m.memory_usage, m.uptime_ticks, m.polled_at
+       FROM snmp_metrics m
+       INNER JOIN (
+         SELECT device_id, MAX(polled_at) AS latest
+         FROM snmp_metrics
+         WHERE device_id IN (?) AND interface_id IS NULL
+           AND polled_at >= NOW() - INTERVAL 3 HOUR
+         GROUP BY device_id
+       ) lr ON m.device_id = lr.device_id AND m.polled_at = lr.latest
+       WHERE m.device_id IN (?) AND m.interface_id IS NULL`,
+      [deviceIds, deviceIds],
+    );
+    const latestByDevice = new Map(latestRows.map(r => [r.device_id, r]));
+
+    // Last ~2h of device-level CPU samples, for the card sparkline.
+    const [sparkRows] = await db.query(
+      `SELECT device_id, polled_at, cpu_usage
+       FROM snmp_metrics
+       WHERE device_id IN (?) AND interface_id IS NULL
+         AND polled_at >= NOW() - INTERVAL 2 HOUR
+       ORDER BY device_id ASC, polled_at ASC`,
+      [deviceIds],
+    );
+    const sparkByDevice = new Map();
+    for (const row of sparkRows) {
+      if (!sparkByDevice.has(row.device_id)) sparkByDevice.set(row.device_id, []);
+      sparkByDevice.get(row.device_id).push({ t: row.polled_at, v: row.cpu_usage });
+    }
+
+    // Per-device interface-summed in/out octets, bucketed to the minute so that
+    // interface rows belonging to the same poll cycle collapse into one sample
+    // (each interface's row is inserted with its own NOW(), so exact polled_at
+    // values can differ by a second or two within a single poll pass). Take
+    // the two most recent buckets per device for a delta-based rate.
+    const [trafficRows] = await db.query(
+      `SELECT device_id,
+              FLOOR(UNIX_TIMESTAMP(polled_at) / 60) AS minute_bucket,
+              MAX(polled_at) AS ts,
+              SUM(if_in_octets) AS in_octets,
+              SUM(if_out_octets) AS out_octets
+       FROM snmp_metrics
+       WHERE device_id IN (?) AND interface_id IS NOT NULL
+         AND polled_at >= NOW() - INTERVAL 3 HOUR
+       GROUP BY device_id, minute_bucket
+       ORDER BY device_id ASC, minute_bucket DESC`,
+      [deviceIds],
+    );
+    const trafficByDevice = new Map();
+    for (const row of trafficRows) {
+      if (!trafficByDevice.has(row.device_id)) trafficByDevice.set(row.device_id, []);
+      const arr = trafficByDevice.get(row.device_id);
+      if (arr.length < 2) {
+        arr.push({ t: row.ts, in_octets: row.in_octets, out_octets: row.out_octets });
+      }
+    }
+    // Rows arrive newest-bucket-first per device; reverse so samples are
+    // chronological (oldest first) for a straightforward delta calc.
+    for (const arr of trafficByDevice.values()) arr.reverse();
+
+    const data = devices.map(d => ({
+      ...d,
+      latest: latestByDevice.get(d.id) || null,
+      cpu_spark: sparkByDevice.get(d.id) || [],
+      traffic_samples: trafficByDevice.get(d.id) || [],
+    }));
+
+    res.json({ data });
   } catch (err) {
     next(err);
   }
@@ -213,6 +327,17 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'device_id is required' } });
     }
 
+    // Verify the device belongs to the org (mirrors GET /interfaces/:deviceId) —
+    // otherwise any devices.view holder in any org could pull ANY org's metric
+    // history by guessing a device_id.
+    const [devRows] = await db.query(
+      'SELECT id FROM devices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [deviceId, req.orgId],
+    );
+    if (!devRows.length) {
+      return res.status(404).json({ error: { message: 'Device not found' } });
+    }
+
     const resolution = ['raw', '1hr', '1day'].includes(req.query.resolution)
       ? req.query.resolution
       : '1hr';
@@ -254,7 +379,8 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
                 signal_strength, latency_ms,
                 voltage_mv, temperature_c, fan_speed_rpm,
                 sfp_tx_power_dbm, sfp_rx_power_dbm, sfp_temperature_c,
-                ups_battery_pct, ups_runtime_min, poe_power_mw, humidity_pct
+                ups_battery_pct, ups_runtime_min, poe_power_mw, humidity_pct,
+                uptime_ticks
          FROM snmp_metrics
          WHERE ${conditions.join(' AND ')}
          ORDER BY polled_at ASC

@@ -9,40 +9,16 @@
 import type { CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
-import { Card, Table, Badge, type TableColumn, type TableRow } from '@/components/ui';
+import { Card, Table, Badge, Sparkline, type TableColumn, type TableRow } from '@/components/ui';
 import {
   RANGES, type Range, type ChartModel,
   type KpiModel, type SiteModel, type DeviceModel, type EventModel, type DeviceStatus,
 } from './consoleModel';
 
-// ---------------------------------------------------------------------------
-// Sparkline
-// ---------------------------------------------------------------------------
-
-interface SparklineProps {
-  points: number[] | null;
-  stroke?: string;
-  vbW?: number;
-  vbH?: number;
-  h?: number;
-}
-
-export function Sparkline({ points, stroke = 'var(--accent)', vbW = 120, vbH = 24, h = 22 }: SparklineProps) {
-  if (!points) {
-    return (
-      <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-        <line x1="0" y1={vbH - 4} x2={vbW} y2={vbH - 4} stroke="var(--border-strong)" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-  const n = points.length;
-  const pts = points.map((v, i) => `${((i / (n - 1)) * vbW).toFixed(1)},${v}`).join(' ');
-  return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-      <polyline fill="none" stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={pts} />
-    </svg>
-  );
-}
+// Sparkline now lives in @/components/ui/Sparkline (shared across pages);
+// re-exported here so any existing external import of it from this module
+// keeps working.
+export { Sparkline };
 
 // ---------------------------------------------------------------------------
 // Shared status maps
