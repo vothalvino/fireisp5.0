@@ -1,5 +1,6 @@
 # Agent Memory Index
 
+- [Faro nav registry](faro-nav-registry.md) — sidebar is registry-driven since PR #421: new routes need an entry in frontend/src/nav/routes.ts (guard mirrors PrivateRoute, roles = audited allowlist) or navRegistry.test.ts fails CI; per-persona nav locked in navPersonas.test.ts
 - [Environment setup](env-setup.md) — Node/pnpm lives at C:\Users\votha\tools\node24; must set PATH before running commands
 - [Testing conventions](testing-conventions.md) — How tests are structured, what mocks are used, and pre-existing failures to ignore
 - [OpenAPI pattern](openapi-pattern.md) — Spec is static (hand-written in openapi.js); new routes need manual path additions; frontend uses `as never` cast on full options objects for paths with `query?: never` types; components.schemas auto-loads EVERY src/middleware/schemas/*.js file regardless of path $refs — always regenerate after editing one

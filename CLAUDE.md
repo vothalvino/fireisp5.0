@@ -53,7 +53,7 @@ Requires Node ≥24 and pnpm ≥10 (`packageManager` pin). Pre-commit hooks (hus
 - `src/models/*` extend `BaseModel` — `SELECT *`, org scoping, soft delete, and a `fillable` whitelist that **silently drops** unknown fields
 - `src/controllers/crudController.js` — generic CRUD used by many routes
 - `src/services/` — ~100 domain services; `src/services/taskRunner.js` dispatches scheduled tasks **by name in a switch**
-- `frontend/src/pages/` — 148 pages, routed in `App.tsx`, nav in `Layout.tsx`; API via typed `api.GET/POST(...)` (openapi-fetch) or `authedFetch` for raw calls
+- `frontend/src/pages/` — 148 pages, routed in `App.tsx`; nav is registry-driven: `frontend/src/nav/routes.ts` (single source: section/guard/roles/rail-vs-hub-card per route) feeds the accordion sidebar (`Layout.tsx` + `NavSection.tsx`) and the `/billing` `/network` `/admin` hub pages; API via typed `api.GET/POST(...)` (openapi-fetch) or `authedFetch` for raw calls
 - `database/migrations/` — numbered SQL, append-only (next number = highest + 1); `database/schema.sql` is the full-schema mirror; CI validates numbering and README sync
 - `tests/` — jest + supertest; DB fully mocked (`jest.mock('../src/config/database')`), auth via signed JWT + mocked user-lookup query
 - `.claude/agent-memory/fullstack-autonomous-engineer/` — committed per-section build notes (env, testing conventions, OpenAPI pattern, §5–§21 feature notes). Read `MEMORY.md` there first; keep it updated when you learn something durable
@@ -66,7 +66,7 @@ Every feature touches this chain; skipping a link produces the classic FireISP b
 2. **Validation schema** in `src/middleware/schemas/` + model `fillable` — both must list every field the frontend will send.
 3. **Route** with `requirePermission`. If a task is scheduled, **register its name as a `case` in `taskRunner.js`** — seeded tasks with no case never run, silently.
 4. **OpenAPI**: the spec is **hand-written** in `src/utils/openapi.js`. Add the path entry, then `pnpm run openapi`. ⚠️ The spec-drift check only compares the generator to the committed JSON — **it does not know your route exists**, so a forgotten spec entry passes CI while the endpoint stays undocumented and untyped for the frontend.
-5. **Frontend**: `pnpm run gen:api` then build the page; wire route in `App.tsx` + nav in `Layout.tsx` (an unrouted page is dead code); add i18n keys to **all three** locales (`en`, `es`, `pt-BR` — see `docs/language-guideline.md`).
+5. **Frontend**: `pnpm run gen:api` then build the page; wire route in `App.tsx` **and add a matching entry to the nav registry `frontend/src/nav/routes.ts`** — `navRegistry.test.ts` fails CI if a routed path has no registry home, if its `guard` doesn't mirror the `PrivateRoute` wrapper, or if it's neither a rail row nor on a hub card. `roles` is an audited allowlist: only list roles whose `role_permissions` seeds actually let the page load (a visible row must never 403 — check the grant migrations, and update `navPersonas.test.ts` in lockstep). Add i18n keys to **all three** locales (`en`, `es`, `pt-BR` — see `docs/language-guideline.md`).
 6. **Tests**: backend jest (mock the **backend's** real response shape, never the frontend's expected shape — that masks contract drift), frontend vitest.
 
 ## Gotchas that have caused real bugs
