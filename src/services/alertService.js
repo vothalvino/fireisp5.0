@@ -111,15 +111,22 @@ async function evaluateAlerts(organizationId) {
             continue;
           }
         }
-        await recordAlert(rule, breached);
+        const insertedEventId = await recordAlert(rule, breached);
         triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, ...breached });
 
-        // Emit event for notification hooks
-        eventBus.emit('alert.triggered', {
-          organizationId,
-          rule,
-          breach: breached,
-        });
+        // Emit event for notification hooks — but only once per "episode".
+        // recordAlert() above always writes the alert_events history row
+        // (audit trail is unconditional); a rule that stays breached across
+        // repeated cron cycles would otherwise re-emit (and re-email) every
+        // single cycle forever. Skip the emit when a prior non-suppressed
+        // event for this same rule+device already landed in the last hour.
+        if (!(await hasRecentAlertEpisode(organizationId, rule.id, breached.device_id, insertedEventId))) {
+          eventBus.emit('alert.triggered', {
+            organizationId,
+            rule,
+            breach: breached,
+          });
+        }
 
         // Auto-create outage if configured
         if (rule.auto_create_outage && breached.device_id) {
@@ -233,16 +240,44 @@ async function checkRule(rule) {
 }
 
 /**
- * Record an alert event in the alert_events table.
+ * Record an alert event in the alert_events table. Returns the new row's id
+ * so callers can exclude it from the dedup lookback query below.
  */
 async function recordAlert(rule, breach) {
-  await db.query(
+  const [result] = await db.query(
     `INSERT INTO alert_events
      (alert_rule_id, organization_id, device_id, metric, current_value, threshold_value, status)
      VALUES (?, ?, ?, ?, ?, ?, 'triggered')`,
     [rule.id, rule.organization_id, breach.device_id, breach.metric,
       breach.current_value, breach.threshold],
   );
+  return result.insertId;
+}
+
+/**
+ * True when a non-suppressed alert_events row for this rule (and device, when
+ * the breach is device-scoped) already exists within the last 60 minutes,
+ * OTHER than the row just inserted this cycle. Gates alert.triggered
+ * notifications to one per breach "episode": a rule that stays breached
+ * across repeated evaluation cycles keeps writing its unconditional
+ * alert_events history row, but only re-notifies (bell/email/webhook) after a
+ * 60+ minute quiet gap since the last non-suppressed event.
+ */
+async function hasRecentAlertEpisode(organizationId, ruleId, deviceId, excludeEventId) {
+  let sql = `SELECT id FROM alert_events
+     WHERE organization_id = ? AND alert_rule_id = ? AND suppressed = 0
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 60 MINUTE)
+       AND id != ?`;
+  const params = [organizationId, ruleId, excludeEventId];
+  if (deviceId) {
+    sql += ' AND device_id = ?';
+    params.push(deviceId);
+  } else {
+    sql += ' AND device_id IS NULL';
+  }
+  sql += ' LIMIT 1';
+  const [rows] = await db.query(sql, params);
+  return rows.length > 0;
 }
 
 /**
@@ -253,13 +288,28 @@ async function autoCreateOutage(organizationId, rule, breach) {
     // `outages` has no organization_id column — it is scoped through its
     // device/site — and status is ENUM('ongoing','resolved','post_mortem'), so
     // an outage that has just started is 'ongoing' (database/schema.sql).
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO outages (device_id, title, severity, status, started_at)
        VALUES (?, ?, ?, 'ongoing', NOW())`,
       [breach.device_id,
         `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
         rule.severity || 'major'],
     );
+
+    // Unlike POST /outages (src/routes/outages.js), this bypasses the route
+    // entirely — fire the same outage.reported event here so the auto-created
+    // outage gets the same bell/email/webhook/portal-push pipeline.
+    eventBus.emit('outage.reported', {
+      organizationId,
+      outage: {
+        id: result.insertId,
+        device_id: breach.device_id,
+        title: `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
+        severity: rule.severity || 'major',
+        status: 'ongoing',
+        started_at: new Date(),
+      },
+    }).catch(err2 => logger.warn({ err: err2, ruleId: rule.id }, 'outage.reported emit failed (autoCreateOutage)'));
   } catch (_err) {
     // Best effort — don't block alert processing
   }
@@ -493,7 +543,11 @@ async function evaluateAlertsV2(organizationId) {
 
       triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, flapping: isFlapping, ...breached });
 
-      eventBus.emit('alert.triggered', { organizationId, rule, breach: breached });
+      // Same one-per-episode dedup as evaluateAlerts() v1 above — see
+      // hasRecentAlertEpisode's doc comment.
+      if (!(await hasRecentAlertEpisode(organizationId, rule.id, breached.device_id, eventId))) {
+        eventBus.emit('alert.triggered', { organizationId, rule, breach: breached });
+      }
 
       if (rule.auto_create_outage && breached.device_id) {
         await autoCreateOutage(organizationId, rule, breached);

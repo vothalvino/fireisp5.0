@@ -65,7 +65,9 @@ describe('snmpPoller', () => {
           label: 'CPU', oid_type: 'gauge', is_per_interface: false,
         }]])
         .mockResolvedValueOnce([])           // INSERT metric row
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_polled_at
+        // deviceStatusService.recordPollResult(1, true):
+        .mockResolvedValueOnce([[{ id: 1, organization_id: 9, name: 'R1', status: 'online', consecutive_poll_failures: 0 }]]) // SELECT current device state
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_polled_at/status
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(null, [{ oid: '1.3.6.1.2.1.1.3', value: 55 }]);
@@ -88,7 +90,9 @@ describe('snmpPoller', () => {
           id: 1, oid: '1.3.6.1.2.1.1.3', metric_column: 'cpu_usage',
           label: 'CPU', oid_type: 'gauge', is_per_interface: false,
         }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_poll_error
+        // deviceStatusService.recordPollResult(2, false, ...):
+        .mockResolvedValueOnce([[{ id: 2, organization_id: 9, name: 'R2', status: 'online', consecutive_poll_failures: 0 }]]) // SELECT current device state
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE last_poll_error/consecutive_poll_failures
 
       mockSession.get.mockImplementation((oids, cb) => {
         cb(new Error('SNMP timeout'));

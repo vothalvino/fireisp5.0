@@ -15,6 +15,7 @@
 const snmp = require('net-snmp');
 const db = require('../config/database');
 const { decrypt } = require('../utils/encryption');
+const deviceStatusService = require('./deviceStatusService');
 const logger = require('../utils/logger').child({ service: 'snmpPoller' });
 
 // Columns in snmp_metrics that a profile OID may target.
@@ -92,17 +93,13 @@ async function poll() {
       const device = batch[j];
       if (result.status === 'fulfilled') {
         polled++;
-        await db.query(
-          'UPDATE devices SET last_polled_at = NOW(), last_poll_error = NULL WHERE id = ?',
-          [device.id],
-        ).catch(() => {});
+        await deviceStatusService.recordPollResult(device.id, true)
+          .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (success) failed'));
       } else {
         errors++;
         logger.error({ err: result.reason }, 'SNMP poll failed');
-        await db.query(
-          'UPDATE devices SET last_poll_error = ? WHERE id = ?',
-          [String(result.reason?.message || result.reason), device.id],
-        ).catch(() => {});
+        await deviceStatusService.recordPollResult(device.id, false, String(result.reason?.message || result.reason))
+          .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (failure) failed'));
       }
     }
   }

@@ -18,6 +18,7 @@ jest.mock('../src/services/eventBus', () => ({
 
 const db = require('../src/config/database');
 const alertService = require('../src/services/alertService');
+const eventBus = require('../src/services/eventBus');
 
 describe('alertService', () => {
   beforeEach(() => {
@@ -242,16 +243,22 @@ describe('alertService', () => {
         device_id: 5, avg_value: 120000000, max_value: 130000000,
       }]]);
 
+      // maintenance-window check
+      db.query.mockResolvedValueOnce([[]]);
+
       // recordAlert INSERT
       db.query.mockResolvedValueOnce([{ insertId: 10 }]);
+
+      // dedup check (hasRecentAlertEpisode) — no prior episode, emit proceeds
+      db.query.mockResolvedValueOnce([[]]);
 
       // autoCreateTicket INSERT
       db.query.mockResolvedValueOnce([{ insertId: 42 }]);
 
       const result = await alertService.evaluateAlerts(1);
       expect(result.triggered).toBe(1);
-      // Ticket insert should have been called (4th query total)
-      expect(db.query).toHaveBeenCalledTimes(5); // rules + metric + maintenance-window check + alert insert + ticket insert
+      // rules + metric + maintenance-window check + alert insert + dedup check + ticket insert
+      expect(db.query).toHaveBeenCalledTimes(6);
     });
   });
 
@@ -271,8 +278,14 @@ describe('alertService', () => {
         device_id: 5, avg_value: 95.0, max_value: 99.0,
       }]]);
 
+      // maintenance-window check
+      db.query.mockResolvedValueOnce([[]]);
+
       // recordAlert INSERT
       db.query.mockResolvedValueOnce([{ insertId: 1 }]);
+
+      // dedup check (hasRecentAlertEpisode) — no prior episode, emit proceeds
+      db.query.mockResolvedValueOnce([[]]);
 
       const result = await alertService.evaluateAlerts(1);
       expect(result.evaluated).toBe(1);
@@ -285,6 +298,52 @@ describe('alertService', () => {
       const result = await alertService.evaluateAlerts(1);
       expect(result.evaluated).toBe(0);
       expect(result.triggered).toBe(0);
+    });
+  });
+
+  // =========================================================================
+  // Alert dedup — one notification per breach "episode" (evaluateAlerts v1)
+  // =========================================================================
+  describe('evaluateAlerts() — alert dedup', () => {
+    const rule = {
+      id: 1, organization_id: 1, name: 'High CPU',
+      metric: 'cpu_usage', operator: '>', threshold: 90,
+      device_id: null, duration_minutes: 5, severity: 'critical',
+      auto_create_outage: false, auto_create_ticket: false, is_enabled: true,
+    };
+    const metricRow = { device_id: 5, avg_value: 95.0, max_value: 99.0 };
+
+    test('still writes the alert_events history row but skips the emit when a prior non-suppressed event exists within 60 minutes', async () => {
+      db.query.mockResolvedValueOnce([[rule]]); // rules
+      db.query.mockResolvedValueOnce([[metricRow]]); // checkRule
+      db.query.mockResolvedValueOnce([[]]); // maintenance-window check: none
+      db.query.mockResolvedValueOnce([{ insertId: 100 }]); // recordAlert INSERT (history — unconditional)
+      db.query.mockResolvedValueOnce([[{ id: 99 }]]); // dedup check: a prior event exists
+
+      const result = await alertService.evaluateAlerts(1);
+
+      // History is still recorded and reflected in the return value...
+      expect(result.triggered).toBe(1);
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO alert_events/.test(sql));
+      expect(insert).toBeDefined();
+      // ...but the notification emit is suppressed.
+      expect(eventBus.emit).not.toHaveBeenCalledWith('alert.triggered', expect.anything());
+    });
+
+    test('emits alert.triggered when no prior non-suppressed event exists in the last 60 minutes', async () => {
+      db.query.mockResolvedValueOnce([[rule]]);
+      db.query.mockResolvedValueOnce([[metricRow]]);
+      db.query.mockResolvedValueOnce([[]]); // no maintenance window
+      db.query.mockResolvedValueOnce([{ insertId: 101 }]); // recordAlert INSERT
+      db.query.mockResolvedValueOnce([[]]); // dedup check: no prior episode
+
+      const result = await alertService.evaluateAlerts(1);
+
+      expect(result.triggered).toBe(1);
+      expect(eventBus.emit).toHaveBeenCalledWith('alert.triggered', expect.objectContaining({
+        organizationId: 1,
+        rule,
+      }));
     });
   });
 

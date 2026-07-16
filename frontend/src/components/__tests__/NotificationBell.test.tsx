@@ -82,4 +82,48 @@ describe('NotificationBell', () => {
     fireEvent.click(screen.getByText('Mark all read'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/notifications/read-all'));
   });
+
+  it('deep-links a device notification to /devices/:id', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/notifications/unread-count') return Promise.resolve({ data: { data: { count: 1 } } });
+      return Promise.resolve({
+        data: {
+          data: [{
+            id: 12, title: 'Dispositivo fuera de línea: AP-Tower-1', body: 'IP: 10.0.0.1',
+            type: 'device', entity_type: 'devices', entity_id: 70, is_read: 0,
+            created_at: new Date(Date.now() - 60_000).toISOString(),
+          }],
+        },
+      });
+    });
+
+    renderBell();
+    await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    await waitFor(() => expect(screen.getByText('Dispositivo fuera de línea: AP-Tower-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Dispositivo fuera de línea: AP-Tower-1'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/devices/70'));
+  });
+
+  it('deep-links an outage notification to the /outages list (no detail route)', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/notifications/unread-count') return Promise.resolve({ data: { data: { count: 1 } } });
+      return Promise.resolve({
+        data: {
+          data: [{
+            id: 13, title: 'Interrupción reportada: Fiber cut', body: 'Severidad: critical',
+            type: 'outage', entity_type: 'outages', entity_id: 50, is_read: 0,
+            created_at: new Date(Date.now() - 60_000).toISOString(),
+          }],
+        },
+      });
+    });
+
+    renderBell();
+    await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    await waitFor(() => expect(screen.getByText('Interrupción reportada: Fiber cut')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Interrupción reportada: Fiber cut'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/outages'));
+  });
 });
