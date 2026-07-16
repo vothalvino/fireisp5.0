@@ -35,6 +35,9 @@
   transition: border-color .15s;
 }
 .fi-console .fi-kpi:hover { border-color: var(--border-strong); }
+.fi-console .fi-kpi-link { cursor: pointer; }
+.fi-console .fi-kpi-link:hover { border-color: var(--accent); }
+.fi-console .fi-kpi-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fi-console .fi-kpi.accent { background: var(--warning-soft); border-color: var(--warning); }
 .fi-console .fi-kpi-top { display: flex; align-items: center; justify-content: space-between; }
 .fi-console .fi-kpi-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
