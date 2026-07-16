@@ -3776,7 +3776,8 @@
       "nas": "NAS",
       "ipPools": "Pools de IP",
       "workOrders": "Ordens de Serviço",
-      "outages": "Interrupções"
+      "outages": "Interrupções",
+      "timeline": "Histórico"
     },
     "devices": {
       "empty": "Nenhum dispositivo neste site.",
@@ -3810,6 +3811,16 @@
       "severity": "Severidade",
       "status": "Status",
       "startedAt": "Início"
+    },
+    "timeline": {
+      "empty": "Ainda não há atividade registrada para este site.",
+      "when": "Quando",
+      "kind": "Tipo",
+      "what": "O quê",
+      "status": "Status",
+      "workOrder": "Ordem de serviço",
+      "outage": "Interrupção",
+      "maintenance": "Janela de manutenção"
     }
   },
   "nasDetail": {

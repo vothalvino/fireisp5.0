@@ -16,6 +16,7 @@ const db = require('../config/database');
 const User = require('../models/User');
 const inventorySerialService = require('../services/inventorySerialService');
 const eventBus = require('../services/eventBus');
+const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/workOrders' });
 
 // Fire-and-forget: notifies the assignee (in-app + email via notificationHooks)
@@ -180,6 +181,12 @@ router.post('/', requirePermission('work_orders.create'), validate(createWorkOrd
     );
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [result.insertId]);
     if (row.assigned_to) emitAssigned(req.orgId, row, req.user.id);
+    // work-order mutations were the only site-history writer with no audit
+    // trail (hand-rolled handlers; crudController audits automatically)
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'create',
+      tableName: 'work_orders', recordId: row.id, newValues: req.body,
+    });
     res.status(201).json({ data: row });
   } catch (err) { next(err); }
 });
@@ -195,7 +202,7 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     const assignErr = await assigneeAuthError(assigned_to, req.orgId);
     if (assignErr) return res.status(422).json({ error: assignErr });
     const [[before]] = await db.query(
-      'SELECT assigned_to FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      'SELECT * FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     const [result] = await db.query(
@@ -213,6 +220,10 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [req.params.id]);
     if (row.assigned_to && row.assigned_to !== before?.assigned_to) emitAssigned(req.orgId, row, req.user.id);
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'update',
+      tableName: 'work_orders', recordId: row.id, oldValues: before, newValues: req.body,
+    });
     res.json({ data: row });
   } catch (err) { next(err); }
 });
@@ -230,22 +241,18 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
       const assignErr = await assigneeAuthError(req.body.assigned_to, req.orgId);
       if (assignErr) return res.status(422).json({ error: assignErr });
     }
-    const [[beforePatch]] = 'assigned_to' in req.body
-      ? await db.query(
-        'SELECT assigned_to FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
-        [req.params.id, req.orgId],
-      )
-      : [[null]];
+    // One snapshot serves the target-integrity check, the assignment-change
+    // detection, and the audit trail's oldValues.
+    const [[beforePatch]] = await db.query(
+      'SELECT * FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
+    if (!beforePatch) return res.status(404).json({ error: 'Work order not found' });
     // If the patch touches any target field, ensure the work order still targets
     // at least one of client/site/device once the change is applied.
     const targetKeys = ['client_id', 'site_id', 'device_id'];
     if (targetKeys.some(k => k in req.body)) {
-      const [[cur]] = await db.query(
-        'SELECT client_id, site_id, device_id FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
-        [req.params.id, req.orgId],
-      );
-      if (!cur) return res.status(404).json({ error: 'Work order not found' });
-      const merged = targetKeys.map(k => (k in req.body ? req.body[k] : cur[k]));
+      const merged = targetKeys.map(k => (k in req.body ? req.body[k] : beforePatch[k]));
       if (!merged.some(Boolean)) {
         return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
       }
@@ -258,9 +265,13 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [req.params.id]);
-    if ('assigned_to' in req.body && row.assigned_to && row.assigned_to !== beforePatch?.assigned_to) {
+    if ('assigned_to' in req.body && row.assigned_to && row.assigned_to !== beforePatch.assigned_to) {
       emitAssigned(req.orgId, row, req.user.id);
     }
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'update',
+      tableName: 'work_orders', recordId: row.id, oldValues: beforePatch, newValues: req.body,
+    });
     res.json({ data: row });
   } catch (err) { next(err); }
 });
@@ -273,6 +284,10 @@ router.delete('/:id', requirePermission('work_orders.delete'), async (req, res, 
       [req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'delete',
+      tableName: 'work_orders', recordId: Number(req.params.id),
+    });
     res.status(204).end();
   } catch (err) { next(err); }
 });
@@ -286,6 +301,10 @@ router.post('/:id/restore', requirePermission('work_orders.update'), async (req,
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [req.params.id]);
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'restore',
+      tableName: 'work_orders', recordId: row.id,
+    });
     res.json({ data: row });
   } catch (err) { next(err); }
 });

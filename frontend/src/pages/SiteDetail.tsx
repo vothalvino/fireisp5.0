@@ -112,7 +112,17 @@ function InfoRow({ label, value, mono }: { label: string; value: string | null |
 // Tabs
 // ---------------------------------------------------------------------------
 
-type TabId = 'overview' | 'devices' | 'nas' | 'ipPools' | 'workOrders' | 'outages';
+type TabId = 'overview' | 'devices' | 'nas' | 'ipPools' | 'workOrders' | 'outages' | 'timeline';
+
+interface TimelineEvent {
+  event_type: 'work_order' | 'outage' | 'maintenance_window';
+  id: number;
+  title: string;
+  subtype: string | null;
+  status: string;
+  assigned_to: number | null;
+  occurred_at: string;
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -130,6 +140,7 @@ export function SiteDetail() {
     { id: 'ipPools',    label: t('siteDetail.tabs.ipPools') },
     { id: 'workOrders', label: t('siteDetail.tabs.workOrders') },
     { id: 'outages',    label: t('siteDetail.tabs.outages') },
+    { id: 'timeline',   label: t('siteDetail.tabs.timeline', 'Timeline') },
   ];
 
   const { data: site, isLoading, error } = useQuery({
@@ -196,6 +207,16 @@ export function SiteDetail() {
       return Array.isArray(d) ? d : (d as ListResp<OutageRow>).data ?? [];
     },
     enabled: Boolean(id) && activeTab === 'outages',
+  });
+
+  const { data: timeline } = useQuery({
+    queryKey: ['site-timeline', id],
+    queryFn: async () => {
+      const res = await api.GET('/sites/{id}/timeline' as never, { params: { path: { id: Number(id) }, query: { limit: 100 } as never } } as never);
+      if ((res as { error?: unknown }).error) return [];
+      return (((res as { data?: { data?: { events?: TimelineEvent[] } } }).data?.data?.events) ?? []);
+    },
+    enabled: Boolean(id) && activeTab === 'timeline',
   });
 
   if (isLoading) {
@@ -407,6 +428,45 @@ export function SiteDetail() {
                       <td style={styles.td}>{o.severity ?? '—'}</td>
                       <td style={styles.td}><StatusBadge status={o.status} /></td>
                       <td style={styles.td}>{fmt(o.started_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        {activeTab === 'timeline' && (
+          <div style={{ overflowX: 'auto' }}>
+            {!timeline?.length ? (
+              <p style={styles.msg}>{t('siteDetail.timeline.empty', 'No activity recorded for this site yet.')}</p>
+            ) : (
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    {[
+                      t('siteDetail.timeline.when', 'When'),
+                      t('siteDetail.timeline.kind', 'Kind'),
+                      t('siteDetail.timeline.what', 'What'),
+                      t('siteDetail.timeline.status', 'Status'),
+                    ].map(h => (
+                      <th key={h} style={styles.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(timeline ?? []).map(ev => (
+                    <tr key={`${ev.event_type}-${ev.id}`} style={styles.tr}>
+                      <td style={styles.td}>{fmt(ev.occurred_at)}</td>
+                      <td style={styles.td}>
+                        {ev.event_type === 'work_order'
+                          ? t('siteDetail.timeline.workOrder', 'Work order')
+                          : ev.event_type === 'outage'
+                            ? t('siteDetail.timeline.outage', 'Outage')
+                            : t('siteDetail.timeline.maintenance', 'Maintenance window')}
+                        {ev.subtype ? ` · ${ev.subtype}` : ''}
+                      </td>
+                      <td style={styles.td}>#{ev.id} — {ev.title}</td>
+                      <td style={styles.td}><StatusBadge status={ev.status} /></td>
                     </tr>
                   ))}
                 </tbody>

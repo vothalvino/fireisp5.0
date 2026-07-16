@@ -666,6 +666,16 @@ function generateSpec() {
 
       // ---- Sites ----
       ...crudPaths('sites', 'Sites', 'Site'),
+      '/sites/{id}/timeline': {
+        get: {
+          tags: ['Sites'],
+          summary: 'Unified site/tower activity timeline (work orders + outages + maintenance windows)',
+          operationId: 'getSiteTimeline',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam(), { name: 'limit', in: 'query', required: false, schema: { type: 'integer', default: 50 } }],
+          responses: r200('{ site_id, site_name, events[] }'),
+        },
+      },
 
       // ---- Service Areas ----
       ...crudPaths('service-areas', 'Service Areas', 'ServiceArea'),
