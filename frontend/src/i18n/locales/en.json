@@ -3683,7 +3683,15 @@
     "loading": "Loading device…",
     "notFound": "Device not found.",
     "overview": {
-      "hint": "Select a tab to view device data."
+      "hint": "Select a tab to view device data.",
+      "status": "Status",
+      "vendorModel": "Vendor / Model",
+      "mgmtAddress": "Management Address",
+      "site": "Site",
+      "noSite": "No site linked",
+      "client": "Client",
+      "contract": "Contract",
+      "noContract": "No contract linked"
     },
     "fields": {
       "category": "Category",
@@ -3746,7 +3754,17 @@
       "title": "Title",
       "workType": "Type",
       "status": "Status",
-      "scheduledAt": "Scheduled"
+      "scheduledAt": "Scheduled",
+      "createForm": {
+        "title": "Title",
+        "titlePlaceholder": "Describe the work needed",
+        "description": "Description",
+        "priority": "Priority",
+        "scheduledAt": "Scheduled At",
+        "assignedTo": "Assigned To",
+        "submit": "Create",
+        "saveFailed": "Failed to create work order."
+      }
     },
     "outages": {
       "empty": "No outages found.",
@@ -3803,7 +3821,17 @@
       "id": "ID",
       "title": "Title",
       "workType": "Type",
-      "status": "Status"
+      "status": "Status",
+      "createForm": {
+        "title": "Title",
+        "titlePlaceholder": "Describe the work needed",
+        "description": "Description",
+        "priority": "Priority",
+        "scheduledAt": "Scheduled At",
+        "assignedTo": "Assigned To",
+        "submit": "Create",
+        "saveFailed": "Failed to create work order."
+      }
     },
     "outages": {
       "empty": "No outages for this site.",
