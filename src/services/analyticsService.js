@@ -175,6 +175,7 @@ async function alertCorrelation(organizationId, { window_minutes = 30 } = {}) {
      FROM alert_events ae
      JOIN alert_rules ar ON ar.id = ae.alert_rule_id
      WHERE ae.organization_id = ?
+       AND ae.suppressed = 0
        AND ae.created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
      GROUP BY ae.alert_rule_id, ar.name, ar.metric, ar.severity
      HAVING event_count > 1

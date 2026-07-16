@@ -101,7 +101,7 @@ describe('E2E Workflow: Alert → Outage → Notification', () => {
   test('handles no active rules gracefully', async () => {
     db.query.mockResolvedValueOnce([[]]);
     const result = await alertService.evaluateAlerts(ORG);
-    expect(result).toEqual({ evaluated: 0, triggered: 0, alerts: [] });
+    expect(result).toEqual({ evaluated: 0, triggered: 0, suppressed: 0, alerts: [] });
   });
 });
 

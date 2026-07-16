@@ -12462,6 +12462,51 @@
         }
       }
     },
+    "/sites/{id}/timeline": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Unified site/tower activity timeline (work orders + outages + maintenance windows)",
+        "operationId": "getSiteTimeline",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ site_id, site_name, events[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/service-areas": {
       "get": {
         "tags": [

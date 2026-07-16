@@ -94,11 +94,23 @@ async function evaluateAlerts(organizationId) {
   );
 
   const triggered = [];
+  let suppressedCount = 0;
 
   for (const rule of rules) {
     try {
       const breached = await checkRule(rule);
       if (breached) {
+        // Maintenance windows apply on the scheduled/cron path too — this is
+        // the path taskRunner actually runs; previously only the manual
+        // evaluate-v2 endpoint honored windows.
+        if (breached.device_id) {
+          const windowId = await activeMaintenanceWindowId(organizationId, breached.device_id);
+          if (windowId) {
+            await recordSuppressedAlert(organizationId, rule, breached, windowId);
+            suppressedCount += 1;
+            continue;
+          }
+        }
         await recordAlert(rule, breached);
         triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, ...breached });
 
@@ -124,7 +136,7 @@ async function evaluateAlerts(organizationId) {
     }
   }
 
-  return { evaluated: rules.length, triggered: triggered.length, alerts: triggered };
+  return { evaluated: rules.length, triggered: triggered.length, suppressed: suppressedCount, alerts: triggered };
 }
 
 /**
@@ -317,18 +329,60 @@ async function acknowledgeAlert(alertEventId, userId) {
 }
 
 /**
+ * Active maintenance window covering a device, or null.
+ *
+ * Scoping (each window targets exactly one of):
+ *   device-scoped — window.device_id = the device
+ *   site-scoped   — window.site_id = the device's site (devices.site_id)
+ *   org-wide      — neither set
+ *
+ * The previous implementation treated ANY window without a device_id as
+ * org-wide, so a window scheduled for one tower suppressed alerts for every
+ * device in the organization.
+ */
+async function activeMaintenanceWindowId(organizationId, deviceId) {
+  const [rows] = await db.query(
+    `SELECT mw.id FROM maintenance_windows mw
+     LEFT JOIN devices d ON d.id = ?
+     WHERE mw.organization_id = ? AND mw.deleted_at IS NULL
+       AND (
+         mw.device_id = ?
+         OR (mw.device_id IS NULL AND mw.site_id IS NOT NULL AND mw.site_id = d.site_id)
+         OR (mw.device_id IS NULL AND mw.site_id IS NULL)
+       )
+       AND (mw.status = 'active' OR (mw.status = 'scheduled' AND mw.starts_at <= NOW() AND mw.ends_at >= NOW()))
+     LIMIT 1`,
+    [deviceId, organizationId, deviceId],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
  * Check if a device is currently in a maintenance window.
  */
 async function isInMaintenanceWindow(organizationId, deviceId) {
-  const [rows] = await db.query(
-    `SELECT id FROM maintenance_windows
-     WHERE organization_id = ? AND deleted_at IS NULL
-       AND (device_id = ? OR device_id IS NULL)
-       AND (status = 'active' OR (status = 'scheduled' AND starts_at <= NOW() AND ends_at >= NOW()))
-     LIMIT 1`,
-    [organizationId, deviceId],
-  );
-  return rows.length > 0;
+  return (await activeMaintenanceWindowId(organizationId, deviceId)) !== null;
+}
+
+/**
+ * Record a breach that was suppressed by a maintenance window. Written as an
+ * already-resolved, suppressed=1 event so it never alarms, escalates, or
+ * feeds correlation — it exists purely as the audit trail ("this alert fired
+ * during window X"). Best effort: history must never break evaluation.
+ */
+async function recordSuppressedAlert(organizationId, rule, breach, maintenanceWindowId) {
+  try {
+    await db.query(
+      `INSERT INTO alert_events
+         (alert_rule_id, organization_id, device_id, metric, current_value, threshold_value,
+          status, suppressed, maintenance_window_id, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'resolved', 1, ?, NOW())`,
+      [rule.id, organizationId, breach.device_id, breach.metric,
+        breach.current_value, breach.threshold, maintenanceWindowId],
+    );
+  } catch (err) {
+    logger.warn({ err, ruleId: rule.id, maintenanceWindowId }, 'Failed to record suppressed alert history');
+  }
 }
 
 /**
@@ -360,7 +414,8 @@ async function checkFlapping(ruleId) {
   const { flap_count_threshold, flap_window_minutes } = ruleRows[0];
   const [rows] = await db.query(
     `SELECT COUNT(*) AS cnt FROM alert_events
-     WHERE alert_rule_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+     WHERE alert_rule_id = ? AND suppressed = 0
+       AND created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
     [ruleId, flap_window_minutes],
   );
   return parseInt(rows[0].cnt, 10) >= (flap_count_threshold || 3);
@@ -406,9 +461,10 @@ async function evaluateAlertsV2(organizationId) {
 
       // Maintenance window check
       if (breached.device_id) {
-        const inMaintenance = await isInMaintenanceWindow(organizationId, breached.device_id);
-        if (inMaintenance) {
-          suppressed.push({ rule_id: rule.id, reason: 'maintenance_window' });
+        const windowId = await activeMaintenanceWindowId(organizationId, breached.device_id);
+        if (windowId) {
+          await recordSuppressedAlert(organizationId, rule, breached, windowId);
+          suppressed.push({ rule_id: rule.id, reason: 'maintenance_window', maintenance_window_id: windowId });
           continue;
         }
       }
@@ -466,7 +522,7 @@ async function evaluateAlertsV2(organizationId) {
 
 module.exports = {
   evaluateAlerts, checkRule, getAlertHistory, acknowledgeAlert, autoCreateTicket,
-  isInMaintenanceWindow, isSuppressedByCorrelation, checkFlapping, triggerEscalation,
+  isInMaintenanceWindow, activeMaintenanceWindowId, isSuppressedByCorrelation, checkFlapping, triggerEscalation,
   evaluateAlertsV2, getActiveAlerts,
   // Exported so other services building a dynamic `snmp_metrics.<column>`
   // reference (e.g. automationService's remediation-rule engine) validate

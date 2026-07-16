@@ -2052,7 +2052,15 @@
     "delete_success": "Ventana de mantenimiento eliminada.",
     "delete_error": "Error al eliminar la ventana de mantenimiento.",
     "error": "Error al cargar las ventanas de mantenimiento.",
-    "empty": "No se encontraron ventanas de mantenimiento."
+    "empty": "No se encontraron ventanas de mantenimiento.",
+    "scope": "Alcance",
+    "scope_org": "Toda la organización",
+    "scope_site": "Un sitio / torre",
+    "scope_device": "Un equipo",
+    "site": "Sitio",
+    "device": "Equipo",
+    "select_site": "— elige un sitio —",
+    "select_device": "— elige un equipo —"
   },
   "alert_channels": {
     "title": "Canales de Notificacion de Alertas",
@@ -3768,7 +3776,8 @@
       "nas": "NAS",
       "ipPools": "Grupos IP",
       "workOrders": "Órdenes de Trabajo",
-      "outages": "Interrupciones"
+      "outages": "Interrupciones",
+      "timeline": "Historial"
     },
     "devices": {
       "empty": "No hay dispositivos en este sitio.",
@@ -3802,6 +3811,16 @@
       "severity": "Severidad",
       "status": "Estado",
       "startedAt": "Inicio"
+    },
+    "timeline": {
+      "empty": "Aún no hay actividad registrada para este sitio.",
+      "when": "Cuándo",
+      "kind": "Tipo",
+      "what": "Qué",
+      "status": "Estado",
+      "workOrder": "Orden de trabajo",
+      "outage": "Interrupción",
+      "maintenance": "Ventana de mantenimiento"
     }
   },
   "nasDetail": {

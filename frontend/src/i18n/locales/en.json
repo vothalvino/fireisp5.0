@@ -2052,7 +2052,15 @@
     "delete_success": "Maintenance window deleted.",
     "delete_error": "Failed to delete maintenance window.",
     "error": "Failed to load maintenance windows.",
-    "empty": "No maintenance windows found."
+    "empty": "No maintenance windows found.",
+    "scope": "Scope",
+    "scope_org": "Entire organization",
+    "scope_site": "One site / tower",
+    "scope_device": "One device",
+    "site": "Site",
+    "device": "Device",
+    "select_site": "— select a site —",
+    "select_device": "— select a device —"
   },
   "alert_channels": {
     "title": "Alert Notification Channels",
@@ -3768,7 +3776,8 @@
       "nas": "NAS",
       "ipPools": "IP Pools",
       "workOrders": "Work Orders",
-      "outages": "Outages"
+      "outages": "Outages",
+      "timeline": "Timeline"
     },
     "devices": {
       "empty": "No devices at this site.",
@@ -3802,6 +3811,16 @@
       "severity": "Severity",
       "status": "Status",
       "startedAt": "Started"
+    },
+    "timeline": {
+      "empty": "No activity recorded for this site yet.",
+      "when": "When",
+      "kind": "Kind",
+      "what": "What",
+      "status": "Status",
+      "workOrder": "Work order",
+      "outage": "Outage",
+      "maintenance": "Maintenance window"
     }
   },
   "nasDetail": {

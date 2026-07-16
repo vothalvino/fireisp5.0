@@ -949,7 +949,7 @@ async function alertFrequency(organizationId, { days = 30 } = {}) {
         2
       ) AS avg_resolution_hours
     FROM \`alert_events\`
-    WHERE organization_id = ?
+    WHERE organization_id = ? AND suppressed = 0
       AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
     GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
     ORDER BY date ASC

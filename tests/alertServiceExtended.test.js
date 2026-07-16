@@ -19,6 +19,73 @@ describe('alertService extended', () => {
     });
   });
 
+  describe('activeMaintenanceWindowId — site/device scoping', () => {
+    it('joins the device row so a site-scoped window only matches devices at that site', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 3 }]]);
+      const id = await alertService.activeMaintenanceWindowId(1, 5);
+      expect(id).toBe(3);
+      const [sql, params] = db.query.mock.calls[0];
+      // site-scoped windows must be constrained to the device's site — the old
+      // query treated any device_id-less window as org-wide
+      expect(sql).toMatch(/mw\.site_id = d\.site_id/);
+      expect(sql).toMatch(/mw\.device_id IS NULL AND mw\.site_id IS NULL/);
+      expect(params).toEqual([5, 1, 5]);
+    });
+    it('returns null when nothing covers the device', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      expect(await alertService.activeMaintenanceWindowId(1, 5)).toBeNull();
+    });
+  });
+
+  describe('maintenance suppression on the scheduled path (evaluateAlerts v1)', () => {
+    it('suppresses a breach inside a window: records history, no triggered alert', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_rules/.test(sql)) {
+          return Promise.resolve([[{ id: 7, organization_id: 1, name: 'CPU high', metric: 'cpu_usage', operator: '>', threshold: 90, is_enabled: 1, duration_minutes: 5 }]]);
+        }
+        if (/FROM snmp_metrics/.test(sql)) {
+          return Promise.resolve([[{ device_id: 5, avg_value: 99, max_value: 99 }]]);
+        }
+        if (/FROM maintenance_windows/.test(sql)) {
+          return Promise.resolve([[{ id: 11 }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const result = await alertService.evaluateAlerts(1);
+      expect(result.suppressed).toBe(1);
+      expect(result.triggered).toBe(0);
+
+      // history row: resolved + suppressed + window id, never a live alarm
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO alert_events/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[0]).toMatch(/'resolved', 1/);
+      expect(insert[0]).toMatch(/maintenance_window_id/);
+      expect(insert[1]).toContain(11);
+    });
+
+    it('records the triggered alert normally when no window covers the device', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_rules/.test(sql)) {
+          return Promise.resolve([[{ id: 7, organization_id: 1, name: 'CPU high', metric: 'cpu_usage', operator: '>', threshold: 90, is_enabled: 1, duration_minutes: 5 }]]);
+        }
+        if (/FROM snmp_metrics/.test(sql)) {
+          return Promise.resolve([[{ device_id: 5, avg_value: 99, max_value: 99 }]]);
+        }
+        if (/FROM maintenance_windows/.test(sql)) {
+          return Promise.resolve([[]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      const result = await alertService.evaluateAlerts(1);
+      expect(result.triggered).toBe(1);
+      expect(result.suppressed).toBe(0);
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO alert_events/.test(sql));
+      expect(insert[0]).toMatch(/'triggered'/);
+    });
+  });
+
   describe('isSuppressedByCorrelation', () => {
     it('returns true when upstream has triggered event', async () => {
       db.query.mockResolvedValueOnce([[{ id: 1 }]]);
