@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore } from '@/api/client';
@@ -180,7 +180,12 @@ export function InvoiceList() {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [statusFilter, setStatusFilter] = useState('');
+  // Deep-linkable filter (?status=overdue from the dashboard KPI tile)
+  const [searchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const s = searchParams.get('status');
+    return s && STATUS_OPTIONS.includes(s) ? s : '';
+  });
   const [showGenerate, setShowGenerate] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmVoid, setConfirmVoid] = useState(false);

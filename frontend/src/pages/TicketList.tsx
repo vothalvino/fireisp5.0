@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
@@ -278,7 +278,12 @@ export function TicketList() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [statusFilter, setStatusFilter] = useState('');
+  // Deep-linkable filters (?status=open from the dashboard KPI tile)
+  const [searchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const s = searchParams.get('status');
+    return s && STATUSES.includes(s) ? s : '';
+  });
   const [priorityFilter, setPriorityFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
