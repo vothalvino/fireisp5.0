@@ -32,11 +32,51 @@
 -- 'readonly' anything). See the PR description for the full page -> endpoint
 -- -> slug -> previously-missing? table.
 --
--- All 17 slugs below are dedicated, single-purpose `.view`/`.read` slugs
--- verified (by reading the route file) to gate ONLY a GET handler in their
--- module — never reused for a POST/PUT/DELETE — so granting them cannot let
--- readonly perform a write. Idempotent (WHERE NOT EXISTS), matching the
--- established grant-migration pattern (see 298, 377, 393, 394).
+-- REVIEW FIX (adversarial pass caught a real bug pre-merge): the original
+-- version of this migration also granted `router_driver_configs.view`,
+-- believing it to be a dedicated view-only slug like its siblings. It is
+-- NOT: `src/routes/routerDrivers.js` reuses that exact same slug on
+-- `POST /:id/test`, whose handler (`routerDriverService.testDriverConnection`)
+-- decrypts the stored router password, opens a live authenticated connection
+-- to the device, and UPDATEs `router_driver_configs.last_tested_at`/
+-- `last_test_status` — a real mutation plus a credentialed live network
+-- action, reachable from the Automation page's Test button now that the
+-- paired frontend fix (PrivateRoute.tsx) lets readonly reach that page.
+-- Granting the view slug would have let readonly trigger it. Removed from
+-- the grant list below (16 slugs now, was 17) and added to the preserved-
+-- exclusion list beneath, same reasoning as `wireguard.peers.admin`.
+--
+-- Every remaining slug was then RE-VERIFIED one more time following this
+-- discovery: for each of the 16, every `requirePermission('<exact slug>')`
+-- occurrence across the entire `src/routes/*.js` tree was grepped (not just
+-- the one route file first checked) and its HTTP method read directly from
+-- source, confirming each slug guards GET handlers only, nothing else:
+--   pppoe.diagnostics             — GET /events, /diagnostics/auth-failures, /diagnostics/mtu-issues (pppoe.js)
+--   cpe_profiles.view             — GET /, GET /:id (cpeProfiles.js), and POST /:id/resolve — this POST
+--                                    takes a request body but only computes+merges already-fetched profile
+--                                    data (verified cpeProfileService.resolveProfile/mergeProfileParameters/
+--                                    resolveParameterMappings contain no INSERT/UPDATE/DELETE, only a single
+--                                    SELECT) and returns JSON — a computed read, not a mutation
+--   billing.tax_reports           — GET /tax-reports (billing.js)
+--   dsar_requests.view            — GET /requests (dsar.js), GET /dsar-requests, /dsar-requests/:id (regulatoryCompliance.js)
+--   ai.policy.read                — GET /policy, /logs, /metrics (ai.js)
+--   automation_rules.view         — GET /, /:id, /:id/executions (automationRules.js)
+--   batch_jobs.view               — GET /, /:id, /:id/items (batchJobs.js)
+--   provisioning_pipelines.view   — GET /, /:id (provisioningPipelines.js)
+--   remediation_rules.view        — GET /, /:id, /:id/executions (remediationRules.js)
+--   automation_scripts.view       — GET /, /:id (automationScripts.js)
+--   script_executions.view        — GET /executions/list, /:id/executions (automationScripts.js)
+--   resellers.view                — GET /, /:id (resellers.js)
+--   integration_providers.view    — GET /providers, /providers/:id (integrations.js)
+--   integration_connections.view  — GET /connections, /connections/:id (integrations.js)
+--   integration_sync_logs.view    — GET /connections/:id/logs (integrations.js)
+--   support.conversations.view    — GET /conversations, /conversations/:id (supportConversations.js)
+-- All 16 are dedicated, single-purpose `.view`/`.read`/`.diagnostics`/
+-- `.tax_reports` slugs confirmed to gate ONLY GET handlers in their module —
+-- never reused for a POST/PUT/DELETE that mutates or drives a live action —
+-- so granting them cannot let readonly perform a write. Idempotent
+-- (WHERE NOT EXISTS), matching the established grant-migration pattern
+-- (see 298, 377, 393, 394).
 --
 -- Deliberately NOT granted here (existing, reasoned exclusions this
 -- migration preserves rather than overrides — flagged in the PR for
@@ -59,6 +99,13 @@
 --     one slug — migration 365/393 already deliberately gave readonly only
 --     the narrow self-service wireguard.peers.view, not this one, precisely
 --     because it has no separate view-only variant).
+--   * router_driver_configs.view (see REVIEW FIX note above) — conflates the
+--     GET list/detail views with POST /:id/test, which decrypts a stored
+--     router password and opens a live authenticated connection to the
+--     device, same "view slug secretly gates a mutation/live-action" shape
+--     as wireguard.peers.admin. A future migration could split it into
+--     dedicated `.view`/`.test` slugs so readonly can see configs without
+--     being able to trigger a live test; out of scope for this PR.
 --   * Reseller sub-resource permissions with no dedicated view slug
 --     (reseller_plan_prices.manage, reseller_commissions.approve,
 --     reseller_billing_entities.manage, reseller_ip_pool_allocations.manage,
@@ -87,7 +134,6 @@ JOIN permissions p ON p.name IN (
   'remediation_rules.view',
   'automation_scripts.view',
   'script_executions.view',
-  'router_driver_configs.view',
   'resellers.view',
   'integration_providers.view',
   'integration_connections.view',

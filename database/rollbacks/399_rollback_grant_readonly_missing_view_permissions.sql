@@ -1,6 +1,10 @@
 -- =============================================================================
 -- Rollback 399: Revoke the readonly view-only grants added by migration 399
 -- =============================================================================
+-- NOTE: 'router_driver_configs.view' is intentionally NOT in this list (and
+-- was removed from the forward migration during review) — it is not a
+-- dedicated view-only slug (also gates POST /:id/test, a credentialed live
+-- device action), so it was never granted here.
 
 DELETE rp
 FROM role_permissions rp
@@ -19,7 +23,6 @@ WHERE r.name = 'readonly'
     'remediation_rules.view',
     'automation_scripts.view',
     'script_executions.view',
-    'router_driver_configs.view',
     'resellers.view',
     'integration_providers.view',
     'integration_connections.view',
