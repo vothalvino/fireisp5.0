@@ -140,8 +140,11 @@ interface CreateWoBody {
 
 async function woErrorMessage(resp: Response, fallback: string): Promise<string> {
   try {
-    const j = await resp.json() as { error?: string };
-    if (j && typeof j.error === 'string') return j.error;
+    // Route-level guards respond { error: '<string>' }; the validate()
+    // middleware and global handler respond { error: { code, message } }.
+    const j = await resp.json() as { error?: string | { message?: string } };
+    if (typeof j?.error === 'string') return j.error;
+    if (j?.error && typeof j.error.message === 'string') return j.error.message;
   } catch { /* non-JSON / empty body */ }
   return fallback;
 }
