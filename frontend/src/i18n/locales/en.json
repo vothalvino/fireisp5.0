@@ -300,7 +300,22 @@
       "ai": "AI",
       "governance": "Governance & Continuity"
     },
-    "toggleSection": "Expand or collapse {{section}}"
+    "toggleSection": "Expand or collapse {{section}}",
+    "palette": {
+      "title": "Go to page",
+      "placeholder": "Go to… (try \"payments\", \"onu\", \"outages\")",
+      "searchButton": "Search…",
+      "noResults": "No matching pages",
+      "hint": "↑↓ navigate · Enter open · Esc close"
+    },
+    "workspaces": {
+      "label": "Workspace",
+      "full": "Full workspace",
+      "billing": "Billing workspace",
+      "field": "Field workspace",
+      "support": "Support workspace",
+      "noc": "NOC workspace"
+    }
   },
   "layout": {
     "brandName": "🔥 FireISP",

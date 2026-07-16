@@ -300,7 +300,22 @@
       "ai": "IA",
       "governance": "Governança e Continuidade"
     },
-    "toggleSection": "Mostrar ou ocultar {{section}}"
+    "toggleSection": "Mostrar ou ocultar {{section}}",
+    "palette": {
+      "title": "Ir para página",
+      "placeholder": "Ir para… (tente \"pagamentos\", \"onu\", \"quedas\")",
+      "searchButton": "Buscar…",
+      "noResults": "Nenhuma página encontrada",
+      "hint": "↑↓ navegar · Enter abrir · Esc fechar"
+    },
+    "workspaces": {
+      "label": "Espaço de trabalho",
+      "full": "Espaço completo",
+      "billing": "Espaço de faturamento",
+      "field": "Espaço de campo",
+      "support": "Espaço de suporte",
+      "noc": "Espaço NOC"
+    }
   },
   "layout": {
     "brandName": "🔥 FireISP",
