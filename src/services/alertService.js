@@ -111,15 +111,22 @@ async function evaluateAlerts(organizationId) {
             continue;
           }
         }
-        await recordAlert(rule, breached);
+        const insertedEventId = await recordAlert(rule, breached);
         triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, ...breached });
 
-        // Emit event for notification hooks
-        eventBus.emit('alert.triggered', {
-          organizationId,
-          rule,
-          breach: breached,
-        });
+        // Emit event for notification hooks — but only once per "episode".
+        // recordAlert() above always writes the alert_events history row
+        // (audit trail is unconditional); a rule that stays breached across
+        // repeated cron cycles would otherwise re-emit (and re-email) every
+        // single cycle forever. Skip the emit when a prior non-suppressed
+        // event for this same rule+device already landed in the last hour.
+        if (!(await hasRecentAlertEpisode(organizationId, rule.id, breached.device_id, insertedEventId))) {
+          eventBus.emit('alert.triggered', {
+            organizationId,
+            rule,
+            breach: breached,
+          });
+        }
 
         // Auto-create outage if configured
         if (rule.auto_create_outage && breached.device_id) {
@@ -233,33 +240,100 @@ async function checkRule(rule) {
 }
 
 /**
- * Record an alert event in the alert_events table.
+ * Record an alert event in the alert_events table. Returns the new row's id
+ * so callers can exclude it from the dedup lookback query below.
  */
 async function recordAlert(rule, breach) {
-  await db.query(
+  const [result] = await db.query(
     `INSERT INTO alert_events
      (alert_rule_id, organization_id, device_id, metric, current_value, threshold_value, status)
      VALUES (?, ?, ?, ?, ?, ?, 'triggered')`,
     [rule.id, rule.organization_id, breach.device_id, breach.metric,
       breach.current_value, breach.threshold],
   );
+  return result.insertId;
+}
+
+/**
+ * True when a non-suppressed alert_events row for this rule (and device, when
+ * the breach is device-scoped) already exists within the last 60 minutes,
+ * OTHER than the row just inserted this cycle. Gates alert.triggered
+ * notifications to one per breach "episode": a rule that stays breached
+ * across repeated evaluation cycles keeps writing its unconditional
+ * alert_events history row, but only re-notifies (bell/email/webhook) after a
+ * 60+ minute quiet gap since the last non-suppressed event.
+ */
+async function hasRecentAlertEpisode(organizationId, ruleId, deviceId, excludeEventId) {
+  let sql = `SELECT id FROM alert_events
+     WHERE organization_id = ? AND alert_rule_id = ? AND suppressed = 0
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 60 MINUTE)
+       AND id != ?`;
+  const params = [organizationId, ruleId, excludeEventId];
+  if (deviceId) {
+    sql += ' AND device_id = ?';
+    params.push(deviceId);
+  } else {
+    sql += ' AND device_id IS NULL';
+  }
+  sql += ' LIMIT 1';
+  const [rows] = await db.query(sql, params);
+  return rows.length > 0;
 }
 
 /**
  * Auto-create an outage record when an alert fires.
+ *
+ * `autoCreateOutage` is called on EVERY evaluation cycle a rule with
+ * `auto_create_outage` stays breached — the alert.triggered dedup
+ * (hasRecentAlertEpisode) only gates the *notification* emit for the alert
+ * itself, it has no effect on this side effect. Without an idempotency
+ * guard, a sustained breach would insert a brand new 'ongoing' outage row
+ * AND fire the full admin/support bell+email fan-out every single 5-minute
+ * cron tick until the rule recovers (12/hour, forever). `outages` has no
+ * alert_rule_id/alert_event_id column linking it back to the rule that
+ * created it, so `title` — which deterministically encodes the rule
+ * identity (name+metric+operator+threshold) — combined with device_id and
+ * status='ongoing' (the only non-terminal outage status; 'resolved' and
+ * 'post_mortem' are both closed) is the most precise predicate available
+ * without a schema change.
  */
 async function autoCreateOutage(organizationId, rule, breach) {
   try {
+    const title = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
+
+    const [existing] = await db.query(
+      `SELECT id FROM outages
+       WHERE device_id = ? AND title = ? AND status = 'ongoing'
+       LIMIT 1`,
+      [breach.device_id, title],
+    );
+    if (existing.length > 0) {
+      return;
+    }
+
     // `outages` has no organization_id column — it is scoped through its
     // device/site — and status is ENUM('ongoing','resolved','post_mortem'), so
     // an outage that has just started is 'ongoing' (database/schema.sql).
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO outages (device_id, title, severity, status, started_at)
        VALUES (?, ?, ?, 'ongoing', NOW())`,
-      [breach.device_id,
-        `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`,
-        rule.severity || 'major'],
+      [breach.device_id, title, rule.severity || 'major'],
     );
+
+    // Unlike POST /outages (src/routes/outages.js), this bypasses the route
+    // entirely — fire the same outage.reported event here so the auto-created
+    // outage gets the same bell/email/webhook/portal-push pipeline.
+    eventBus.emit('outage.reported', {
+      organizationId,
+      outage: {
+        id: result.insertId,
+        device_id: breach.device_id,
+        title,
+        severity: rule.severity || 'major',
+        status: 'ongoing',
+        started_at: new Date(),
+      },
+    }).catch(err2 => logger.warn({ err: err2, ruleId: rule.id }, 'outage.reported emit failed (autoCreateOutage)'));
   } catch (_err) {
     // Best effort — don't block alert processing
   }
@@ -268,10 +342,31 @@ async function autoCreateOutage(organizationId, rule, breach) {
 /**
  * Auto-create a support ticket when an alert fires.
  * The ticket is linked to the device that breached the threshold.
+ *
+ * Same per-tick duplication risk as autoCreateOutage above (called on every
+ * cycle a rule stays breached) — mirrors the same guard: `tickets` has no
+ * alert_rule_id/device_id-on-alert linkage either, so subject (which
+ * deterministically encodes the rule identity) + organization_id + a
+ * not-yet-closed status is the equivalent precision tradeoff. Unlike the
+ * outage side, this was "only" a duplicate-ROW bug, not a notification
+ * flood — nothing here emits an event (no ticket.created wiring on this
+ * code path) — but it is the same one-line pattern, so it's fixed here too
+ * rather than just flagged.
  */
 async function autoCreateTicket(organizationId, rule, breach) {
   try {
     const subject = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
+
+    const [existing] = await db.query(
+      `SELECT id FROM tickets
+       WHERE organization_id = ? AND subject = ? AND status NOT IN ('resolved', 'closed')
+       LIMIT 1`,
+      [organizationId, subject],
+    );
+    if (existing.length > 0) {
+      return;
+    }
+
     const description = [
       'Threshold alert automatically opened by the monitoring system.',
       `Rule: ${rule.name}`,
@@ -493,7 +588,11 @@ async function evaluateAlertsV2(organizationId) {
 
       triggered.push({ rule_id: rule.id, rule_name: rule.name, metric: rule.metric, flapping: isFlapping, ...breached });
 
-      eventBus.emit('alert.triggered', { organizationId, rule, breach: breached });
+      // Same one-per-episode dedup as evaluateAlerts() v1 above — see
+      // hasRecentAlertEpisode's doc comment.
+      if (!(await hasRecentAlertEpisode(organizationId, rule.id, breached.device_id, eventId))) {
+        eventBus.emit('alert.triggered', { organizationId, rule, breach: breached });
+      }
 
       if (rule.auto_create_outage && breached.device_id) {
         await autoCreateOutage(organizationId, rule, breached);

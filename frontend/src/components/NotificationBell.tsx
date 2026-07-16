@@ -30,6 +30,8 @@ function entityRoute(n: NotificationRow): string | null {
     case 'work_orders': return '/work-orders';
     case 'invoices': return n.entity_id ? `/invoices/${n.entity_id}` : '/invoices';
     case 'sites': return n.entity_id ? `/sites/${n.entity_id}` : '/sites';
+    case 'devices': return n.entity_id ? `/devices/${n.entity_id}` : null;
+    case 'outages': return '/outages';
     default: return null;
   }
 }

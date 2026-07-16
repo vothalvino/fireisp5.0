@@ -51,11 +51,15 @@ describe('E2E Workflow: Alert → Outage → Notification', () => {
       max_value: 97,
     };
 
-    // Mock: get active rules, SNMP query, record alert, outage
+    // Mock: get active rules, SNMP query, maintenance-window check, record
+    // alert, dedup check, outage
     db.query
       .mockResolvedValueOnce([[rule]])           // SELECT alert_rules
       .mockResolvedValueOnce([[metricRow]])       // SELECT SNMP metric for checkRule
+      .mockResolvedValueOnce([[]])                // maintenance-window check: none
       .mockResolvedValueOnce([{ insertId: 1 }])  // INSERT alert_event (recordAlert)
+      .mockResolvedValueOnce([[]])                // dedup check: no prior episode
+      .mockResolvedValueOnce([[]])                // autoCreateOutage: existing-outage check (none)
       .mockResolvedValueOnce([{ insertId: 1 }]); // INSERT outage (autoCreateOutage)
 
     const result = await alertService.evaluateAlerts(ORG);

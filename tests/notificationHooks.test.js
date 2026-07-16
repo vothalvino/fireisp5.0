@@ -307,6 +307,12 @@ describe('notificationHooks', () => {
     beforeEach(() => registerHooks());
 
     test('broadcasts SSE and dispatches webhook', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[]]);
+      });
+
       await eventBus.emit('outage.reported', {
         organizationId: 1,
         outage: { id: 50, title: 'Fiber cut', severity: 'critical', started_at: '2026-04-13T09:00:00Z' },
@@ -315,12 +321,34 @@ describe('notificationHooks', () => {
       expect(broadcast).toHaveBeenCalledWith('org:1:outages', 'outage.reported', expect.objectContaining({ id: 50, severity: 'critical' }));
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'outage.reported', expect.objectContaining({ id: 50 }));
     });
+
+    test('creates an in-app bell row for each admin/support recipient, off the same SELECT as the email leg', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 9, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('outage.reported', {
+        organizationId: 1,
+        outage: { id: 50, title: 'Fiber cut', severity: 'critical', started_at: '2026-04-13T09:00:00Z' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(9); // user_id
+      expect(insert[1]).toContain('outage'); // type
+      expect(insert[1]).toContain(50); // entity_id
+    });
   });
 
   describe('outage.resolved', () => {
     beforeEach(() => registerHooks());
 
     test('broadcasts SSE and dispatches webhook', async () => {
+      db.query.mockResolvedValueOnce([[]]); // admin/support recipients: none for this scoped test
       await eventBus.emit('outage.resolved', {
         organizationId: 1,
         outage: { id: 50, title: 'Fiber cut', resolved_at: '2026-04-13T12:00:00Z' },
@@ -328,6 +356,25 @@ describe('notificationHooks', () => {
 
       expect(broadcast).toHaveBeenCalledWith('org:1:outages', 'outage.resolved', expect.objectContaining({ id: 50 }));
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'outage.resolved', expect.objectContaining({ id: 50 }));
+    });
+
+    test('creates a bell row (no new email leg) for each admin/support recipient', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/SELECT u\.id FROM users/.test(sql)) return Promise.resolve([[{ id: 9 }]]);
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('outage.resolved', {
+        organizationId: 1,
+        outage: { id: 50, title: 'Fiber cut', resolved_at: '2026-04-13T12:00:00Z' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(9);
+      expect(insert[1]).toContain('outage');
+      expect(insert[1]).toContain(50);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
   });
 
@@ -355,6 +402,12 @@ describe('notificationHooks', () => {
     beforeEach(() => registerHooks());
 
     test('broadcasts SSE and dispatches webhook', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]); // not suppressed
+        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]); // no recipients here
+        return Promise.resolve([[]]);
+      });
+
       await eventBus.emit('device.offline', {
         organizationId: 1,
         device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1', type: 'access_point' },
@@ -363,12 +416,59 @@ describe('notificationHooks', () => {
       expect(broadcast).toHaveBeenCalledWith('org:1:notifications', 'device.offline', expect.objectContaining({ id: 70, name: 'AP-Tower-1' }));
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'device.offline', expect.objectContaining({ id: 70 }));
     });
+
+    test('creates a bell row and emails admin/technician recipients', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 3, email: 'tech@example.com', first_name: 'Tech' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1', type: 'access_point' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(3);
+      expect(insert[1]).toContain('device');
+      expect(insert[1]).toContain(70);
+
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1,
+        to: 'tech@example.com',
+      }));
+    });
+
+    test('suppresses bell/email (but still broadcasts/webhooks) when the device is inside an active maintenance window', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[{ id: 11 }]]); // active window
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 3, email: 'tech@example.com' }]]);
+        }
+        return Promise.resolve([[]]);
+      });
+
+      await eventBus.emit('device.offline', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1', type: 'access_point' },
+      });
+
+      expect(broadcast).toHaveBeenCalled();
+      expect(webhookService.dispatch).toHaveBeenCalled();
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+      expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(false);
+    });
   });
 
   describe('device.online', () => {
     beforeEach(() => registerHooks());
 
     test('broadcasts SSE and dispatches webhook', async () => {
+      db.query.mockResolvedValueOnce([[]]); // no recipients for this scoped test
       await eventBus.emit('device.online', {
         organizationId: 1,
         device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
@@ -376,6 +476,27 @@ describe('notificationHooks', () => {
 
       expect(broadcast).toHaveBeenCalledWith('org:1:notifications', 'device.online', expect.objectContaining({ id: 70 }));
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'device.online', expect.objectContaining({ id: 70 }));
+    });
+
+    test('creates a bell row (no email) for admin/technician recipients', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 3, email: 'tech@example.com', first_name: 'Tech' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('device.online', {
+        organizationId: 1,
+        device: { id: 70, name: 'AP-Tower-1', ip_address: '10.0.0.1' },
+      });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(3);
+      expect(insert[1]).toContain('device');
+      expect(insert[1]).toContain(70);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
     });
   });
 
@@ -572,9 +693,13 @@ describe('notificationHooks', () => {
     beforeEach(() => registerHooks());
 
     test('HTML-escapes the outage title in the admin notification email', async () => {
-      db.query
-        .mockResolvedValueOnce([[{ client_id: 1 }]]) // portal push subscriptions (best-effort, ignored here)
-        .mockResolvedValueOnce([[{ email: 'admin@example.com', first_name: 'Admin' }]]); // admins/support
+      db.query.mockImplementation((sql) => {
+        if (/FROM portal_push_subscriptions/.test(sql)) return Promise.resolve([[{ client_id: 1 }]]);
+        if (/SELECT u\.id, u\.email, u\.first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 9, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]); // Notification.create's INSERT + findByIdIncludingDeleted
+      });
 
       await eventBus.emit('outage.reported', {
         organizationId: 1,
@@ -585,6 +710,12 @@ describe('notificationHooks', () => {
       expect(call).toBeTruthy();
       expect(call[0].html).not.toContain('<script>alert(1)</script>');
       expect(call[0].html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; Fiber cut');
+
+      // Also creates the bell row for the same recipient, off the same SELECT
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(9);
+      expect(insert[1]).toContain('outage');
     });
   });
 
@@ -615,6 +746,200 @@ describe('notificationHooks', () => {
       expect(call[0].html).not.toContain('<b>upgrade</b>');
       expect(call[0].html).toContain('Router &lt;b&gt;upgrade&lt;/b&gt;');
       expect(call[0].html).toContain('Expect downtime &amp; brief outages');
+    });
+  });
+
+  // =========================================================================
+  // alert.triggered
+  // =========================================================================
+  describe('alert.triggered', () => {
+    beforeEach(() => registerHooks());
+
+    const rule = {
+      id: 1, name: 'High CPU', metric: 'cpu_usage', operator: '>', threshold: 90,
+      severity: 'critical', notification_channels: null,
+    };
+    const breach = { device_id: 80, current_value: 95, operator: '>', threshold: 90, metric: 'cpu_usage' };
+
+    test('creates a bell row + email for admin/technician recipients when channels are unset (default: all enabled)', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.triggered', { organizationId: 1, rule, breach });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(5); // user_id
+      expect(insert[1]).toContain('alert'); // type
+      expect(insert[1]).toContain(80); // entity_id = breach device id
+
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1,
+        to: 'admin@example.com',
+        subject: expect.stringContaining('High CPU'),
+      }));
+      expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'alert.triggered', expect.objectContaining({ rule_id: 1 }));
+    });
+
+    test('skips the email leg (bell still fires) when notification_channels excludes email', async () => {
+      const ruleNoEmail = { ...rule, notification_channels: JSON.stringify(['webhook']) };
+      db.query.mockImplementation((sql) => {
+        if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.triggered', { organizationId: 1, rule: ruleNoEmail, breach });
+
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined(); // bell is unconditional
+      expect(webhookService.dispatch).toHaveBeenCalled(); // channels include 'webhook'
+    });
+
+    test('skips the webhook leg when notification_channels excludes webhook', async () => {
+      const ruleEmailOnly = { ...rule, notification_channels: JSON.stringify(['email']) };
+      db.query.mockImplementation((sql) => {
+        if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.triggered', { organizationId: 1, rule: ruleEmailOnly, breach });
+
+      expect(webhookService.dispatch).not.toHaveBeenCalled();
+      expect(emailTransport.sendEmail).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // alert.escalated
+  // =========================================================================
+  describe('alert.escalated', () => {
+    beforeEach(() => registerHooks());
+
+    function mockEventLookup(overrides = {}) {
+      return {
+        organization_id: 1, device_id: 80, current_value: 95,
+        rule_name: 'High CPU', metric: 'cpu_usage', severity: 'critical',
+        ...overrides,
+      };
+    }
+
+    test('email channel: emails step.recipient_email and creates bell rows for admin/technician', async () => {
+      const step = { notification_channel: 'email', recipient_email: 'oncall@example.com' };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT name FROM devices/.test(sql)) return Promise.resolve([[{ name: 'Router-1' }]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ id: 5, email: 'admin@example.com', first_name: 'Admin' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 200, escalationChainId: 3, stepNumber: 2, step });
+
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1,
+        to: 'oncall@example.com',
+      }));
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(5);
+      expect(insert[1]).toContain('alert');
+    });
+
+    test('webhook channel: dispatches an org-level webhook (documented gap: step.webhook_url is not directly targeted)', async () => {
+      const step = { notification_channel: 'webhook', webhook_url: 'https://noc.example.com/hook' };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 201, escalationChainId: 3, stepNumber: 2, step });
+
+      expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'alert.escalated', expect.objectContaining({
+        alert_event_id: 201,
+      }));
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+
+    // Security regression (review finding): the dispatched payload must
+    // never leak the step's secret webhook_url (a Slack/PagerDuty-style
+    // incoming-webhook URL) or recipient PII — webhookService.dispatch()
+    // broadcasts to EVERY active webhook subscriber for the org, not just
+    // the intended on-call contact.
+    test('does NOT leak the step webhook_url or recipient PII into the org-broadcast webhook payload', async () => {
+      const step = {
+        notification_channel: 'webhook',
+        webhook_url: 'https://hooks.slack.com/services/SECRET/TOKEN/xyz',
+        recipient_email: 'oncall@example.com',
+        recipient_phone: '+5215500000000',
+      };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 204, escalationChainId: 3, stepNumber: 2, step });
+
+      const call = webhookService.dispatch.mock.calls.find(c => c[1] === 'alert.escalated');
+      expect(call).toBeDefined();
+      const payload = call[2];
+      expect(payload).not.toHaveProperty('webhook_url');
+      expect(payload).not.toHaveProperty('recipient_email');
+      expect(payload).not.toHaveProperty('recipient_phone');
+      expect(JSON.stringify(payload)).not.toContain('hooks.slack.com');
+      expect(JSON.stringify(payload)).not.toContain('oncall@example.com');
+    });
+
+    test('sms/whatsapp/telegram channels log a not-implemented warning and send no email/webhook', async () => {
+      const step = { notification_channel: 'sms', recipient_phone: '+5215500000000' };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 202, escalationChainId: 3, stepNumber: 3, step });
+
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+      expect(webhookService.dispatch).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'alert.escalated', channel: 'sms' }),
+        expect.stringContaining('not implemented'),
+      );
+    });
+
+    test('bell rows are created for every admin/technician recipient regardless of the step channel', async () => {
+      const step = { notification_channel: 'webhook', webhook_url: 'https://noc.example.com/hook' };
+      db.query.mockImplementation((sql) => {
+        if (/FROM alert_events ae/.test(sql)) return Promise.resolve([[mockEventLookup()]]);
+        if (/SELECT id, email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[
+            { id: 5, email: 'admin@example.com', first_name: 'Admin' },
+            { id: 6, email: 'tech@example.com', first_name: 'Tech' },
+          ]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('alert.escalated', { alertEventId: 203, escalationChainId: 3, stepNumber: 1, step });
+
+      const inserts = db.query.mock.calls.filter(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(inserts.length).toBe(2);
     });
   });
 

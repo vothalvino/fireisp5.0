@@ -796,6 +796,7 @@ CREATE TABLE IF NOT EXISTS devices (
     snmp_v3_context_name VARCHAR(255) NULL COMMENT 'SNMPv3 context name (optional) — migration 250',
     last_polled_at DATETIME NULL COMMENT 'Timestamp of last successful SNMP poll — migration 250',
     last_poll_error TEXT NULL COMMENT 'Last SNMP poll error message if any — migration 250',
+    consecutive_poll_failures INT NOT NULL DEFAULT 0 COMMENT 'Consecutive failed SNMP polls; >= 3 flips status to offline (migration 397)',
     status        ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     notes         TEXT            NULL,
     firerelay_node_id VARCHAR(64) NULL
@@ -1380,7 +1381,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     user_id     BIGINT UNSIGNED NOT NULL COMMENT 'Recipient user',
     title       VARCHAR(255)    NOT NULL,
     body        TEXT            NULL,
-    type        ENUM('info', 'warning', 'error', 'billing', 'network', 'ticket', 'work_order', 'maintenance') NOT NULL DEFAULT 'info',
+    type        ENUM('info', 'warning', 'error', 'billing', 'network', 'ticket', 'work_order', 'maintenance', 'alert', 'outage', 'device') NOT NULL DEFAULT 'info' COMMENT 'alert/outage/device added migration 396',
     entity_type VARCHAR(50)     NULL     COMMENT 'Related entity e.g. invoices, tickets',
     entity_id   BIGINT UNSIGNED NULL     COMMENT 'Related entity ID for deep linking',
     is_read     TINYINT(1)      NOT NULL DEFAULT 0,

@@ -11,6 +11,7 @@ const smsTransport = require('./smsTransport');
 const templates = require('../views/emailTemplates');
 const webhookService = require('./webhookService');
 const portalPushService = require('./portalPushService');
+const alertService = require('./alertService');
 const logger = require('../utils/logger');
 // Every inline `html` string built directly in this file (as opposed to via
 // templates.xxxEmail(), which escapes internally) interpolates free-text
@@ -27,6 +28,53 @@ function getBroadcast() {
     broadcast = require('../routes/events').broadcast;
   }
   return broadcast;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper: active staff recipients for in-app + email notifications.
+//
+// NOTE (flagged, not fixed in this PR): this follows the SAME precedent every
+// existing recipient-resolution query in this file already uses — filtering
+// on the legacy `users.role` column (outage.reported's admin/support email
+// leg, ip_pool.threshold's admin/technician email leg) — rather than the
+// authoritative `organization_users` per-org membership role used everywhere
+// else in the RBAC system (see User.getPermissions). A user whose real
+// access comes only from an organization_users membership, with no legacy
+// users.role set, will not receive these notifications. Redesigning
+// recipient resolution is out of scope for this PR; this just keeps new
+// listeners consistent with the file's existing (inconsistent) convention.
+// ---------------------------------------------------------------------------
+async function resolveStaffRecipients(organizationId, roles) {
+  const db = require('../config/database');
+  const placeholders = roles.map(() => '?').join(', ');
+  const [rows] = await db.query(
+    `SELECT id, email, first_name FROM users
+     WHERE organization_id = ?
+       AND role IN (${placeholders})
+       AND status = 'active'
+       AND email IS NOT NULL
+       AND deleted_at IS NULL`,
+    [organizationId, ...roles],
+  );
+  return rows;
+}
+
+/**
+ * Parse alert_rules.notification_channels (a JSON array column, e.g.
+ * '["email","webhook"]'). Returns null when the value is missing or fails to
+ * parse into an array — treated by callers as "all channels enabled", for
+ * backward compatibility with rules created before this column had any
+ * effect (previously nothing read it at all).
+ */
+function parseNotificationChannels(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
 }
 
 /**
@@ -420,10 +468,13 @@ function registerHooks() {
       }
 
       // Notify admins/support by email when a new outage is reported — §1.4
+      // (also creates the in-app bell row for the same recipient set, off
+      // the same SELECT — no second query needed for the bell leg)
       try {
         const db = require('../config/database');
+        const Notification = require('../models/Notification');
         const [admins] = await db.query(
-          `SELECT u.email, u.first_name FROM users u
+          `SELECT u.id, u.email, u.first_name FROM users u
            WHERE u.organization_id = ?
              AND u.role IN ('admin', 'support')
              AND u.status = 'active'
@@ -435,6 +486,15 @@ function registerHooks() {
           + (outage.severity ? `<p>Severidad: ${esc(outage.severity)}</p>` : '')
           + (outage.started_at ? `<p>Inicio: ${new Date(outage.started_at).toISOString().replace('T', ' ').slice(0, 16)} UTC</p>` : '');
         for (const admin of admins) {
+          await Notification.create({
+            user_id:     admin.id,
+            type:        'outage',
+            title:       `Interrupción reportada: ${outage.title}`,
+            body:        outage.severity ? `Severidad: ${outage.severity}` : null,
+            entity_type: 'outages',
+            entity_id:   outage.id,
+          }).catch(err2 => logger.warn({ err: err2, event: 'outage.reported', userId: admin.id }, 'Outage in-app notification error'));
+
           await emailTransport.sendEmail({
             organizationId,
             to: admin.email,
@@ -463,6 +523,33 @@ function registerHooks() {
         id: outage.id,
         title: outage.title,
       });
+
+      // Bell rows only — quiet, no new email leg (an email was already sent
+      // when the outage was reported; resolution is lower-urgency).
+      try {
+        const db = require('../config/database');
+        const Notification = require('../models/Notification');
+        const [admins] = await db.query(
+          `SELECT u.id FROM users u
+           WHERE u.organization_id = ?
+             AND u.role IN ('admin', 'support')
+             AND u.status = 'active'
+             AND u.deleted_at IS NULL`,
+          [organizationId],
+        );
+        for (const admin of admins) {
+          await Notification.create({
+            user_id:     admin.id,
+            type:        'outage',
+            title:       `Interrupción resuelta: ${outage.title}`,
+            body:        null,
+            entity_type: 'outages',
+            entity_id:   outage.id,
+          }).catch(err2 => logger.warn({ err: err2, event: 'outage.resolved', userId: admin.id }, 'Outage in-app notification error'));
+        }
+      } catch (notifyErr) {
+        logger.warn({ err: notifyErr, event: 'outage.resolved' }, 'Admin outage resolved notification error');
+      }
     } catch (err) {
       logger.error({ err, event: 'outage.resolved' }, 'Notification hook error');
     }
@@ -489,6 +576,12 @@ function registerHooks() {
   });
 
   // --- Device Offline ---
+  // Emitted by deviceStatusService.recordPollResult() when a device crosses
+  // the consecutive-failed-polls threshold. Bell + email go to admin/
+  // technician staff — UNLESS the device is inside an active maintenance
+  // window (a device going quiet during planned work is expected, not an
+  // incident): broadcast/webhook still fire unconditionally for any external
+  // tooling watching, but the noisy staff notification is skipped and logged.
   eventBus.on('device.offline', async ({ organizationId, device }) => {
     try {
       getBroadcast()(`org:${organizationId}:notifications`, 'device.offline', {
@@ -503,12 +596,55 @@ function registerHooks() {
         name: device.name,
         ip_address: device.ip_address,
       });
+
+      let suppressedByMaintenance = false;
+      try {
+        suppressedByMaintenance = await alertService.isInMaintenanceWindow(organizationId, device.id);
+      } catch (mwErr) {
+        logger.warn({ err: mwErr, event: 'device.offline', deviceId: device.id }, 'Maintenance-window check failed; proceeding as not-suppressed');
+      }
+
+      if (suppressedByMaintenance) {
+        logger.info(
+          { event: 'device.offline', deviceId: device.id, organizationId },
+          'device.offline bell/email suppressed — device is inside an active maintenance window',
+        );
+        return;
+      }
+
+      const Notification = require('../models/Notification');
+      const title = `Dispositivo fuera de línea: ${device.name}`;
+      const recipients = await resolveStaffRecipients(organizationId, ['admin', 'technician']);
+      for (const recipient of recipients) {
+        await Notification.create({
+          user_id:     recipient.id,
+          type:        'device',
+          title,
+          body:        device.ip_address ? `IP: ${device.ip_address}` : null,
+          entity_type: 'devices',
+          entity_id:   device.id,
+        }).catch(err2 => logger.warn({ err: err2, event: 'device.offline', userId: recipient.id }, 'Device in-app notification error'));
+
+        if (recipient.email) {
+          const html = `<p>El dispositivo <strong>${esc(device.name)}</strong> dejó de responder.</p>`
+            + (device.ip_address ? `<p>IP: ${esc(device.ip_address)}</p>` : '');
+          await emailTransport.sendEmail({
+            organizationId,
+            to: recipient.email,
+            subject: title,
+            html,
+          }).catch(err2 => logger.warn({ err: err2, event: 'device.offline', userId: recipient.id }, 'Device offline email error'));
+        }
+      }
     } catch (err) {
       logger.error({ err, event: 'device.offline' }, 'Notification hook error');
     }
   });
 
   // --- Device Online ---
+  // Emitted by deviceStatusService.recordPollResult() when a previously
+  // detector-flipped-offline device recovers. Bell rows only — no email (a
+  // "back online" notice is lower urgency than the outage itself).
   eventBus.on('device.online', async ({ organizationId, device }) => {
     try {
       getBroadcast()(`org:${organizationId}:notifications`, 'device.online', {
@@ -522,6 +658,19 @@ function registerHooks() {
         name: device.name,
         ip_address: device.ip_address,
       });
+
+      const Notification = require('../models/Notification');
+      const recipients = await resolveStaffRecipients(organizationId, ['admin', 'technician']);
+      for (const recipient of recipients) {
+        await Notification.create({
+          user_id:     recipient.id,
+          type:        'device',
+          title:       `Dispositivo en línea: ${device.name}`,
+          body:        device.ip_address ? `IP: ${device.ip_address}` : null,
+          entity_type: 'devices',
+          entity_id:   device.id,
+        }).catch(err2 => logger.warn({ err: err2, event: 'device.online', userId: recipient.id }, 'Device in-app notification error'));
+      }
     } catch (err) {
       logger.error({ err, event: 'device.online' }, 'Notification hook error');
     }
@@ -547,6 +696,208 @@ function registerHooks() {
       });
     } catch (err) {
       logger.error({ err, event: 'device.trap' }, 'Notification hook error');
+    }
+  });
+
+  // --- Alert Triggered (monitoring rule breach) ---
+  // Emitted by alertService.evaluateAlerts()/evaluateAlertsV2() on a
+  // threshold breach — already deduped upstream to one notification per
+  // ~60-minute breach "episode" (see alertService.hasRecentAlertEpisode);
+  // this handler fires at most once per episode regardless of how many
+  // evaluation cycles the underlying condition stays breached across.
+  // Honors alert_rules.notification_channels (JSON, written by
+  // src/routes/alerts.js but never read before this PR): a null/unparseable
+  // value is treated as "all channels enabled" for backward compatibility
+  // with rules created before this column had any effect. 'sms' is not wired
+  // — no SMS transport precedent for staff alerting in this file (the
+  // existing SMS sends here are all client-facing templates) — an honest
+  // stub, not silently dropped nor faked.
+  eventBus.on('alert.triggered', async ({ organizationId, rule, breach }) => {
+    try {
+      const db = require('../config/database');
+      const Notification = require('../models/Notification');
+
+      const channels = parseNotificationChannels(rule.notification_channels);
+      const emailEnabled = channels === null || channels.includes('email');
+      const webhookEnabled = channels === null || channels.includes('webhook');
+
+      let deviceName = null;
+      if (breach.device_id) {
+        try {
+          const [[device]] = await db.query(
+            'SELECT name FROM devices WHERE id = ? AND deleted_at IS NULL',
+            [breach.device_id],
+          );
+          deviceName = device?.name || null;
+        } catch (_err) {
+          // Device name is cosmetic — never block the alert notification on it.
+        }
+      }
+
+      const title = `Alerta: ${rule.name}`;
+      const bodyLines = [
+        `Métrica: ${rule.metric} ${breach.operator} ${breach.threshold} (valor actual: ${breach.current_value})`,
+        rule.severity ? `Severidad: ${rule.severity}` : null,
+        deviceName ? `Dispositivo: ${deviceName}` : null,
+      ].filter(Boolean);
+      const body = bodyLines.join('\n');
+
+      const recipients = await resolveStaffRecipients(organizationId, ['admin', 'technician']);
+      for (const recipient of recipients) {
+        // Bell row — always, regardless of notification_channels (non-intrusive).
+        await Notification.create({
+          user_id:     recipient.id,
+          type:        'alert',
+          title,
+          body,
+          entity_type: breach.device_id ? 'devices' : null,
+          entity_id:   breach.device_id || null,
+        }).catch(err2 => logger.warn({ err: err2, event: 'alert.triggered', userId: recipient.id }, 'Alert in-app notification error'));
+
+        if (emailEnabled && recipient.email) {
+          const html = '<p>Se activó una alerta de monitoreo:</p>'
+            + `<p><strong>${esc(rule.name)}</strong></p>`
+            + `<p>Métrica: ${esc(rule.metric)} ${esc(breach.operator)} ${esc(String(breach.threshold))} `
+            + `(valor actual: ${esc(String(breach.current_value))})</p>`
+            + (rule.severity ? `<p>Severidad: ${esc(rule.severity)}</p>` : '')
+            + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
+          await emailTransport.sendEmail({
+            organizationId,
+            to: recipient.email,
+            subject: title,
+            html,
+          }).catch(err2 => logger.warn({ err: err2, event: 'alert.triggered', userId: recipient.id }, 'Alert email error'));
+        }
+      }
+
+      if (webhookEnabled) {
+        await webhookService.dispatch(organizationId, 'alert.triggered', {
+          rule_id:       rule.id,
+          rule_name:     rule.name,
+          metric:        rule.metric,
+          operator:      breach.operator,
+          threshold:     breach.threshold,
+          current_value: breach.current_value,
+          device_id:     breach.device_id,
+          severity:      rule.severity,
+        }).catch(err2 => logger.warn({ err: err2, event: 'alert.triggered' }, 'Alert webhook error'));
+      }
+    } catch (err) {
+      logger.error({ err, event: 'alert.triggered' }, 'Notification hook error');
+    }
+  });
+
+  // --- Alert Escalated (unacknowledged alert climbs an escalation chain step) ---
+  // Emitted by alertService.triggerEscalation(). Unlike alert.triggered, the
+  // step row carries an external on-call contact directly
+  // (recipient_email/recipient_phone/webhook_url) — there is no user lookup
+  // for the escalation leg itself. Staff still get an in-app bell row
+  // (admin/technician) so the escalation is visible without waiting on the
+  // external channel.
+  eventBus.on('alert.escalated', async ({ alertEventId, stepNumber, step }) => {
+    try {
+      const db = require('../config/database');
+      const Notification = require('../models/Notification');
+
+      const [[eventRow]] = await db.query(
+        `SELECT ae.organization_id, ae.device_id, ae.current_value,
+                ar.name AS rule_name, ar.metric, ar.severity
+         FROM alert_events ae
+         JOIN alert_rules ar ON ar.id = ae.alert_rule_id
+         WHERE ae.id = ?`,
+        [alertEventId],
+      );
+      if (!eventRow) return;
+      const organizationId = eventRow.organization_id;
+
+      let deviceName = null;
+      if (eventRow.device_id) {
+        try {
+          const [[device]] = await db.query(
+            'SELECT name FROM devices WHERE id = ? AND deleted_at IS NULL',
+            [eventRow.device_id],
+          );
+          deviceName = device?.name || null;
+        } catch (_err) {
+          // Device name is cosmetic — never block the escalation notification on it.
+        }
+      }
+
+      const title = `Alerta escalada (nivel ${stepNumber}): ${eventRow.rule_name}`;
+      const bodyLines = [
+        `Métrica: ${eventRow.metric} (valor actual: ${eventRow.current_value})`,
+        eventRow.severity ? `Severidad: ${eventRow.severity}` : null,
+        deviceName ? `Dispositivo: ${deviceName}` : null,
+      ].filter(Boolean);
+      const body = bodyLines.join('\n');
+
+      // In-app bell rows for staff — always, regardless of the step's channel.
+      const recipients = await resolveStaffRecipients(organizationId, ['admin', 'technician']);
+      for (const recipient of recipients) {
+        await Notification.create({
+          user_id:     recipient.id,
+          type:        'alert',
+          title,
+          body,
+          entity_type: eventRow.device_id ? 'devices' : null,
+          entity_id:   eventRow.device_id || null,
+        }).catch(err2 => logger.warn({ err: err2, event: 'alert.escalated', userId: recipient.id }, 'Escalation in-app notification error'));
+      }
+
+      // External on-call contact — the step's OWN channel, not a user lookup.
+      switch (step.notification_channel) {
+        case 'email':
+          if (step.recipient_email) {
+            const html = `<p>Escalación de alerta — nivel ${stepNumber}:</p>`
+              + `<p><strong>${esc(eventRow.rule_name)}</strong></p>`
+              + `<p>Métrica: ${esc(eventRow.metric)} (valor actual: ${esc(String(eventRow.current_value))})</p>`
+              + (eventRow.severity ? `<p>Severidad: ${esc(eventRow.severity)}</p>` : '')
+              + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
+            await emailTransport.sendEmail({
+              organizationId,
+              to: step.recipient_email,
+              subject: title,
+              html,
+            }).catch(err2 => logger.warn({ err: err2, event: 'alert.escalated' }, 'Escalation email error'));
+          }
+          break;
+        case 'webhook':
+          // webhookService.dispatch() only targets an organization's
+          // REGISTERED webhooks (matched by subscribed event name) — it has
+          // no concept of an arbitrary one-off URL, so step.webhook_url
+          // itself is never directly called; a per-step external webhook URL
+          // needs a dedicated, signed one-off HTTP sender, which is NOT
+          // implemented in this PR (flagged as a gap in the PR body — this
+          // 'webhook' branch is dispatched at the org level as the closest
+          // available approximation, exactly like the honest stubs below).
+          //
+          // SECURITY: dispatch() broadcasts to EVERY active webhook
+          // subscriber for the org, so the payload below must never carry
+          // step.webhook_url (a secret Slack/PagerDuty-style incoming-webhook
+          // URL) or any recipient PII (recipient_email/recipient_phone) —
+          // only non-sensitive alert identifiers.
+          await webhookService.dispatch(organizationId, 'alert.escalated', {
+            alert_event_id: alertEventId,
+            step_number:    stepNumber,
+            rule_name:      eventRow.rule_name,
+          }).catch(err2 => logger.warn({ err: err2, event: 'alert.escalated' }, 'Escalation webhook error'));
+          break;
+        case 'sms':
+        case 'whatsapp':
+        case 'telegram':
+          // Honest stub — no transport precedent in these hooks for an
+          // external, non-portal contact on these channels. Logged, not
+          // silently dropped nor faked as sent.
+          logger.warn(
+            { event: 'alert.escalated', channel: step.notification_channel, alertEventId },
+            `Escalation channel '${step.notification_channel}' is not implemented yet`,
+          );
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      logger.error({ err, event: 'alert.escalated' }, 'Notification hook error');
     }
   });
 

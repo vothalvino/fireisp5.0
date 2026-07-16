@@ -15,6 +15,7 @@
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'pollerEngine' });
 const { pollDevice } = require('./snmpPoller');
+const deviceStatusService = require('./deviceStatusService');
 
 // In-memory map: deviceId => { adaptive: true, minIntervalSec: N }
 // Set by adaptivePollCheck(), cleared when outage resolves.
@@ -135,17 +136,13 @@ async function pollWithConfig() {
     try {
       await pollDevice(device);
       polled++;
-      await db.query(
-        'UPDATE devices SET last_polled_at = NOW(), last_poll_error = NULL WHERE id = ?',
-        [device.id],
-      ).catch(() => {});
+      await deviceStatusService.recordPollResult(device.id, true)
+        .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (success) failed'));
     } catch (err) {
       errors++;
       logger.error({ err, deviceId: device.id }, 'pollWithConfig: device poll failed');
-      await db.query(
-        'UPDATE devices SET last_poll_error = ? WHERE id = ?',
-        [String(err?.message || err), device.id],
-      ).catch(() => {});
+      await deviceStatusService.recordPollResult(device.id, false, String(err?.message || err))
+        .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (failure) failed'));
     }
   }
 

@@ -132,9 +132,59 @@ describe('alertService extended', () => {
         .mockResolvedValueOnce([[]])  // no maintenance window
         .mockResolvedValueOnce([[]])  // no suppression
         .mockResolvedValueOnce([[{ flap_detection_enabled: 0 }]])  // no flapping
-        .mockResolvedValueOnce([{ insertId: 10 }]); // insert result
+        .mockResolvedValueOnce([{ insertId: 10 }]) // insert result
+        .mockResolvedValueOnce([[]]); // dedup check: no prior episode
       const result = await alertService.evaluateAlertsV2(1);
       expect(result.triggered).toBe(1);
+    });
+  });
+
+  // ===========================================================================
+  // Alert dedup — evaluateAlertsV2 (same gating as v1, see alertService.test.js)
+  // ===========================================================================
+  describe('evaluateAlertsV2 — alert dedup', () => {
+    const eventBus = require('../src/services/eventBus');
+
+    beforeEach(() => eventBus.removeAllListeners());
+    afterEach(() => eventBus.removeAllListeners());
+
+    it('skips the alert.triggered emit when a prior non-suppressed event exists within 60 minutes', async () => {
+      const received = [];
+      eventBus.on('alert.triggered', (data) => received.push(data));
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'test', metric: 'cpu_usage', operator: '>', threshold: 80, device_id: 5, duration_minutes: 5, is_enabled: true, flap_detection_enabled: 0, auto_create_outage: false, auto_create_ticket: false, escalation_chain_id: null }]])
+        .mockResolvedValueOnce([[{ device_id: 5, avg_value: '90', max_value: '95' }]])
+        .mockResolvedValueOnce([[]])  // no maintenance window
+        .mockResolvedValueOnce([[]])  // no correlation suppression
+        .mockResolvedValueOnce([[{ flap_detection_enabled: 0 }]])  // no flapping
+        .mockResolvedValueOnce([{ insertId: 11 }]) // insert result
+        .mockResolvedValueOnce([[{ id: 5 }]]); // dedup check: a prior event exists
+
+      const result = await alertService.evaluateAlertsV2(1);
+
+      expect(result.triggered).toBe(1); // history/return value unaffected
+      expect(received.length).toBe(0); // notification emit suppressed
+    });
+
+    it('emits alert.triggered normally when no prior episode exists', async () => {
+      const received = [];
+      eventBus.on('alert.triggered', (data) => received.push(data));
+
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, name: 'test', metric: 'cpu_usage', operator: '>', threshold: 80, device_id: 5, duration_minutes: 5, is_enabled: true, flap_detection_enabled: 0, auto_create_outage: false, auto_create_ticket: false, escalation_chain_id: null }]])
+        .mockResolvedValueOnce([[{ device_id: 5, avg_value: '90', max_value: '95' }]])
+        .mockResolvedValueOnce([[]])  // no maintenance window
+        .mockResolvedValueOnce([[]])  // no correlation suppression
+        .mockResolvedValueOnce([[{ flap_detection_enabled: 0 }]])  // no flapping
+        .mockResolvedValueOnce([{ insertId: 12 }]) // insert result
+        .mockResolvedValueOnce([[]]); // dedup check: no prior episode
+
+      const result = await alertService.evaluateAlertsV2(1);
+
+      expect(result.triggered).toBe(1);
+      expect(received.length).toBe(1);
+      expect(received[0].organizationId).toBe(1);
     });
   });
 });
