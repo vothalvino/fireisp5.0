@@ -2052,7 +2052,15 @@
     "delete_success": "Janela de manutencao excluida.",
     "delete_error": "Falha ao excluir a janela de manutencao.",
     "error": "Falha ao carregar as janelas de manutencao.",
-    "empty": "Nenhuma janela de manutencao encontrada."
+    "empty": "Nenhuma janela de manutencao encontrada.",
+    "scope": "Escopo",
+    "scope_org": "Toda a organização",
+    "scope_site": "Um site / torre",
+    "scope_device": "Um equipamento",
+    "site": "Site",
+    "device": "Equipamento",
+    "select_site": "— selecione um site —",
+    "select_device": "— selecione um equipamento —"
   },
   "alert_channels": {
     "title": "Canais de Notificacao de Alertas",

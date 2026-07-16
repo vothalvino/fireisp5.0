@@ -251,7 +251,7 @@ describe('alertService', () => {
       const result = await alertService.evaluateAlerts(1);
       expect(result.triggered).toBe(1);
       // Ticket insert should have been called (4th query total)
-      expect(db.query).toHaveBeenCalledTimes(4);
+      expect(db.query).toHaveBeenCalledTimes(5); // rules + metric + maintenance-window check + alert insert + ticket insert
     });
   });
 

@@ -28,8 +28,8 @@ interface WindowsResponse {
 interface WindowBody {
   name: string;
   description?: string;
-  device_id?: number;
-  site_id?: number;
+  device_id?: number | null;
+  site_id?: number | null;
   starts_at: string;
   ends_at: string;
   is_recurring?: boolean;
@@ -38,8 +38,16 @@ interface WindowBody {
   status?: string;
 }
 
+interface NamedRow { id: number; name: string }
+
 const PAGE_SIZE = 25;
 const STATUSES = ['scheduled', 'active', 'completed', 'cancelled'];
+
+async function fetchNamed(path: '/sites' | '/devices'): Promise<NamedRow[]> {
+  const res = await api.GET(path as never, { params: { query: { limit: 500 } as never } } as never);
+  if ((res as { error?: unknown }).error) return [];
+  return (((res as { data?: { data?: NamedRow[] } }).data?.data) ?? []);
+}
 
 async function fetchWindows(page: number): Promise<WindowsResponse> {
   const res = await api.GET('/alerts/maintenance-windows' as never, { params: { query: { page, limit: PAGE_SIZE } as never } } as never);
@@ -92,11 +100,27 @@ function WindowForm({ initial, onSave, onClose, saving, editMode }: WindowFormPr
   const [startsAt, setStartsAt] = useState(initial.starts_at ? initial.starts_at.slice(0, 16) : '');
   const [endsAt, setEndsAt] = useState(initial.ends_at ? initial.ends_at.slice(0, 16) : '');
   const [status, setStatus] = useState(initial.status ?? 'scheduled');
+  // Scope: exactly one of org-wide / a site (tower) / a single device — this
+  // drives which alerts the window suppresses.
+  const [scope, setScope] = useState<'org' | 'site' | 'device'>(
+    initial.device_id ? 'device' : initial.site_id ? 'site' : 'org',
+  );
+  const [siteId, setSiteId] = useState(String(initial.site_id ?? ''));
+  const [deviceId, setDeviceId] = useState(String(initial.device_id ?? ''));
+
+  const { data: sites = [] } = useQuery({ queryKey: ['sites-mini'], queryFn: () => fetchNamed('/sites'), enabled: scope === 'site' });
+  const { data: devices = [] } = useQuery({ queryKey: ['devices-mini'], queryFn: () => fetchNamed('/devices'), enabled: scope === 'device' });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (scope === 'site' && !siteId) return;
+    if (scope === 'device' && !deviceId) return;
     const body: WindowBody = { name, starts_at: startsAt, ends_at: endsAt, status };
     if (description) body.description = description;
+    // Always send both so edits can also CLEAR a scope (null passes validation
+    // and the PUT handler writes it).
+    body.site_id = scope === 'site' ? Number(siteId) : null;
+    body.device_id = scope === 'device' ? Number(deviceId) : null;
     onSave(body);
   }
 
@@ -128,6 +152,32 @@ function WindowForm({ initial, onSave, onClose, saving, editMode }: WindowFormPr
               <input type="datetime-local" style={inp} value={endsAt} onChange={e => setEndsAt(e.target.value)} required />
             </div>
           </div>
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={modalStyles.label}>{t('maintenance_windows.scope', 'Scope')}<RequiredMark /></label>
+            <select style={inp} value={scope} onChange={e => setScope(e.target.value as 'org' | 'site' | 'device')}>
+              <option value="org">{t('maintenance_windows.scope_org', 'Entire organization')}</option>
+              <option value="site">{t('maintenance_windows.scope_site', 'One site / tower')}</option>
+              <option value="device">{t('maintenance_windows.scope_device', 'One device')}</option>
+            </select>
+          </div>
+          {scope === 'site' && (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={modalStyles.label}>{t('maintenance_windows.site', 'Site')}<RequiredMark /></label>
+              <select style={inp} value={siteId} onChange={e => setSiteId(e.target.value)} required>
+                <option value="" disabled>{t('maintenance_windows.select_site', '— select a site —')}</option>
+                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+          {scope === 'device' && (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={modalStyles.label}>{t('maintenance_windows.device', 'Device')}<RequiredMark /></label>
+              <select style={inp} value={deviceId} onChange={e => setDeviceId(e.target.value)} required>
+                <option value="" disabled>{t('maintenance_windows.select_device', '— select a device —')}</option>
+                {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          )}
           <div style={{ marginBottom: '1rem' }}>
             <label style={modalStyles.label}>{t('maintenance_windows.status', 'Status')}</label>
             <select style={inp} value={status} onChange={e => setStatus(e.target.value)}>
@@ -215,6 +265,7 @@ export function MaintenanceWindowList() {
               <thead>
                 <tr>
                   <th style={styles.th}>Name</th>
+                  <th style={styles.th}>{t('maintenance_windows.scope', 'Scope')}</th>
                   <th style={styles.th}>Starts At</th>
                   <th style={styles.th}>Ends At</th>
                   <th style={styles.th}>Status</th>
@@ -225,6 +276,13 @@ export function MaintenanceWindowList() {
                 {windows.map(w => (
                   <tr key={w.id} style={styles.tr}>
                     <td style={styles.td}><strong>{w.name}</strong></td>
+                    <td style={styles.td}>
+                      {w.device_id
+                        ? `${t('maintenance_windows.scope_device', 'One device')} #${w.device_id}`
+                        : w.site_id
+                          ? `${t('maintenance_windows.scope_site', 'One site / tower')} #${w.site_id}`
+                          : t('maintenance_windows.scope_org', 'Entire organization')}
+                    </td>
                     <td style={styles.td}>{w.starts_at}</td>
                     <td style={styles.td}>{w.ends_at}</td>
                     <td style={styles.td}><StatusBadge status={w.status} /></td>
