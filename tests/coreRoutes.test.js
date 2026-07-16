@@ -1515,7 +1515,7 @@ describe('Ticket Routes — /api/tickets', () => {
       const res = await request(app)
         .post('/api/tickets')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ subject: 'Internet outage', priority: 'high', category: 'technical' });
+        .send({ subject: 'Internet outage', priority: 'high', category: 'technical', client_id: 10 });
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);

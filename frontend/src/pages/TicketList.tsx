@@ -183,9 +183,8 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
 
   const mutation = useMutation({
     mutationFn: () => {
-      const body: CreateTicketBody = { subject: form.subject.trim() };
+      const body: CreateTicketBody = { subject: form.subject.trim(), client_id: Number(form.client_id) };
       if (form.description.trim()) body.description = form.description.trim();
-      if (form.client_id) body.client_id = Number(form.client_id);
       if (form.assigned_to) body.assigned_to = Number(form.assigned_to);
       if (form.priority) body.priority = form.priority;
       body.category = form.category;
@@ -221,9 +220,10 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
-            <label style={labelStyle}>Client</label>
+            <label style={labelStyle}>Client *</label>
+            {/* tickets.client_id is NOT NULL — a "none" option always 500'd */}
             <select style={inputStyle} value={form.client_id} onChange={set('client_id')}>
-              <option value="">— none —</option>
+              <option value="" disabled>— select a client —</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -259,7 +259,7 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
           <button
             style={btnPrimary}
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.subject.trim() || !form.category}
+            disabled={mutation.isPending || !form.subject.trim() || !form.category || !form.client_id}
           >
             {mutation.isPending ? 'Creating…' : 'Create Ticket'}
           </button>
