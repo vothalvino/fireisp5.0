@@ -7,6 +7,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
@@ -15,6 +16,8 @@ import {
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 const STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'];
+// Mirrors the tickets.category ENUM (migration 394) — required on create.
+const CATEGORIES = ['technical', 'billing', 'installation', 'general'];
 
 interface CreateTicketBody {
   subject: string;
@@ -38,6 +41,7 @@ export interface NewTicketModalProps {
 }
 
 export function NewTicketModal({ lockedClientId, lockedClientName, onClose, onCreated }: NewTicketModalProps) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     subject: '', description: '', priority: 'medium', category: '', status: 'open',
   });
@@ -56,7 +60,7 @@ export function NewTicketModal({ lockedClientId, lockedClientName, onClose, onCr
       const body: CreateTicketBody = { subject: form.subject.trim(), client_id: lockedClientId };
       if (form.description.trim()) body.description = form.description.trim();
       if (form.priority) body.priority = form.priority;
-      if (form.category.trim()) body.category = form.category.trim();
+      body.category = form.category;
       if (form.status) body.status = form.status;
       await createTicket(body);
       onCreated();
@@ -101,13 +105,15 @@ export function NewTicketModal({ lockedClientId, lockedClientName, onClose, onCr
             </div>
           </div>
 
-          <label style={labelStyle}>Category</label>
-          <input style={inputStyle} value={form.category} onChange={set('category')}
-            placeholder="e.g. connectivity, billing, hardware" />
+          <label style={labelStyle}>Category *</label>
+          <select style={inputStyle} value={form.category} onChange={set('category')} required>
+            <option value="" disabled>{t('ticketList.selectCategory')}</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{t(`ticketCategory.${c}`)}</option>)}
+          </select>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1.25rem' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={submitting || !form.subject.trim()}>
+            <button type="submit" style={submitBtn} disabled={submitting || !form.subject.trim() || !form.category}>
               {submitting ? 'Creating…' : 'Create Ticket'}
             </button>
           </div>

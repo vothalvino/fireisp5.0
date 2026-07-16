@@ -133,10 +133,11 @@ export const ROUTES: RouteDef[] = [
   { path: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
 
   // --- Support -----------------------------------------------------------------
-  // tickets.view is granted only to support (+admin/readonly) — mig 119, audited
-  { path: '/tickets', labelKey: 'nav.tickets', section: 'support', guard: 'any', rail: true, roles: ['support'] },
-  // billing lacks escalations.view (mig 197 billing block) — audited
-  { path: '/escalations', labelKey: 'nav.escalations', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support'] },
+  // tickets.view: support (119) + technician (394; sees all categories except
+  // billing — tickets.view_billing gates those). Billing still lacks tickets.view.
+  { path: '/tickets', labelKey: 'nav.tickets', section: 'support', guard: 'any', rail: true, roles: ['support', 'technician'] },
+  // escalations.view: technician+support (197) + billing (394)
+  { path: '/escalations', labelKey: 'nav.escalations', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support', 'billing'] },
   { path: '/follow-up-reminders', labelKey: 'nav.followUps', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support', 'billing'] },
   { path: '/communication-campaigns', labelKey: 'nav.communicationCampaigns', section: 'support', guard: 'any', rail: true, roles: ['technician', 'support', 'billing'] },
   { path: '/satisfaction-surveys', labelKey: 'nav.surveys', section: 'support', guard: 'any', rail: true, roles: ['support', 'billing'] },
@@ -149,10 +150,9 @@ export const ROUTES: RouteDef[] = [
   { path: '/service-areas', labelKey: 'nav.serviceAreas', section: 'fieldops', guard: 'technician', rail: true, roles: ['technician'] },
 
   // --- Network (hub: /network) ---------------------------------------------------
-  // noc.view (mig 298) goes to admin/support/readonly but NOT technician, and
-  // support/readonly fail the technician route guard — so among non-admin roles
-  // nobody can both route here and load it. Empty allowlist = admin-only.
-  { path: '/noc-dashboard', labelKey: 'nav.nocDashboard', section: 'network', guard: 'technician', card: 'monitoringNoc', rail: true, roles: [] },
+  // noc.view: admin/support/readonly (298) + technician (394); support/readonly
+  // still fail the technician route guard
+  { path: '/noc-dashboard', labelKey: 'nav.nocDashboard', section: 'network', guard: 'technician', card: 'monitoringNoc', rail: true, roles: ['technician'] },
   // support lacks devices.view (deliberately — see mig 383 notes) — audited
   { path: '/devices', labelKey: 'nav.devices', section: 'network', guard: 'any', card: 'monitoringNoc', rail: true, roles: ['technician'] },
   // any-auth guard + support in the allowlist: support has network_health.view /

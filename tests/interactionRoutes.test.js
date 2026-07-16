@@ -219,7 +219,7 @@ describe('Interaction Tracking routes (§1.3)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data.events).toHaveLength(1);
-    expect(interactionService.activityTimeline).toHaveBeenCalledWith('5', 42, { limit: undefined });
+    expect(interactionService.activityTimeline).toHaveBeenCalledWith('5', 42, { limit: undefined, includeBillingTickets: true });
   });
 
   test('returns 401 without a token', async () => {

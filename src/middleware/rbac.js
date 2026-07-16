@@ -109,4 +109,23 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requirePermission, requireRole, enforceTokenScopes };
+/**
+ * Non-middleware permission probe for conditional logic inside handlers
+ * (e.g. tickets excludes billing-category rows for users without
+ * tickets.view_billing). Mirrors requirePermission's resolution exactly:
+ * legacy admin bypasses, API-token scopes are enforced, everyone else goes
+ * through User.getPermissions. Returns false instead of throwing.
+ */
+async function userHasPermission(req, permission) {
+  if (!req.user || !req.user.organizationId) return false;
+  try {
+    enforceTokenScopes(req.user, [permission]);
+  } catch {
+    return false;
+  }
+  if (req.user.role === 'admin') return true;
+  const permissions = await User.getPermissions(req.user.id, req.user.organizationId);
+  return permissions.includes(permission);
+}
+
+module.exports = { requirePermission, requireRole, enforceTokenScopes, userHasPermission };

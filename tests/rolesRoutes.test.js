@@ -75,6 +75,7 @@ jest.mock('../src/middleware/orgLocale', () => ({
 // gating only — bypassed here so the tests exercise the handlers' own
 // is_system / kind / anti-amplification logic instead of RBAC resolution.
 jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
   requirePermission: () => (_req, _res, next) => next(),
   requireRole: () => (_req, _res, next) => next(),
 }));

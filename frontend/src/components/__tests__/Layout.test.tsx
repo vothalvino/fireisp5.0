@@ -137,19 +137,39 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('Inventory')).toBeInTheDocument();
     // Field Work opens by default for technicians.
     expect(screen.getByText('Work Orders')).toBeInTheDocument();
-    // Pages the technician role 403s on (audit: tickets/leads/surveys) and the
+    // Pages the technician role 403s on (audit: leads/surveys) and the
     // billing/admin sections are gone.
-    expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
     expect(screen.queryByText('Leads')).not.toBeInTheDocument();
     expect(screen.queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.queryByText('Administration')).not.toBeInTheDocument();
-    // Expanding Network reveals the shortlist and the View-all row to the hub.
     const { fireEvent } = await import('@testing-library/react');
+    // Tickets lives in the (collapsed) Support section since migration 394
+    // granted technicians tickets.view.
+    fireEvent.click(screen.getByText('Support'));
+    expect(screen.getByText('Tickets')).toBeInTheDocument();
+    // Expanding Network reveals the shortlist and the View-all row to the hub.
     fireEvent.click(screen.getByText('Network'));
     expect(screen.getByText('NAS Devices')).toBeInTheDocument();
     expect(screen.getByText(/View all \d+/)).toBeInTheDocument();
     // The long tail is hub-only, not rail rows.
     expect(screen.queryByText('VLANs')).not.toBeInTheDocument();
+  });
+
+  it('hub sections collapse again via the chevron after being opened (regression)', async () => {
+    mockUseAuth(makeUser('technician'));
+    renderLayout();
+    const { fireEvent } = await import('@testing-library/react');
+
+    // Label click on a hub header expands the section (and navigates to the hub).
+    fireEvent.click(screen.getByText('Network'));
+    expect(screen.getByText('NAS Devices')).toBeInTheDocument();
+
+    // The chevron is a separate toggle — an opened hub must collapse again.
+    const chevron = screen.getByRole('button', { name: 'Expand or collapse Network' });
+    fireEvent.click(chevron);
+    expect(screen.queryByText('NAS Devices')).not.toBeInTheDocument();
+    fireEvent.click(chevron);
+    expect(screen.getByText('NAS Devices')).toBeInTheDocument();
   });
 
   it('shows an org switcher listing all organizations for an admin', async () => {

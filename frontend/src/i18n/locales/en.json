@@ -299,7 +299,8 @@
       "automationIntegrations": "Automation & Integrations",
       "ai": "AI",
       "governance": "Governance & Continuity"
-    }
+    },
+    "toggleSection": "Expand or collapse {{section}}"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -721,7 +722,10 @@
     },
     "noTickets": "No tickets found.",
     "loading": "Loading tickets…",
-    "error": "Failed to load tickets."
+    "error": "Failed to load tickets.",
+    "filterCategory": "Filter by category",
+    "allCategories": "All categories",
+    "selectCategory": "— select a category —"
   },
   "userList": {
     "title": "Users",
@@ -4343,5 +4347,11 @@
       "ownership_sold": "Sold",
       "actions": "Actions"
     }
+  },
+  "ticketCategory": {
+    "technical": "Technical",
+    "billing": "Billing",
+    "installation": "Installation",
+    "general": "General"
   }
 }

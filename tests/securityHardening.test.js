@@ -41,6 +41,7 @@ jest.mock('../src/middleware/orgScope', () => ({
 // (restrictRoleAssignment, the GraphQL wrapper, user_id binding). The real
 // requirePermission/enforceTokenScopes are covered by rbac.test.js.
 jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
   requirePermission: () => (_req, _res, next) => next(),
   requireRole:       () => (_req, _res, next) => next(),
 }));

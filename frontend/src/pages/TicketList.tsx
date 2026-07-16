@@ -71,12 +71,14 @@ async function fetchTickets(
   pageSize: number,
   statusFilter: string,
   priorityFilter: string,
+  categoryFilter: string,
   orderBy: string,
   order: string,
 ): Promise<TicketsResponse> {
   const query: Record<string, string | number> = { page, limit: pageSize, order_by: orderBy, order };
   if (statusFilter) query.status = statusFilter;
   if (priorityFilter) query.priority = priorityFilter;
+  if (categoryFilter) query.category = categoryFilter;
   const res = await api.GET('/tickets' as never, { params: { query: query as never } } as never);
   if ((res as { error?: unknown }).error) throw new Error('Failed to load tickets');
   return res.data as unknown as TicketsResponse;
@@ -162,8 +164,11 @@ interface NewTicketModalProps {
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 const STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'];
+// Mirrors the tickets.category ENUM (migration 394) — required on create.
+const CATEGORIES = ['technical', 'billing', 'installation', 'general'];
 
 function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     subject: '',
@@ -183,7 +188,7 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
       if (form.client_id) body.client_id = Number(form.client_id);
       if (form.assigned_to) body.assigned_to = Number(form.assigned_to);
       if (form.priority) body.priority = form.priority;
-      if (form.category.trim()) body.category = form.category.trim();
+      body.category = form.category;
       if (form.status) body.status = form.status;
       return createTicket(body);
     },
@@ -243,15 +248,18 @@ function NewTicketModal({ clients, users, onClose, onCreated }: NewTicketModalPr
           </div>
         </div>
 
-        <label style={labelStyle}>Category</label>
-        <input style={inputStyle} value={form.category} onChange={set('category')} placeholder="e.g. connectivity, billing, hardware" />
+        <label style={labelStyle}>Category *</label>
+        <select style={inputStyle} value={form.category} onChange={set('category')}>
+          <option value="" disabled>{t('ticketList.selectCategory')}</option>
+          {CATEGORIES.map(c => <option key={c} value={c}>{t(`ticketCategory.${c}`)}</option>)}
+        </select>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
           <button
             style={btnPrimary}
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.subject.trim()}
+            disabled={mutation.isPending || !form.subject.trim() || !form.category}
           >
             {mutation.isPending ? 'Creating…' : 'Create Ticket'}
           </button>
@@ -272,14 +280,15 @@ export function TicketList() {
   const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const sort = useTableSort('created_at', 'DESC');
 
   useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['tickets', page, pageSize, statusFilter, priorityFilter, sort.sortBy, sort.sortDir],
-    queryFn: () => fetchTickets(page, pageSize, statusFilter, priorityFilter, sort.order_by, sort.order),
+    queryKey: ['tickets', page, pageSize, statusFilter, priorityFilter, categoryFilter, sort.sortBy, sort.sortDir],
+    queryFn: () => fetchTickets(page, pageSize, statusFilter, priorityFilter, categoryFilter, sort.order_by, sort.order),
   });
 
   const { data: clients = [] } = useQuery({
@@ -305,6 +314,11 @@ export function TicketList() {
     };
   }
 
+  // Resolved outside the row map — the map param shadows the translation fn.
+  const categoryLabels: Record<string, string> = Object.fromEntries(
+    CATEGORIES.map(c => [c, t(`ticketCategory.${c}`)]),
+  );
+
   return (
     <div style={{ padding: '1.5rem', maxWidth: 1100 }}>
       {/* Header */}
@@ -323,8 +337,12 @@ export function TicketList() {
           <option value="">{t('ticketList.allPriorities')}</option>
           {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        {(statusFilter || priorityFilter) && (
-          <button style={btnSecondary} onClick={() => { setStatusFilter(''); setPriorityFilter(''); setPage(1); }}>
+        <select aria-label={t('ticketList.filterCategory')} style={filterSelect} value={categoryFilter} onChange={handleFilterChange(setCategoryFilter)}>
+          <option value="">{t('ticketList.allCategories')}</option>
+          {CATEGORIES.map(c => <option key={c} value={c}>{t(`ticketCategory.${c}`)}</option>)}
+        </select>
+        {(statusFilter || priorityFilter || categoryFilter) && (
+          <button style={btnSecondary} onClick={() => { setStatusFilter(''); setPriorityFilter(''); setCategoryFilter(''); setPage(1); }}>
             {t('ticketList.clearFilters')}
           </button>
         )}
@@ -373,7 +391,7 @@ export function TicketList() {
                     </td>
                     <td style={{ ...td, maxWidth: 300 }}>
                       <span style={{ fontWeight: 500 }}>{t.subject}</span>
-                      {t.category && <span style={{ color: '#888', fontSize: '0.78rem', marginLeft: 6 }}>[{t.category}]</span>}
+                      {t.category && <span style={{ color: '#888', fontSize: '0.78rem', marginLeft: 6 }}>[{categoryLabels[t.category] ?? t.category}]</span>}
                     </td>
                     <td style={td}>{t.client_id ? (clientMap[t.client_id] ?? `#${t.client_id}`) : '—'}</td>
                     <td style={td}><PriorityBadge priority={t.priority} /></td>

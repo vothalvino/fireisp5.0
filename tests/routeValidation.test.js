@@ -350,7 +350,7 @@ describe('Route Validation — Tickets', () => {
     const res = await request(app)
       .post('/api/tickets')
       .set('Authorization', `Bearer ${token}`)
-      .send({ subject: 'Network down', priority: 'critical' });
+      .send({ subject: 'Network down', priority: 'critical', category: 'technical' });
     expect(res.status).not.toBe(422);
   });
 

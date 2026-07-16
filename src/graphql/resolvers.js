@@ -534,10 +534,21 @@ const resolvers = {
         // Authorise the ticket against the caller's org — never trust the
         // client-supplied ticketId to belong to them.
         const [rows] = await db.query(
-          'SELECT id FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+          'SELECT id, category FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
           [ticketId, ctx.orgId],
         );
         if (!rows[0]) throw gqlForbidden('Ticket not found in your organization');
+        // Billing-category tickets are gated by tickets.view_billing (mig 394),
+        // mirroring the REST chokepoint in routes/tickets.js. Deny with the
+        // same "not found" message so the response is indistinguishable from a
+        // missing ticket (no category oracle).
+        if (rows[0].category === 'billing') {
+          try {
+            await assertGraphqlPermission(ctx, ['tickets.view_billing']);
+          } catch {
+            throw gqlForbidden('Ticket not found in your organization');
+          }
+        }
         for await (const event of pubsub.subscribe('TICKET_COMMENT_ADDED')) {
           if (String(event.ticketId) === String(ticketId)) {
             yield event;

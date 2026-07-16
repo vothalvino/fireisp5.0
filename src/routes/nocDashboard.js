@@ -5,8 +5,16 @@
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const db = require('../config/database');
+
+// Billing-category tickets are gated by tickets.view_billing (migration 394):
+// technicians hold noc.view but must not see billing tickets in NOC feeds.
+async function billingTicketFilter(req, alias = '') {
+  return (await userHasPermission(req, 'tickets.view_billing'))
+    ? ''
+    : `AND ${alias}category <> 'billing'`;
+}
 
 const router = Router();
 
@@ -93,12 +101,14 @@ router.get('/outages', requirePermission('noc.view'), async (req, res, next) => 
 // GET /noc/ticket-queue — open tickets by status with counts
 router.get('/ticket-queue', requirePermission('noc.view'), async (req, res, next) => {
   try {
+    const billingFilter = await billingTicketFilter(req, 't.');
     const [rows] = await db.query(
       `SELECT t.status, COUNT(*) AS count
        FROM tickets t
        WHERE t.organization_id = ?
          AND t.status IN ('open','in_progress','waiting')
          AND t.deleted_at IS NULL
+         ${billingFilter}
        GROUP BY t.status
        ORDER BY FIELD(t.status,'open','in_progress','waiting')`,
       [req.orgId],
@@ -130,6 +140,7 @@ router.get('/events', requirePermission('noc.view'), async (req, res, next) => {
       `SELECT 'ticket' AS event_type, id, subject AS detail, status, created_at AS occurred_at
        FROM tickets
        WHERE organization_id = ? AND deleted_at IS NULL
+         ${await billingTicketFilter(req)}
        ORDER BY created_at DESC LIMIT 20`,
       [req.orgId],
     );
@@ -144,13 +155,15 @@ router.get('/events', requirePermission('noc.view'), async (req, res, next) => {
 // ticket_sla_events uses is_breached TINYINT (0=compliant, 1=breached)
 router.get('/sla-compliance', requirePermission('noc.view'), async (req, res, next) => {
   try {
+    const billingFilter = await billingTicketFilter(req, 't.');
     const [[stats]] = await db.query(
       `SELECT
          COUNT(*) AS total,
          SUM(CASE WHEN tse.is_breached = 0 THEN 1 ELSE 0 END) AS compliant
        FROM ticket_sla_events tse
        JOIN tickets t ON t.id = tse.ticket_id
-       WHERE t.organization_id = ? AND tse.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
+       WHERE t.organization_id = ? AND tse.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+         ${billingFilter}`,
       [req.orgId],
     );
     const total = Number(stats.total) || 0;

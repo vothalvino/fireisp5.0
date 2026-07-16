@@ -24,9 +24,12 @@ router.get('/', requirePermission('escalations.view'), ctrl.list);
 // Unresolved tickets without an open escalation — must precede '/:id'
 router.get('/candidates', requirePermission('escalations.view'), async (req, res, next) => {
   try {
+    const { userHasPermission } = require('../middleware/rbac');
     const rows = await interactionService.escalationCandidates(req.orgId, {
       hours: req.query.hours,
       limit: req.query.limit,
+      // Billing-category tickets are gated by tickets.view_billing (mig 394)
+      includeBillingTickets: await userHasPermission(req, 'tickets.view_billing'),
     });
     res.json({ data: rows });
   } catch (err) { next(err); }

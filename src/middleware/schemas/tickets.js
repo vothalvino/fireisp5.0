@@ -2,6 +2,11 @@
 // FireISP 5.0 — Ticket Validation Schemas
 // =============================================================================
 
+// Ticket taxonomy (migration 394) — mirrors the tickets.category ENUM. A staff
+// ticket cannot be saved without picking one; billing-category tickets are
+// gated by the tickets.view_billing permission.
+const TICKET_CATEGORIES = ['technical', 'billing', 'installation', 'general'];
+
 const createTicket = {
   client_id: { type: 'number', min: 1 },
   contract_id: { type: 'number', min: 1 },
@@ -9,7 +14,7 @@ const createTicket = {
   subject: { type: 'string', required: true, min: 1, max: 300 },
   description: { type: 'string', max: 5000 },
   priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-  category: { type: 'string', max: 100 },
+  category: { type: 'string', required: true, enum: TICKET_CATEGORIES },
   status: { type: 'string', enum: ['open', 'in_progress', 'waiting', 'resolved', 'closed'] },
 };
 
@@ -20,7 +25,7 @@ const updateTicket = {
   subject: { type: 'string', min: 1, max: 300 },
   description: { type: 'string', max: 5000 },
   priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-  category: { type: 'string', max: 100 },
+  category: { type: 'string', enum: TICKET_CATEGORIES },
   status: { type: 'string', enum: ['open', 'in_progress', 'waiting', 'resolved', 'closed'] },
 };
 

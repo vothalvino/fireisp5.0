@@ -58,35 +58,51 @@ export function NavSection({
     );
   }
 
-  function handleHeaderClick() {
-    if (section.kind === 'hub' && hubVisible && section.hubPath) {
-      // Hub headers navigate to the overview and open the section.
+  const isHubLink = section.kind === 'hub' && hubVisible && Boolean(section.hubPath);
+
+  // Hub headers: the label navigates to the overview (and opens the section);
+  // the chevron is a separate button that only toggles, so an opened hub can
+  // always be collapsed again. Plain groups toggle from either.
+  function handleLabelClick() {
+    if (isHubLink) {
       if (!expanded) onToggle(section.id);
-      navigate(section.hubPath);
+      navigate(section.hubPath as string);
       onNavigate();
       return;
     }
     onToggle(section.id);
   }
 
-  const showViewAll = section.kind === 'hub' && hubVisible && section.hubPath;
+  const showViewAll = isHubLink;
 
   let lastSub: string | undefined;
 
   return (
     <div className="nav-sec">
-      <button
-        type="button"
-        className={`nav-sec-head${onTrail ? ' on-trail' : ''}`}
-        aria-expanded={expanded}
-        onClick={handleHeaderClick}
-      >
-        <SectionIcon id={section.id} />
-        <span className="nav-sec-label">{t(section.labelKey)}</span>
-        <svg className="nav-chev" viewBox="0 0 12 12" aria-hidden="true">
-          <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
+      <div className={`nav-sec-row${onTrail ? ' on-trail' : ''}`}>
+        <button
+          type="button"
+          className="nav-sec-head"
+          // For plain groups the label IS a toggle, so it carries the expanded
+          // state; hub labels navigate instead and leave it to the chevron.
+          aria-expanded={isHubLink ? undefined : expanded}
+          onClick={handleLabelClick}
+        >
+          <SectionIcon id={section.id} />
+          <span className="nav-sec-label">{t(section.labelKey)}</span>
+        </button>
+        <button
+          type="button"
+          className="nav-chev-btn"
+          aria-expanded={expanded}
+          aria-label={t('nav.toggleSection', { section: t(section.labelKey) })}
+          onClick={() => onToggle(section.id)}
+        >
+          <svg className="nav-chev" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
 
       {expanded && (
         <div className="nav-sec-body">

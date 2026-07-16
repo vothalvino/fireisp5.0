@@ -60,14 +60,20 @@ describe('technician', () => {
   it('sees exactly clients, support, fieldops, network, inventory', () => {
     expect(Object.keys(nav).sort()).toEqual(['clients', 'fieldops', 'inventory', 'network', 'support'].sort());
   });
-  it('never sees pages the technician role 403s on (tickets/leads/surveys/NOC — audit)', () => {
+  it('never sees pages the technician role 403s on (leads/surveys — audit)', () => {
     const all = Object.values(nav).flatMap(s => s.items);
-    expect(all).not.toContain('/tickets');
     expect(all).not.toContain('/leads');
     expect(all).not.toContain('/satisfaction-surveys');
     expect(all).not.toContain('/quotes');
-    // noc.view and cpe_profiles.view are not granted to technician (migs 298/276)
-    expect(all).not.toContain('/noc-dashboard');
+  });
+  it('gets tickets (all categories except billing) and the NOC dashboard — mig 394 grants', () => {
+    expect(nav.support.items).toEqual([
+      '/tickets',
+      '/escalations',
+      '/follow-up-reminders',
+      '/communication-campaigns',
+    ]);
+    expect(nav.network.items).toContain('/noc-dashboard');
   });
   it('gets the full field kit', () => {
     expect(nav.fieldops.items).toEqual([
@@ -113,8 +119,13 @@ describe('billing', () => {
     expect(nav.clients.items).toContain('/quotes');
     expect(nav.clients.items).toContain('/churn-analytics');
   });
-  it('does not see tickets or escalations (no tickets.view/escalations.view — audit)', () => {
-    expect(nav.support.items).toEqual(['/follow-up-reminders', '/communication-campaigns', '/satisfaction-surveys']);
+  it('gets escalations (mig 394) but still no tickets (no tickets.view — audit)', () => {
+    expect(nav.support.items).toEqual([
+      '/escalations',
+      '/follow-up-reminders',
+      '/communication-campaigns',
+      '/satisfaction-surveys',
+    ]);
   });
   it('network is only the personal tunnels row, without a View-all', () => {
     expect(nav.network.items).toEqual(['/wg-tunnels']);
