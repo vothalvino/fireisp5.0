@@ -4368,5 +4368,11 @@
     "billing": "Billing",
     "installation": "Installation",
     "general": "General"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "markAllRead": "Mark all read",
+    "empty": "No notifications",
+    "bellLabel": "Notifications ({{count}} unread)"
   }
 }

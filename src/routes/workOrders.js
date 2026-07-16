@@ -15,6 +15,15 @@ const { pickupDisposition } = require('../middleware/schemas/inventorySerials');
 const db = require('../config/database');
 const User = require('../models/User');
 const inventorySerialService = require('../services/inventorySerialService');
+const eventBus = require('../services/eventBus');
+const logger = require('../utils/logger').child({ service: 'routes/workOrders' });
+
+// Fire-and-forget: notifies the assignee (in-app + email via notificationHooks)
+// without ever delaying or failing the HTTP response.
+function emitAssigned(organizationId, workOrder, assignedBy) {
+  Promise.resolve(eventBus.emit('work_order.assigned', { organizationId, workOrder, assignedBy }))
+    .catch(err => logger.warn({ err: err.message, workOrderId: workOrder.id }, 'work_order.assigned emit failed'));
+}
 
 // A work order may only be assigned to someone who could actually work it, i.e.
 // a user authorized to update work orders (`work_orders.update`). This is the
@@ -170,6 +179,7 @@ router.post('/', requirePermission('work_orders.create'), validate(createWorkOrd
         latitude || null, longitude || null, address || null, notes || null],
     );
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [result.insertId]);
+    if (row.assigned_to) emitAssigned(req.orgId, row, req.user.id);
     res.status(201).json({ data: row });
   } catch (err) { next(err); }
 });
@@ -184,6 +194,10 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     }
     const assignErr = await assigneeAuthError(assigned_to, req.orgId);
     if (assignErr) return res.status(422).json({ error: assignErr });
+    const [[before]] = await db.query(
+      'SELECT assigned_to FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.orgId],
+    );
     const [result] = await db.query(
       `UPDATE work_orders SET
          client_id=?, site_id=?, device_id=?, contract_id=?, service_order_id=?,
@@ -198,6 +212,7 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [req.params.id]);
+    if (row.assigned_to && row.assigned_to !== before?.assigned_to) emitAssigned(req.orgId, row, req.user.id);
     res.json({ data: row });
   } catch (err) { next(err); }
 });
@@ -215,6 +230,12 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
       const assignErr = await assigneeAuthError(req.body.assigned_to, req.orgId);
       if (assignErr) return res.status(422).json({ error: assignErr });
     }
+    const [[beforePatch]] = 'assigned_to' in req.body
+      ? await db.query(
+        'SELECT assigned_to FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [req.params.id, req.orgId],
+      )
+      : [[null]];
     // If the patch touches any target field, ensure the work order still targets
     // at least one of client/site/device once the change is applied.
     const targetKeys = ['client_id', 'site_id', 'device_id'];
@@ -237,6 +258,9 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
     const [[row]] = await db.query('SELECT * FROM work_orders WHERE id = ?', [req.params.id]);
+    if ('assigned_to' in req.body && row.assigned_to && row.assigned_to !== beforePatch?.assigned_to) {
+      emitAssigned(req.orgId, row, req.user.id);
+    }
     res.json({ data: row });
   } catch (err) { next(err); }
 });

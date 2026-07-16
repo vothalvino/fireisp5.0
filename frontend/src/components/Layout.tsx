@@ -16,6 +16,7 @@ import { ChangelogPanel } from '@/components/ChangelogPanel';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NavSection } from '@/components/NavSection';
 import { CommandPalette } from '@/components/CommandPalette';
+import { NotificationBell } from '@/components/NotificationBell';
 import {
   SECTIONS,
   WORKSPACES,
@@ -193,7 +194,10 @@ export function Layout() {
       </button>
 
       {/* Mobile top bar — visible only on mobile via CSS */}
-      <div className="mobile-topbar">{t('layout.brandName')}</div>
+      <div className="mobile-topbar">
+        {t('layout.brandName')}
+        <span className="mobile-topbar-bell"><NotificationBell /></span>
+      </div>
 
       {/* Backdrop overlay — shown on mobile when sidebar is open */}
       <div
@@ -297,6 +301,7 @@ export function Layout() {
         <header className="app-topbar">
           <span style={styles.topbarBrand}>{t('layout.brandName')}</span>
           <span className="app-topbar-spacer" />
+          <NotificationBell />
           {user?.organization_id != null && orgs.length > 0 && (
             <span style={styles.topbarOrg}>
               {orgs.find(o => o.id === user.organization_id)?.name ?? ''}

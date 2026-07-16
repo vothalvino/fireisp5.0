@@ -54,6 +54,62 @@ describe('notificationHooks', () => {
   });
 
   // =========================================================================
+  // work_order.assigned
+  // =========================================================================
+  describe('work_order.assigned', () => {
+    beforeEach(() => registerHooks());
+
+    const workOrder = {
+      id: 42,
+      title: 'Tower North — replace radio',
+      work_type: 'maintenance',
+      priority: 'high',
+      assigned_to: 9,
+      scheduled_at: '2026-07-20T15:00:00Z',
+      address: 'Cerro del Aire km 3',
+    };
+
+    test('creates the in-app notification, emails the assignee, dispatches webhook', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/INSERT INTO `notifications`/.test(sql)) return Promise.resolve([{ insertId: 1 }]);
+        if (/SELECT email, first_name FROM users/.test(sql)) {
+          return Promise.resolve([[{ email: 'tech@demo-isp.com', first_name: 'Téc' }]]);
+        }
+        return Promise.resolve([[{ id: 1 }]]);
+      });
+
+      await eventBus.emit('work_order.assigned', { organizationId: 1, workOrder, assignedBy: 1 });
+
+      const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO `notifications`/.test(sql));
+      expect(insert).toBeDefined();
+      expect(insert[1]).toContain(9); // user_id = assignee
+      expect(insert[1]).toContain('work_order'); // type within the new ENUM
+      expect(insert[1]).toContain(42); // entity_id deep link
+
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1,
+        to: 'tech@demo-isp.com',
+        subject: expect.stringContaining('#42'),
+      }));
+
+      expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'work_order.assigned', expect.objectContaining({ id: 42, assigned_to: 9 }));
+    });
+
+    test('skips the email when the assignee has no active account/email, still notifies in-app', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/INSERT INTO `notifications`/.test(sql)) return Promise.resolve([{ insertId: 2 }]);
+        if (/SELECT email, first_name FROM users/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([[{ id: 2 }]]);
+      });
+
+      await eventBus.emit('work_order.assigned', { organizationId: 1, workOrder, assignedBy: 1 });
+
+      expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `notifications`/.test(sql))).toBe(true);
+      expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
   // invoice.created
   // =========================================================================
   describe('invoice.created', () => {
