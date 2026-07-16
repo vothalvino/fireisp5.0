@@ -276,7 +276,10 @@ export function fmtDate(dateStr: string | null | undefined): string {
 
 export function fmtMoney(
   amount: string | number | null | undefined,
-  currency = 'USD',
+  // Safety net only — callers should pass the row's currency or
+  // useOrgCurrency(). 'MXN' mirrors the backend's final fallback
+  // (Organization.getCurrency / organizations.currency DEFAULT 'MXN').
+  currency = 'MXN',
 ): string {
   if (amount === null || amount === undefined || amount === '') return '—';
   const num = typeof amount === 'string' ? Number(amount) : amount;

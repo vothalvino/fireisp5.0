@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import {
   styles,
   modalStyles,
@@ -326,6 +327,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 
 export function CreditNoteList() {
   const queryClient = useQueryClient();
+  const orgCurrency = useOrgCurrency();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -413,7 +415,7 @@ export function CreditNoteList() {
                         </Link>
                       </td>
                       <td style={styles.td}>{n.reason ? reasonLabel(n.reason) : '—'}</td>
-                      <td style={styles.td}>{fmtMoney(n.total, n.currency ?? 'USD')}</td>
+                      <td style={styles.td}>{fmtMoney(n.total, n.currency ?? orgCurrency)}</td>
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditNote(n)} title="Edit this credit note">✏️ Edit</button>

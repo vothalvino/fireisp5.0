@@ -87,7 +87,9 @@ function pdfLabels(locale) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmt(amount, currency = 'USD') {
+// Safety-net default only — every caller passes the document's own currency.
+// 'MXN' mirrors Organization.getCurrency's final fallback.
+function fmt(amount, currency = 'MXN') {
   const num = parseFloat(amount) || 0;
   return `${currency} ${num.toFixed(2)}`;
 }

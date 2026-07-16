@@ -71,10 +71,10 @@ async function seed() {
     await conn.execute(`
       INSERT IGNORE INTO plans (id, organization_id, name, download_speed_mbps, upload_speed_mbps, price, currency, billing_cycle, status)
       VALUES
-        (1, 1, 'Basic 50 Mbps',   50,  10,  29.99, 'USD', 'monthly', 'active'),
-        (2, 1, 'Standard 100 Mbps', 100, 25,  49.99, 'USD', 'monthly', 'active'),
-        (3, 1, 'Premium 300 Mbps',  300, 50,  79.99, 'USD', 'monthly', 'active'),
-        (4, 1, 'Business 500 Mbps', 500, 100, 149.99, 'USD', 'monthly', 'active')
+        (1, 1, 'Basic 50 Mbps',   50,  10,  29.99, 'MXN', 'monthly', 'active'),
+        (2, 1, 'Standard 100 Mbps', 100, 25,  49.99, 'MXN', 'monthly', 'active'),
+        (3, 1, 'Premium 300 Mbps',  300, 50,  79.99, 'MXN', 'monthly', 'active'),
+        (4, 1, 'Business 500 Mbps', 500, 100, 149.99, 'MXN', 'monthly', 'active')
     `);
 
     // 5. Clients

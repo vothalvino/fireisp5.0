@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import { styles } from './crudStyles';
 import {
   extractApiError,
@@ -117,11 +118,15 @@ function ChargebackStatusBadge({ status }: { status: string }) {
 
 function CreateChargebackModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { t } = useTranslation();
+  // Prime from the active org's currency (mirrors RecordPaymentModal, #417) —
+  // a hardcoded 'USD' here was SENT to the API, overriding the backend's
+  // org-currency default for every UI-created chargeback.
+  const orgCurrency = useOrgCurrency();
   const [paymentId, setPaymentId] = useState('');
   const [gateway, setGateway] = useState('');
   const [gatewayDisputeId, setGatewayDisputeId] = useState('');
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState(orgCurrency);
   const [reasonCode, setReasonCode] = useState('');
   const [error, setError] = useState('');
 
@@ -129,7 +134,7 @@ function CreateChargebackModal({ onClose, onCreated }: { onClose: () => void; on
     mutationFn: async () => {
       const body: Record<string, unknown> = {
         amount: parseFloat(amount),
-        currency: currency.trim() || 'USD',
+        currency: currency.trim() || orgCurrency,
       };
       if (paymentId.trim()) body.payment_id = parseInt(paymentId, 10);
       if (gateway.trim()) body.gateway = gateway.trim();

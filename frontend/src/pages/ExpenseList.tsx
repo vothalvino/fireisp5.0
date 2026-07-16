@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import {
   styles,
   modalStyles,
@@ -269,6 +270,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 
 export function ExpenseList() {
   const queryClient = useQueryClient();
+  const orgCurrency = useOrgCurrency();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -343,7 +345,7 @@ export function ExpenseList() {
                       <td style={styles.td}>#{x.id}</td>
                       <td style={styles.td}>{fmtDate(x.expense_date)}</td>
                       <td style={{ ...styles.td, fontWeight: 500, textTransform: 'capitalize' }}>{x.category}</td>
-                      <td style={styles.td}>{fmtMoney(x.amount, x.currency ?? 'USD')}</td>
+                      <td style={styles.td}>{fmtMoney(x.amount, x.currency ?? orgCurrency)}</td>
                       <td style={styles.td}><StatusBadge status={x.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditExpense(x)} title="Edit this expense">✏️ Edit</button>
