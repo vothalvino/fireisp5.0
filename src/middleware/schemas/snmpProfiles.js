@@ -30,6 +30,10 @@ const createSnmpProfileOid = {
   oid_type: { type: 'string', enum: ['gauge', 'counter', 'counter64', 'string', 'timeticks'] },
   description: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
+  metric_column: { type: 'string', required: true, min: 1, max: 64 },
+  is_per_interface: { type: 'boolean' },
+  aggregate: { type: 'boolean' },
+  sort_order: { type: 'number', min: 0 },
 };
 
 module.exports = { createSnmpProfile, updateSnmpProfile, createSnmpProfileOid };

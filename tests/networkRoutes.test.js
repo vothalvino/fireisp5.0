@@ -893,7 +893,7 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
         profile_id: 1,
         oid: '.1.3.6.1.2.1.1.3.0',
         label: 'sysUpTime',
-        metric_type: 'gauge',
+        metric_column: 'uptime_ticks',
       };
       db.query
         .mockResolvedValueOnce([{ insertId: 2 }])   // INSERT into snmp_profile_oids
@@ -902,11 +902,38 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
       const res = await request(app)
         .post('/api/snmp-profiles/1/oids')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ oid: '.1.3.6.1.2.1.1.3.0', label: 'sysUpTime', metric_type: 'gauge' });
+        .send({ oid: '.1.3.6.1.2.1.1.3.0', label: 'sysUpTime', metric_column: 'uptime_ticks' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.oid).toBe('.1.3.6.1.2.1.1.3.0');
       expect(res.body.data.label).toBe('sysUpTime');
+    });
+
+    test('persists aggregate and transform through to the INSERT (migration 401)', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([{ insertId: 3 }])   // INSERT into snmp_profile_oids
+        .mockResolvedValueOnce([[{
+          id: 3, profile_id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', label: 'CPU',
+          metric_column: 'cpu_usage', is_per_interface: true, aggregate: true, transform: 'value / 10',
+        }]]);
+
+      const res = await request(app)
+        .post('/api/snmp-profiles/1/oids')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          oid: '1.3.6.1.2.1.25.3.3.1.2', label: 'CPU', metric_column: 'cpu_usage',
+          is_per_interface: true, aggregate: true, transform: 'value / 10',
+        });
+
+      expect(res.status).toBe(201);
+      const insertCall = db.query.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO snmp_profile_oids'));
+      expect(insertCall).toBeDefined();
+      const [insertSql, params] = insertCall;
+      expect(insertSql).toContain('aggregate');
+      expect(insertSql).toContain('transform');
+      expect(params).toContain('value / 10');
+      expect(params).toContain(true);
     });
   });
 

@@ -286,7 +286,7 @@ describe('SnmpProfileOid', () => {
   test('has correct metadata with soft-delete', () => {
     expectModel(SnmpProfileOid, {
       tableName: 'snmp_profile_oids',
-      fillableIncludes: ['profile_id', 'oid', 'label', 'oid_type', 'metric_column', 'status'],
+      fillableIncludes: ['profile_id', 'oid', 'label', 'oid_type', 'metric_column', 'status', 'aggregate', 'transform'],
       hasOrgScope: false,
       softDelete: true,
     });
