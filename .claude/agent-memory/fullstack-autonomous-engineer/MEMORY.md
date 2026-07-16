@@ -1,5 +1,6 @@
 # Agent Memory Index
 
+- [No-redeploy live verification](no-redeploy-live-verification.md) — frontend-only PRs: vite `VITE_API_URL=<demo>` proxy + Playwright = full pre-merge walk against the live backend; DR-modal addLocatorHandler, option waits need state:'attached', getByLabel('Active organization')
 - [Faro nav registry](faro-nav-registry.md) — sidebar is registry-driven since PR #421: new routes need an entry in frontend/src/nav/routes.ts (guard mirrors PrivateRoute, roles = audited allowlist) or navRegistry.test.ts fails CI; per-persona nav locked in navPersonas.test.ts
 - [Environment setup](env-setup.md) — Node/pnpm lives at C:\Users\votha\tools\node24; must set PATH before running commands
 - [Testing conventions](testing-conventions.md) — How tests are structured, what mocks are used, and pre-existing failures to ignore
