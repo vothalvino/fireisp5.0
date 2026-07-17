@@ -2,7 +2,7 @@
 // FireISP 5.0 — SNMP rate transform helper tests
 // =============================================================================
 import { describe, it, expect } from 'vitest';
-import { deltaToRate, seriesToRates, currentRate, fmtBps, bucketedRates, type OctetRow } from './rateTransform';
+import { deltaToRate, seriesToRates, currentRate, fmtBps, fmtBpsParts, bucketedRates, type OctetRow } from './rateTransform';
 
 describe('deltaToRate', () => {
   it('computes a normal positive delta as a bits/sec rate', () => {
@@ -141,6 +141,19 @@ describe('fmtBps', () => {
   });
   it('renders null as an em dash', () => {
     expect(fmtBps(null)).toBe('—');
+  });
+});
+
+describe('fmtBpsParts', () => {
+  it('splits value and unit with the same tiers/precision as fmtBps', () => {
+    expect(fmtBpsParts(500)).toEqual({ value: '500', unit: 'bps' });
+    expect(fmtBpsParts(1_500)).toEqual({ value: '1.5', unit: 'Kbps' });
+    expect(fmtBpsParts(5_000_000)).toEqual({ value: '5.00', unit: 'Mbps' });
+    expect(fmtBpsParts(2_500_000_000)).toEqual({ value: '2.500', unit: 'Gbps' });
+  });
+  it('returns null for null/non-finite input', () => {
+    expect(fmtBpsParts(null)).toBeNull();
+    expect(fmtBpsParts(Number.NaN)).toBeNull();
   });
 });
 

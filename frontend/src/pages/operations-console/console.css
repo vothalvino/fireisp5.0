@@ -68,6 +68,32 @@
 .fi-console .fi-tab:hover { color: var(--text-primary); background: var(--bg-subtle); }
 .fi-console .fi-tab.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 
+/* chart point inspector (hover crosshair + tooltip; click pins) */
+.fi-console .fi-chart-hit { position: relative; cursor: crosshair; }
+.fi-console .fi-chart-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
+.fi-console .fi-chart-cursor {
+  position: absolute; top: 4px; bottom: 4px; width: 1px; pointer-events: none;
+  background: var(--border-strong); transform: translateX(-.5px);
+}
+.fi-console .fi-chart-dot {
+  position: absolute; width: 8px; height: 8px; border-radius: 50%; pointer-events: none;
+  transform: translate(-50%, -50%); border: 1.5px solid var(--bg-card); box-sizing: border-box;
+}
+.fi-console .fi-chart-tip {
+  position: absolute; top: 10px; transform: translateX(10px); pointer-events: none; z-index: 5;
+  background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25); padding: 7px 9px;
+  display: flex; flex-direction: column; gap: 4px; white-space: nowrap;
+}
+.fi-console .fi-chart-tip.flip { transform: translateX(calc(-100% - 10px)); }
+.fi-console .fi-chart-tip.pinned { border-color: var(--accent); }
+.fi-console .fi-chart-tip .tt { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.fi-console .fi-chart-tip .tr {
+  display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary);
+}
+.fi-console .fi-chart-tip .tr .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; display: inline-block; }
+.fi-console .fi-chart-tip .tr b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-primary); margin-left: auto; padding-left: 12px; }
+
 .fi-console .fi-chart-stats { display: flex; gap: 26px; border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 12px; flex-wrap: wrap; }
 .fi-console .fi-stat { display: flex; flex-direction: column; gap: 2px; }
 .fi-console .fi-stat .k { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }

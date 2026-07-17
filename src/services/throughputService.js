@@ -16,6 +16,7 @@
  *        t = epoch ms; inO/outO = raw counter bytes. Order-independent.
  * @param {{fromMs:number, toMs:number, buckets:number}} opts
  * @returns {{points:Array<{ts:string,in_bps:number,out_bps:number}>,
+ *            peak_bps:number, avg_bps:number, p95_bps:number,
  *            peak_gbps:number, avg_gbps:number, p95_gbps:number, has_data:boolean}}
  */
 function aggregateThroughput(samples, { fromMs, toMs, buckets }) {
@@ -95,6 +96,11 @@ function aggregateThroughput(samples, { fromMs, toMs, buckets }) {
 
   return {
     points,
+    // Raw bit-rates so the client can pick a display unit (Kbps/Mbps/Gbps);
+    // the *_gbps fields lose everything below ~10 Mbps to rounding.
+    peak_bps: Math.round(peak),
+    avg_bps: Math.round(avg),
+    p95_bps: Math.round(p95),
     peak_gbps: toGbps(peak),
     avg_gbps: toGbps(avg),
     p95_gbps: toGbps(p95),

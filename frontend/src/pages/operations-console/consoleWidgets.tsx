@@ -6,12 +6,13 @@
 // from the design are omitted — the app shell (Layout.tsx) supplies them.
 // =============================================================================
 
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { Card, Table, Badge, Sparkline, type TableColumn, type TableRow } from '@/components/ui';
+import { fmtBps } from '@/pages/snmpMetrics/rateTransform';
 import {
-  RANGES, type Range, type ChartModel,
+  RANGES, CHART_W, CHART_H, CHART_PAD, type Range, type ChartModel,
   type KpiModel, type SiteModel, type DeviceModel, type EventModel, type DeviceStatus,
 } from './consoleModel';
 
@@ -139,6 +140,17 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
 // Throughput chart
 // ---------------------------------------------------------------------------
 
+// Tooltip time label for a chart bucket; the demo series has no timestamps.
+function tipTime(ts: string | null, range: Range): string {
+  if (!ts) return 'sample data';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return range === '7D'
+    ? d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time
+    : time;
+}
+
 export function ThroughputChart({
   range, onRange, chart, emptyMessage,
 }: {
@@ -147,6 +159,26 @@ export function ThroughputChart({
   chart?: ChartModel;
   emptyMessage?: string;
 }) {
+  // Point inspector: hover follows the cursor; click pins the tooltip in place
+  // (click again or Escape releases it). Arrow keys step through buckets.
+  const [hover, setHover] = useState<number | null>(null);
+  const [pinned, setPinned] = useState(false);
+  useEffect(() => { setHover(null); setPinned(false); }, [range]);
+
+  const pts = chart?.points ?? [];
+  const hp = hover != null && hover < pts.length ? pts[hover] : null;
+
+  // Map a pointer position to the nearest bucket index (buckets are uniformly
+  // spaced across the padded viewBox width).
+  function locate(e: { clientX: number; currentTarget: Element }): number | null {
+    if (pts.length === 0) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const vx = ((e.clientX - rect.left) / rect.width) * CHART_W;
+    const i = Math.round(((vx - CHART_PAD) / (CHART_W - CHART_PAD * 2)) * (pts.length - 1));
+    return Math.max(0, Math.min(pts.length - 1, i));
+  }
+
   const legend = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       {chart && (
@@ -171,26 +203,75 @@ export function ThroughputChart({
     );
   }
 
+  const pct = (v: number, span: number) => `${((v / span) * 100).toFixed(2)}%`;
+
   return (
     <Card title="Network Throughput" actions={legend} style={{ height: '100%' }}>
-      <svg viewBox="0 0 820 220" preserveAspectRatio="none" style={{ width: '100%', height: 200, display: 'block' }}>
-        <defs>
-          <linearGradient id="fiIn" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.24" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <line x1="0" y1="55" x2="820" y2="55" stroke="var(--border-subtle)" strokeWidth="1" />
-        <line x1="0" y1="110" x2="820" y2="110" stroke="var(--border-subtle)" strokeWidth="1" />
-        <line x1="0" y1="165" x2="820" y2="165" stroke="var(--border-subtle)" strokeWidth="1" />
-        <path d={chart.outLine} fill="none" stroke="var(--text-dimmed)" strokeWidth="1.5" strokeOpacity="0.7" />
-        <path d={chart.inArea} fill="url(#fiIn)" />
-        <path key={'in' + range} className="fi-chart-line" style={{ '--len': 2000 } as CSSProperties} d={chart.inLine} fill="none" stroke="var(--accent)" strokeWidth="2" />
-      </svg>
+      <div
+        className="fi-chart-hit"
+        role="application"
+        aria-label="Network throughput chart — hover or use arrow keys to inspect points, click to pin"
+        tabIndex={0}
+        onPointerMove={(e) => { if (!pinned) setHover(locate(e)); }}
+        onPointerLeave={() => { if (!pinned) setHover(null); }}
+        onClick={(e) => {
+          const i = locate(e);
+          if (i == null) return;
+          // Clicking a new bucket (re-)pins there; clicking the pinned one releases.
+          setPinned(!(pinned && i === hover));
+          setHover(i);
+        }}
+        onKeyDown={(e) => {
+          if (pts.length === 0) return;
+          if (e.key === 'Escape') { setPinned(false); setHover(null); return; }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (hover != null) setPinned(!pinned);
+            return;
+          }
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          const delta = e.key === 'ArrowLeft' ? -1 : 1;
+          setHover((h) => (h == null ? pts.length - 1 : Math.max(0, Math.min(pts.length - 1, h + delta))));
+        }}
+      >
+        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" style={{ width: '100%', height: 200, display: 'block' }}>
+          <defs>
+            <linearGradient id="fiIn" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.24" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="55" x2={CHART_W} y2="55" stroke="var(--border-subtle)" strokeWidth="1" />
+          <line x1="0" y1="110" x2={CHART_W} y2="110" stroke="var(--border-subtle)" strokeWidth="1" />
+          <line x1="0" y1="165" x2={CHART_W} y2="165" stroke="var(--border-subtle)" strokeWidth="1" />
+          <path d={chart.outLine} fill="none" stroke="var(--text-dimmed)" strokeWidth="1.5" strokeOpacity="0.7" />
+          <path d={chart.inArea} fill="url(#fiIn)" />
+          <path key={'in' + range} className="fi-chart-line" style={{ '--len': 2000 } as CSSProperties} d={chart.inLine} fill="none" stroke="var(--accent)" strokeWidth="2" />
+        </svg>
+        {/* Inspector overlay in HTML (not SVG) so the crosshair dots stay round
+            under the stretched preserveAspectRatio="none" viewBox. */}
+        {hp && (
+          <>
+            <div className="fi-chart-cursor" style={{ left: pct(hp.x, CHART_W) }} aria-hidden="true" />
+            <span className="fi-chart-dot" style={{ left: pct(hp.x, CHART_W), top: pct(hp.yIn, CHART_H), background: 'var(--accent)' }} aria-hidden="true" />
+            <span className="fi-chart-dot" style={{ left: pct(hp.x, CHART_W), top: pct(hp.yOut, CHART_H), background: 'var(--text-dimmed)' }} aria-hidden="true" />
+            <div
+              className={'fi-chart-tip' + (pinned ? ' pinned' : '') + (hp.x > CHART_W / 2 ? ' flip' : '')}
+              style={{ left: pct(hp.x, CHART_W) }}
+              role="status"
+            >
+              <div className="tt">{tipTime(hp.ts, range)}{pinned ? ' · pinned' : ''}</div>
+              <div className="tr"><span className="sw" style={{ background: 'var(--accent)' }} />Ingress<b>{fmtBps(hp.in_bps)}</b></div>
+              <div className="tr"><span className="sw" style={{ background: 'var(--text-dimmed)' }} />Egress<b>{fmtBps(hp.out_bps)}</b></div>
+            </div>
+          </>
+        )}
+      </div>
       <div className="fi-chart-stats">
-        <div className="fi-stat"><span className="k">PEAK</span><span className="v">{chart.peak} <small>Gbps</small></span></div>
-        <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg} <small>Gbps</small></span></div>
-        <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95} <small>Gbps</small></span></div>
+        <div className="fi-stat"><span className="k">PEAK</span><span className="v">{chart.peak.value} <small>{chart.peak.unit}</small></span></div>
+        <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg.value} <small>{chart.avg.unit}</small></span></div>
+        <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95.value} <small>{chart.p95.unit}</small></span></div>
         <div style={{ flex: 1 }} />
         <div className="fi-stat" style={{ alignItems: 'flex-end' }}><span className="k">95/5 COMMIT</span><span className="v" style={{ color: 'var(--accent)' }}>{chart.commit == null ? '—' : `${chart.commit}% used`}</span></div>
       </div>
