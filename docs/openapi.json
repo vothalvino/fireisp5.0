@@ -5942,7 +5942,7 @@
           }
         ],
         "requestBody": {
-          "description": "contract_id (legacy) OR client_id + items[] — items[].inventory_item_id is optional on type:\"product\" lines and draws down stock in the same transaction as the invoice",
+          "description": "contract_id (legacy) OR client_id + items[] — product/custom items take unit_price (or amount, from which unit_price is derived; one of the two is required, and both together must agree with quantity × unit_price); items[].inventory_item_id is optional on type:\"product\" lines and draws down stock in the same transaction as the invoice",
           "content": {
             "application/json": {
               "schema": {
@@ -6960,7 +6960,7 @@
           }
         ],
         "requestBody": {
-          "description": "client_id + items[] — items[].inventory_item_id is optional on type:\"product\" lines; carried through to quote_items with no stock drawdown (quotes never draw down — only conversion to an invoice does)",
+          "description": "client_id + items[] — product/custom items take unit_price (or amount, from which unit_price is derived; one of the two is required); items[].inventory_item_id is optional on type:\"product\" lines; carried through to quote_items with no stock drawdown (quotes never draw down — only conversion to an invoice does)",
           "content": {
             "application/json": {
               "schema": {

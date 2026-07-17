@@ -263,6 +263,43 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // resolveLineItemPricing — flexible-generate item shapes (invoices + quotes)
+  // =========================================================================
+  describe('resolveLineItemPricing (utils/lineItemPricing)', () => {
+    const { resolveLineItemPricing } = require('../src/utils/lineItemPricing');
+    test('classic unit_price shape', () => {
+      expect(resolveLineItemPricing({ quantity: 2, unit_price: 500 }))
+        .toEqual({ qty: 2, unitPrice: 500, amount: 1000 });
+    });
+
+    test('amount-only shape derives unit_price (regression: was silently a 0.00 line)', () => {
+      expect(resolveLineItemPricing({ amount: 100 }))
+        .toEqual({ qty: 1, unitPrice: 100, amount: 100 });
+      expect(resolveLineItemPricing({ quantity: 4, amount: 100 }))
+        .toEqual({ qty: 4, unitPrice: 25, amount: 100 });
+    });
+
+    test('both present must agree (±1¢)', () => {
+      expect(resolveLineItemPricing({ quantity: 2, unit_price: 500, amount: 1000 }))
+        .toEqual({ qty: 2, unitPrice: 500, amount: 1000 });
+      expect(() => resolveLineItemPricing({ quantity: 1, unit_price: 1, amount: 999999 }))
+        .toThrow(/amount must equal quantity/);
+    });
+
+    test('neither unit_price nor amount → validation error', () => {
+      expect(() => resolveLineItemPricing({ quantity: 1 }))
+        .toThrow(/unit_price \(or amount\) is required/);
+    });
+
+    test('an explicit zero stays legal (intentional free line)', () => {
+      expect(resolveLineItemPricing({ unit_price: 0 }))
+        .toEqual({ qty: 1, unitPrice: 0, amount: 0 });
+      expect(resolveLineItemPricing({ amount: 0 }))
+        .toEqual({ qty: 1, unitPrice: 0, amount: 0 });
+    });
+  });
+
+  // =========================================================================
   // applyLineItemToTotals — delta applied when POST /invoices/:id/items adds
   // a line (never a recompute-from-lines: manual invoices have no lines)
   // =========================================================================
