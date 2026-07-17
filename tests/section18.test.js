@@ -470,6 +470,14 @@ describe('POST /api/router-drivers/:id/dispatch', () => {
     const res = await request(app).post('/api/router-drivers/1/dispatch').send({});
     expect(res.status).toBe(422);
   });
+
+  it("rejects command 'reboot' (must go through the devices.reboot-guarded endpoint)", async () => {
+    const res = await request(app).post('/api/router-drivers/1/dispatch').send({ command: 'reboot' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/devices\/:id\/reboot/);
+    // The config was never even looked up — the block is before dispatch.
+    expect(db.query).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

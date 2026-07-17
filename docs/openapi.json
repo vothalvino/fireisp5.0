@@ -9154,7 +9154,7 @@
         "tags": [
           "Devices"
         ],
-        "summary": "Reboot a device via its driver/type mechanism (202; 422 when unsupported)",
+        "summary": "Reboot a device via its driver/type mechanism (422 when unsupported)",
         "operationId": "rebootDevice",
         "security": [
           {
@@ -9172,8 +9172,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "reboot dispatch result: { method, status, detail }",
+          "202": {
+            "description": "Reboot issued or queued: { method, status, detail }",
             "content": {
               "application/json": {
                 "schema": {

@@ -12,7 +12,8 @@
 // =============================================================================
 
 const db = require('../config/database');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const Device = require('../models/Device');
+const { ValidationError } = require('../utils/errors');
 const ftthService = require('./ftthService');
 const routerDriverService = require('./routerDriverService');
 const logger = require('../utils/logger').child({ service: 'deviceActions' });
@@ -28,17 +29,9 @@ const logger = require('../utils/logger').child({ service: 'deviceActions' });
  * @throws {ValidationError} device type has no supported reboot mechanism
  */
 async function rebootDevice(deviceId, orgId, userId = null) {
-  const [rows] = await db.query(
-    `SELECT id, name, type, status
-       FROM devices
-      WHERE id = ?
-        AND (organization_id = ? OR site_id IN (SELECT id FROM sites WHERE organization_id = ?))
-        AND deleted_at IS NULL
-      LIMIT 1`,
-    [deviceId, orgId, orgId],
-  );
-  if (!rows.length) throw new NotFoundError('Device not found');
-  const device = rows[0];
+  // Strict org scoping via the standard mutation helper (organization_id = ?),
+  // matching PUT/PATCH/DELETE on devices — never the widened site_id read scope.
+  const device = await Device.findByIdOrFail(deviceId, orgId);
 
   // 1. ONU — delegate to the FTTH reboot-job path (needs its OLT parent).
   if (device.type === 'onu') {

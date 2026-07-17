@@ -141,6 +141,15 @@ router.post('/:id/test', requirePermission('router_driver_configs.view'), async 
 // POST /router-drivers/:id/dispatch — send a command
 router.post('/:id/dispatch', requirePermission('device_command_executions.execute'), validate(dispatchCommandSchema), async (req, res, next) => {
   try {
+    // 'reboot' is a privileged device action gated by devices.reboot — it must
+    // NOT be reachable through this generic dispatch route (device_command_
+    // executions.execute). Route it to the dedicated, properly-permissioned
+    // endpoint instead of silently widening this permission's power.
+    if (req.body.command === 'reboot') {
+      return res.status(400).json({
+        error: { message: "Use POST /devices/:id/reboot (requires devices.reboot) — 'reboot' is not dispatchable here" },
+      });
+    }
     const result = await routerDriverService.dispatchCommand(
       req.params.id, req.orgId, req.body.command, req.body.params || {}, req.user.id,
     );

@@ -5,8 +5,9 @@
 -- technician — NOT support / billing / readonly.
 -- =============================================================================
 
+-- module 'network' matches the existing devices.* permissions (migration 119).
 INSERT INTO permissions (name, description, module)
-SELECT 'devices.reboot', 'Reboot a network device via its driver/type mechanism', 'devices'
+SELECT 'devices.reboot', 'Reboot a network device via its driver/type mechanism', 'network'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'devices.reboot');
 
 INSERT INTO role_permissions (role_id, permission_id)
