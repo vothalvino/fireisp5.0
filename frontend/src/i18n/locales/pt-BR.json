@@ -884,6 +884,10 @@
     "switchToDark": "Mudar para modo escuro",
     "switchToLight": "Mudar para modo claro"
   },
+  "accent": {
+    "switchToGreen": "Mudar para destaque verde",
+    "switchToOrange": "Mudar para destaque laranja"
+  },
   "languageSwitcher": {
     "label": "Idioma"
   },

@@ -10,6 +10,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../Layout';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
+import { AccentProvider } from '@/auth/AccentContext';
 import * as AuthContextModule from '@/auth/AuthContext';
 import type { AuthUser } from '@/auth/AuthContext';
 
@@ -69,6 +70,7 @@ function buildTree(qc: QueryClient, options?: { initialEntries?: string[]; withD
   return (
     <QueryClientProvider client={qc}>
       <DarkModeProvider>
+        <AccentProvider>
         <MemoryRouter initialEntries={initialEntries}>
           {routed ? (
             <Routes>
@@ -79,6 +81,7 @@ function buildTree(qc: QueryClient, options?: { initialEntries?: string[]; withD
             <Layout />
           )}
         </MemoryRouter>
+        </AccentProvider>
       </DarkModeProvider>
     </QueryClientProvider>
   );

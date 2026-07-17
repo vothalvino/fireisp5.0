@@ -884,6 +884,10 @@
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode"
   },
+  "accent": {
+    "switchToGreen": "Switch to green accent",
+    "switchToOrange": "Switch to orange accent"
+  },
   "languageSwitcher": {
     "label": "Language"
   },

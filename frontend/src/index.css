@@ -147,6 +147,32 @@
 }
 
 /* =============================================================================
+   Accent option: emerald green (data-accent="green" on <html>)
+   -----------------------------------------------------------------------------
+   Orange is the default (no selector needed). These override only the --accent*
+   family + focus ring, so the single-accent identity holds — everything that
+   reads var(--accent) recolours automatically. The dark selector carries two
+   attributes so it outranks both [data-theme="dark"] and :root[data-accent].
+   Emerald is bright, so --accent-fg is dark in dark mode for button contrast.
+   ============================================================================= */
+:root[data-accent="green"] {
+  --accent:         #10b981;
+  --accent-hover:   #059669;
+  --accent-active:  #047857;
+  --accent-fg:      #ffffff;
+  --accent-soft:    #ecfdf5;
+  --focus-ring:     rgba(16, 185, 129, 0.5);
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --accent:         #34d399;
+  --accent-hover:   #6ee7b7;
+  --accent-active:  #a7f3d0;
+  --accent-fg:      #04140d;
+  --accent-soft:    #102a20;
+  --focus-ring:     rgba(52, 211, 153, 0.5);
+}
+
+/* =============================================================================
    3. Base / reset
    ============================================================================= */
 
