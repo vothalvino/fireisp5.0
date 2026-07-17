@@ -10,6 +10,9 @@ describe('aggregateThroughput', () => {
     expect(r.peak_gbps).toBe(0);
     expect(r.avg_gbps).toBe(0);
     expect(r.p95_gbps).toBe(0);
+    expect(r.peak_bps).toBe(0);
+    expect(r.avg_bps).toBe(0);
+    expect(r.p95_bps).toBe(0);
     expect(r.points).toHaveLength(1);
     expect(r.points[0].in_bps).toBe(0);
   });
@@ -25,6 +28,10 @@ describe('aggregateThroughput', () => {
     expect(r.points[0].in_bps).toBe(8_000_000);
     expect(r.points[0].out_bps).toBe(4_000_000);
     expect(r.peak_gbps).toBe(0.01); // 8e6/1e9 = 0.008 → rounded 0.01
+    // Raw-bps stats keep the sub-10-Mbps precision the Gbps rounding destroys.
+    expect(r.peak_bps).toBe(8_000_000);
+    expect(r.avg_bps).toBe(8_000_000);
+    expect(r.p95_bps).toBe(8_000_000);
   });
 
   it('sums bit-rates across interfaces within a bucket', () => {

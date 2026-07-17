@@ -259,7 +259,12 @@ describe('throughput chart', () => {
     expect(c.inLine.startsWith('M')).toBe(true);
     expect(c.inArea.endsWith('Z')).toBe(true);
     expect(Number(c.peak)).toBeGreaterThan(0);
+    expect(c.unit).toBe('Gbps');
     expect(c.commit).toBe(68);
+    // Hover points cover every bucket; demo carries no timestamps.
+    expect(c.points.length).toBeGreaterThan(0);
+    expect(c.points[0].ts).toBeNull();
+    expect(c.points[0].in_bps).toBeGreaterThan(0);
   });
 
   it('builds paths + Gbps stats from a real SNMP series (commit null)', () => {
@@ -268,6 +273,7 @@ describe('throughput chart', () => {
         { ts: '2026-07-02T00:00:00Z', in_bps: 0, out_bps: 0 },
         { ts: '2026-07-02T00:15:00Z', in_bps: 8_000_000_000, out_bps: 4_000_000_000 },
       ],
+      peak_bps: 8_000_000_000, avg_bps: 4_000_000_000, p95_bps: 7_600_000_000,
       peak_gbps: 8, avg_gbps: 4, p95_gbps: 7.6, has_data: true,
     };
     const c = buildChartFromSeries(series);
@@ -276,6 +282,59 @@ describe('throughput chart', () => {
     expect(c.peak).toBe('8.00');
     expect(c.avg).toBe('4.00');
     expect(c.p95).toBe('7.60');
+    expect(c.unit).toBe('Gbps');
     expect(c.commit).toBeNull();
+  });
+
+  it('scales the stat unit to the series peak — Mbps traffic never reads "0.04 Gbps"', () => {
+    const series: ThroughputSeries = {
+      points: [
+        { ts: '2026-07-02T00:00:00Z', in_bps: 12_000_000, out_bps: 3_000_000 },
+        { ts: '2026-07-02T00:15:00Z', in_bps: 42_600_000, out_bps: 9_000_000 },
+      ],
+      peak_bps: 42_600_000, avg_bps: 27_300_000, p95_bps: 42_600_000,
+      peak_gbps: 0.04, avg_gbps: 0.03, p95_gbps: 0.04, has_data: true,
+    };
+    const c = buildChartFromSeries(series);
+    expect(c.unit).toBe('Mbps');
+    expect(c.peak).toBe('42.6');
+    expect(c.avg).toBe('27.3');
+
+    const kseries: ThroughputSeries = {
+      points: [{ ts: '2026-07-02T00:00:00Z', in_bps: 512_000, out_bps: 96_000 }],
+      peak_bps: 512_000, avg_bps: 512_000, p95_bps: 512_000,
+      peak_gbps: 0, avg_gbps: 0, p95_gbps: 0, has_data: true,
+    };
+    expect(buildChartFromSeries(kseries).unit).toBe('Kbps');
+    expect(buildChartFromSeries(kseries).peak).toBe('512.0');
+  });
+
+  it('falls back to the legacy Gbps-rounded stats when *_bps is absent', () => {
+    const series: ThroughputSeries = {
+      points: [{ ts: '2026-07-02T00:00:00Z', in_bps: 8_000_000_000, out_bps: 1 }],
+      peak_gbps: 8, avg_gbps: 4, p95_gbps: 7.6, has_data: true,
+    };
+    const c = buildChartFromSeries(series);
+    expect(c.unit).toBe('Gbps');
+    expect(c.peak).toBe('8.00');
+  });
+
+  it('exposes hover points with viewBox coordinates and raw rates', () => {
+    const series: ThroughputSeries = {
+      points: [
+        { ts: '2026-07-02T00:00:00Z', in_bps: 10_000_000, out_bps: 2_000_000 },
+        { ts: '2026-07-02T00:15:00Z', in_bps: 40_000_000, out_bps: 8_000_000 },
+      ],
+      peak_bps: 40_000_000, avg_bps: 25_000_000, p95_bps: 40_000_000,
+      peak_gbps: 0.04, avg_gbps: 0.03, p95_gbps: 0.04, has_data: true,
+    };
+    const c = buildChartFromSeries(series);
+    expect(c.points).toHaveLength(2);
+    expect(c.points[0].ts).toBe('2026-07-02T00:00:00Z');
+    expect(c.points[0].in_bps).toBe(10_000_000);
+    expect(c.points[1].out_bps).toBe(8_000_000);
+    // x spans the padded viewBox left→right; higher rate → smaller y (SVG-down).
+    expect(c.points[0].x).toBeLessThan(c.points[1].x);
+    expect(c.points[1].yIn).toBeLessThan(c.points[0].yIn);
   });
 });
