@@ -17,6 +17,7 @@ const auditLog = require('../services/auditLog');
 const { pubsub } = require('../services/pubsub');
 const topologyContextService = require('../services/topologyContextService');
 const { assertDeviceClientFk } = require('../services/deviceAuthz');
+const deviceActionsService = require('../services/deviceActionsService');
 const { redactDevice } = require('../utils/deviceSanitize');
 const logger = require('../utils/logger').child({ service: 'routes/devices' });
 
@@ -71,6 +72,23 @@ router.put('/:id', requirePermission('devices.update'), validate(updateDevice), 
   } catch (err) { next(err); }
 });
 router.patch('/:id', requirePermission('devices.update'), validate(patchDevice), ctrl.partialUpdate);
+
+// POST /:id/reboot — reboot a device via its real driver/type mechanism.
+// Refuses honestly (422) when the device type has no supported reboot path.
+router.post('/:id/reboot', requirePermission('devices.reboot'), async (req, res, next) => {
+  try {
+    const result = await deviceActionsService.rebootDevice(req.params.id, req.orgId, req.user?.id);
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'reboot',
+      tableName: Device.tableName,
+      recordId: Number(req.params.id),
+      newValues: result,
+    });
+    res.status(202).json({ data: result });
+  } catch (err) { next(err); }
+});
 router.delete('/:id', requirePermission('devices.delete'), async (req, res, next) => {
   try {
     const old = await Device.findByIdOrFail(req.params.id, req.orgId);

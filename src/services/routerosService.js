@@ -1194,6 +1194,35 @@ function connFromParams(params) {
   return { host, port: port ? Number(port) : DEFAULT_PORT, user, password };
 }
 
+/**
+ * Reboot a RouterOS device via `/system/reboot` (binary API).
+ *
+ * The command needs the `reboot` policy on the API user. RouterOS ACKs the
+ * request and then drops the connection as it goes down, so we treat a
+ * post-issue disconnect as success — the only real failure is a `!trap`
+ * (e.g. insufficient permission), which surfaces as a thrown error here.
+ *
+ * @param {{ host: string, port?: number, user: string, password: string }} conn
+ * @returns {Promise<{ rebooted: true, host: string }>}
+ */
+async function systemReboot(conn) {
+  const client = await createClient(conn);
+  try {
+    const sentences = await client.run(['/system/reboot']);
+    for (const sentence of sentences) {
+      if (sentence[0] === '!trap' || sentence[0] === '!fatal') {
+        const attrs = parseAttrs(sentence.slice(1));
+        throw new Error(`RouterOS reboot refused: ${attrs.message || sentence[0]}`);
+      }
+    }
+    logger.info({ host: conn.host }, 'RouterOS: system reboot issued');
+    return { rebooted: true, host: conn.host };
+  } finally {
+    // The device may already be tearing the socket down; closing is best-effort.
+    await client.close().catch(() => {});
+  }
+}
+
 const handlers = {
   'pppoe.create': async (params) => {
     const conn = connFromParams(params);
@@ -1262,6 +1291,7 @@ module.exports = {
   addressListAdd,
   addressListRemove,
   configBackup,
+  systemReboot,
   wireguardInterfaceUpsert,
   wireguardAddressUpsert,
   wireguardPeerUpsert,

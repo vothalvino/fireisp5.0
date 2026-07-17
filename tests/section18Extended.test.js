@@ -889,14 +889,17 @@ describe('routerDriverService', () => {
       expect(result.status).toBe('success');
     });
 
-    it('handles unknown mikrotik command gracefully', async () => {
+    it('records failure for an unknown mikrotik command (never fake success)', async () => {
+      // An unmapped command was never sent to the device, so it must NOT
+      // record 'success' — that silent no-op read as a real action (e.g. a
+      // reboot that never fired).
       const config = { id: 1, vendor: 'mikrotik', host: '10.0.0.1', port: 8728, username: 'admin', device_id: null, encrypted_password: null };
       db.query
         .mockResolvedValueOnce([[config], []])
         .mockResolvedValueOnce([{ insertId: 10, affectedRows: 1 }]);
       const result = await svc.dispatchCommand(1, 1, 'unknown_cmd', {}, 1);
-      expect(result.status).toBe('success');
-      expect(result.response.note).toContain('not mapped');
+      expect(result.status).toBe('failure');
+      expect(result.error_message).toMatch(/not mapped/i);
     });
 
     it('records failure when mikrotik command throws', async () => {
