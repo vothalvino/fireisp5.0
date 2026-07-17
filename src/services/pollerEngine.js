@@ -185,10 +185,13 @@ async function pollWithConfig() {
 // Clears overrides for devices whose outages have resolved.
 // ---------------------------------------------------------------------------
 async function adaptivePollCheck() {
-  // Find devices currently in active outages
+  // Find devices currently in ongoing outages. outages.status is
+  // ENUM('ongoing','resolved','post_mortem') — comparing against a
+  // non-member ('active') matches zero rows forever, which kept adaptive
+  // polling permanently inert even after the task was wired.
   const [activeOutageRows] = await db.query(
     `SELECT DISTINCT device_id FROM outages
-     WHERE status = 'active'
+     WHERE status = 'ongoing'
        AND device_id IS NOT NULL`,
   );
 
