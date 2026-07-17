@@ -29,11 +29,11 @@ function renderChart() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('ThroughputChart', () => {
-  it('renders stats in the peak-scaled unit instead of hardcoded Gbps', () => {
+  it('renders per-stat scaled units instead of hardcoded Gbps', () => {
     renderChart();
     expect(screen.getAllByText('Mbps')).toHaveLength(3);
-    expect(screen.getAllByText('40.0')).toHaveLength(2); // peak + p95
-    expect(screen.getByText('25.0')).toBeTruthy();       // avg
+    expect(screen.getAllByText('40.00')).toHaveLength(2); // peak + p95
+    expect(screen.getByText('25.00')).toBeTruthy();       // avg
     expect(screen.queryByText('Gbps')).toBeNull();
   });
 
@@ -64,8 +64,26 @@ describe('ThroughputChart', () => {
     // Pinned tooltip survives the pointer leaving the chart.
     fireEvent.pointerLeave(hit);
     expect(screen.getByText('40.00 Mbps')).toBeTruthy();
+    // Clicking a different bucket re-pins there (doesn't just release).
+    fireEvent.click(hit, { clientX: 20 });
+    expect(screen.getByText(/pinned/)).toBeTruthy();
+    expect(screen.getByText('10.00 Mbps')).toBeTruthy();
+    // Clicking the same bucket releases the pin.
+    fireEvent.click(hit, { clientX: 20 });
+    expect(screen.queryByText(/pinned/)).toBeNull();
     fireEvent.keyDown(hit, { key: 'Escape' });
-    expect(screen.queryByText('40.00 Mbps')).toBeNull();
+    expect(screen.queryByText('10.00 Mbps')).toBeNull();
+  });
+
+  it('pins from the keyboard with Enter', () => {
+    renderChart();
+    const hit = screen.getByRole('application');
+    fireEvent.keyDown(hit, { key: 'ArrowLeft' });   // select last bucket
+    fireEvent.keyDown(hit, { key: 'Enter' });       // pin it
+    expect(screen.getByText(/pinned/)).toBeTruthy();
+    // A stray mouse move no longer steals the keyboard selection.
+    fireEvent.pointerMove(hit, { clientX: 20 });
+    expect(screen.getByText('40.00 Mbps')).toBeTruthy();
   });
 
   it('renders the empty state when there is no chart', () => {

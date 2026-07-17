@@ -217,12 +217,18 @@ export function ThroughputChart({
         onClick={(e) => {
           const i = locate(e);
           if (i == null) return;
+          // Clicking a new bucket (re-)pins there; clicking the pinned one releases.
+          setPinned(!(pinned && i === hover));
           setHover(i);
-          setPinned(!pinned);
         }}
         onKeyDown={(e) => {
           if (pts.length === 0) return;
           if (e.key === 'Escape') { setPinned(false); setHover(null); return; }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (hover != null) setPinned(!pinned);
+            return;
+          }
           if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
           e.preventDefault();
           const delta = e.key === 'ArrowLeft' ? -1 : 1;
@@ -263,9 +269,9 @@ export function ThroughputChart({
         )}
       </div>
       <div className="fi-chart-stats">
-        <div className="fi-stat"><span className="k">PEAK</span><span className="v">{chart.peak} <small>{chart.unit}</small></span></div>
-        <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg} <small>{chart.unit}</small></span></div>
-        <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95} <small>{chart.unit}</small></span></div>
+        <div className="fi-stat"><span className="k">PEAK</span><span className="v">{chart.peak.value} <small>{chart.peak.unit}</small></span></div>
+        <div className="fi-stat"><span className="k">AVG</span><span className="v">{chart.avg.value} <small>{chart.avg.unit}</small></span></div>
+        <div className="fi-stat"><span className="k">95TH %ILE</span><span className="v">{chart.p95.value} <small>{chart.p95.unit}</small></span></div>
         <div style={{ flex: 1 }} />
         <div className="fi-stat" style={{ alignItems: 'flex-end' }}><span className="k">95/5 COMMIT</span><span className="v" style={{ color: 'var(--accent)' }}>{chart.commit == null ? '—' : `${chart.commit}% used`}</span></div>
       </div>

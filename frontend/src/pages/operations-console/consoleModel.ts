@@ -9,6 +9,8 @@
 // resolveModel() picks between them on the demo↔real gate.
 // =============================================================================
 
+import { fmtBpsParts } from '@/pages/snmpMetrics/rateTransform';
+
 // ---------------------------------------------------------------------------
 // View-model types
 // ---------------------------------------------------------------------------
@@ -171,11 +173,13 @@ export interface ChartHoverPoint {
   out_bps: number;
 }
 
+/** One stat-row figure, auto-scaled per stat (e.g. peak "40.00 Mbps" next to
+ * avg "646 bps") so a bursty series never renders its baseline as "0.00". */
+export interface ChartStat { value: string; unit: string; }
+
 export interface ChartModel {
   inLine: string; inArea: string; outLine: string; outArea: string;
-  peak: string; avg: string; p95: string;
-  /** Display unit shared by peak/avg/p95, picked from the series peak. */
-  unit: RateUnit;
+  peak: ChartStat; avg: ChartStat; p95: ChartStat;
   /** Per-bucket data for the hover crosshair/tooltip. */
   points: ChartHoverPoint[];
   /** 95/5 commit utilization; null when unknown (real mode has no commit config). */
@@ -197,14 +201,11 @@ export interface ThroughputSeries {
   has_data: boolean;
 }
 
-// Display unit for the stats row: one unit shared by peak/avg/p95, chosen from
-// the series peak, so a 40 Mbps network reads "42.6 Mbps" — never "0.04 Gbps".
-export type RateUnit = 'bps' | 'Kbps' | 'Mbps' | 'Gbps';
-export function rateUnit(peakBps: number): { unit: RateUnit; div: number; dp: number } {
-  if (peakBps >= 1e9) return { unit: 'Gbps', div: 1e9, dp: 2 };
-  if (peakBps >= 1e6) return { unit: 'Mbps', div: 1e6, dp: 1 };
-  if (peakBps >= 1e3) return { unit: 'Kbps', div: 1e3, dp: 1 };
-  return { unit: 'bps', div: 1, dp: 0 };
+// Per-stat display scaling comes from fmtBpsParts (the app-wide rate-unit
+// table), so the stat row and the hover tooltip always agree on precision and
+// a 40 Mbps network reads "40.00 Mbps" — never "0.04 Gbps".
+function bpsStat(bps: number): ChartStat {
+  return fmtBpsParts(bps) ?? { value: '0', unit: 'bps' };
 }
 
 // Chart geometry (matches the design's 820×220 viewBox). Shared by the demo
@@ -220,7 +221,7 @@ function chartPaths(inV: number[], outV: number[]) {
     vals.map((v, i) => 'L' + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ') +
     ' L' + x(Math.max(0, n - 1)).toFixed(1) + ' ' + (CHART_H - CHART_PAD) + ' Z';
   return {
-    inLine: line(inV), inArea: area(inV), outLine: line(outV), outArea: area(outV),
+    paths: { inLine: line(inV), inArea: area(inV), outLine: line(outV), outArea: area(outV) },
     xs: inV.map((_, i) => x(i)), yIn: inV.map(y), yOut: outV.map(y),
   };
 }
@@ -253,19 +254,19 @@ export function buildChart(seed: number, range: Range): ChartModel {
     inV.push(li);
     outV.push(Math.min(lo, li - 0.04));
   }
-  const g = (v: number) => (v * 1000).toFixed(1);
   const sorted = inV.slice().sort((a, b) => a - b);
-  const { xs, yIn, yOut, ...paths } = chartPaths(inV, outV);
+  const { paths, xs, yIn, yOut } = chartPaths(inV, outV);
+  // Demo values are normalized [0..1] of a 1-Tbps (1000 Gbps) scale; stats and
+  // tooltip points derive from the SAME constant so they can't disagree.
+  const DEMO_MAX_BPS = 1e12;
   return {
     ...paths,
-    peak: g(Math.max(...inV)),
-    avg: g(inV.reduce((a, b) => a + b, 0) / n),
-    p95: g(sorted[Math.floor(n * 0.95)]),
-    unit: 'Gbps',
-    // Demo values are normalized [0..1] of a v×1000-Gbps scale → bps = v×1e12.
+    peak: bpsStat(Math.max(...inV) * DEMO_MAX_BPS),
+    avg: bpsStat((inV.reduce((a, b) => a + b, 0) / n) * DEMO_MAX_BPS),
+    p95: bpsStat(sorted[Math.floor(n * 0.95)] * DEMO_MAX_BPS),
     points: inV.map((v, i) => ({
       x: xs[i], yIn: yIn[i], yOut: yOut[i], ts: null,
-      in_bps: v * 1e12, out_bps: outV[i] * 1e12,
+      in_bps: v * DEMO_MAX_BPS, out_bps: outV[i] * DEMO_MAX_BPS,
     })),
     commit: 68,
   };
@@ -281,19 +282,17 @@ export function buildChartFromSeries(series: ThroughputSeries): ChartModel {
   // Leave a little headroom (×0.94) and lift zero off the baseline (+0.02).
   const norm = (v: number) => Math.max(0, Math.min(1, v / scale)) * 0.94 + 0.02;
   // Stats from the raw-bps fields; fall back to the legacy Gbps-rounded ones
-  // (older backend) so a version-skewed deploy still renders.
+  // (older backend during a deploy skew) so the chart still renders — coarsely,
+  // until the backend catches up.
   const peakBps = series.peak_bps ?? series.peak_gbps * 1e9;
   const avgBps = series.avg_bps ?? series.avg_gbps * 1e9;
   const p95Bps = series.p95_bps ?? series.p95_gbps * 1e9;
-  const u = rateUnit(peakBps);
-  const f = (bps: number) => (bps / u.div).toFixed(u.dp);
-  const { xs, yIn, yOut, ...paths } = chartPaths(inBps.map(norm), outBps.map(norm));
+  const { paths, xs, yIn, yOut } = chartPaths(inBps.map(norm), outBps.map(norm));
   return {
     ...paths,
-    peak: f(peakBps),
-    avg: f(avgBps),
-    p95: f(p95Bps),
-    unit: u.unit,
+    peak: bpsStat(peakBps),
+    avg: bpsStat(avgBps),
+    p95: bpsStat(p95Bps),
     points: points.map((p, i) => ({
       x: xs[i], yIn: yIn[i], yOut: yOut[i], ts: p.ts, in_bps: p.in_bps, out_bps: p.out_bps,
     })),

@@ -202,11 +202,22 @@ export function bucketedRates(
   return { timestamps, inRates, outRates };
 }
 
+/**
+ * Splits a bits/sec value into a scaled value + unit pair. The single source
+ * of truth for rate units/precision — `fmtBps` and the Operations Console
+ * chart stats both derive from it, so the same bps never renders with two
+ * different precisions on different screens.
+ */
+export function fmtBpsParts(bps: number | null): { value: string; unit: string } | null {
+  if (bps == null || !Number.isFinite(bps)) return null;
+  if (bps < 1000) return { value: bps.toFixed(0), unit: 'bps' };
+  if (bps < 1000 ** 2) return { value: (bps / 1000).toFixed(1), unit: 'Kbps' };
+  if (bps < 1000 ** 3) return { value: (bps / 1000 ** 2).toFixed(2), unit: 'Mbps' };
+  return { value: (bps / 1000 ** 3).toFixed(3), unit: 'Gbps' };
+}
+
 /** Formats a bits/sec value as a human Kbps/Mbps/Gbps string. */
 export function fmtBps(bps: number | null): string {
-  if (bps == null || !Number.isFinite(bps)) return '—';
-  if (bps < 1000) return `${bps.toFixed(0)} bps`;
-  if (bps < 1000 ** 2) return `${(bps / 1000).toFixed(1)} Kbps`;
-  if (bps < 1000 ** 3) return `${(bps / 1000 ** 2).toFixed(2)} Mbps`;
-  return `${(bps / 1000 ** 3).toFixed(3)} Gbps`;
+  const p = fmtBpsParts(bps);
+  return p ? `${p.value} ${p.unit}` : '—';
 }

@@ -258,8 +258,8 @@ describe('throughput chart', () => {
     const c = buildChart(7, '24H');
     expect(c.inLine.startsWith('M')).toBe(true);
     expect(c.inArea.endsWith('Z')).toBe(true);
-    expect(Number(c.peak)).toBeGreaterThan(0);
-    expect(c.unit).toBe('Gbps');
+    expect(Number(c.peak.value)).toBeGreaterThan(0);
+    expect(c.peak.unit).toBe('Gbps');
     expect(c.commit).toBe(68);
     // Hover points cover every bucket; demo carries no timestamps.
     expect(c.points.length).toBeGreaterThan(0);
@@ -279,14 +279,13 @@ describe('throughput chart', () => {
     const c = buildChartFromSeries(series);
     expect(c.inLine.startsWith('M')).toBe(true);
     expect(c.inArea.endsWith('Z')).toBe(true);
-    expect(c.peak).toBe('8.00');
-    expect(c.avg).toBe('4.00');
-    expect(c.p95).toBe('7.60');
-    expect(c.unit).toBe('Gbps');
+    expect(c.peak).toEqual({ value: '8.000', unit: 'Gbps' });
+    expect(c.avg).toEqual({ value: '4.000', unit: 'Gbps' });
+    expect(c.p95).toEqual({ value: '7.600', unit: 'Gbps' });
     expect(c.commit).toBeNull();
   });
 
-  it('scales the stat unit to the series peak — Mbps traffic never reads "0.04 Gbps"', () => {
+  it('scales each stat independently — Mbps traffic never reads "0.04 Gbps"', () => {
     const series: ThroughputSeries = {
       points: [
         { ts: '2026-07-02T00:00:00Z', in_bps: 12_000_000, out_bps: 3_000_000 },
@@ -296,17 +295,29 @@ describe('throughput chart', () => {
       peak_gbps: 0.04, avg_gbps: 0.03, p95_gbps: 0.04, has_data: true,
     };
     const c = buildChartFromSeries(series);
-    expect(c.unit).toBe('Mbps');
-    expect(c.peak).toBe('42.6');
-    expect(c.avg).toBe('27.3');
+    expect(c.peak).toEqual({ value: '42.60', unit: 'Mbps' });
+    expect(c.avg).toEqual({ value: '27.30', unit: 'Mbps' });
 
     const kseries: ThroughputSeries = {
       points: [{ ts: '2026-07-02T00:00:00Z', in_bps: 512_000, out_bps: 96_000 }],
       peak_bps: 512_000, avg_bps: 512_000, p95_bps: 512_000,
       peak_gbps: 0, avg_gbps: 0, p95_gbps: 0, has_data: true,
     };
-    expect(buildChartFromSeries(kseries).unit).toBe('Kbps');
-    expect(buildChartFromSeries(kseries).peak).toBe('512.0');
+    expect(buildChartFromSeries(kseries).peak).toEqual({ value: '512.0', unit: 'Kbps' });
+  });
+
+  it('bursty series: a tiny avg keeps its own unit instead of rounding to zero', () => {
+    // Live-observed shape on the demo org: one 40 Mbps spike over a ~650 bps
+    // baseline. A single shared unit would render AVG as "0.0 Mbps".
+    const series: ThroughputSeries = {
+      points: [{ ts: '2026-07-02T00:00:00Z', in_bps: 40_000_000, out_bps: 900 }],
+      peak_bps: 40_000_000, avg_bps: 646, p95_bps: 920,
+      peak_gbps: 0.04, avg_gbps: 0, p95_gbps: 0, has_data: true,
+    };
+    const c = buildChartFromSeries(series);
+    expect(c.peak).toEqual({ value: '40.00', unit: 'Mbps' });
+    expect(c.avg).toEqual({ value: '646', unit: 'bps' });
+    expect(c.p95).toEqual({ value: '920', unit: 'bps' });
   });
 
   it('falls back to the legacy Gbps-rounded stats when *_bps is absent', () => {
@@ -315,8 +326,7 @@ describe('throughput chart', () => {
       peak_gbps: 8, avg_gbps: 4, p95_gbps: 7.6, has_data: true,
     };
     const c = buildChartFromSeries(series);
-    expect(c.unit).toBe('Gbps');
-    expect(c.peak).toBe('8.00');
+    expect(c.peak).toEqual({ value: '8.000', unit: 'Gbps' });
   });
 
   it('exposes hover points with viewBox coordinates and raw rates', () => {
