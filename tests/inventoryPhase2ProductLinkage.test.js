@@ -340,20 +340,27 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
     expect(conn.rollback).toHaveBeenCalled();
   });
 
-  it('does not open a transaction for a plain (non-inventory) line item', async () => {
+  it('runs a plain (non-inventory) line item transactionally and applies the totals delta', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
-      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
-        return Promise.resolve([[{ id: 42, status: 'issued' }]]);
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, client_id: 77, invoice_number: 'INV-000005', status: 'issued', tax_rate: '0.1600', total: '116.00', currency: 'MXN' }]]);
       }
-      if (typeof sql === 'string' && sql.includes('INSERT INTO invoice_items')) {
-        return Promise.resolve([{ insertId: 501 }]);
-      }
-      if (typeof sql === 'string' && sql.includes('SELECT * FROM invoice_items WHERE id')) {
+      if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 501 }]);
+      if (sql.includes('SELECT * FROM invoice_items WHERE id')) {
         return Promise.resolve([[{ id: 501, description: 'Setup Fee' }]]);
+      }
+      if (sql.includes('SUM(amount)') && sql.includes('invoice_items')) {
+        return Promise.resolve([[{ s: '150.00' }]]);
       }
       return Promise.resolve([[]]);
     });
+    db.getConnection.mockResolvedValue(conn);
 
     const res = await request(app)
       .post('/api/v1/invoices/42/items')
@@ -362,7 +369,15 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
       .send({ description: 'Setup Fee', quantity: 1, unit_price: 50, amount: 50 });
 
     expect(res.status).toBe(201);
-    expect(db.getConnection).not.toHaveBeenCalled();
+    expect(conn.commit).toHaveBeenCalled();
+    // Stored totals move by the line's DELTA: +50 subtotal, +8 tax (16%),
+    // +58 total — never a recompute-from-lines (which would collapse
+    // manually-created invoices that carry totals with no line items).
+    const totalsCall = conn.execute.mock.calls.find(([sql]) => sql.includes('subtotal = subtotal +'));
+    expect(totalsCall[1]).toEqual([50, 8, 58, 42]);
+    // The delta is debited to the balance ledger.
+    const ledgerCall = conn.execute.mock.calls.find(([sql]) => sql.includes('client_balance_ledger'));
+    expect(ledgerCall[1]).toEqual([77, 10, 58, 'MXN', 42, 'Invoice INV-000005 — line item added']);
   });
 
   it('returns 422 when quantity is fractional and inventory_item_id is set', async () => {
@@ -385,17 +400,24 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
   it('allows a fractional quantity on a free-text (non-inventory) line item', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
-      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
-        return Promise.resolve([[{ id: 42, status: 'issued' }]]);
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, client_id: 77, invoice_number: 'INV-000005', status: 'issued', tax_rate: '0.1600', total: '0.00', currency: 'MXN' }]]);
       }
-      if (typeof sql === 'string' && sql.includes('INSERT INTO invoice_items')) {
-        return Promise.resolve([{ insertId: 501 }]);
-      }
-      if (typeof sql === 'string' && sql.includes('SELECT * FROM invoice_items WHERE id')) {
+      if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 501 }]);
+      if (sql.includes('SELECT * FROM invoice_items WHERE id')) {
         return Promise.resolve([[{ id: 501, description: 'Labor (1.5 hrs)' }]]);
+      }
+      if (sql.includes('SUM(amount)') && sql.includes('invoice_items')) {
+        return Promise.resolve([[{ s: '150.00' }]]);
       }
       return Promise.resolve([[]]);
     });
+    db.getConnection.mockResolvedValue(conn);
 
     const res = await request(app)
       .post('/api/v1/invoices/42/items')
@@ -404,16 +426,23 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
       .send({ description: 'Labor (1.5 hrs)', quantity: 1.5, unit_price: 100, amount: 150 });
 
     expect(res.status).toBe(201);
+    expect(conn.commit).toHaveBeenCalled();
   });
 
   it('returns 422 INVOICE_VOID when adding a plain line item to a void invoice', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
-      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM invoices WHERE id')) {
         return Promise.resolve([[{ id: 42, status: 'void' }]]);
       }
       return Promise.resolve([[]]);
     });
+    db.getConnection.mockResolvedValue(conn);
 
     const res = await request(app)
       .post('/api/v1/invoices/42/items')
@@ -423,7 +452,8 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
 
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('INVOICE_VOID');
-    const insertCall = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO invoice_items'));
+    expect(conn.rollback).toHaveBeenCalled();
+    const insertCall = conn.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO invoice_items'));
     expect(insertCall).toBeUndefined();
   });
 

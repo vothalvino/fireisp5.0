@@ -1694,11 +1694,25 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
   describe('POST /api/invoices/:id/items', () => {
     test('success — adds an invoice item', async () => {
       mockAuthUser();
-      // The plain (non-inventory) path org-verifies and void-guards the
-      // invoice before writing (migration 390 hardening) — needs a status
-      // row to resolve.
-      db.query.mockResolvedValue([[{ id: 1, status: 'issued' }]]);
+      // The plain (non-inventory) path is transactional: org-verify +
+      // void-guard (FOR UPDATE), Invoice.addItem, then the totals recompute —
+      // all on the transaction connection.
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn((sql) => {
+          if (sql.includes('FROM invoices WHERE id')) {
+            return Promise.resolve([[{ id: 1, client_id: 7, invoice_number: 'INV-000001', status: 'issued', tax_rate: '0.1600', total: '58.00', currency: 'MXN' }]]);
+          }
+          if (sql.includes('SUM(amount)')) return Promise.resolve([[{ s: '100.00' }]]);
+          return Promise.resolve([[]]);
+        }),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockResolvedValue([[]]);
       Invoice.addItem.mockResolvedValue({ id: 2, description: 'Setup Fee' });
+      // billingService is auto-mocked in this suite — stub the totals pair.
+      billingService.applyLineItemToTotals.mockResolvedValue(58);
+      billingService.refreshInvoicePaidStatus.mockResolvedValue(undefined);
 
       const res = await request(app)
         .post('/api/invoices/1/items')
@@ -1706,6 +1720,7 @@ describe('Invoice Routes — /api/invoices (extended)', () => {
         .send({ description: 'Setup Fee', quantity: 1, unit_price: 50, amount: 50 });
 
       expect(res.status).toBe(201);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 

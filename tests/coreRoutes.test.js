@@ -788,16 +788,25 @@ describe('Invoice Routes — /api/invoices', () => {
 
   // --- POST /:id/items ---
   describe('POST /api/invoices/:id/items', () => {
-    test('adds an invoice line item and returns 201', async () => {
+    test('adds a line item, recomputes invoice totals, and returns 201', async () => {
       mockAuthUser();
       const newItem = { id: 5, invoice_id: 1, description: 'Static IP', quantity: 1, unit_price: 50, amount: 50 };
-      // The route org-verifies + void-guards the invoice first (migration
-      // 390 hardening), THEN Invoice.addItem calls db.query twice: INSERT
-      // then SELECT.
-      db.query
-        .mockResolvedValueOnce([[{ id: 1, status: 'issued' }]])
-        .mockResolvedValueOnce([{ insertId: 5, affectedRows: 1 }])
-        .mockResolvedValueOnce([[newItem]]);
+      // The plain path is transactional now: org-verify + void-guard (FOR
+      // UPDATE), Invoice.addItem, then the totals recompute — all on the
+      // transaction connection.
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn((sql) => {
+          if (sql.includes('FROM invoices WHERE id')) {
+            return Promise.resolve([[{ id: 1, client_id: 7, invoice_number: 'INV-000001', status: 'issued', tax_rate: '0.1600', total: '116.00', currency: 'MXN' }]]);
+          }
+          if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 5 }]);
+          if (sql.includes('SELECT * FROM invoice_items WHERE id')) return Promise.resolve([[newItem]]);
+          return Promise.resolve([[]]);
+        }),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockResolvedValue([[]]); // post-commit paid-status refresh
 
       const res = await request(app)
         .post('/api/invoices/1/items')
@@ -806,6 +815,78 @@ describe('Invoice Routes — /api/invoices', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(5);
+      expect(conn.commit).toHaveBeenCalled();
+      // Totals move by the line's DELTA (never a recompute-from-lines, which
+      // would collapse manually-created invoices): +50 subtotal, +8 tax
+      // (16%), +58 total.
+      const totalsCall = conn.execute.mock.calls.find(([sql]) => sql.includes('subtotal = subtotal +'));
+      expect(totalsCall[1]).toEqual([50, 8, 58, 1]);
+      // The delta is debited to the balance ledger.
+      const ledgerCall = conn.execute.mock.calls.find(([sql]) => sql.includes('client_balance_ledger'));
+      expect(ledgerCall[1]).toEqual([7, 1, 58, 'MXN', 1, 'Invoice INV-000001 — line item added']);
+    });
+
+    test('rejects amount that does not equal quantity × unit_price', async () => {
+      mockAuthUser();
+      const res = await request(app)
+        .post('/api/invoices/1/items')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ description: 'Sneaky', quantity: 1, unit_price: 1, amount: 999999 });
+
+      expect(res.status).toBe(422);
+      expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('rejects line items on an invoice with a live (stamped) CFDI', async () => {
+      mockAuthUser();
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn((sql) => {
+          if (sql.includes('FROM invoices WHERE id')) {
+            return Promise.resolve([[{ id: 1, client_id: 7, invoice_number: 'INV-000001', status: 'issued', tax_rate: '0.1600', total: '116.00', currency: 'MXN' }]]);
+          }
+          if (sql.includes('FROM cfdi_documents')) return Promise.resolve([[{ id: 9 }]]);
+          return Promise.resolve([[]]);
+        }),
+      };
+      db.getConnection.mockResolvedValue(conn);
+
+      const res = await request(app)
+        .post('/api/invoices/1/items')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ description: 'Static IP', quantity: 1, unit_price: 50, amount: 50 });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('CFDI_STAMPED');
+      expect(conn.rollback).toHaveBeenCalled();
+      expect(conn.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO invoice_items'))).toBe(false);
+    });
+
+    test('a post-commit paid-status refresh failure does not fail the request', async () => {
+      mockAuthUser();
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn((sql) => {
+          if (sql.includes('FROM invoices WHERE id')) {
+            return Promise.resolve([[{ id: 1, client_id: 7, invoice_number: 'INV-000001', status: 'paid', tax_rate: '0.1600', total: '116.00', currency: 'MXN' }]]);
+          }
+          if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 5 }]);
+          if (sql.includes('SELECT * FROM invoice_items WHERE id')) return Promise.resolve([[{ id: 5 }]]);
+          return Promise.resolve([[]]);
+        }),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      // The refresh's own pooled query blows up AFTER commit — the committed
+      // add must still 201 (a 5xx here invites a double-add retry).
+      db.query.mockRejectedValue(new Error('pool exhausted'));
+
+      const res = await request(app)
+        .post('/api/invoices/1/items')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ description: 'Static IP', quantity: 1, unit_price: 50, amount: 50 });
+
+      expect(res.status).toBe(201);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 

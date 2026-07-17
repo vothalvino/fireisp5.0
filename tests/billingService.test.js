@@ -263,6 +263,40 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // applyLineItemToTotals — delta applied when POST /invoices/:id/items adds
+  // a line (never a recompute-from-lines: manual invoices have no lines)
+  // =========================================================================
+  describe('applyLineItemToTotals', () => {
+    test('adds the line amount + its tax as SQL-side deltas and returns the total delta', async () => {
+      const exec = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      const delta = await billingService.applyLineItemToTotals(exec, 42, '0.1600', 50);
+      expect(delta).toBe(58); // 50 + 16% tax
+      const [sql, params] = exec.mock.calls[0];
+      expect(sql).toContain('subtotal = subtotal + ?');
+      expect(sql).toContain('tax_amount = tax_amount + ?');
+      expect(sql).toContain('total = total + ?');
+      expect(params).toEqual([50, 8, 58, 42]);
+    });
+
+    test('treats a percent-style tax_rate (manual invoices) as percent, never 100x', async () => {
+      // POST /invoices allows tax_rate up to 100; a user entering "8" means
+      // 8%, and DECIMAL(5,4) can store it. 50 × 8 as a FRACTION would be 400
+      // of tax — the normalization makes it 4.
+      const exec = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      const delta = await billingService.applyLineItemToTotals(exec, 42, '8.0000', 50);
+      expect(delta).toBe(54);
+      expect(exec.mock.calls[0][1]).toEqual([50, 4, 54, 42]);
+    });
+
+    test('NULL/zero tax_rate adds the bare amount', async () => {
+      const exec = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      const delta = await billingService.applyLineItemToTotals(exec, 42, null, 25.5);
+      expect(delta).toBe(25.5);
+      expect(exec.mock.calls[0][1]).toEqual([25.5, 0, 25.5, 42]);
+    });
+  });
+
+  // =========================================================================
   // generateInvoice
   // =========================================================================
   describe('generateInvoice', () => {
@@ -347,7 +381,7 @@ describe('billingService', () => {
       expect(invoiceInsert[1]).toContain(450);
     });
 
-    test('adds contract addon line items', async () => {
+    test('adds contract addon line items AND folds them into totals + ledger', async () => {
       const addon = { plan_addon_id: 5, addon_name: 'Static IP', addon_price: '100.00', unit_price: null, quantity: 2 };
 
       mockConnection.execute
@@ -359,6 +393,7 @@ describe('billingService', () => {
         .mockResolvedValueOnce([])  // INSERT plan line item
         .mockResolvedValueOnce([[addon]])  // contract addons
         .mockResolvedValueOnce([])  // INSERT addon line item
+        .mockResolvedValueOnce([])  // UPDATE invoices totals (fold in addons)
         .mockResolvedValueOnce([])  // UPDATE billing_period
         .mockResolvedValueOnce([]);  // INSERT ledger debit
       mockConnection.query.mockResolvedValueOnce([[{ id: 1 }]]);  // nextInvoiceNumber: SELECT LAST_INSERT_ID()
@@ -367,9 +402,18 @@ describe('billingService', () => {
 
       await billingService.generateInvoice(billingPeriod, contract, plan, orgId);
 
-      // Addon line item INSERT should be called (1 extra for FOR UPDATE lock,
-      // 1 extra for nextInvoiceNumber's INSERT IGNORE + UPDATE pair)
-      expect(mockConnection.execute).toHaveBeenCalledTimes(10);
+      expect(mockConnection.execute).toHaveBeenCalledTimes(11);
+      // Regression (DR-drill finding): addon lines used to be inserted WITHOUT
+      // ever reaching the stored totals or the ledger — every contract with an
+      // active addon under-billed. Plan 500 + addon 2×100 = 700, no tax rate.
+      const totalsCall = mockConnection.execute.mock.calls.find(
+        ([sql]) => sql.includes('UPDATE invoices SET subtotal'),
+      );
+      expect(totalsCall[1]).toEqual([700, 0, 700, 52]);
+      const ledgerCall = mockConnection.execute.mock.calls.find(
+        ([sql]) => sql.includes('client_balance_ledger'),
+      );
+      expect(ledgerCall[1][2]).toBe(700); // debit = FINAL total incl. addons
     });
   });
 
