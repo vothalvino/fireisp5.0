@@ -3152,6 +3152,39 @@
   },
   "topologyMap": {
     "title": "Topologia e Mapa",
+    "tabFabric": "Malha de Rede",
+    "fabric": {
+      "eyebrow": "MALHA DE REDE",
+      "summary": "{{nodes}} nos · {{outages}} incidente(s) ativo(s)",
+      "empty": "Ainda nao ha dispositivos de rede para mapear.",
+      "clientsShort": "{{count}} cl",
+      "legendOnline": "Online",
+      "legendDegraded": "Degradado",
+      "legendOffline": "Offline",
+      "incidentsLabel": "Incidentes · {{count}} abertos",
+      "noIncidents": "Sem incidentes abertos.",
+      "selectedLabel": "No selecionado",
+      "confirmReboot": "Reiniciar {{name}}? Isto reiniciara o dispositivo.",
+      "rebootIssued": "Reinicializacao enviada.",
+      "rebootUnsupported": "Reinicializacao nao suportada para este tipo de dispositivo.",
+      "actionError": "A acao falhou. Tente novamente.",
+      "maintenanceSet": "Dispositivo definido como {{status}}.",
+      "metrics": {
+        "cpu": "CPU",
+        "memory": "Memoria",
+        "clients": "Clientes",
+        "rxPower": "Potencia Rx",
+        "temp": "Temp",
+        "uptime": "Atividade",
+        "firmware": "Firmware"
+      },
+      "actions": {
+        "reboot": "Reiniciar",
+        "workOrder": "Ordem de servico",
+        "maintenance": "Manutencao",
+        "unmaintenance": "Remover manutencao"
+      }
+    },
     "tabNetwork": "Topologia de Rede",
     "tabGeographic": "Mapa Geografico",
     "tabDependency": "Analise de Dependencias",

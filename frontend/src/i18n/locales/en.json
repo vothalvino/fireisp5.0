@@ -3152,6 +3152,39 @@
   },
   "topologyMap": {
     "title": "Topology & Map",
+    "tabFabric": "Network Fabric",
+    "fabric": {
+      "eyebrow": "NETWORK FABRIC",
+      "summary": "{{nodes}} nodes · {{outages}} active incident(s)",
+      "empty": "No network devices to map yet.",
+      "clientsShort": "{{count}} cl",
+      "legendOnline": "Online",
+      "legendDegraded": "Degraded",
+      "legendOffline": "Offline",
+      "incidentsLabel": "Incidents · {{count}} open",
+      "noIncidents": "No open incidents.",
+      "selectedLabel": "Selected node",
+      "confirmReboot": "Reboot {{name}}? This will restart the device.",
+      "rebootIssued": "Reboot issued.",
+      "rebootUnsupported": "Reboot isn't supported for this device type.",
+      "actionError": "Action failed. Please try again.",
+      "maintenanceSet": "Device set to {{status}}.",
+      "metrics": {
+        "cpu": "CPU",
+        "memory": "Memory",
+        "clients": "Clients",
+        "rxPower": "Rx power",
+        "temp": "Temp",
+        "uptime": "Uptime",
+        "firmware": "Firmware"
+      },
+      "actions": {
+        "reboot": "Reboot",
+        "workOrder": "Work order",
+        "maintenance": "Maintenance",
+        "unmaintenance": "Un-maintenance"
+      }
+    },
     "tabNetwork": "Network Topology",
     "tabGeographic": "Geographic Map",
     "tabDependency": "Dependency Analysis",

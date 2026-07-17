@@ -176,6 +176,50 @@ describe('GET /api/v1/topology/map/network', () => {
   });
 });
 
+describe('GET /api/v1/topology/map/fabric', () => {
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('returns 200 with nodes (tier + metrics), edges and incidents', async () => {
+    db.query.mockImplementation((sql) => {
+      const s = typeof sql === 'string' ? sql : '';
+      if (s.includes('WHERE id = ?') && !s.includes('devices') && !s.includes('sites')
+          && !s.includes('snmp_metrics') && !s.includes('contracts') && !s.includes('outages')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (s.includes('permissions') || s.includes('role_permissions')) {
+        return Promise.resolve([[{ id: 1, name: 'topology.view' }]]);
+      }
+      // getNetworkGraph nodes
+      if (s.includes('FROM devices d') && s.includes('LEFT JOIN sites')) {
+        return Promise.resolve([[{ id: 5, name: 'core-1', type: 'router', role: 'core', status: 'online', site_id: 2, site_name: 'PoP-A' }]]);
+      }
+      if (s.includes('network_links')) return Promise.resolve([[]]);
+      // firmware lookup
+      if (s.includes('SELECT id, firmware FROM devices')) return Promise.resolve([[{ id: 5, firmware: '7.1.4' }]]);
+      // latest metrics
+      if (s.includes('FROM snmp_metrics')) return Promise.resolve([[{ device_id: 5, cpu_usage: 12, memory_usage: 40, uptime_ticks: 8640000, temperature_c: 35, sfp_rx_power_dbm: -18 }]]);
+      // per-site clients
+      if (s.includes('FROM contracts')) return Promise.resolve([[{ site_id: 2, clients: 300 }]]);
+      // incidents
+      if (s.includes('FROM outages')) return Promise.resolve([[{ id: 9, device_id: 5, site_id: 2, title: 'Outage', detail: 'down', severity: 'critical', started_at: '2026-07-17T05:00:00Z' }]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .get('/api/v1/topology/map/fabric')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(Array.isArray(d.nodes)).toBe(true);
+    expect(Array.isArray(d.edges)).toBe(true);
+    expect(Array.isArray(d.incidents)).toBe(true);
+    expect(d.nodes[0]).toMatchObject({ id: 5, tier: 0 });
+    expect(d.nodes[0].metrics).toMatchObject({ firmware: '7.1.4', clients: 300, cpu_usage: 12 });
+    expect(d.incidents[0]).toMatchObject({ id: 9, severity: 'critical' });
+  });
+});
+
 describe('GET /api/v1/topology/map/customers', () => {
   beforeEach(() => { mockDbDefault(); });
   afterEach(() => { jest.clearAllMocks(); });

@@ -40383,6 +40383,32 @@
         }
       }
     },
+    "/topology/map/fabric": {
+      "get": {
+        "tags": [
+          "Topology Map"
+        ],
+        "summary": "Schematic network fabric: tier-laid-out nodes + per-node metrics, links, ongoing outages",
+        "operationId": "getNetworkFabric",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ nodes (with tier + metrics), edges, incidents }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/topology/map/customers": {
       "get": {
         "tags": [

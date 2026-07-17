@@ -1,0 +1,61 @@
+/* =============================================================================
+   Network Fabric tab — animations & scoped styles
+   -----------------------------------------------------------------------------
+   Bundled (imported by NetworkFabricTab.tsx) so it loads as 'self' under the
+   app's CSP (style-src 'self' 'nonce-…'). NEVER inject these as a runtime
+   <style> tag — the CSP blocks un-nonced inline <style> elements, which is
+   what left the SNMP charts' stroke colours undefined (see index.css --viz-*).
+   Per-link flow durations are set via the inline style ATTRIBUTE (allowed).
+   ============================================================================= */
+
+.fi-fabric-flow {
+  stroke-dasharray: 5 9;
+  stroke-linecap: round;
+  animation: fi-fabric-flow-anim 0.9s linear infinite;
+}
+@keyframes fi-fabric-flow-anim {
+  to { stroke-dashoffset: -28; }
+}
+
+.fi-fabric-pulse {
+  animation: fi-fabric-pulse-anim 1.6s ease-in-out infinite;
+}
+@keyframes fi-fabric-pulse-anim {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* Expanding outage halo — scales a ring around a down node. transform-box
+   makes scale pivot on the element's own centre. */
+.fi-fabric-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fi-fabric-halo-anim 1.8s ease-out infinite;
+}
+@keyframes fi-fabric-halo-anim {
+  from { transform: scale(0.55); opacity: 0.6; }
+  to   { transform: scale(2.3);  opacity: 0; }
+}
+
+.fi-fabric-node {
+  cursor: pointer;
+}
+.fi-fabric-node:hover .fi-fabric-node-label {
+  fill: var(--text-primary);
+}
+
+/* Honour reduced-motion: kill every animation and hide the (motion-only)
+   halo so the view is fully static. */
+@media (prefers-reduced-motion: reduce) {
+  .fi-fabric-flow,
+  .fi-fabric-pulse,
+  .fi-fabric-halo {
+    animation: none;
+  }
+  .fi-fabric-flow {
+    stroke-dasharray: none;
+  }
+  .fi-fabric-halo {
+    opacity: 0;
+  }
+}

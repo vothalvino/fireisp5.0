@@ -17,6 +17,7 @@ import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip } from 
 import 'leaflet/dist/leaflet.css';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
+import { NetworkFabricTab } from './topology/NetworkFabricTab';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -526,13 +527,14 @@ function DependencyTab() {
 // Root page
 // ---------------------------------------------------------------------------
 
-type Tab = 'network' | 'geographic' | 'dependency';
+type Tab = 'fabric' | 'network' | 'geographic' | 'dependency';
 
 export function TopologyMapPage() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<Tab>('network');
+  const [activeTab, setActiveTab] = useState<Tab>('fabric');
 
   const tabs: Array<{ id: Tab; label: string }> = [
+    { id: 'fabric', label: t('topologyMap.tabFabric') },
     { id: 'network', label: t('topologyMap.tabNetwork') },
     { id: 'geographic', label: t('topologyMap.tabGeographic') },
     { id: 'dependency', label: t('topologyMap.tabDependency') },
@@ -563,6 +565,7 @@ export function TopologyMapPage() {
         ))}
       </div>
 
+      {activeTab === 'fabric' && <NetworkFabricTab />}
       {activeTab === 'network' && <NetworkTopologyTab />}
       {activeTab === 'geographic' && <GeographicMapTab />}
       {activeTab === 'dependency' && <DependencyTab />}
