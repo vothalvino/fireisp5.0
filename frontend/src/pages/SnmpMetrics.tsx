@@ -26,7 +26,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { tokenStore } from '@/api/client';
 import { Badge, Sparkline, type BadgeTone } from '@/components/ui';
-import { seriesToRates, currentRate, fmtBps, type TrafficSample } from './snmpMetrics/rateTransform';
+import { seriesToRates, currentRate, fmtBps, bucketedRates, type TrafficSample } from './snmpMetrics/rateTransform';
 import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency, normalizeCpuSpark } from './snmpMetrics/format';
 
 // ---------------------------------------------------------------------------
@@ -284,6 +284,18 @@ function LineChart({ title, timestamps, series, resolution, height = 160, yUnit 
     return v.toFixed(1);
   }
 
+  // A tiny value domain (e.g. 0-1%) rounds every tick to the same formatted
+  // label ("1% 1% 1% 0% 0%") — drop adjacent duplicates rather than show a
+  // wall of repeated text; the gridlines themselves still convey the scale.
+  const yTickEntries: { value: number; label: string }[] = [];
+  let lastTickLabel: string | null = null;
+  for (const tick of yTicks) {
+    const label = fmtTick(tick);
+    if (label === lastTickLabel) continue;
+    yTickEntries.push({ value: tick, label });
+    lastTickLabel = label;
+  }
+
   function handleMouseMove(e: ReactMouseEvent<SVGRectElement>) {
     if (n === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -317,13 +329,13 @@ function LineChart({ title, timestamps, series, resolution, height = 160, yUnit 
         aria-label={title}
       >
         <g transform={`translate(${PAD.left},${PAD.top})`}>
-          {yTicks.map((tick, i) => {
-            const y = yPx(tick);
+          {yTickEntries.map(({ value, label }) => {
+            const y = yPx(value);
             return (
-              <g key={i}>
+              <g key={label}>
                 <line x1={0} y1={y} x2={chartW} y2={y} stroke="var(--border)" strokeWidth={1} />
                 <text x={-4} y={y + 4} textAnchor="end" fontSize={9} fill="var(--text-muted)">
-                  {fmtTick(tick)}
+                  {label}
                 </text>
               </g>
             );
@@ -667,6 +679,7 @@ function FleetGlance({
 
       {!isLoading && !error && devices.length > 0 && (
         <input
+          type="search"
           value={filter}
           onChange={e => setFilter(e.target.value)}
           placeholder={t('snmpMetrics.fleet.filterPlaceholder')}
@@ -724,8 +737,16 @@ function DeviceHistoryView({
         device_id: String(deviceId),
         resolution: range.resolution,
         hours: String(range.hours),
-        interface_id: interfaceId,
       });
+      // Omit interface_id entirely when no interface is picked — the backend
+      // treats interface_id='' as "device-level rows only" (never mixed with
+      // per-interface rows), which meant meta.interfaces was always empty
+      // and the Throughput chart could never have data. Omitting the param
+      // makes the backend return every row (device-level AND per-interface)
+      // so meta.interfaces populates and the client can sum interfaces
+      // itself (see bucketedRates). Only pass it once a specific interface
+      // is picked, preserving that existing single-interface behavior.
+      if (interfaceId) params.set('interface_id', interfaceId);
       return apiFetch(`/snmp-metrics?${params}`);
     },
     placeholderData: keepPreviousData,
@@ -738,15 +759,55 @@ function DeviceHistoryView({
   const rows = metricsData?.data || [];
   const interfaces = metricsData?.meta?.interfaces || [];
 
-  const timestamps = useMemo(() => rows.map(r => r.ts), [rows]);
-  const ifInOctets  = useMemo(() => rows.map(r => r.if_in_octets), [rows]);
-  const ifOutOctets = useMemo(() => rows.map(r => r.if_out_octets), [rows]);
-  const inRates  = useMemo(() => seriesToRates(timestamps, ifInOctets), [timestamps, ifInOctets]);
-  const outRates = useMemo(() => seriesToRates(timestamps, ifOutOctets), [timestamps, ifOutOctets]);
-  const cpuUsage = useMemo(() => rows.map(r => r.cpu_usage     != null ? Number(r.cpu_usage)     : null), [rows]);
-  const memUsage = useMemo(() => rows.map(r => r.memory_usage  != null ? Number(r.memory_usage)  : null), [rows]);
-  const signal   = useMemo(() => rows.map(r => r.signal_strength != null ? Number(r.signal_strength) : null), [rows]);
-  const latency  = useMemo(() => rows.map(r => r.latency_ms    != null ? Number(r.latency_ms)    : null), [rows]);
+  // A single specific interface is selected (?interface=N): the backend's
+  // interface_id=N filter returns ONLY that interface's rows — no
+  // device-level rows at all. Otherwise (no interface param sent — see the
+  // queryFn above) the backend returns EVERY row for the device: the
+  // device-level scalar rows (cpu/mem/signal/latency/uptime) interleaved
+  // with one row per interface per poll.
+  const isSpecificInterface = interfaceId !== '';
+
+  // Device-level rows use interface_id === null (raw resolution) or === ''
+  // (1hr/1day rollups, whose column is NOT NULL DEFAULT ''). CPU/memory/
+  // signal/latency/uptime must only ever be read from these — mixing in a
+  // per-interface row's (always-null) values would just look like more
+  // gaps, but reading a per-interface row's non-cpu fields would be wrong.
+  const deviceRows = useMemo(() => rows.filter(r => r.interface_id === null || r.interface_id === ''), [rows]);
+  // Per-interface rows — everything that ISN'T a device-level row.
+  const interfaceRows = useMemo(() => rows.filter(r => !(r.interface_id === null || r.interface_id === '')), [rows]);
+
+  const deviceTimestamps = useMemo(() => deviceRows.map(r => r.ts), [deviceRows]);
+  const cpuUsage = useMemo(() => deviceRows.map(r => r.cpu_usage     != null ? Number(r.cpu_usage)     : null), [deviceRows]);
+  const memUsage = useMemo(() => deviceRows.map(r => r.memory_usage  != null ? Number(r.memory_usage)  : null), [deviceRows]);
+  const signal   = useMemo(() => deviceRows.map(r => r.signal_strength != null ? Number(r.signal_strength) : null), [deviceRows]);
+  const latency  = useMemo(() => deviceRows.map(r => r.latency_ms    != null ? Number(r.latency_ms)    : null), [deviceRows]);
+
+  // Throughput:
+  //  - Single interface picked: one row per timestamp already, no
+  //    cross-interface summing ambiguity — plain per-row deltas.
+  //  - All interfaces (default): bucket + sum the per-interface rows, with
+  //    the same interface-signature guard as the fleet endpoint's rates
+  //    (see rateTransform.bucketedRates) so a dropped-then-reappearing
+  //    interface renders an honest gap, never a fabricated spike.
+  const allTimestamps = useMemo(() => rows.map(r => r.ts), [rows]);
+  const allInOctets  = useMemo(() => rows.map(r => r.if_in_octets), [rows]);
+  const allOutOctets = useMemo(() => rows.map(r => r.if_out_octets), [rows]);
+  const singleIfaceInRates  = useMemo(() => seriesToRates(allTimestamps, allInOctets), [allTimestamps, allInOctets]);
+  const singleIfaceOutRates = useMemo(() => seriesToRates(allTimestamps, allOutOctets), [allTimestamps, allOutOctets]);
+
+  const bucketing = range.resolution === 'raw' ? 'minute' : 'exact';
+  const bucketed = useMemo(() => bucketedRates(interfaceRows, bucketing), [interfaceRows, bucketing]);
+
+  const throughputTimestamps = isSpecificInterface ? allTimestamps : bucketed.timestamps;
+  const inRates  = isSpecificInterface ? singleIfaceInRates  : bucketed.inRates;
+  const outRates = isSpecificInterface ? singleIfaceOutRates : bucketed.outRates;
+
+  // Errors — only shown in single-interface mode (if_in_errors/if_out_errors
+  // are per-interface counters; summing them across interfaces the way
+  // throughput does isn't meaningful for a quick error-rate glance, and the
+  // brief scopes this to "throughput/errors for THAT interface").
+  const inErrors  = useMemo(() => rows.map(r => r.if_in_errors  != null ? Number(r.if_in_errors)  : null), [rows]);
+  const outErrors = useMemo(() => rows.map(r => r.if_out_errors != null ? Number(r.if_out_errors) : null), [rows]);
 
   function latestVal(arr: (number | null)[]): number | null {
     for (let i = arr.length - 1; i >= 0; i--) {
@@ -755,15 +816,20 @@ function DeviceHistoryView({
     return null;
   }
 
-  const latestCpu    = latestVal(cpuUsage);
-  const latestMem    = latestVal(memUsage);
-  const latestSignal = latestVal(signal);
-  const latestLat    = latestVal(latency);
+  // Single-interface mode has no device-level rows at all, so cpuUsage/
+  // memUsage are empty arrays and latestVal(...) is null — fall back to the
+  // fleet card's latest snapshot, extending the uptime tile's existing
+  // fallback pattern to the two other fields the fleet payload carries.
+  const latestCpu    = latestVal(cpuUsage) ?? (fleetDevice?.latest?.cpu_usage    != null ? Number(fleetDevice.latest.cpu_usage)    : null);
+  const latestMem    = latestVal(memUsage) ?? (fleetDevice?.latest?.memory_usage != null ? Number(fleetDevice.latest.memory_usage) : null);
+  const latestSignal = latestVal(signal); // no fleet-level equivalent exists
+  const latestLat    = latestVal(latency); // no fleet-level equivalent exists
 
-  // uptime_ticks only exists on the raw-resolution rows; rollups don't carry
-  // it, so fall back to the fleet card's device-level latest reading.
+  // uptime_ticks only exists on the raw-resolution device-level rows;
+  // rollups (and single-interface mode, which has no device-level rows at
+  // all) don't carry it, so fall back to the fleet card's latest reading.
   const rawUptimeTicks = range.resolution === 'raw'
-    ? latestVal(rows.map(r => r.uptime_ticks != null ? Number(r.uptime_ticks) : null))
+    ? latestVal(deviceRows.map(r => r.uptime_ticks != null ? Number(r.uptime_ticks) : null))
     : null;
   const uptimeTicks = rawUptimeTicks ?? fleetDevice?.latest?.uptime_ticks ?? null;
 
@@ -772,6 +838,7 @@ function DeviceHistoryView({
   const hasMem        = memUsage.some(v => v != null);
   const hasSignal     = signal.some(v => v != null);
   const hasLatency    = latency.some(v => v != null);
+  const hasErrors     = isSpecificInterface && (inErrors.some(v => v != null) || outErrors.some(v => v != null));
   const hasAnyData    = rows.length > 0;
 
   const deviceName = fleetDevice?.name ?? t('snmpMetrics.history.deviceFallback', { id: deviceId });
@@ -870,7 +937,7 @@ function DeviceHistoryView({
               {hasThroughput && (
                 <LineChart
                   title={t('snmpMetrics.history.charts.throughput')}
-                  timestamps={timestamps}
+                  timestamps={throughputTimestamps}
                   resolution={range.resolution}
                   yUnit="bps"
                   emptyLabel={t('snmpMetrics.history.charts.noData')}
@@ -881,10 +948,24 @@ function DeviceHistoryView({
                 />
               )}
 
+              {isSpecificInterface && hasErrors && (
+                <LineChart
+                  title={t('snmpMetrics.history.charts.errors')}
+                  timestamps={allTimestamps}
+                  resolution={range.resolution}
+                  height={140}
+                  emptyLabel={t('snmpMetrics.history.charts.noData')}
+                  series={[
+                    { key: 'inErr',  values: inErrors,  color: 'var(--viz-in)',  label: t('snmpMetrics.history.legend.inErrors'),  formatValue: v => v == null ? '—' : String(v) },
+                    { key: 'outErr', values: outErrors, color: 'var(--viz-out)', label: t('snmpMetrics.history.legend.outErrors'), formatValue: v => v == null ? '—' : String(v) },
+                  ]}
+                />
+              )}
+
               {hasCpu && (
                 <LineChart
                   title={t('snmpMetrics.history.charts.cpu')}
-                  timestamps={timestamps}
+                  timestamps={deviceTimestamps}
                   resolution={range.resolution}
                   yUnit="pct"
                   height={140}
@@ -896,7 +977,7 @@ function DeviceHistoryView({
               {hasMem && (
                 <LineChart
                   title={t('snmpMetrics.history.charts.memory')}
-                  timestamps={timestamps}
+                  timestamps={deviceTimestamps}
                   resolution={range.resolution}
                   yUnit="pct"
                   height={140}
@@ -908,7 +989,7 @@ function DeviceHistoryView({
               {hasSignal && (
                 <LineChart
                   title={t('snmpMetrics.history.charts.signal')}
-                  timestamps={timestamps}
+                  timestamps={deviceTimestamps}
                   resolution={range.resolution}
                   height={140}
                   emptyLabel={t('snmpMetrics.history.charts.noData')}
@@ -919,7 +1000,7 @@ function DeviceHistoryView({
               {hasLatency && (
                 <LineChart
                   title={t('snmpMetrics.history.charts.latency')}
-                  timestamps={timestamps}
+                  timestamps={deviceTimestamps}
                   resolution={range.resolution}
                   height={140}
                   emptyLabel={t('snmpMetrics.history.charts.noData')}

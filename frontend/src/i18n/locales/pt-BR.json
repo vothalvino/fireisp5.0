@@ -4455,7 +4455,7 @@
       "deviceFallback": "Dispositivo #{{id}}",
       "range": "Período",
       "interface": "Interface",
-      "allInterfaces": "Todas as interfaces",
+      "allInterfaces": "Todas as interfaces (soma)",
       "rangeOptions": {
         "raw24h": "24 h (bruto)",
         "hourly7d": "7 d (por hora)",
@@ -4485,11 +4485,14 @@
         "memory": "Uso de Memória (%)",
         "signal": "Intensidade do Sinal (dBm)",
         "latency": "Latência (ms)",
+        "errors": "Erros",
         "noData": "Sem dados no período selecionado"
       },
       "legend": {
         "in": "↓ Entrada",
-        "out": "↑ Saída"
+        "out": "↑ Saída",
+        "inErrors": "↓ Erros de entrada",
+        "outErrors": "↑ Erros de saída"
       },
       "switchPorts": {
         "title": "Status das Portas do Switch",

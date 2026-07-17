@@ -108,6 +108,100 @@ export function currentRate(samples: TrafficSample[]): { inBps: number | null; o
   };
 }
 
+/** A single device-history row's counter fields, as needed for bucketing. */
+export interface OctetRow {
+  ts: string;
+  interface_id: string | null;
+  if_in_octets: number | string | null;
+  if_out_octets: number | string | null;
+}
+
+/**
+ * Groups a device's per-interface counter rows into per-time-bucket sums,
+ * then computes a bits/sec rate between consecutive buckets — mirroring the
+ * fleet endpoint's SQL-side bucketing (COUNT/GROUP_CONCAT DISTINCT
+ * interface_id), done here client-side since a single device's history rows
+ * arrive ungrouped (one row per interface per poll, `interface_id !== null
+ * && interface_id !== ''`; device-level rows must be filtered out by the
+ * caller before calling this).
+ *
+ * `bucketing`:
+ *   - `'minute'` — bucket by `Math.floor(ts / 60s)`. Use for raw 5-min
+ *     samples: each interface's row is inserted with its own `NOW()`, so
+ *     rows from the same poll cycle can land a second or two apart.
+ *   - `'exact'` — bucket by the literal `ts` string. Use for 1hr/1day
+ *     rollup rows, which already share the exact same `period_start` for
+ *     a given period — no per-row jitter to absorb.
+ *
+ * Same "honest gap" rule as `currentRate()`: a bucket-pair whose
+ * `interface_signature` (sorted, comma-joined interface ids) differs — an
+ * interface dropped out of or reappeared in the poll — produces `null`
+ * for that point, never a fabricated rate from a reappearing interface's
+ * full cumulative counter landing in the delta.
+ */
+export function bucketedRates(
+  rows: OctetRow[],
+  bucketing: 'minute' | 'exact',
+): { timestamps: string[]; inRates: (number | null)[]; outRates: (number | null)[] } {
+  const buckets = new Map<string, { t: string; inSum: number; outSum: number; ifaces: Set<string> }>();
+
+  for (const row of rows) {
+    if (row.interface_id == null || row.interface_id === '') continue; // device-level row, not a per-interface one
+    const key = bucketing === 'minute'
+      ? String(Math.floor(new Date(row.ts).getTime() / 60_000))
+      : row.ts;
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { t: row.ts, inSum: 0, outSum: 0, ifaces: new Set() };
+      buckets.set(key, bucket);
+    }
+    if (row.if_in_octets != null) {
+      const n = Number(row.if_in_octets);
+      if (Number.isFinite(n)) bucket.inSum += n;
+    }
+    if (row.if_out_octets != null) {
+      const n = Number(row.if_out_octets);
+      if (Number.isFinite(n)) bucket.outSum += n;
+    }
+    bucket.ifaces.add(row.interface_id);
+    // Keep the latest timestamp seen in this bucket as its representative x.
+    if (new Date(row.ts).getTime() > new Date(bucket.t).getTime()) bucket.t = row.ts;
+  }
+
+  const ordered = Array.from(buckets.values())
+    .map(b => ({
+      t: b.t,
+      in_octets: b.inSum,
+      out_octets: b.outSum,
+      interface_signature: Array.from(b.ifaces).sort().join(','),
+    }))
+    .sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+
+  const timestamps = ordered.map(b => b.t);
+  const inRates: (number | null)[] = [];
+  const outRates: (number | null)[] = [];
+
+  for (let i = 0; i < ordered.length; i++) {
+    if (i === 0) {
+      inRates.push(null);
+      outRates.push(null);
+      continue;
+    }
+    const prev = ordered[i - 1];
+    const cur = ordered[i];
+    if (prev.interface_signature !== cur.interface_signature) {
+      inRates.push(null);
+      outRates.push(null);
+      continue;
+    }
+    inRates.push(deltaToRate(prev.in_octets, prev.t, cur.in_octets, cur.t));
+    outRates.push(deltaToRate(prev.out_octets, prev.t, cur.out_octets, cur.t));
+  }
+
+  return { timestamps, inRates, outRates };
+}
+
 /** Formats a bits/sec value as a human Kbps/Mbps/Gbps string. */
 export function fmtBps(bps: number | null): string {
   if (bps == null || !Number.isFinite(bps)) return '—';

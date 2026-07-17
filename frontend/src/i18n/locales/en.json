@@ -4455,7 +4455,7 @@
       "deviceFallback": "Device #{{id}}",
       "range": "Range",
       "interface": "Interface",
-      "allInterfaces": "All interfaces",
+      "allInterfaces": "All interfaces (sum)",
       "rangeOptions": {
         "raw24h": "24 h (raw)",
         "hourly7d": "7 d (hourly)",
@@ -4485,11 +4485,14 @@
         "memory": "Memory Usage (%)",
         "signal": "Signal Strength (dBm)",
         "latency": "Latency (ms)",
+        "errors": "Errors",
         "noData": "No data in selected range"
       },
       "legend": {
         "in": "↓ In",
-        "out": "↑ Out"
+        "out": "↑ Out",
+        "inErrors": "↓ In errors",
+        "outErrors": "↑ Out errors"
       },
       "switchPorts": {
         "title": "Switch Port Status",
