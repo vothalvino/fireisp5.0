@@ -125,6 +125,71 @@ describe('POST /api/v1/invoices/generate — inventory_item_id on product lines'
     expect(ledgerCall[0]).toMatch(/'sell_to_client'/);
   });
 
+  it('custom item with amount-only derives unit_price (regression: was silently a 0.00 line)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM clients WHERE id')) return Promise.resolve([[{ id: 5 }]]);
+      if (typeof sql === 'string' && sql.includes('FROM tax_rates WHERE organization_id')) return Promise.resolve([[]]);
+      if (typeof sql === 'string' && sql.includes('`invoices`')) return Promise.resolve([[{ id: 43, invoice_number: 'INV-000010' }]]);
+      return Promise.resolve([[]]);
+    });
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('INSERT INTO invoices')) return Promise.resolve([{ insertId: 43 }]);
+      if (sql.includes('INSERT INTO invoice_items')) return Promise.resolve([{ insertId: 502 }]);
+      return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+    jest.spyOn(billingService, 'nextInvoiceNumber').mockResolvedValue('INV-000010');
+
+    const res = await request(app)
+      .post('/api/v1/invoices/generate')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ client_id: 5, items: [{ type: 'custom', description: 'Base fee', amount: 100 }] });
+
+    expect(res.status).toBe(201);
+    const itemInsertCall = conn.execute.mock.calls.find((c) => c[0].includes('INSERT INTO invoice_items'));
+    // invoice_id, description, quantity, unit_price, amount, inventory_item_id
+    expect(itemInsertCall[1]).toEqual([43, 'Base fee', 1, 100, 100, null]);
+    // Invoice totals carry the amount (no tax rate mocked → subtotal 100).
+    const invInsertCall = conn.execute.mock.calls.find((c) => c[0].includes('INSERT INTO invoices'));
+    expect(invInsertCall[1]).toContain(100);
+  });
+
+  it('rejects a custom item with neither unit_price nor amount', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM clients WHERE id')) return Promise.resolve([[{ id: 5 }]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/invoices/generate')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ client_id: 5, items: [{ type: 'custom', description: 'Mystery line' }] });
+
+    expect(res.status).toBe(422);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  it('rejects a custom item whose amount disagrees with quantity × unit_price', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM clients WHERE id')) return Promise.resolve([[{ id: 5 }]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/invoices/generate')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ client_id: 5, items: [{ type: 'custom', description: 'Sneaky', quantity: 1, unit_price: 1, amount: 999999 }] });
+
+    expect(res.status).toBe(422);
+  });
+
   it('rolls back the WHOLE generate (invoice + items + stock) when the drawdown fails', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);

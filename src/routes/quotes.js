@@ -13,6 +13,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createQuote, updateQuote, createQuoteItem } = require('../middleware/schemas/quotes');
 const db = require('../config/database');
+const { resolveLineItemPricing } = require('../utils/lineItemPricing');
 const billingService = require('../services/billingService');
 const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const auditLog = require('../services/auditLog');
@@ -238,9 +239,10 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
         if (!item.description || String(item.description).trim() === '') {
           return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'description is required for product/custom items' } });
         }
-        const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
-        const up = Math.max(parseFloat(item.unit_price) || 0, 0);
-        const amount = Math.round(qty * up * 100) / 100;
+        // unit_price OR amount (sibling-endpoint shape) — a supplied amount
+        // used to be silently ignored, minting a legitimate-looking 0.00 line.
+        // Mirrors /invoices/generate exactly.
+        const { qty, unitPrice: up, amount } = resolveLineItemPricing(item);
 
         // Optional stock link — 'product' lines only, carried through
         // unchanged to quote_items (mirrors POST /quotes/:id/items). Quotes

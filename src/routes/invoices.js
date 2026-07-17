@@ -14,6 +14,7 @@ const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('
 const billingService = require('../services/billingService');
 const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const db = require('../config/database');
+const { resolveLineItemPricing } = require('../utils/lineItemPricing');
 const { AppError, NotFoundError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ route: 'invoices' });
 
@@ -358,9 +359,9 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         if (!item.description || String(item.description).trim() === '') {
           return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'description is required for product/custom items' } });
         }
-        const qty = Math.max(parseFloat(item.quantity) || 1, 0.01);
-        const up = Math.max(parseFloat(item.unit_price) || 0, 0);
-        const amount = Math.round(qty * up * 100) / 100;
+        // unit_price OR amount (sibling-endpoint shape) — a supplied amount
+        // used to be silently ignored, minting a legitimate-looking 0.00 line.
+        const { qty, unitPrice: up, amount } = resolveLineItemPricing(item);
 
         // Optional stock link — 'product' lines only ('custom' free-text
         // lines are untouched, mirroring POST /invoices/:id/items and
