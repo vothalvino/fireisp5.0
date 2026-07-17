@@ -216,11 +216,19 @@ export function NetworkFabricTab() {
     if (!window.confirm(t('topologyMap.fabric.confirmReboot', { name: selected.name }))) return;
     setActionBusy(true); setActionMsg(null);
     try {
-      await api.POST(`/devices/${selected.id}/reboot` as never, {} as never);
-      setActionMsg(t('topologyMap.fabric.rebootIssued'));
-    } catch (err) {
-      const status = (err as { status?: number }).status;
-      setActionMsg(status === 422 ? t('topologyMap.fabric.rebootUnsupported') : t('topologyMap.fabric.actionError'));
+      // openapi-fetch resolves (never throws) on non-2xx — inspect { error,
+      // response } explicitly, or a 422 "not supported" reads as success.
+      const { error, response } = await api.POST(`/devices/${selected.id}/reboot` as never, {} as never) as
+        { error?: unknown; response?: { status: number } };
+      if (error) {
+        setActionMsg(response?.status === 422
+          ? t('topologyMap.fabric.rebootUnsupported')
+          : t('topologyMap.fabric.actionError'));
+      } else {
+        setActionMsg(t('topologyMap.fabric.rebootIssued'));
+      }
+    } catch {
+      setActionMsg(t('topologyMap.fabric.actionError'));
     } finally { setActionBusy(false); }
   }
 
@@ -229,7 +237,12 @@ export function NetworkFabricTab() {
     const next = selected.status === 'maintenance' ? 'online' : 'maintenance';
     setActionBusy(true); setActionMsg(null);
     try {
-      await api.PUT(`/devices/${selected.id}` as never, { body: { status: next } } as never);
+      const { error } = await api.PUT(`/devices/${selected.id}` as never, { body: { status: next } } as never) as
+        { error?: unknown };
+      if (error) {
+        setActionMsg(t('topologyMap.fabric.actionError'));
+        return;
+      }
       setActionMsg(t('topologyMap.fabric.maintenanceSet', { status: next }));
       void qc.invalidateQueries({ queryKey: ['topology-fabric'] });
     } catch {

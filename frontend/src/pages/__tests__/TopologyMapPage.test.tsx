@@ -255,6 +255,20 @@ describe('TopologyMapPage (§13)', () => {
     );
   });
 
+  it('fabric reboot surfaces an honest failure on 422 (never a fake success)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // openapi-fetch resolves (does not throw) on non-2xx: { error, response }.
+    mockApiPost.mockResolvedValueOnce({ error: { message: 'unsupported' }, response: { status: 422 } });
+    renderPage();
+    // Fabric is the default tab; the offline incident device is auto-selected,
+    // so the inspector's Reboot button is present.
+    const rebootBtn = await screen.findByRole('button', { name: /^reboot$/i });
+    await userEvent.click(rebootBtn);
+    expect(await screen.findByText(/supported/i)).toBeInTheDocument();
+    expect(screen.queryByText(/reboot issued/i)).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
   it('calls network API when the Network Topology tab is opened', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
