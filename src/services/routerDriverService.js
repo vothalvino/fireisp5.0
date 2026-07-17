@@ -167,8 +167,14 @@ async function dispatchCommand(configId, organizationId, command, params = {}, e
         case 'queue_set':
           response = await rosService.queueSet(conn, params);
           break;
+        case 'reboot':
+          response = await rosService.systemReboot(conn);
+          break;
         default:
-          response = { note: `Command '${command}' not mapped to MikroTik handler` };
+          // Unmapped commands must NOT report success — an unknown command was
+          // never sent to the device, so recording 'success' would be a silent
+          // no-op that reads as a real action (e.g. a reboot that never fired).
+          throw new Error(`Command '${command}' is not mapped to a MikroTik handler`);
       }
       status = 'success';
     } catch (err) {

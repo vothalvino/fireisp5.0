@@ -1282,6 +1282,34 @@ describe('Device Routes — /api/devices', () => {
     });
   });
 
+  // --- POST /:id/reboot ---
+  describe('POST /api/devices/:id/reboot', () => {
+    test('refuses honestly (422) for a device type with no supported reboot path', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // Device.findByIdOrFail (type 'router')
+        .mockResolvedValueOnce([[]]);          // no MikroTik driver config
+
+      const res = await request(app)
+        .post('/api/devices/1/reboot')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/not supported/i);
+    });
+
+    test('returns 404 for a device outside the caller org', async () => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[]]); // findByIdOrFail → not found
+
+      const res = await request(app)
+        .post('/api/devices/999/reboot')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+
   // --- DELETE /:id ---
   describe('DELETE /api/devices/:id', () => {
     test('deletes a device and returns 204', async () => {

@@ -9149,6 +9149,42 @@
         }
       }
     },
+    "/devices/{id}/reboot": {
+      "post": {
+        "tags": [
+          "Devices"
+        ],
+        "summary": "Reboot a device via its driver/type mechanism (422 when unsupported)",
+        "operationId": "rebootDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reboot issued or queued: { method, status, detail }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/nas": {
       "get": {
         "tags": [

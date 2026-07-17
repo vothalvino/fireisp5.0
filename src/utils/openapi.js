@@ -573,6 +573,7 @@ function generateSpec() {
         patch: { tags: ['Devices'], summary: 'Partially update a device (e.g. assign/clear client_id)', operationId: 'patchDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('devices_patchDevice'), responses: r200('Device') },
       },
       '/devices/{id}/restore': { post: { tags: ['Devices'], summary: 'Restore a soft-deleted device', operationId: 'restoreDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Device') } },
+      '/devices/{id}/reboot': { post: { tags: ['Devices'], summary: 'Reboot a device via its driver/type mechanism (422 when unsupported)', operationId: 'rebootDevice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 202: { description: 'Reboot issued or queued: { method, status, detail }', content: { 'application/json': { schema: { type: 'object' } } } } } } },
 
       // ---- NAS ----
       ...crudPaths('nas', 'NAS', 'Nas'),
