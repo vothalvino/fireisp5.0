@@ -2,7 +2,7 @@
 // FireISP 5.0 — SNMP rate transform helper tests
 // =============================================================================
 import { describe, it, expect } from 'vitest';
-import { deltaToRate, seriesToRates, currentRate, fmtBps } from './rateTransform';
+import { deltaToRate, seriesToRates, currentRate, fmtBps, bucketedRates, type OctetRow } from './rateTransform';
 
 describe('deltaToRate', () => {
   it('computes a normal positive delta as a bits/sec rate', () => {
@@ -141,5 +141,84 @@ describe('fmtBps', () => {
   });
   it('renders null as an em dash', () => {
     expect(fmtBps(null)).toBe('—');
+  });
+});
+
+describe('bucketedRates', () => {
+  function row(ts: string, iface: string | null, inO: number | null, outO: number | null): OctetRow {
+    return { ts, interface_id: iface, if_in_octets: inO, if_out_octets: outO };
+  }
+
+  it('sums same-minute per-interface rows into one bucket (raw resolution) and computes a rate between buckets with identical interface membership', () => {
+    const rows: OctetRow[] = [
+      // Bucket 1 — 00:00, interfaces eth0 + eth1, inserted a couple seconds apart
+      row('2026-01-01T00:00:01.000Z', 'eth0', 500_000, 200_000),
+      row('2026-01-01T00:00:03.000Z', 'eth1', 500_000, 300_000),
+      // Bucket 2 — 00:05, same two interfaces
+      row('2026-01-01T00:05:00.000Z', 'eth0', 800_000, 260_000),
+      row('2026-01-01T00:05:02.000Z', 'eth1', 800_000, 360_000),
+    ];
+
+    const { timestamps, inRates, outRates } = bucketedRates(rows, 'minute');
+
+    expect(timestamps).toHaveLength(2);
+    expect(inRates[0]).toBeNull(); // first bucket has no predecessor
+    // bucket1 sum: in=1,000,000 out=500,000 ; bucket2 sum: in=1,600,000 out=620,000
+    // delta in = 600,000 bytes over 300s (00:00:03 -> 00:05:02 ~= 299s, but let's
+    // just assert it's a positive, finite rate rather than pin the exact seconds)
+    expect(inRates[1]).not.toBeNull();
+    expect(inRates[1]).toBeGreaterThan(0);
+    expect(outRates[1]).not.toBeNull();
+    expect(outRates[1]).toBeGreaterThan(0);
+  });
+
+  it('a bucket missing an interface that reappears in the next bucket → null gap, never a fabricated spike', () => {
+    const rows: OctetRow[] = [
+      // Bucket 1 — only eth0 reported this cycle (eth1 missing/failed ingest)
+      row('2026-01-01T00:00:00.000Z', 'eth0', 500_000, 200_000),
+      // Bucket 2 — eth1 reappears with its own large cumulative counter
+      row('2026-01-01T00:05:00.000Z', 'eth0', 550_000, 210_000),
+      row('2026-01-01T00:05:00.000Z', 'eth1', 40_000_000_000, 15_000_000_000),
+    ];
+
+    const { inRates, outRates } = bucketedRates(rows, 'minute');
+
+    expect(inRates[0]).toBeNull();
+    expect(inRates[1]).toBeNull(); // signature 'eth0' !== 'eth0,eth1' — refuse to diff
+    expect(outRates[1]).toBeNull();
+  });
+
+  it('exact-timestamp bucketing (1hr/1day rollups) groups rows that share the identical ts', () => {
+    const rows: OctetRow[] = [
+      row('2026-01-01T00:00:00.000Z', 'eth0', 1_000_000, 500_000),
+      row('2026-01-01T00:00:00.000Z', 'eth1', 1_000_000, 500_000),
+      row('2026-01-01T01:00:00.000Z', 'eth0', 1_200_000, 560_000),
+      row('2026-01-01T01:00:00.000Z', 'eth1', 1_200_000, 560_000),
+    ];
+
+    const { timestamps, inRates } = bucketedRates(rows, 'exact');
+
+    expect(timestamps).toEqual(['2026-01-01T00:00:00.000Z', '2026-01-01T01:00:00.000Z']);
+    // bucket sums: 2,000,000 -> 2,400,000, over 3600s = ~888.9 bps * 8... just assert positive & finite
+    expect(inRates[1]).not.toBeNull();
+    expect(Number.isFinite(inRates[1] as number)).toBe(true);
+  });
+
+  it('ignores device-level rows (interface_id null or empty string) — only sums real per-interface rows', () => {
+    const rows: OctetRow[] = [
+      { ts: '2026-01-01T00:00:00.000Z', interface_id: null, if_in_octets: 999, if_out_octets: 999 },
+      { ts: '2026-01-01T00:00:00.000Z', interface_id: '', if_in_octets: 999, if_out_octets: 999 },
+      row('2026-01-01T00:00:00.000Z', 'eth0', 1_000_000, 500_000),
+    ];
+
+    const { timestamps } = bucketedRates(rows, 'minute');
+    expect(timestamps).toHaveLength(1);
+  });
+
+  it('returns empty arrays for no interface rows', () => {
+    const { timestamps, inRates, outRates } = bucketedRates([], 'minute');
+    expect(timestamps).toEqual([]);
+    expect(inRates).toEqual([]);
+    expect(outRates).toEqual([]);
   });
 });
