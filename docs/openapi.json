@@ -19706,6 +19706,32 @@
         }
       }
     },
+    "/dr-drill/runbook": {
+      "get": {
+        "tags": [
+          "DR Drill"
+        ],
+        "summary": "Get the disaster-recovery runbook document (markdown)",
+        "operationId": "getDrDrillRunbook",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DR runbook markdown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/export/invoices": {
       "get": {
         "tags": [

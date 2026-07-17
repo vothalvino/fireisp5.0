@@ -398,7 +398,7 @@
     "modalTitle": "Aviso de simulação de DR",
     "neverRun": {
       "headline": "⚠️ A simulação trimestral de DR nunca foi executada",
-      "detail": "Nenhuma simulação de recuperação de desastres foi registrada ainda. Siga o runbook em docs/dr-drill.md para validar seu procedimento de backup e restauração."
+      "detail": "Nenhuma simulação de recuperação de desastres foi registrada ainda. Siga o runbook de DR para validar seu procedimento de backup e restauração."
     },
     "failed": {
       "headline": "🚨 A última simulação de DR FALHOU ({{date}})",
@@ -407,10 +407,10 @@
     },
     "overdue": {
       "headline": "⚠️ Simulação de DR atrasada — Última há {{days}} dias ({{date}})",
-      "detail": "A simulação trimestral de recuperação de desastres não foi executada há mais de 90 dias. Agende uma simulação manual conforme docs/dr-drill.md para confirmar a recuperabilidade."
+      "detail": "A simulação trimestral de recuperação de desastres não foi executada há mais de 90 dias. Agende uma simulação manual conforme o runbook de DR para confirmar a recuperabilidade."
     },
     "hint": "Verificações automáticas (backup + consultas de integridade) são executadas trimestralmente. As fases 2–3 (destruição + restauração) devem ser executadas manualmente em uma instância de teste.",
-    "openRunbook": "Abrir runbook de DR ↗",
+    "openRunbook": "Abrir runbook de DR",
     "dismiss": "Reconhecer e dispensar nesta sessão"
   },
   "emailVerify": {

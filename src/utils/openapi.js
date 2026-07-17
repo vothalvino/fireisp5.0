@@ -959,6 +959,7 @@ function generateSpec() {
 
       // ---- DR Drill ----
       '/dr-drill/status': { get: { tags: ['DR Drill'], summary: 'Get latest disaster-recovery drill status', operationId: 'getDrDrillStatus', security: [{ bearerAuth: [] }], responses: r200('DR drill status') } },
+      '/dr-drill/runbook': { get: { tags: ['DR Drill'], summary: 'Get the disaster-recovery runbook document (markdown)', operationId: 'getDrDrillRunbook', security: [{ bearerAuth: [] }], responses: r200('DR runbook markdown') } },
 
       // ---- Export ----
       '/export/invoices': { get: { tags: ['Export'], summary: 'Export invoices as CSV', operationId: 'exportInvoices', security: [{ bearerAuth: [] }], responses: r200File('text/csv') } },
