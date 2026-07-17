@@ -182,6 +182,64 @@ describe('SNMP Metrics extended routes (§6.2/6.3)', () => {
     expect(sql).not.toMatch(/COALESCE\(m\.avg_if_in_octets, 0\) \+ COALESCE\(m\.avg_if_out_octets, 0\)/);
   });
 
+  test('history keeps the NEWEST rows under the row cap and returns them ascending (regression)', async () => {
+    // Regression: the history queries were ORDER BY time ASC LIMIT 2000, so
+    // once a lookback window held more rows than the cap the NEWEST rows were
+    // silently dropped — charts froze at the cut-off while polling kept
+    // running (found live on device 9). The query must select newest-first
+    // and the route must return the rows ascending.
+    const descRows = [
+      { ts: '2026-07-17T05:00:00.000Z', interface_id: null, cpu_usage: 1 },
+      { ts: '2026-07-17T04:55:00.000Z', interface_id: null, cpu_usage: 2 },
+    ];
+    db.query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('snmp_metrics')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM snmp_metrics')) {
+        // The DB would hand back rows newest-first under the DESC query
+        return Promise.resolve([descRows.map(r => ({ ...r }))]);
+      }
+      return Promise.resolve([[sampleDevice]]);
+    });
+
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics?device_id=5&resolution=raw&hours=24')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+
+    const call = db.query.mock.calls.find(([sql]) => sql.includes('FROM snmp_metrics') && sql.includes('polled_at'));
+    expect(call[0]).toMatch(/ORDER BY polled_at DESC/);
+    expect(call[0]).toMatch(/LIMIT 2000/);
+    // Response must be ascending despite the DESC fetch
+    expect(res.body.data.map(r => r.ts)).toEqual(['2026-07-17T04:55:00.000Z', '2026-07-17T05:00:00.000Z']);
+    expect(res.body.meta.truncated).toBe(false);
+  });
+
+  test('history flags truncation when the row cap is hit', async () => {
+    const full = Array.from({ length: 2000 }, (_, i) => ({
+      ts: `2026-07-17T05:00:${String(i % 60).padStart(2, '0')}.000Z`, interface_id: null, cpu_usage: 0,
+    }));
+    db.query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('snmp_metrics')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM snmp_metrics')) {
+        return Promise.resolve([full.map(r => ({ ...r }))]);
+      }
+      return Promise.resolve([[sampleDevice]]);
+    });
+
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics?device_id=5&resolution=raw&hours=24')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(2000);
+    expect(res.body.meta.truncated).toBe(true);
+  });
+
   // §6.3 Per-interface utilization
   test('GET /api/v1/snmp-metrics/interfaces/:deviceId returns stats', async () => {
     const res = await request(app)

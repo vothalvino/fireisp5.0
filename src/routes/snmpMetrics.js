@@ -425,10 +425,16 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
                 uptime_ticks
          FROM snmp_metrics
          WHERE ${conditions.join(' AND ')}
-         ORDER BY polled_at ASC
+         ORDER BY polled_at DESC
          LIMIT 2000`,
         params,
       );
+      // DESC + LIMIT keeps the NEWEST rows when the window holds more than the
+      // cap — ascending LIMIT silently dropped the newest data, so charts froze
+      // at the cut-off while polling kept running (found live on device 9 once
+      // 5 interfaces × 5-min polls pushed a 24h window past 2000 rows).
+      const truncated = rows.length === 2000;
+      rows.reverse();
 
       // Collect distinct interfaces seen in this window
       const ifaceSet = new Set();
@@ -438,7 +444,7 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 
       return res.json({
         data: rows,
-        meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet] },
+        meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet], truncated },
       });
     }
 
@@ -487,10 +493,13 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
                 sample_count
          FROM snmp_metrics_1hr
          WHERE ${conditions.join(' AND ')}
-         ORDER BY period_start ASC
+         ORDER BY period_start DESC
          LIMIT 2000`,
         params,
       );
+      // Newest-rows-win under the cap; see the raw branch for the full story.
+      const truncated = rows.length === 2000;
+      rows.reverse();
 
       const ifaceSet = new Set();
       for (const r of rows) {
@@ -499,7 +508,7 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 
       return res.json({
         data: rows,
-        meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet] },
+        meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet], truncated },
       });
     }
 
@@ -548,10 +557,13 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
               sample_count
        FROM snmp_metrics_1day
        WHERE ${conditions.join(' AND ')}
-       ORDER BY period_start ASC
+       ORDER BY period_start DESC
        LIMIT 2000`,
       params,
     );
+    // Newest-rows-win under the cap; see the raw branch for the full story.
+    const truncated = rows.length === 2000;
+    rows.reverse();
 
     const ifaceSet = new Set();
     for (const r of rows) {
@@ -560,7 +572,7 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 
     return res.json({
       data: rows,
-      meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet] },
+      meta: { device_id: deviceId, resolution, lookback_hours: lookbackHours, interfaces: [...ifaceSet], truncated },
     });
   } catch (err) {
     next(err);
