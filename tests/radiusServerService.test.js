@@ -132,6 +132,35 @@ describe('radiusServerService — embedded RADIUS server', () => {
       expect(svc._counters.accepts).toBe(1);
       expect(svc._counters.rejects).toBe(0);
     });
+
+    test('an active speed window overlays the plan policy in the Access-Accept (§10.2)', async () => {
+      // Sessions established DURING a window must come up at window speeds —
+      // the CoA transition path only reaches sessions already online.
+      db.query.mockImplementation((sql) => {
+        if (/FROM plan_speed_windows/.test(sql)) {
+          return Promise.resolve([[{ id: 2, plan_id: 1, download_speed_mbps: 25, upload_speed_mbps: 5, priority: 10 }]]);
+        }
+        if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+        if (/FROM radius/.test(sql)) return Promise.resolve([[SUBSCRIBER_ROW]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[PLAN_ROW]]);
+        return Promise.resolve([[]]);
+      });
+
+      const { pkt } = buildPapRequest({ id: 9 });
+      let captured = null;
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, (buf) => { captured = buf; });
+
+      expect(captured).not.toBeNull();
+      const resp = codec.decodePacket(captured);
+      expect(resp.code).toBe(codec.CODE.ACCESS_ACCEPT);
+
+      const vsa = resp.attributes.find((a) => a.type === codec.ATTR.VENDOR_SPECIFIC);
+      expect(vsa).toBeTruthy();
+      const rateLimit = vsa.value.subarray(6).toString('utf8');
+      // Window CIR 25M/5M with bursts re-derived from the window speeds —
+      // NOT the plan's 50M/10M.
+      expect(rateLimit).toBe('25M/5M 50M/10M 25M/5M 8');
+    });
   });
 
   // ---------------------------------------------------------------------------

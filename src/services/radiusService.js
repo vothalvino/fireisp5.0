@@ -10,6 +10,9 @@ const { sendRadiusDisconnect, sendRadiusCoA } = require('./suspensionService');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const { generateAttributes } = require('./radiusAttributeService');
 const { serializeLoginTime } = require('./radiusLoginTimeService');
+// speedWindowService requires radiusService only lazily (inside
+// applySpeedWindows), so this top-level require is cycle-free.
+const speedWindowService = require('./speedWindowService');
 const {
   WALLED_GARDEN_REASON_PREFIX,
   OPEN_WALLED_GARDEN_PREDICATE,
@@ -188,8 +191,8 @@ async function disconnectSession(contractId) {
 /**
  * Send a RADIUS Change of Authorization for a live session.
  */
-async function changeOfAuth(contractId, action) {
-  return radiusCircuitBreaker.call(() => sendRadiusCoA(contractId, action || 'update'));
+async function changeOfAuth(contractId, action, extraAttributes = []) {
+  return radiusCircuitBreaker.call(() => sendRadiusCoA(contractId, action || 'update', extraAttributes));
 }
 
 /**
@@ -363,6 +366,7 @@ async function syncFreeradiusTables(organizationId) {
             c.plan_id,
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,
+            p.burst_threshold_mbps, p.burst_time_seconds,
             p.radius_vendor, p.name AS plan_name,
             p.priority AS plan_priority,
             p.session_timeout_seconds, p.idle_timeout_seconds,
@@ -409,6 +413,13 @@ async function syncFreeradiusTables(organizationId) {
         upload_speed_mbps: sub.upload_speed_mbps,
         burst_download_mbps: sub.burst_download_mbps,
         burst_upload_mbps: sub.burst_upload_mbps,
+        // Carry burst threshold/time too: speedWindowService compares the
+        // rows this sync writes against generateAttributes() over the FULL
+        // plan column set — a column dropped here makes the two writers
+        // compute different strings for the same plan and fight forever
+        // (transition + CoA fan-out every tick). Parity is load-bearing.
+        burst_threshold_mbps: sub.burst_threshold_mbps,
+        burst_time_seconds: sub.burst_time_seconds,
         radius_vendor: sub.radius_vendor,
         // Carry plan priority so generateAttributes() emits the Mikrotik-Rate-Limit
         // priority field via the FreeRADIUS SQL backend too (not just embedded RADIUS).
@@ -717,8 +728,15 @@ async function syncFreeradiusTables(organizationId) {
       await db.query('DELETE FROM radgroupcheck WHERE groupname = ?', [group]);
       await db.query('DELETE FROM radgroupreply WHERE groupname = ?', [group]);
 
-      // Generate vendor-specific RADIUS reply attributes for this plan (speed policy)
-      const attrMap = generateAttributes(plan);
+      // Generate vendor-specific RADIUS reply attributes for this plan (speed
+      // policy). §10.2: if a time-based speed window is in force RIGHT NOW,
+      // write the window's speeds instead of the plan's — otherwise a sync
+      // running mid-window would silently flip subscribers back to plan
+      // speeds until the next speed-window tick re-applied them.
+      const activeWindow = await speedWindowService.getActiveWindow(planId);
+      const attrMap = generateAttributes(
+        activeWindow ? speedWindowService.windowEffectivePlan(plan, activeWindow) : plan,
+      );
       const attrRows = expandAttributeRows(attrMap);
 
       for (const row of attrRows) {

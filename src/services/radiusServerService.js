@@ -22,6 +22,7 @@ const logger = require('../utils/logger').child({ service: 'radiusServer' });
 const codec = require('./radiusServerCodec');
 const coa = require('./radiusCoaEncoder');
 const { generateAttributes } = require('./radiusAttributeService');
+const speedWindowService = require('./speedWindowService');
 
 const { CODE, ATTR, ACCT_STATUS } = codec;
 
@@ -185,7 +186,22 @@ async function handleAuth(msg, rinfo, respond) {
   if (accept) {
     code = CODE.ACCESS_ACCEPT;
     counters.accepts++;
-    const plan = await findPlan(subscriber.plan_id);
+    let plan = await findPlan(subscriber.plan_id);
+    // §10.2: overlay an active time-based speed window so sessions coming up
+    // DURING a window start at window speeds (CoA transitions handle sessions
+    // already online). Fail open to plan speeds — a window lookup error must
+    // never block authentication. Cost: one extra indexed lookup
+    // (idx_plan_speed_windows_plan_id) per Access-Accept, incl. windowless
+    // plans — accepted; add a windowed-plan cache only if auth-storm profiling
+    // ever shows it matters.
+    if (plan) {
+      try {
+        const win = await speedWindowService.getActiveWindow(plan.id);
+        if (win) plan = speedWindowService.windowEffectivePlan(plan, win);
+      } catch (err) {
+        logger.warn({ err, planId: plan.id }, 'RADIUS: speed-window lookup failed — using plan speeds');
+      }
+    }
     attrsBuf = buildAcceptAttributes(subscriber, plan, withMessageAuth);
     logger.info({ from: rinfo.address, username }, 'RADIUS: Access-Accept');
   } else {

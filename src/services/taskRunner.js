@@ -31,6 +31,7 @@ const paymentReminderService = require('./paymentReminderService');
 const paymentPlanService = require('./paymentPlanService');
 const rolloverService = require('./rolloverService');
 const cpeSessionLogService = require('./cpeSessionLogService');
+const speedWindowService = require('./speedWindowService');
 const assetService = require('./assetService');
 const scheduledReportService = require('./scheduledReportService');
 const emailTemplates = require('../views/emailTemplates');
@@ -247,15 +248,12 @@ async function runTask(taskName, organizationId = null) {
     // Seeded by migration 277: hard-deletes cpe_session_logs older than 90 days.
     case 'cpe_session_log_cleanup':
       return cpeSessionLogService.cleanupOldLogs();
-    // apply_speed_windows (migration 201): speedWindowService.applySpeedWindows()
-    // exists, but suspensionService.sendRadiusCoA() encodes no rate-limit
-    // attributes (radiusCoaEncoder.encodeMikrotikRateLimit exists, unused) —
-    // wiring it now would fire a functionally-empty CoA at every windowed
-    // contract's NAS every 5 minutes without changing any speed.
-    // DEFERRED until the CoA carries the window's rate limits.
+    // apply_speed_windows (migration 201, §10.2): wired for real — the CoA
+    // now carries vendor rate-limit attributes, fires only on window
+    // TRANSITIONS (radgroupreply is the persisted applied state), and
+    // restores plan speeds when a window ends. See speedWindowService.
     case 'apply_speed_windows':
-      logger.warn({ taskName }, 'apply_speed_windows not wired: sendRadiusCoA encodes no rate-limit attributes yet, the CoA would be a no-op');
-      return { message: 'apply_speed_windows: deferred — CoA rate-limit encoding not implemented', deferred: true };
+      return speedWindowService.applySpeedWindows(organizationId);
     // check_fup_thresholds (migration 290): fupService.applyFupThrottle() sends
     // a CoA and inserts a plan_throttle_logs row with NO idempotency guard — a
     // */15 cron would re-throttle every over-cap contract every tick.

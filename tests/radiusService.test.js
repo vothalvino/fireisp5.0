@@ -105,7 +105,7 @@ describe('radiusService', () => {
       sendRadiusCoA.mockResolvedValue({ sent: true, response: 'CoA-ACK' });
       const result = await radiusService.changeOfAuth(1, 'update');
       expect(result.sent).toBe(true);
-      expect(sendRadiusCoA).toHaveBeenCalledWith(1, 'update');
+      expect(sendRadiusCoA).toHaveBeenCalledWith(1, 'update', []);
     });
   });
 

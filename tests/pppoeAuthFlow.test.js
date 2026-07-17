@@ -384,7 +384,7 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
       const result = await radiusService.changeOfAuth(10, 'reconnect');
       expect(result.sent).toBe(true);
       expect(result.response).toBe('CoA-ACK');
-      expect(sendRadiusCoA).toHaveBeenCalledWith(10, 'reconnect');
+      expect(sendRadiusCoA).toHaveBeenCalledWith(10, 'reconnect', []);
     });
 
     test('circuit breaker allows CoA when RADIUS is healthy', async () => {

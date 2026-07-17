@@ -50,6 +50,12 @@ jest.mock('../src/services/cpeSessionLogService', () => ({
   cleanupOldLogs: jest.fn(),
 }));
 
+jest.mock('../src/services/speedWindowService', () => ({
+  applySpeedWindows: jest.fn(),
+  getActiveWindow: jest.fn(),
+  windowEffectivePlan: jest.fn(),
+}));
+
 jest.mock('../src/services/emailTransport', () => ({
   processQueue: jest.fn(),
   sendEmail: jest.fn(),
@@ -95,6 +101,7 @@ const pollerEngine = require('../src/services/pollerEngine');
 const paymentPlanService = require('../src/services/paymentPlanService');
 const rolloverService = require('../src/services/rolloverService');
 const cpeSessionLogService = require('../src/services/cpeSessionLogService');
+const speedWindowService = require('../src/services/speedWindowService');
 const taskRunner = require('../src/services/taskRunner');
 
 describe('taskRunner', () => {
@@ -230,9 +237,16 @@ describe('taskRunner', () => {
       expect(result.deleted).toBe(5);
     });
 
+    test('dispatches apply_speed_windows passing the organization through', async () => {
+      speedWindowService.applySpeedWindows.mockResolvedValue({ plans_checked: 0, transitions: 0 });
+      await taskRunner.runTask('apply_speed_windows', 42);
+      expect(speedWindowService.applySpeedWindows).toHaveBeenCalledWith(42);
+      await taskRunner.runTask('apply_speed_windows');
+      expect(speedWindowService.applySpeedWindows).toHaveBeenLastCalledWith(null);
+    });
+
     test('seeded tasks without an implementation return explicit deferred stubs, never Unknown task', async () => {
       const deferredTasks = [
-        'apply_speed_windows',
         'check_fup_thresholds',
         'fup_threshold_notify',
         'convert_expired_trials',
