@@ -108,10 +108,21 @@ async function getNetworkGraph(orgId, layer = null) {
 async function getFabric(orgId) {
   const { nodes, edges } = await getNetworkGraph(orgId);
 
-  // Layout tier from the network role. backhaul/distribution share the middle
-  // tier; anything without a role (or an unknown one) falls to the access edge.
-  const TIER = { core: 0, backhaul: 1, distribution: 1, access: 2 };
-  const tierFor = (role) => (role !== null && Object.prototype.hasOwnProperty.call(TIER, role) ? TIER[role] : 2);
+  // Layout tier: prefer the explicit network role; when a device has no role
+  // (common — role isn't always set), infer a sensible tier from its type so
+  // the fabric still lays out in columns instead of collapsing to one. Unknown
+  // → the access edge.
+  const TIER_ROLE = { core: 0, backhaul: 1, distribution: 1, access: 2 };
+  const TIER_TYPE = {
+    router: 0, switch: 1, olt: 1, ptp: 1, ptmp_ap: 1,
+    onu: 2, indoor_cpe: 2, outdoor_cpe: 2, other: 2,
+  };
+  const has = (obj, k) => k !== null && Object.prototype.hasOwnProperty.call(obj, k);
+  const tierFor = (role, type) => {
+    if (has(TIER_ROLE, role)) return TIER_ROLE[role];
+    if (has(TIER_TYPE, type)) return TIER_TYPE[type];
+    return 2;
+  };
 
   const deviceIds = nodes.map(n => n.id);
   const metricsById = new Map();
@@ -170,7 +181,7 @@ async function getFabric(orgId) {
       status: n.status,
       site_id: n.site_id,
       site_name: n.site_name,
-      tier: tierFor(n.role),
+      tier: tierFor(n.role, n.type),
       metrics: {
         cpu_usage: m?.cpu_usage ?? null,
         memory_usage: m?.memory_usage ?? null,

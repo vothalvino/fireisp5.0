@@ -21,6 +21,7 @@ const createDevice = {
   snmp_profile_id: { type: 'number', min: 1 },
   firmware: { type: 'string', max: 100 },
   status: { type: 'string', enum: ['online', 'offline', 'maintenance'] },
+  role: { type: 'string', enum: ['access', 'distribution', 'backhaul', 'core'] },
 };
 
 const updateDevice = {
@@ -42,6 +43,7 @@ const updateDevice = {
   snmp_profile_id: { type: 'number', min: 1 },
   firmware: { type: 'string', max: 100 },
   status: { type: 'string', enum: ['online', 'offline', 'maintenance'] },
+  role: { type: 'string', enum: ['access', 'distribution', 'backhaul', 'core'] },
 };
 
 const patchDevice = Object.fromEntries(

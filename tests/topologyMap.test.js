@@ -189,9 +189,12 @@ describe('GET /api/v1/topology/map/fabric', () => {
       if (s.includes('permissions') || s.includes('role_permissions')) {
         return Promise.resolve([[{ id: 1, name: 'topology.view' }]]);
       }
-      // getNetworkGraph nodes
+      // getNetworkGraph nodes: one with an explicit role, one role-less (tier from type)
       if (s.includes('FROM devices d') && s.includes('LEFT JOIN sites')) {
-        return Promise.resolve([[{ id: 5, name: 'core-1', type: 'router', role: 'core', status: 'online', site_id: 2, site_name: 'PoP-A' }]]);
+        return Promise.resolve([[
+          { id: 5, name: 'core-1', type: 'router', role: 'core', status: 'online', site_id: 2, site_name: 'PoP-A' },
+          { id: 6, name: 'olt-1', type: 'olt', role: null, status: 'online', site_id: 2, site_name: 'PoP-A' },
+        ]]);
       }
       if (s.includes('network_links')) return Promise.resolve([[]]);
       // firmware lookup
@@ -214,7 +217,8 @@ describe('GET /api/v1/topology/map/fabric', () => {
     expect(Array.isArray(d.nodes)).toBe(true);
     expect(Array.isArray(d.edges)).toBe(true);
     expect(Array.isArray(d.incidents)).toBe(true);
-    expect(d.nodes[0]).toMatchObject({ id: 5, tier: 0 });
+    expect(d.nodes[0]).toMatchObject({ id: 5, tier: 0 }); // role 'core' → 0
+    expect(d.nodes.find(n => n.id === 6)).toMatchObject({ tier: 1 }); // no role, type 'olt' → 1
     expect(d.nodes[0].metrics).toMatchObject({ firmware: '7.1.4', clients: 300, cpu_usage: 12 });
     expect(d.incidents[0]).toMatchObject({ id: 9, severity: 'critical' });
   });
