@@ -25,8 +25,44 @@ const db = require('../config/database');
 const { backup } = require('../scripts/backup');
 const logger = require('../utils/logger').child({ service: 'drDrillService' });
 
-/** Minimum acceptable backup size in bytes (1 MB). */
-const MIN_BACKUP_BYTES = 1_048_576;
+// Minimum acceptable backup size in bytes. A floor, not the real integrity
+// signal (that's the structural check below): FireISP's own schema gzips to
+// ~200 KB+, so 64 KB never false-positives on a legitimate install — the old
+// hardcoded 1 MB flagged small orgs whose COMPLETE dump was a few hundred KB.
+const MIN_BACKUP_BYTES = parseInt(process.env.DR_DRILL_MIN_BACKUP_BYTES || '65536', 10);
+
+/**
+ * Stream-validate the gzipped dump's structure without loading it into
+ * memory: it must decompress cleanly, contain at least one CREATE TABLE, and
+ * end with mysqldump's "-- Dump completed" trailer (both Oracle mysqldump and
+ * mariadb-dump write it) — a truncated or empty dump fails regardless of its
+ * byte size, and a complete small dump passes.
+ *
+ * @returns {Promise<{has_create_table:boolean, has_completed_trailer:boolean}>}
+ */
+function validateDumpStructure(backupFile) {
+  const fs = require('fs');
+  const zlib = require('zlib');
+  return new Promise((resolve, reject) => {
+    const gunzip = zlib.createGunzip();
+    let sawCreateTable = false;
+    let carry = '';
+    let tail = '';
+    gunzip.on('data', (chunk) => {
+      const s = carry + chunk.toString('utf8');
+      if (!sawCreateTable && s.includes('CREATE TABLE')) sawCreateTable = true;
+      // Keep a small overlap so markers split across chunk boundaries still match.
+      carry = s.slice(-32);
+      tail = (tail + s).slice(-4096);
+    });
+    gunzip.on('end', () => resolve({
+      has_create_table: sawCreateTable,
+      has_completed_trailer: /-- Dump completed/.test(tail),
+    }));
+    gunzip.on('error', (err) => reject(new Error(`Backup is not a valid gzip stream: ${err.message}`, { cause: err })));
+    fs.createReadStream(backupFile).on('error', reject).pipe(gunzip);
+  });
+}
 
 /**
  * Run the automated DR drill.
@@ -60,7 +96,25 @@ async function runDrill() {
     backupSizeBytes = stats.size;
     checks.backup_size_ok = backupSizeBytes >= MIN_BACKUP_BYTES;
     if (!checks.backup_size_ok) {
-      throw new Error(`Backup too small: ${backupSizeBytes} bytes (minimum ${MIN_BACKUP_BYTES})`);
+      throw new Error(`Backup too small: ${backupSizeBytes} bytes (minimum ${MIN_BACKUP_BYTES}; override with DR_DRILL_MIN_BACKUP_BYTES)`);
+    }
+
+    // Structure beats size: a complete dump of a small org passes, a truncated
+    // dump of a big org fails.
+    let structure;
+    try {
+      structure = await validateDumpStructure(backupFile);
+    } catch (structErr) {
+      checks.backup_structure_ok = false;
+      throw structErr;
+    }
+    checks.backup_structure_ok = structure.has_create_table && structure.has_completed_trailer;
+    if (!checks.backup_structure_ok) {
+      throw new Error(
+        !structure.has_create_table
+          ? 'Backup structure check failed: no CREATE TABLE statement found in the dump'
+          : 'Backup structure check failed: missing "-- Dump completed" trailer (truncated dump?)',
+      );
     }
     logger.info({ backupFile: path.basename(backupFile), backupSizeBytes }, 'DR drill Phase 1 passed');
 
@@ -196,6 +250,7 @@ async function runDrill() {
 function buildFailureSummary(checks) {
   const failures = [];
   if (checks.backup_size_ok === false) failures.push('Backup file too small');
+  if (checks.backup_structure_ok === false) failures.push('Backup structure check failed (empty or truncated dump)');
   if (checks.schema_migrations_present === false) failures.push('schema_migrations table is empty');
   if (checks.fk_orphans_ok === false) {
     const bad = Object.entries(checks.fk_orphans || {})
