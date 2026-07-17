@@ -295,6 +295,33 @@ describe('SNMP Metrics extended routes (§6.2/6.3)', () => {
       });
     }
 
+    test('metric lookups expand IN placeholders per device id and bind FLAT params (execute() does not expand array binds)', async () => {
+      // Regression: db.query() is execute()-backed — `IN (?)` with a nested
+      // array param silently returns empty rows on real MySQL while mocked
+      // tests stay green (the exact live failure found on the demo after
+      // PR #439 deployed). Assert the generated SQL carries one `?` per
+      // device id and that every bind is a scalar, never a nested array.
+      mockFleetDb();
+
+      const res = await request(app)
+        .get('/api/v1/snmp-metrics/fleet')
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-Org-Id', '10');
+      expect(res.status).toBe(200);
+
+      const metricCalls = db.query.mock.calls.filter(([sql]) =>
+        sql.includes('minute_bucket') || sql.includes('INTERVAL 2 HOUR') || sql.includes('uptime_ticks'));
+      expect(metricCalls.length).toBeGreaterThanOrEqual(3);
+      for (const [sql, params] of metricCalls) {
+        // Two fleet devices mocked → every IN list must be exactly (?, ?)
+        expect(sql).toMatch(/IN \(\?, \?\)/);
+        expect(sql).not.toMatch(/IN \(\?\)/);
+        expect(Array.isArray(params)).toBe(true);
+        for (const p of params) expect(Array.isArray(p)).toBe(false);
+        expect(params).toEqual(expect.arrayContaining([5, 6]));
+      }
+    });
+
     test('returns per-device latest/spark/traffic shape, org-scoped with LIMIT 500', async () => {
       mockFleetDb();
 
