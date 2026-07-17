@@ -45,6 +45,14 @@ router.get('/map/network', requirePermission('topology.view'), async (req, res, 
   } catch (err) { next(err); }
 });
 
+// GET /topology/map/fabric — schematic tier-laid-out graph + metrics + incidents
+router.get('/map/fabric', requirePermission('topology.view'), async (req, res, next) => {
+  try {
+    const data = await svc.getFabric(req.orgId);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
 // GET /topology/map/customers
 router.get('/map/customers', requirePermission('mapping.customer_locations'), async (req, res, next) => {
   try {

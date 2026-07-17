@@ -106,8 +106,20 @@ const sampleImpact = {
 // ---------------------------------------------------------------------------
 // Setup default mocks
 // ---------------------------------------------------------------------------
+const sampleFabric = {
+  nodes: [
+    { id: 1, name: 'core-rtr-01', type: 'router', role: 'core', status: 'online', site_id: 10, site_name: 'POP-MX', tier: 0, metrics: { cpu_usage: 12, memory_usage: 40, uptime_ticks: 8640000, temperature_c: 35, rx_power_dbm: -18, firmware: '7.1', clients: null } },
+    { id: 2, name: 'olt-norte', type: 'olt', role: 'access', status: 'offline', site_id: 11, site_name: 'PoP-Norte', tier: 2, metrics: { cpu_usage: null, memory_usage: null, uptime_ticks: null, temperature_c: null, rx_power_dbm: -26, firmware: '2.1', clients: 142 } },
+  ],
+  edges: [{ id: 1, source: 1, target: 2, status: 'down', utilization: null, bandwidth_mbps: 1000 }],
+  incidents: [{ id: 5, device_id: 2, site_id: 11, title: 'Outage - PoP-Norte', detail: '142 clients down', severity: 'critical', started_at: '2026-07-17T05:00:00Z' }],
+};
+
 function setupMocks() {
   mockApiGet.mockImplementation((path: string) => {
+    if (path.includes('/topology/map/fabric')) {
+      return Promise.resolve({ data: { data: sampleFabric }, error: undefined });
+    }
     if (path.includes('/topology/map/network')) {
       return Promise.resolve({ data: { data: sampleGraph }, error: undefined });
     }
@@ -171,17 +183,30 @@ describe('TopologyMapPage (§13)', () => {
     );
   });
 
-  it('renders three tabs', async () => {
+  it('renders all four tabs including Network Fabric', async () => {
     renderPage();
     await waitFor(() => {
+      expect(screen.getByRole('button', { name: /network fabric/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /network topology/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /geographic map/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /dependency/i })).toBeInTheDocument();
     });
   });
 
+  it('defaults to the Network Fabric tab and renders an incident from data', async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(mockApiGet).toHaveBeenCalledWith(
+        expect.stringContaining('/topology/map/fabric'),
+        expect.anything(),
+      ),
+    );
+    expect(await screen.findByText(/Outage - PoP-Norte/i)).toBeInTheDocument();
+  });
+
   it('renders the Leaflet map container on Network Topology tab', async () => {
     renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
     await waitFor(() =>
       expect(screen.getAllByTestId('map-container').length).toBeGreaterThan(0),
     );
@@ -189,6 +214,7 @@ describe('TopologyMapPage (§13)', () => {
 
   it('renders device markers when network data loads', async () => {
     renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
     await waitFor(() =>
       expect(screen.getAllByTestId('circle-marker').length).toBeGreaterThan(0),
     );
@@ -196,6 +222,7 @@ describe('TopologyMapPage (§13)', () => {
 
   it('renders link polylines when edges have positions', async () => {
     renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
     await waitFor(() =>
       expect(screen.getAllByTestId('polyline').length).toBeGreaterThan(0),
     );
@@ -203,6 +230,7 @@ describe('TopologyMapPage (§13)', () => {
 
   it('device search box is present on Network Topology tab', async () => {
     renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
     await waitFor(() => {
       const inputs = screen.getAllByRole('textbox');
       expect(inputs.length).toBeGreaterThan(0);
@@ -227,8 +255,23 @@ describe('TopologyMapPage (§13)', () => {
     );
   });
 
-  it('calls network API on mount', async () => {
+  it('fabric reboot surfaces an honest failure on 422 (never a fake success)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // openapi-fetch resolves (does not throw) on non-2xx: { error, response }.
+    mockApiPost.mockResolvedValueOnce({ error: { message: 'unsupported' }, response: { status: 422 } });
     renderPage();
+    // Fabric is the default tab; the offline incident device is auto-selected,
+    // so the inspector's Reboot button is present.
+    const rebootBtn = await screen.findByRole('button', { name: /^reboot$/i });
+    await userEvent.click(rebootBtn);
+    expect(await screen.findByText(/supported/i)).toBeInTheDocument();
+    expect(screen.queryByText(/reboot issued/i)).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('calls network API when the Network Topology tab is opened', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /network topology/i }));
     await waitFor(() =>
       expect(mockApiGet).toHaveBeenCalledWith(
         expect.stringContaining('/topology/map/network'),

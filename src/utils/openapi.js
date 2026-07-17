@@ -2244,6 +2244,9 @@ function generateSpec() {
       '/topology/map/network': {
         get: { tags: ['Topology Map'], summary: 'Network device graph with link utilization', operationId: 'getNetworkGraph', security: [{ bearerAuth: [] }], parameters: [{ name: 'layer', in: 'query', required: false, schema: { type: 'string', enum: ['l2', 'l3', 'physical'] } }], responses: r200('nodes + edges') },
       },
+      '/topology/map/fabric': {
+        get: { tags: ['Topology Map'], summary: 'Schematic network fabric: tier-laid-out nodes + per-node metrics, links, ongoing outages', operationId: 'getNetworkFabric', security: [{ bearerAuth: [] }], responses: r200('{ nodes (with tier + metrics), edges, incidents }') },
+      },
       '/topology/map/customers': {
         get: { tags: ['Topology Map'], summary: 'Customer location pins with lat/lng', operationId: 'getCustomerLocations', security: [{ bearerAuth: [] }], responses: r200('Customer[]') },
       },

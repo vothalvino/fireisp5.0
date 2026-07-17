@@ -8,6 +8,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const { inPlaceholders } = require('../utils/sqlBuild');
 const _logger = require('../utils/logger').child({ service: 'topologyMapService' });
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,114 @@ async function getNetworkGraph(orgId, layer = null) {
   });
 
   return { nodes, edges: enrichedEdges };
+}
+
+/**
+ * §13.1 Network Fabric — a schematic, tier-laid-out view of the network for
+ * the "Network Fabric" topology tab. Returns the device graph enriched with a
+ * layout tier (from device role), latest per-node SNMP metrics, per-PoP client
+ * counts, and the org's currently-ongoing outages as incidents.
+ *
+ * Reuses getNetworkGraph for nodes/edges; everything else is one extra query
+ * each. Client count is per-SITE (PoP) via contracts.site_id — a per-device
+ * count for aggregation nodes isn't modelled (documented gap).
+ *
+ * @param {number} orgId
+ */
+async function getFabric(orgId) {
+  const { nodes, edges } = await getNetworkGraph(orgId);
+
+  // Layout tier from the network role. backhaul/distribution share the middle
+  // tier; anything without a role (or an unknown one) falls to the access edge.
+  const TIER = { core: 0, backhaul: 1, distribution: 1, access: 2 };
+  const tierFor = (role) => (role !== null && Object.prototype.hasOwnProperty.call(TIER, role) ? TIER[role] : 2);
+
+  const deviceIds = nodes.map(n => n.id);
+  const metricsById = new Map();
+  const firmwareById = new Map();
+
+  if (deviceIds.length > 0) {
+    // db.query() is execute()-backed — `IN (?)` does NOT expand an array bind
+    // (see sqlBuild.inPlaceholders). Expand placeholders and spread the ids.
+    const idsIn = inPlaceholders(deviceIds);
+
+    const [devs] = await db.query(
+      `SELECT id, firmware FROM devices WHERE id IN (${idsIn})`,
+      [...deviceIds],
+    );
+    for (const d of devs) firmwareById.set(d.id, d.firmware);
+
+    // Latest device-level (interface_id IS NULL) metric row per device.
+    const [metrics] = await db.query(
+      `SELECT m.device_id, m.cpu_usage, m.memory_usage, m.uptime_ticks,
+              m.temperature_c, m.sfp_rx_power_dbm
+       FROM snmp_metrics m
+       INNER JOIN (
+         SELECT device_id, MAX(polled_at) AS latest
+         FROM snmp_metrics
+         WHERE interface_id IS NULL AND device_id IN (${idsIn})
+         GROUP BY device_id
+       ) lr ON m.device_id = lr.device_id AND m.polled_at = lr.latest
+       WHERE m.interface_id IS NULL`,
+      [...deviceIds],
+    );
+    for (const m of metrics) metricsById.set(m.device_id, m);
+  }
+
+  // Per-PoP (site) active-client counts.
+  const siteIds = [...new Set(nodes.map(n => n.site_id).filter(id => id !== null))];
+  const clientsBySite = new Map();
+  if (siteIds.length > 0) {
+    const sitesIn = inPlaceholders(siteIds);
+    const [rows] = await db.query(
+      `SELECT site_id, COUNT(DISTINCT client_id) AS clients
+       FROM contracts
+       WHERE site_id IN (${sitesIn}) AND status = 'active' AND deleted_at IS NULL
+       GROUP BY site_id`,
+      [...siteIds],
+    );
+    for (const r of rows) clientsBySite.set(r.site_id, Number(r.clients));
+  }
+
+  const fabricNodes = nodes.map(n => {
+    const m = metricsById.get(n.id);
+    return {
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      role: n.role,
+      status: n.status,
+      site_id: n.site_id,
+      site_name: n.site_name,
+      tier: tierFor(n.role),
+      metrics: {
+        cpu_usage: m?.cpu_usage ?? null,
+        memory_usage: m?.memory_usage ?? null,
+        uptime_ticks: m?.uptime_ticks ?? null,
+        temperature_c: m?.temperature_c ?? null,
+        rx_power_dbm: m?.sfp_rx_power_dbm ?? null,
+        firmware: firmwareById.get(n.id) ?? null,
+        clients: n.site_id !== null ? (clientsBySite.get(n.site_id) ?? null) : null,
+      },
+    };
+  });
+
+  // Ongoing outages as incidents — org-scoped via either the site or the
+  // device (device-only outages have site_id NULL, so a sites-only join drops
+  // them). Ordered most-severe first.
+  const [incidents] = await db.query(
+    `SELECT o.id, o.device_id, o.site_id, o.title, o.description AS detail,
+            o.severity, o.started_at
+     FROM outages o
+     LEFT JOIN sites s   ON s.id = o.site_id
+     LEFT JOIN devices d ON d.id = o.device_id
+     WHERE o.status = 'ongoing' AND o.deleted_at IS NULL
+       AND (s.organization_id = ? OR d.organization_id = ?)
+     ORDER BY FIELD(o.severity, 'critical', 'major', 'minor'), o.started_at DESC`,
+    [orgId, orgId],
+  );
+
+  return { nodes: fabricNodes, edges, incidents };
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +667,7 @@ async function deleteInfrastructurePoint(orgId, id) {
 
 module.exports = {
   getNetworkGraph,
+  getFabric,
   getCustomerLocations,
   getCoverageData,
   getFiberRoutes,
