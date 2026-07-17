@@ -13,6 +13,7 @@ const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
 const radiusService = require('./radiusService');
 const snmpPoller = require('./snmpPoller');
+const pollerEngine = require('./pollerEngine');
 const snmpTrapReceiver = require('./snmpTrapReceiver');
 const emailTransport = require('./emailTransport');
 const smsTransport = require('./smsTransport');
@@ -27,6 +28,9 @@ const interactionService = require('./interactionService');
 const campaignService = require('./campaignService');
 const lateFeeService = require('./lateFeeService');
 const paymentReminderService = require('./paymentReminderService');
+const paymentPlanService = require('./paymentPlanService');
+const rolloverService = require('./rolloverService');
+const cpeSessionLogService = require('./cpeSessionLogService');
 const assetService = require('./assetService');
 const scheduledReportService = require('./scheduledReportService');
 const emailTemplates = require('../views/emailTemplates');
@@ -62,9 +66,24 @@ async function runTask(taskName, organizationId = null) {
       return runBillingCycle(organizationId);
     case 'snmp_poll':
       return snmpPoller.poll();
-    // §6.1: task_name seeded by migration 254 — maps to the same handler as snmp_poll
+    // §6.1/§6.4: seeded by migration 254; routed through the interval-aware
+    // poller so device_polling_configs and adaptive overrides take effect.
+    // Migration 402 retimes the row to */1 — pollWithConfig skips devices not
+    // yet due, so devices without a config keep the default 300s cadence.
     case 'snmp_discovery_poll':
-      return snmpPoller.poll();
+      return pollerEngine.pollWithConfig();
+    // §6.4 Polling Engine (seeded by migration 258 — previously dead: no case,
+    // so both ticked forever as silent 'Unknown task' successes)
+    case 'snmp_adaptive_poll_check':
+      return pollerEngine.adaptivePollCheck();
+    case 'poller_performance_snapshot':
+      return pollerEngine.recordPerformanceSnapshot();
+    // §9.3: seeded by migration 284 as a full-fleet snmp_poll — the generic
+    // poller already collects the wireless sector OIDs (migration 279 columns),
+    // so a second sweep would only double-poll every device. Migration 402
+    // disables the seeded row; this case keeps a manual run honest.
+    case 'wireless_ap_sector_poll':
+      return { message: 'wireless_ap_sector_poll: redundant with snmp_discovery_poll (the generic poller collects wireless sector OIDs); seeded row disabled by migration 402', deferred: true };
     case 'snmp_trap_receiver_restart':
       snmpTrapReceiver.stop();
       snmpTrapReceiver.start();
@@ -212,6 +231,64 @@ async function runTask(taskName, organizationId = null) {
     // 90 days in batches. Pure DB operation — safe to implement directly.
     case 'ftth_onu_optical_metrics_cleanup':
       return runFtthOpticalMetricsCleanup();
+    // -------------------------------------------------------------------------
+    // Migration-seeded tasks that previously had NO case here and ticked
+    // forever as silent 'Unknown task' successes (markTaskRun always writes
+    // last_status='success'). Wired where a real implementation exists;
+    // explicit deferred stubs otherwise so the gap shows in code and logs.
+    // -------------------------------------------------------------------------
+    // Seeded by migration 211: flips past-due pending installments to overdue.
+    case 'check_installments_due':
+      return paymentPlanService.checkInstallmentsDue();
+    // Seeded by migration 290 (monthly): accrues unused data-cap GB into
+    // rollover balances; org-optional (NULL sweeps all orgs).
+    case 'rollover_balance_accrue':
+      return rolloverService.accrueRollover(organizationId);
+    // Seeded by migration 277: hard-deletes cpe_session_logs older than 90 days.
+    case 'cpe_session_log_cleanup':
+      return cpeSessionLogService.cleanupOldLogs();
+    // apply_speed_windows (migration 201): speedWindowService.applySpeedWindows()
+    // exists, but suspensionService.sendRadiusCoA() encodes no rate-limit
+    // attributes (radiusCoaEncoder.encodeMikrotikRateLimit exists, unused) —
+    // wiring it now would fire a functionally-empty CoA at every windowed
+    // contract's NAS every 5 minutes without changing any speed.
+    // DEFERRED until the CoA carries the window's rate limits.
+    case 'apply_speed_windows':
+      logger.warn({ taskName }, 'apply_speed_windows not wired: sendRadiusCoA encodes no rate-limit attributes yet, the CoA would be a no-op');
+      return { message: 'apply_speed_windows: deferred — CoA rate-limit encoding not implemented', deferred: true };
+    // check_fup_thresholds (migration 290): fupService.applyFupThrottle() sends
+    // a CoA and inserts a plan_throttle_logs row with NO idempotency guard — a
+    // */15 cron would re-throttle every over-cap contract every tick.
+    // DEFERRED until the throttle is idempotent.
+    case 'check_fup_thresholds':
+      logger.warn({ taskName }, 'check_fup_thresholds not wired: applyFupThrottle has no idempotency guard and would re-throttle every tick');
+      return { message: 'check_fup_thresholds: deferred — throttle idempotency needed first', deferred: true };
+    // fup_threshold_notify (migration 290): checkAndNotifyThresholds() hard-
+    // filters on organization_id, but the seeded row is global (NULL) — needs
+    // an all-orgs sweep wrapper. DEFERRED.
+    case 'fup_threshold_notify':
+      logger.warn({ taskName }, 'fup_threshold_notify not wired: service requires a concrete organization_id; the global row needs an org sweep');
+      return { message: 'fup_threshold_notify: deferred — needs an all-orgs iteration wrapper', deferred: true };
+    // convert_expired_trials (migration 200): no implementation exists —
+    // needs trial-expiry detection (contracts.start_date + plans.trial_days)
+    // plus the billing transition. DEFERRED.
+    case 'convert_expired_trials':
+      logger.warn({ taskName }, 'convert_expired_trials is not yet implemented');
+      return { message: 'convert_expired_trials: handler not yet implemented', deferred: true };
+    // subscriber_speed_test_run (migration 293): no implementation exists.
+    case 'subscriber_speed_test_run':
+      logger.warn({ taskName }, 'subscriber_speed_test_run is not yet implemented');
+      return { message: 'subscriber_speed_test_run: handler not yet implemented', deferred: true };
+    // cpe_cwmp_task_processor / cpe_firmware_campaign_processor (migration 276):
+    // seeded against handler paths (services/acs/*) that were never built; CWMP
+    // tasks actually dispatch inside the CPE-initiated ACS session
+    // (cwmpSessionService), so a standalone batch processor needs its own design.
+    case 'cpe_cwmp_task_processor':
+      logger.warn({ taskName }, 'cpe_cwmp_task_processor is not yet implemented; CWMP tasks dispatch inside CPE-initiated ACS sessions');
+      return { message: 'cpe_cwmp_task_processor: handler not yet implemented', deferred: true };
+    case 'cpe_firmware_campaign_processor':
+      logger.warn({ taskName }, 'cpe_firmware_campaign_processor is not yet implemented');
+      return { message: 'cpe_firmware_campaign_processor: handler not yet implemented', deferred: true };
     default:
       return { message: `Unknown task: ${taskName}`, elapsed_ms: Date.now() - start };
   }

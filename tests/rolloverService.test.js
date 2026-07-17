@@ -36,6 +36,33 @@ describe('rolloverService', () => {
       expect(result.processed).toBe(0);
       expect(result.rolled_over_contracts).toBe(0);
     });
+
+    it('measures usage over the PREVIOUS month and keys the balance to the current month', async () => {
+      // Regression: the scheduled task fires at 00:00 on the 1st. Measuring
+      // the just-started month reads ~0 usage and grants every capped
+      // contract the maximum 25% rollover. The usage window must be the
+      // completed previous month; the balance row stays keyed to the month
+      // it is available in.
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(2026, 2, 1, 0, 0, 0)); // 2026-03-01 00:00 local
+      try {
+        db.query
+          .mockResolvedValueOnce([[{ id: 7, organization_id: 1, data_cap_gb: '100.000' }]])
+          .mockResolvedValueOnce([[{ used_gb: '90.000' }]])
+          .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+        await rolloverService.accrueRollover(1);
+
+        const usageCall = db.query.mock.calls.find(([sql]) => sql.includes('FROM connection_logs'));
+        expect(usageCall[1]).toEqual([7, '2026-02-01', '2026-02-28 23:59:59']);
+
+        const insertCall = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO data_rollover_balances'));
+        // (org, contract, billing_month, rollover_gb) — 10 GB unused, under the 25-GB cap ceiling
+        expect(insertCall[1]).toEqual([1, 7, '2026-03-01', '10.000']);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('getRolloverBalance', () => {

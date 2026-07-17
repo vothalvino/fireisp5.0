@@ -106,47 +106,76 @@ async function getPollingConfig(deviceId) {
 // Like snmpPoller.poll() but respects per-device polling intervals.
 // Skips devices whose next poll is not yet due (based on devices.last_polled_at).
 // ---------------------------------------------------------------------------
+const POLL_CONCURRENCY = parseInt(process.env.SNMP_POLL_CONCURRENCY || '10', 10);
+
+// The scheduler ticks this every minute (migration 402) and its per-task lock
+// does not cover a prior cycle still mid-flight in this process — a slow SNMP
+// cycle must not stack a second sweep on top of itself.
+let pollCycleInFlight = false;
+
 async function pollWithConfig() {
-  const [devices] = await db.query(`
-    SELECT d.id, d.ip_address, d.snmp_community, d.snmp_version, d.snmp_port,
-           d.snmp_profile_id, d.last_polled_at
-    FROM devices d
-    WHERE d.snmp_enabled = 1
-      AND d.ip_address IS NOT NULL
-      AND d.snmp_profile_id IS NOT NULL
-      AND d.deleted_at IS NULL
-  `);
-
-  let polled = 0;
-  let skipped = 0;
-  let errors = 0;
-  const now = Date.now();
-
-  for (const device of devices) {
-    const cfg = await getPollingConfig(device.id);
-    const intervalMs = (cfg.poll_interval_sec || 300) * 1000;
-    const lastPolled = device.last_polled_at ? new Date(device.last_polled_at).getTime() : 0;
-    const nextDue = lastPolled + intervalMs;
-
-    if (now < nextDue) {
-      skipped++;
-      continue;
-    }
-
-    try {
-      await pollDevice(device);
-      polled++;
-      await deviceStatusService.recordPollResult(device.id, true)
-        .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (success) failed'));
-    } catch (err) {
-      errors++;
-      logger.error({ err, deviceId: device.id }, 'pollWithConfig: device poll failed');
-      await deviceStatusService.recordPollResult(device.id, false, String(err?.message || err))
-        .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (failure) failed'));
-    }
+  if (pollCycleInFlight) {
+    return { polled: 0, skipped: 0, errors: 0, total: 0, overlap_skipped: true };
   }
+  pollCycleInFlight = true;
+  try {
+    const [devices] = await db.query(`
+      SELECT d.id, d.ip_address, d.snmp_community, d.snmp_version, d.snmp_port,
+             d.snmp_profile_id, d.last_polled_at,
+             d.snmp_v3_security_name, d.snmp_v3_auth_protocol,
+             d.snmp_v3_auth_key_encrypted, d.snmp_v3_priv_protocol,
+             d.snmp_v3_priv_key_encrypted, d.snmp_v3_context_name
+      FROM devices d
+      WHERE d.snmp_enabled = 1
+        AND d.ip_address IS NOT NULL
+        AND d.snmp_profile_id IS NOT NULL
+        AND d.deleted_at IS NULL
+    `);
 
-  return { polled, skipped, errors, total: devices.length };
+    // Due-ness pass. getPollingConfig is a per-device lookup (up to 3 indexed
+    // queries each); fine at current fleet sizes — batch-load configs here if
+    // a deployment ever pushes this into the thousands of devices per tick.
+    let skipped = 0;
+    const due = [];
+    const now = Date.now();
+    for (const device of devices) {
+      const cfg = await getPollingConfig(device.id);
+      const intervalMs = (cfg.poll_interval_sec || 300) * 1000;
+      const lastPolled = device.last_polled_at ? new Date(device.last_polled_at).getTime() : 0;
+      if (now < lastPolled + intervalMs) {
+        skipped++;
+        continue;
+      }
+      due.push(device);
+    }
+
+    // Poll due devices in batches, mirroring snmpPoller.poll().
+    let polled = 0;
+    let errors = 0;
+    for (let i = 0; i < due.length; i += POLL_CONCURRENCY) {
+      const batch = due.slice(i, i + POLL_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map(device => pollDevice(device)));
+
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        const device = batch[j];
+        if (result.status === 'fulfilled') {
+          polled++;
+          await deviceStatusService.recordPollResult(device.id, true)
+            .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (success) failed'));
+        } else {
+          errors++;
+          logger.error({ err: result.reason, deviceId: device.id }, 'pollWithConfig: device poll failed');
+          await deviceStatusService.recordPollResult(device.id, false, String(result.reason?.message || result.reason))
+            .catch(err2 => logger.warn({ err: err2, deviceId: device.id }, 'recordPollResult (failure) failed'));
+        }
+      }
+    }
+
+    return { polled, skipped, errors, total: devices.length };
+  } finally {
+    pollCycleInFlight = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,9 +255,11 @@ async function recordPerformanceSnapshot() {
 
   const devicesPolled = pollCounts[0]?.devices_polled || 0;
   const devicesFailed = pollCounts[0]?.devices_failed || 0;
-  const totalPolled = devicesPolled + devicesFailed;
-  const timeoutRatePct = totalPolled > 0
-    ? parseFloat(((devicesFailed / totalPolled) * 100).toFixed(2))
+  // devices_polled is COUNT(*) over recently-polled devices, so failed rows
+  // are already inside it — it IS the total; adding failures again would
+  // deflate the rate.
+  const timeoutRatePct = devicesPolled > 0
+    ? parseFloat(((devicesFailed / devicesPolled) * 100).toFixed(2))
     : null;
 
   let snapshots = 0;

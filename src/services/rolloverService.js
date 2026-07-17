@@ -18,9 +18,17 @@ const db = require('../config/database');
  */
 async function accrueRollover(organizationId) {
   const now = new Date();
+  // The balance row is keyed to the month it is AVAILABLE IN (the current
+  // month); the unused data it carries forward is measured over the PREVIOUS
+  // month. The scheduled task fires at 00:00 on the 1st — measuring the
+  // just-started month here would read ~0 usage and hand every capped
+  // contract the maximum 25% rollover.
   const billingMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const endStr = endOfMonth.toISOString().slice(0, 10);
+  const prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0);
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const prevStart = fmt(prevStartDate);
+  const prevEnd = fmt(prevEndDate);
 
   const [contracts] = await db.query(
     `SELECT c.id, c.organization_id, p.data_cap_gb
@@ -44,7 +52,7 @@ async function accrueRollover(organizationId) {
        WHERE contract_id = ?
          AND created_at >= ?
          AND created_at <= ?`,
-      [contract.id, billingMonth, endStr + ' 23:59:59'],
+      [contract.id, prevStart, prevEnd + ' 23:59:59'],
     );
 
     const usedGb = parseFloat(usage.used_gb) || 0;

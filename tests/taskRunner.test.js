@@ -32,6 +32,24 @@ jest.mock('../src/services/snmpPoller', () => ({
   poll: jest.fn(),
 }));
 
+jest.mock('../src/services/pollerEngine', () => ({
+  pollWithConfig: jest.fn(),
+  adaptivePollCheck: jest.fn(),
+  recordPerformanceSnapshot: jest.fn(),
+}));
+
+jest.mock('../src/services/paymentPlanService', () => ({
+  checkInstallmentsDue: jest.fn(),
+}));
+
+jest.mock('../src/services/rolloverService', () => ({
+  accrueRollover: jest.fn(),
+}));
+
+jest.mock('../src/services/cpeSessionLogService', () => ({
+  cleanupOldLogs: jest.fn(),
+}));
+
 jest.mock('../src/services/emailTransport', () => ({
   processQueue: jest.fn(),
   sendEmail: jest.fn(),
@@ -72,6 +90,11 @@ const billingService = require('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
 const radiusService = require('../src/services/radiusService');
 const emailTransport = require('../src/services/emailTransport');
+const snmpPoller = require('../src/services/snmpPoller');
+const pollerEngine = require('../src/services/pollerEngine');
+const paymentPlanService = require('../src/services/paymentPlanService');
+const rolloverService = require('../src/services/rolloverService');
+const cpeSessionLogService = require('../src/services/cpeSessionLogService');
 const taskRunner = require('../src/services/taskRunner');
 
 describe('taskRunner', () => {
@@ -159,6 +182,70 @@ describe('taskRunner', () => {
       expect(result).toHaveProperty('processed', 0);
       expect(result).toHaveProperty('failed', 0);
       expect(result).toHaveProperty('total', 0);
+    });
+
+    // §6.4 Polling Engine wiring (migration 258 tasks were dead: no case)
+    test('dispatches snmp_discovery_poll through the interval-aware pollerEngine, not the raw full poll', async () => {
+      pollerEngine.pollWithConfig.mockResolvedValue({ polled: 1, skipped: 0, errors: 0, total: 1 });
+      const result = await taskRunner.runTask('snmp_discovery_poll');
+      expect(pollerEngine.pollWithConfig).toHaveBeenCalled();
+      expect(snmpPoller.poll).not.toHaveBeenCalled();
+      expect(result).toEqual({ polled: 1, skipped: 0, errors: 0, total: 1 });
+    });
+
+    test('dispatches snmp_adaptive_poll_check to pollerEngine.adaptivePollCheck', async () => {
+      pollerEngine.adaptivePollCheck.mockResolvedValue({ activeOutageDevices: 0, adaptiveOverridesActive: 0 });
+      const result = await taskRunner.runTask('snmp_adaptive_poll_check');
+      expect(pollerEngine.adaptivePollCheck).toHaveBeenCalled();
+      expect(result.adaptiveOverridesActive).toBe(0);
+    });
+
+    test('dispatches poller_performance_snapshot to pollerEngine.recordPerformanceSnapshot', async () => {
+      pollerEngine.recordPerformanceSnapshot.mockResolvedValue({ snapshots: 2 });
+      const result = await taskRunner.runTask('poller_performance_snapshot');
+      expect(pollerEngine.recordPerformanceSnapshot).toHaveBeenCalled();
+      expect(result.snapshots).toBe(2);
+    });
+
+    // Previously-dead migration-seeded tasks now wired to real implementations
+    test('dispatches check_installments_due', async () => {
+      paymentPlanService.checkInstallmentsDue.mockResolvedValue({ marked_overdue: 3 });
+      const result = await taskRunner.runTask('check_installments_due');
+      expect(paymentPlanService.checkInstallmentsDue).toHaveBeenCalled();
+      expect(result.marked_overdue).toBe(3);
+    });
+
+    test('dispatches rollover_balance_accrue passing the organization through', async () => {
+      rolloverService.accrueRollover.mockResolvedValue({ accrued: 0 });
+      await taskRunner.runTask('rollover_balance_accrue', 42);
+      expect(rolloverService.accrueRollover).toHaveBeenCalledWith(42);
+      await taskRunner.runTask('rollover_balance_accrue');
+      expect(rolloverService.accrueRollover).toHaveBeenLastCalledWith(null);
+    });
+
+    test('dispatches cpe_session_log_cleanup', async () => {
+      cpeSessionLogService.cleanupOldLogs.mockResolvedValue({ deleted: 5 });
+      const result = await taskRunner.runTask('cpe_session_log_cleanup');
+      expect(cpeSessionLogService.cleanupOldLogs).toHaveBeenCalled();
+      expect(result.deleted).toBe(5);
+    });
+
+    test('seeded tasks without an implementation return explicit deferred stubs, never Unknown task', async () => {
+      const deferredTasks = [
+        'apply_speed_windows',
+        'check_fup_thresholds',
+        'fup_threshold_notify',
+        'convert_expired_trials',
+        'subscriber_speed_test_run',
+        'cpe_cwmp_task_processor',
+        'cpe_firmware_campaign_processor',
+        'wireless_ap_sector_poll',
+      ];
+      for (const name of deferredTasks) {
+        const result = await taskRunner.runTask(name);
+        expect(result.deferred).toBe(true);
+        expect(result.message).not.toMatch(/^Unknown task/);
+      }
     });
 
     test('returns unknown message for unrecognized task', async () => {
