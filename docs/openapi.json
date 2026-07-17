@@ -21906,6 +21906,144 @@
         }
       }
     },
+    "/backup-settings": {
+      "get": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "Get remote backup settings (secret masked), nightly schedule, and latest run",
+        "operationId": "getBackupSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BackupSettingsOverview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "Update the remote backup destination (S3-compatible: AWS/GCS/B2/R2/MinIO)",
+        "operationId": "updateBackupSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "BackupSettingsUpdate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BackupSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backup-settings/test": {
+      "post": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "Test the effective remote destination with a probe upload",
+        "operationId": "testBackupSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BackupTestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backup-settings/runs": {
+      "get": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "List backup run history and local backup files",
+        "operationId": "listBackupRuns",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "BackupRunsList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backup-settings/run-now": {
+      "post": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "Trigger a manual database backup (409 when one is already running)",
+        "operationId": "runBackupNow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Backup started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/late-fee-rules": {
       "get": {
         "tags": [
@@ -51467,6 +51605,49 @@
         "required": [
           "organizationId"
         ]
+      },
+      "backupSettings_updateBackupSettings": {
+        "type": "object",
+        "properties": {
+          "remote_enabled": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "aws",
+              "gcs",
+              "b2",
+              "r2",
+              "minio",
+              "custom"
+            ]
+          },
+          "bucket": {
+            "type": "string",
+            "maximum": 255
+          },
+          "region": {
+            "type": "string",
+            "maximum": 64
+          },
+          "endpoint": {
+            "type": "string",
+            "maximum": 512
+          },
+          "prefix": {
+            "type": "string",
+            "maximum": 255
+          },
+          "access_key": {
+            "type": "string",
+            "maximum": 255
+          },
+          "secret_key": {
+            "type": "string",
+            "maximum": 500
+          }
+        }
       },
       "bandwidthTestServers_createBandwidthTestServer": {
         "type": "object",

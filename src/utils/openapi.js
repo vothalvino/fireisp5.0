@@ -1098,6 +1098,21 @@ function generateSpec() {
         post: { tags: ['Email Settings'], summary: "Send a test email using the org's (or global fallback) SMTP config", operationId: 'testEmailSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('EmailSettingsTest'), responses: r200('EmailTestResult') },
       },
 
+      // ---- Backup Settings — remote database-backup destination (migration 404) ----
+      '/backup-settings': {
+        get: { tags: ['Backup Settings'], summary: 'Get remote backup settings (secret masked), nightly schedule, and latest run', operationId: 'getBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupSettingsOverview') },
+        put: { tags: ['Backup Settings'], summary: 'Update the remote backup destination (S3-compatible: AWS/GCS/B2/R2/MinIO)', operationId: 'updateBackupSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('BackupSettingsUpdate'), responses: r200('BackupSettings') },
+      },
+      '/backup-settings/test': {
+        post: { tags: ['Backup Settings'], summary: 'Test the effective remote destination with a probe upload', operationId: 'testBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupTestResult') },
+      },
+      '/backup-settings/runs': {
+        get: { tags: ['Backup Settings'], summary: 'List backup run history and local backup files', operationId: 'listBackupRuns', security: [{ bearerAuth: [] }], responses: r200('BackupRunsList') },
+      },
+      '/backup-settings/run-now': {
+        post: { tags: ['Backup Settings'], summary: 'Trigger a manual database backup (409 when one is already running)', operationId: 'runBackupNow', security: [{ bearerAuth: [] }], responses: { 202: { description: 'Backup started', content: { 'application/json': { schema: { type: 'object' } } } } } },
+      },
+
       // ---- Late Fee Rules — §2.2B ----
       ...crudPaths('late-fee-rules', 'Late Fee Rules', 'LateFeeRule'),
 

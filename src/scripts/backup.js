@@ -4,8 +4,17 @@
 // Creates a gzipped mysqldump backup in storage/backups/ with rotation.
 // Keeps the last N backups (default 7) and removes older ones.
 //
-// When cloud storage is configured (BACKUP_S3_BUCKET + credentials), the
-// backup is also uploaded to S3 or a Backblaze B2 S3-compatible bucket.
+// When a remote destination is configured — UI-saved backup_settings row
+// (migration 404) first, BACKUP_S3_* env vars as fallback — the backup is
+// also uploaded to the S3-compatible bucket (AWS S3, GCS interop, B2, R2,
+// or self-hosted MinIO).
+//
+// Every execution records a row in backup_runs (scheduled / manual / drill)
+// so silent failure — of the dump OR of the remote upload — is visible on
+// the /backups admin page, not just in server logs. Run recording is
+// best-effort: a failure to write the row never blocks the backup itself,
+// and all DB-touching modules are required lazily inside backup() so plain
+// `require`s of this script (rotate-only callers, tests) stay DB-free.
 //
 // Usage:  node src/scripts/backup.js
 //         npm run backup
@@ -106,7 +115,48 @@ function runDump({ host, port, user, password, database, filepath }) {
   });
 }
 
-async function backup() {
+// In-process concurrency guard: the nightly task, the DR drill, and the
+// manual Run-now button all funnel through backup(); two dumps at once only
+// waste disk and I/O. (Best-effort — separate processes each have their own
+// flag; the backup_runs 'running' row is the cross-process signal.)
+let running = false;
+
+function isRunning() {
+  return running;
+}
+
+async function backup({ trigger = 'scheduled' } = {}) {
+  if (running) {
+    throw new Error('A backup is already in progress');
+  }
+  running = true;
+  try {
+    return await doBackup(trigger);
+  } finally {
+    running = false;
+  }
+}
+
+async function doBackup(trigger) {
+  // Lazy DB-touching requires — see header comment.
+  const BackupRun = require('../models/BackupRun');
+  const backupSettingsService = require('../services/backupSettingsService');
+
+  let runId = null;
+  try {
+    runId = await BackupRun.start(trigger);
+  } catch (err) {
+    logger.warn({ err }, 'backup_runs recording unavailable — continuing without run history');
+  }
+  const finishRun = async (fields) => {
+    if (runId === null) return;
+    try {
+      await BackupRun.finish(runId, fields);
+    } catch (err) {
+      logger.warn({ err, runId }, 'Could not finalize backup_runs row');
+    }
+  };
+
   // Ensure backup directory exists
   if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -142,31 +192,61 @@ async function backup() {
     if (err.code === 'ENOENT') {
       const msg = 'mysqldump not found in PATH — install the MySQL client tools (the production image ships default-mysql-client)';
       logger.error({ err }, msg);
+      await finishRun({ status: 'failed', errorMessage: msg });
       throw new Error(msg, { cause: err });
     }
     logger.error({ err }, 'Backup failed');
+    await finishRun({ status: 'failed', errorMessage: err.message });
     throw err;
   }
 
-  // Upload to cloud storage (S3/B2) if configured
+  const sizeBytes = fs.statSync(filepath).size;
+
+  // Upload to the remote destination when one is configured: UI-saved
+  // backup_settings first, BACKUP_S3_* env vars as fallback.
+  let remoteConfig;
+  try {
+    remoteConfig = await backupSettingsService.getEffectiveRemoteConfig();
+  } catch (err) {
+    // Belt-and-braces (the service already falls back internally): a broken
+    // settings read must never turn a good dump into a failed backup.
+    logger.warn({ err }, 'Could not resolve remote backup settings — trying env vars');
+    remoteConfig = cloudStorage.resolveEnvConfig();
+  }
+
   let cloudUrl = null;
-  if (cloudStorage.isConfigured()) {
+  let remoteStatus = 'disabled';
+  let remoteError = null;
+  if (remoteConfig) {
     try {
-      cloudUrl = await cloudStorage.uploadBackup(filepath, filename);
-      logger.info({ filename, cloudUrl }, 'Backup uploaded to cloud storage');
+      cloudUrl = await cloudStorage.uploadBackup(filepath, filename, remoteConfig);
+      remoteStatus = 'uploaded';
+      logger.info({ filename, cloudUrl, source: remoteConfig.source }, 'Backup uploaded to remote storage');
     } catch (uploadErr) {
-      // Cloud upload failure is logged but does not fail the backup — the local
-      // copy is already safe. An operator can manually re-upload if needed.
-      logger.error({ err: uploadErr, filename }, 'Cloud upload failed — local backup retained');
+      // Remote upload failure is logged but does not fail the backup — the
+      // local copy is already safe. It IS surfaced: remote_status='failed'
+      // lands in backup_runs and on the /backups page.
+      remoteStatus = 'failed';
+      remoteError = uploadErr.message;
+      logger.error({ err: uploadErr, filename }, 'Remote upload failed — local backup retained');
     }
   } else {
-    logger.warn('Cloud storage not configured — backup saved locally only');
+    logger.warn('Remote backup not configured — backup saved locally only');
   }
+
+  await finishRun({
+    status: 'success',
+    filename,
+    sizeBytes,
+    remoteStatus,
+    remoteUrl: cloudUrl,
+    errorMessage: remoteError,
+  });
 
   // Rotate old backups
   rotate();
 
-  return { filepath, cloudUrl };
+  return { filepath, cloudUrl, remoteStatus };
 }
 
 /**
@@ -198,4 +278,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { backup, rotate };
+module.exports = { backup, rotate, isRunning, BACKUP_DIR };

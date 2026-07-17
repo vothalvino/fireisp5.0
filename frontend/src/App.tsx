@@ -126,6 +126,7 @@ import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
 import { OrganizationList } from '@/pages/OrganizationList';
 import { DsarTool } from '@/pages/DsarTool';
 import { DrDrillStatus } from '@/pages/DrDrillStatus';
+import { BackupSettings } from '@/pages/BackupSettings';
 import { QueueStats } from '@/pages/QueueStats';
 import { CsdCertificateList } from '@/pages/CsdCertificateList';
 import { SubscriberCertificateList } from '@/pages/SubscriberCertificateList';
@@ -368,6 +369,7 @@ export function App() {
                 <Route path="organizations" element={<OrganizationList />} />
                 <Route path="dsar" element={<DsarTool />} />
                 <Route path="dr-drill" element={<DrDrillStatus />} />
+                <Route path="backups" element={<BackupSettings />} />
                 <Route path="sla-definitions" element={<SlaDefinitionList />} />
                 <Route path="roles" element={<RoleList />} />
                 <Route path="api-tokens" element={<ApiTokenList />} />

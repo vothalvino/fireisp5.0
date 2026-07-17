@@ -13786,4 +13786,75 @@ WHERE NOT EXISTS (
     WHERE task_name = 'maintenance_window_expiry' AND organization_id IS NULL
 );
 
+-- ---------------------------------------------------------------------------
+-- Table: backup_settings (migration 404 — remote backup destination)
+-- Purpose: SINGLETON row (id = 1) holding the UI-configured S3-compatible
+--          remote target for database backups (AWS S3 / B2 / R2 / self-hosted
+--          MinIO). Secret key AES-256-GCM encrypted, never returned by the
+--          API. When absent/disabled, BACKUP_S3_* env vars are the fallback.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS backup_settings (
+    id                   TINYINT UNSIGNED NOT NULL COMMENT 'Singleton — always 1; database backups are instance-wide',
+    remote_enabled       TINYINT(1)       NOT NULL DEFAULT 0 COMMENT 'When 0, BACKUP_S3_* env vars (if set) remain the remote target',
+    provider             ENUM('aws', 'gcs', 'b2', 'r2', 'minio', 'custom')
+                                          NOT NULL DEFAULT 'custom'
+                                          COMMENT 'UI preset only — every provider speaks the S3 API',
+    bucket               VARCHAR(255)     NULL,
+    region               VARCHAR(64)      NULL,
+    endpoint             VARCHAR(512)     NULL COMMENT 'Custom S3 endpoint (B2/R2/MinIO/self-hosted); NULL = AWS endpoint derived from region',
+    prefix               VARCHAR(255)     NOT NULL DEFAULT 'db-backups/' COMMENT 'Object-key prefix ("folder") inside the bucket',
+    access_key           VARCHAR(255)     NULL,
+    secret_key_encrypted TEXT             NULL COMMENT 'AES-256-GCM via src/utils/encryption.js — never returned in any HTTP response',
+    last_test_at         TIMESTAMP        NULL,
+    last_test_status     ENUM('success', 'failed') NULL,
+    last_test_error      TEXT             NULL,
+    created_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    CONSTRAINT chk_backup_settings_singleton CHECK (id = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Instance-wide remote backup destination (migration 404) — secret encrypted at rest, never returned in API responses';
+
+-- ---------------------------------------------------------------------------
+-- Table: backup_runs (migration 404 — backup run history)
+-- Purpose: One row per database-backup execution (nightly task, manual
+--          Run-now, DR-drill Phase 1) with outcome, size, and remote-upload
+--          status — makes silent backup/upload failure visible in the UI.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS backup_runs (
+    id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    trigger_source ENUM('scheduled', 'manual', 'drill')
+                                   NOT NULL DEFAULT 'scheduled'
+                                   COMMENT 'scheduled = nightly task; manual = /backups Run-now; drill = quarterly DR drill Phase 1',
+    status         ENUM('running', 'success', 'failed') NOT NULL DEFAULT 'running',
+    filename       VARCHAR(255)    NULL,
+    size_bytes     BIGINT UNSIGNED NULL,
+    remote_status  ENUM('disabled', 'uploaded', 'failed')
+                                   NULL
+                                   COMMENT 'NULL while running or when the dump itself failed; disabled = no remote target configured',
+    remote_url     VARCHAR(1024)   NULL,
+    error_message  TEXT            NULL,
+    started_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at    TIMESTAMP       NULL,
+
+    PRIMARY KEY (id),
+    KEY idx_backup_runs_started_at (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='One row per database-backup execution (migration 404) — makes silent backup/upload failure visible in the UI';
+
+-- ---------------------------------------------------------------------------
+-- Seed: backup_settings permissions (migration 404) — admin + super_admin
+-- ONLY (migration 386 convention: infrastructure credential, excluded from
+-- readonly/auditor's blanket *.view wildcard).
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO permissions (name, description, module) VALUES
+    ('backup_settings.view',   'View database backup runs and remote backup destination (secret masked)', 'settings'),
+    ('backup_settings.update', 'Configure the remote backup destination (incl. credentials), test it, and trigger manual backups', 'settings');
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r
+JOIN permissions p ON p.name IN ('backup_settings.view', 'backup_settings.update')
+WHERE r.name IN ('admin', 'super_admin');
+
 SET FOREIGN_KEY_CHECKS = 1;
