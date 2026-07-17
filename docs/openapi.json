@@ -54804,6 +54804,15 @@
               "offline",
               "maintenance"
             ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "access",
+              "distribution",
+              "backhaul",
+              "core"
+            ]
           }
         },
         "required": [
@@ -54904,6 +54913,15 @@
               "offline",
               "maintenance"
             ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "access",
+              "distribution",
+              "backhaul",
+              "core"
+            ]
           }
         }
       },
@@ -54999,6 +55017,15 @@
               "online",
               "offline",
               "maintenance"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "access",
+              "distribution",
+              "backhaul",
+              "core"
             ]
           }
         }
