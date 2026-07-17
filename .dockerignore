@@ -21,3 +21,7 @@ storage/logs/*
 package-lock.json
 frontend/package-lock.json
 e2e/package-lock.json
+
+# The DR runbook is served in-app by GET /dr-drill/runbook (PR #454) — keep it
+# in the image. Placed last so it also wins over the *.md exclusion above.
+!docs/dr-drill.md

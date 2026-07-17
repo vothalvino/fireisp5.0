@@ -17,9 +17,13 @@ RUN pnpm --filter fireisp-frontend run build
 # ── Stage 2: production API server ────────────────────────────────────────────
 FROM node:24-bookworm-slim
 
+# default-mysql-client provides mysqldump/mysql (MariaDB client — dumps and
+# restores MySQL 8.x fine, and unlike Oracle's mysqldump needs no GTID
+# special-casing against the replicated primary). Without a dump client in the
+# image, scheduled database_backup runs produced empty 20-byte "backups".
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
-  && apt-get install -y --no-install-recommends wireguard-tools iproute2 nftables libcap2-bin \
+  && apt-get install -y --no-install-recommends wireguard-tools iproute2 nftables libcap2-bin default-mysql-client \
   && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system fireisp && useradd --system --gid fireisp --no-create-home fireisp
