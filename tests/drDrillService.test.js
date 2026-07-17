@@ -128,6 +128,27 @@ describe('drDrillService.runDrill', () => {
     await expect(drDrillService.runDrill()).rejects.toThrow(/truncated dump/);
   });
 
+  it('phase-4 SQL names real columns and guards NULLable FKs (regression: subtotal/amount_applied crashes)', async () => {
+    // These queries first became reachable in production once Phase 1 stopped
+    // failing — and promptly crashed on columns that don't exist
+    // (invoice_items.subtotal, payment_allocations.amount_applied) and
+    // counted NULLable FKs (radius.contract_id, users.organization_id) as
+    // orphans.
+    setupHealthyBackup(tmpFile);
+    setupHealthyDb();
+    await drDrillService.runDrill();
+
+    const sqls = db.query.mock.calls.map(([sql]) => sql).filter((s) => typeof s === 'string');
+    const items = sqls.find((s) => s.includes('invoice_items'));
+    const allocs = sqls.find((s) => s.includes('payment_allocations') && s.includes('SUM('));
+    expect(items).toContain('SUM(total)');
+    expect(items).not.toContain('SUM(subtotal)');
+    expect(allocs).toContain('SUM(amount)');
+    expect(allocs).not.toContain('amount_applied');
+    expect(sqls.some((s) => s.includes('r.contract_id IS NOT NULL'))).toBe(true);
+    expect(sqls.some((s) => s.includes('u.organization_id IS NOT NULL'))).toBe(true);
+  });
+
   it('rejects a large file that is not a valid gzip stream', async () => {
     fs.writeFileSync(tmpFile, Buffer.alloc(200_000, 'x'));
     backup.mockResolvedValue({ filepath: tmpFile, cloudUrl: null });

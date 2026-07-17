@@ -155,13 +155,18 @@ async function runDrill() {
       `SELECT COUNT(*) AS n FROM payment_allocations pa
        LEFT JOIN payments p ON p.id = pa.payment_id WHERE p.id IS NULL`,
     );
+    // radius.contract_id and users.organization_id are NULLable by design
+    // (unlinked subscriber rows / single-tenant deployments) — a NULL FK is
+    // not an orphan, so only rows that NAME a missing parent count.
     const [orphanedRadius] = await db.query(
       `SELECT COUNT(*) AS n FROM radius r
-       LEFT JOIN contracts c ON c.id = r.contract_id WHERE c.id IS NULL`,
+       LEFT JOIN contracts c ON c.id = r.contract_id
+       WHERE r.contract_id IS NOT NULL AND c.id IS NULL`,
     );
     const [orphanedUsers] = await db.query(
       `SELECT COUNT(*) AS n FROM users u
-       LEFT JOIN organizations o ON o.id = u.organization_id WHERE o.id IS NULL`,
+       LEFT JOIN organizations o ON o.id = u.organization_id
+       WHERE u.organization_id IS NOT NULL AND o.id IS NULL`,
     );
 
     checks.fk_orphans = {
@@ -178,23 +183,35 @@ async function runDrill() {
     // Phase 4c — Financial consistency (all must be 0)
     // ------------------------------------------------------------------
     logger.info('DR drill Phase 4c: financial consistency');
+    // invoice_items has no `subtotal` — the per-line value is the GENERATED
+    // `total` (quantity × unit_price; always populated, unlike `amount` whose
+    // DEFAULT 0 predates billingService writing it). These queries never ran
+    // in production before this drill phase became reachable, so the wrong
+    // column names went unnoticed.
     const [inconsistentInvoices] = await db.query(
       `SELECT COUNT(*) AS n
        FROM invoices i
        JOIN (
-         SELECT invoice_id, SUM(subtotal) AS lines_subtotal
-         FROM invoice_items GROUP BY invoice_id
+         SELECT invoice_id, SUM(total) AS lines_subtotal
+         FROM invoice_items
+         WHERE deleted_at IS NULL
+         GROUP BY invoice_id
        ) ii ON ii.invoice_id = i.id
-       WHERE ABS(i.subtotal - ii.lines_subtotal) > 0.01`,
+       WHERE i.deleted_at IS NULL
+         AND ABS(i.subtotal - ii.lines_subtotal) > 0.01`,
     );
+    // payment_allocations carries `amount` (portion applied to an invoice).
     const [overAllocated] = await db.query(
       `SELECT COUNT(*) AS n
        FROM payments p
        JOIN (
-         SELECT payment_id, SUM(amount_applied) AS total_applied
-         FROM payment_allocations GROUP BY payment_id
+         SELECT payment_id, SUM(amount) AS total_applied
+         FROM payment_allocations
+         WHERE deleted_at IS NULL
+         GROUP BY payment_id
        ) pa ON pa.payment_id = p.id
-       WHERE pa.total_applied > p.amount + 0.01`,
+       WHERE p.deleted_at IS NULL
+         AND pa.total_applied > p.amount + 0.01`,
     );
 
     checks.financial = {
