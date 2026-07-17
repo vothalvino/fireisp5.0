@@ -27,10 +27,18 @@ npm run backup
 ```
 
 This script (`src/scripts/backup.js`):
-1. Runs `mysqldump` with `--single-transaction` (InnoDB-safe, no lock)
-2. Compresses the output with gzip
+1. Runs `mysqldump` with `--single-transaction` (InnoDB-safe, no lock) and
+   `--no-tablespaces` (so the app's DB user needs no global PROCESS privilege)
+2. Compresses the output with gzip (in-process — no shell pipeline)
 3. Saves to `storage/backups/` with timestamped filename
 4. Rotates old backups (keeps last 7 by default)
+
+It **fails loudly** — a missing `mysqldump` binary, a non-zero dump exit, or a
+suspiciously small output file (`BACKUP_MIN_BYTES`, default 512) throws and
+removes the partial file, so a broken run can never masquerade as a backup.
+The production image ships `default-mysql-client`; outside Docker, install the
+MySQL client tools on the host. Optional env: `BACKUP_DIR` overrides the
+output directory.
 
 ### Schedule with Cron
 
