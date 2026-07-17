@@ -1175,3 +1175,155 @@ describe('Portal: inactive reseller and wrong reseller checks', () => {
     expect(res.body.data).toEqual([]);
   });
 });
+
+// =============================================================================
+// Regression — IN (?) array binds under execute()-backed db.query()
+// =============================================================================
+// db.query() is backed by mysql2 pool.execute(), which does NOT expand
+// `IN (?)` given an array bind — the query silently returns wrong/empty rows
+// on real MySQL while DB-mocked jest stays green (the exact failure class
+// found live on /snmp-metrics/fleet after PR #439, see PR #440). Assert every
+// reseller query expands one `?` per id and binds FLAT scalars, never a
+// nested array.
+
+describe('reseller IN-bind regression (execute() does not expand array binds)', () => {
+  const resellerService = require('../src/services/resellerService');
+
+  // Two sub-resellers and two clients so every IN list carries MULTIPLE ids —
+  // a one-element list can't distinguish `IN (?)` + nested bind from the fix.
+  function mockResellerDb() {
+    db.query.mockImplementation((sql) => {
+      const s = typeof sql === 'string' ? sql : '';
+      if (s.includes('WHERE id = ?') && !s.includes('reseller') && !s.includes('clients') && !s.includes('commission')) {
+        return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      }
+      if (s.includes('FROM organizations')) {
+        return Promise.resolve([[{ id: 10, name: 'Test Org' }]]);
+      }
+      // getResellerSubtree children lookup
+      if (s.includes('FROM resellers') && s.includes('parent_id IN')) {
+        return Promise.resolve([[{ id: 2 }, { id: 5 }]]);
+      }
+      // getResellerOrThrow
+      if (s.includes('FROM resellers') && s.includes('WHERE id = ?')) {
+        return Promise.resolve([[sampleReseller]]);
+      }
+      // getResellerClientIds
+      if (s.includes('SELECT id FROM clients') && s.includes('reseller_id IN')) {
+        return Promise.resolve([[{ id: 3 }, { id: 4 }]]);
+      }
+      if (s.includes('COUNT(*) AS cnt')) {
+        return Promise.resolve([[{ cnt: 0 }]]);
+      }
+      if (s.includes('COALESCE(SUM(total)')) {
+        return Promise.resolve([[{ rev: '0.00' }]]);
+      }
+      if (s.includes('COALESCE(SUM(commission_amount)')) {
+        return Promise.resolve([[{ total: '0.00' }]]);
+      }
+      if (s.includes('COUNT(*) AS total')) {
+        return Promise.resolve([[{ total: 0 }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+  }
+
+  function expectFlatBinds() {
+    for (const [, params] of db.query.mock.calls) {
+      for (const p of params || []) {
+        expect(Array.isArray(p)).toBe(false);
+      }
+    }
+  }
+
+  beforeEach(() => {
+    db.query.mockReset();
+    mockResellerDb();
+  });
+
+  test('GET /clients expands the reseller subtree per id and binds flat params', async () => {
+    const res = await request(app)
+      .get('/api/v1/reseller-portal/1/clients')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+
+    // list SELECT + COUNT, both scoped by the subtree [1, 2, 5]
+    const clientCalls = db.query.mock.calls.filter(([sql]) =>
+      sql.includes('FROM clients') && sql.includes('reseller_id IN'));
+    expect(clientCalls.length).toBeGreaterThanOrEqual(2);
+    for (const [sql, params] of clientCalls) {
+      expect(sql).toMatch(/reseller_id IN \(\?, \?, \?\)/);
+      expect(params).toEqual([10, 1, 2, 5]);
+    }
+    expectFlatBinds();
+  });
+
+  test('GET /invoices expands client ids per id and binds flat params', async () => {
+    const res = await request(app)
+      .get('/api/v1/reseller-portal/1/invoices')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+
+    const invoiceCalls = db.query.mock.calls.filter(([sql]) => sql.includes('FROM invoices i'));
+    expect(invoiceCalls.length).toBeGreaterThanOrEqual(2);
+    for (const [sql, params] of invoiceCalls) {
+      expect(sql).toMatch(/client_id IN \(\?, \?\)/);
+      expect(params).toEqual([3, 4]);
+    }
+    expectFlatBinds();
+  });
+
+  test('GET /inventory expands client ids per id and binds flat params', async () => {
+    const res = await request(app)
+      .get('/api/v1/reseller-portal/1/inventory')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+
+    const assetCalls = db.query.mock.calls.filter(([sql]) => sql.includes('asset_assignments'));
+    expect(assetCalls.length).toBeGreaterThanOrEqual(2);
+    for (const [sql, params] of assetCalls) {
+      expect(sql).toMatch(/client_id IN \(\?, \?\)/);
+      expect(params).toEqual([3, 4]);
+    }
+    expectFlatBinds();
+  });
+
+  test('getResellerDashboard expands every IN list and binds flat scalars', async () => {
+    const result = await resellerService.getResellerDashboard(1, 10);
+    expect(result.reseller_id).toBe(1);
+
+    const [subtreeSql, subtreeParams] = db.query.mock.calls.find(([sql]) => sql.includes('parent_id IN'));
+    expect(subtreeSql).toMatch(/parent_id IN \(\?\)/);
+    expect(subtreeParams).toEqual([10, 1]);
+
+    const [clientIdsSql, clientIdsParams] = db.query.mock.calls.find(([sql]) =>
+      sql.includes('SELECT id FROM clients'));
+    expect(clientIdsSql).toMatch(/reseller_id IN \(\?, \?, \?\)/);
+    expect(clientIdsParams).toEqual([10, 1, 2, 5]);
+
+    const [subSql, subParams] = db.query.mock.calls.find(([sql]) =>
+      sql.includes('COUNT(*) AS cnt') && sql.includes('FROM clients'));
+    expect(subSql).toMatch(/id IN \(\?, \?\)/);
+    expect(subParams).toEqual([3, 4, 'active']);
+
+    const [revSql, revParams] = db.query.mock.calls.find(([sql]) => sql.includes('COALESCE(SUM(total)'));
+    expect(revSql).toMatch(/client_id IN \(\?, \?\)/);
+    expect(revParams).toEqual([3, 4]);
+
+    const [tickSql, tickParams] = db.query.mock.calls.find(([sql]) => sql.includes('FROM tickets'));
+    expect(tickSql).toMatch(/client_id IN \(\?, \?\)/);
+    expect(tickParams).toEqual([3, 4]);
+
+    expectFlatBinds();
+  });
+
+  test('getResellerSubtree expands multiple root ids', async () => {
+    await resellerService.getResellerSubtree([1, 9], 10);
+    const [sql, params] = db.query.mock.calls.find(([q]) => q.includes('parent_id IN'));
+    expect(sql).toMatch(/parent_id IN \(\?, \?\)/);
+    expect(params).toEqual([10, 1, 9]);
+  });
+});

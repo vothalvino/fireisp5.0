@@ -19,6 +19,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const db = require('../config/database');
 const resellerService = require('../services/resellerService');
+const { inPlaceholders } = require('../utils/sqlBuild');
 
 const router = Router();
 router.use(authenticate);
@@ -68,8 +69,12 @@ router.get('/:id/clients', requirePermission('reseller_portal.manage_customers')
       [parseInt(req.params.id, 10)], req.orgId,
     );
 
-    const conditions = ['organization_id = ? AND reseller_id IN (?) AND deleted_at IS NULL'];
-    const params = [req.orgId, subtree];
+    // db.query() is execute()-backed: `IN (?)` does NOT expand an array bind
+    // (silently returns wrong/empty rows on real MySQL — DB-mocked jest can't
+    // see it). Expand placeholders explicitly and spread the ids. See
+    // sqlBuild.inPlaceholders for the full story.
+    const conditions = [`organization_id = ? AND reseller_id IN (${inPlaceholders(subtree)}) AND deleted_at IS NULL`];
+    const params = [req.orgId, ...subtree];
     if (status) { conditions.push('status = ?'); params.push(status); }
 
     const where = conditions.join(' AND ');
@@ -164,8 +169,8 @@ router.get('/:id/invoices', requirePermission('reseller_portal.invoices'), async
       return res.json({ data: [], meta: { total: 0, page: pageNum, limit: limitNum } });
     }
 
-    const conditions = ['i.client_id IN (?)'];
-    const params = [clientIds];
+    const conditions = [`i.client_id IN (${inPlaceholders(clientIds)})`];
+    const params = [...clientIds];
     if (status) { conditions.push('i.status = ?'); params.push(status); }
 
     const where = conditions.join(' AND ');
@@ -205,19 +210,20 @@ router.get('/:id/inventory', requirePermission('reseller_portal.inventory'), asy
       return res.json({ data: [], meta: { total: 0, page: pageNum, limit: limitNum } });
     }
 
+    const idsIn = inPlaceholders(clientIds);
     const [rows] = await db.query(
       `SELECT aa.*, a.name AS asset_name, a.serial_number, a.model, a.manufacturer,
               c.name AS client_name
        FROM asset_assignments aa
        JOIN assets a ON aa.asset_id = a.id
        LEFT JOIN clients c ON aa.client_id = c.id
-       WHERE aa.client_id IN (?) AND aa.returned_at IS NULL
+       WHERE aa.client_id IN (${idsIn}) AND aa.returned_at IS NULL
        ORDER BY aa.assigned_at DESC LIMIT ${limitNum} OFFSET ${offset}`,
-      [clientIds],
+      [...clientIds],
     );
     const [[{ total }]] = await db.query(
-      'SELECT COUNT(*) AS total FROM asset_assignments aa WHERE aa.client_id IN (?) AND aa.returned_at IS NULL',
-      [clientIds],
+      `SELECT COUNT(*) AS total FROM asset_assignments aa WHERE aa.client_id IN (${idsIn}) AND aa.returned_at IS NULL`,
+      [...clientIds],
     );
     res.json({ data: rows, meta: { total, page: pageNum, limit: limitNum } });
   } catch (err) { next(err); }

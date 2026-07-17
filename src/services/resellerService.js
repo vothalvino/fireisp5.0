@@ -13,6 +13,7 @@
 
 const db = require('../config/database');
 const Organization = require('../models/Organization');
+const { inPlaceholders } = require('../utils/sqlBuild');
 
 /**
  * Returns the flat list of reseller IDs that are in the subtree rooted at
@@ -25,10 +26,14 @@ const Organization = require('../models/Organization');
 async function getResellerSubtree(rootIds, orgId) {
   if (!rootIds || rootIds.length === 0) return [];
 
+  // db.query() is execute()-backed: `IN (?)` does NOT expand an array bind
+  // (silently returns wrong/empty rows on real MySQL — DB-mocked jest can't
+  // see it). Expand placeholders explicitly and spread the ids. See
+  // sqlBuild.inPlaceholders for the full story.
   const [children] = await db.query(
     `SELECT id FROM resellers
-     WHERE organization_id = ? AND parent_id IN (?) AND deleted_at IS NULL`,
-    [orgId, rootIds],
+     WHERE organization_id = ? AND parent_id IN (${inPlaceholders(rootIds)}) AND deleted_at IS NULL`,
+    [orgId, ...rootIds],
   );
 
   const childIds = children.map((r) => r.id);
@@ -47,8 +52,8 @@ async function getResellerClientIds(resellerIds, orgId) {
 
   const [rows] = await db.query(
     `SELECT id FROM clients
-     WHERE organization_id = ? AND reseller_id IN (?) AND deleted_at IS NULL`,
-    [orgId, resellerIds],
+     WHERE organization_id = ? AND reseller_id IN (${inPlaceholders(resellerIds)}) AND deleted_at IS NULL`,
+    [orgId, ...resellerIds],
   );
   return rows.map((r) => r.id);
 }
@@ -79,27 +84,29 @@ async function getResellerDashboard(resellerId, orgId) {
 
   if (clientIds.length === 0) return result;
 
+  const idsIn = inPlaceholders(clientIds);
+
   const [[subRow]] = await db.query(
-    'SELECT COUNT(*) AS cnt FROM clients WHERE id IN (?) AND status = ? AND deleted_at IS NULL',
-    [clientIds, 'active'],
+    `SELECT COUNT(*) AS cnt FROM clients WHERE id IN (${idsIn}) AND status = ? AND deleted_at IS NULL`,
+    [...clientIds, 'active'],
   );
   result.subscriber_count = subRow.cnt;
 
   const [[revRow]] = await db.query(
     `SELECT COALESCE(SUM(total), 0) AS rev
      FROM invoices
-     WHERE client_id IN (?)
+     WHERE client_id IN (${idsIn})
        AND status = 'paid'
        AND YEAR(issue_date) = YEAR(CURDATE())
        AND MONTH(issue_date) = MONTH(CURDATE())`,
-    [clientIds],
+    [...clientIds],
   );
   result.total_revenue = parseFloat(revRow.rev) || 0;
 
   const [[tickRow]] = await db.query(
     `SELECT COUNT(*) AS cnt FROM tickets
-     WHERE client_id IN (?) AND status NOT IN ('resolved','closed') AND deleted_at IS NULL`,
-    [clientIds],
+     WHERE client_id IN (${idsIn}) AND status NOT IN ('resolved','closed') AND deleted_at IS NULL`,
+    [...clientIds],
   );
   result.open_tickets = tickRow.cnt;
 
