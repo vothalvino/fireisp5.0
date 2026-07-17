@@ -174,6 +174,7 @@ import { AiSupportPage } from '@/pages/AiSupportPage';
 import { UserWgTunnels } from '@/pages/UserWgTunnels';
 import { AdminWgTunnels } from '@/pages/AdminWgTunnels';
 import { DarkModeProvider } from '@/auth/DarkModeContext';
+import { AccentProvider } from '@/auth/AccentContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -187,6 +188,7 @@ const queryClient = new QueryClient({
 export function App() {
   return (
     <DarkModeProvider>
+      <AccentProvider>
       <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <PortalAuthProvider>
@@ -393,6 +395,7 @@ export function App() {
         </PortalAuthProvider>
       </AuthProvider>
     </QueryClientProvider>
+      </AccentProvider>
     </DarkModeProvider>
   );
 }

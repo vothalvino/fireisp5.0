@@ -32,4 +32,15 @@ Repo-specific gotchas for future syncs.
   `category` sets the section (Actions / Forms / Feedback / Surfaces / Data) and doubles as the
   component's `.prompt.md`. Add or re-group a component by adding/editing its doc there.
 - Render check needs Playwright + Chromium (installed under `.ds-sync/`); a fresh clone must
-  reinstall them.
+  reinstall them. **Pin the Playwright version to the cached chromium build**: this machine's
+  `~/.cache/ms-playwright/` had `chromium-1217`, which is pinned by **playwright@1.59.0** (verify
+  a build↔version match via `packages/playwright-core/browsers.json` on the playwright GitHub tag;
+  the repo/cache regularly disagree). Installing a mismatched version fails with
+  `browserType.launch: Executable doesn't exist`.
+
+## Re-sync history
+- 2026-07-16 re-sync (from terminal, off VS Code): ui-kit source unchanged since #331, so the
+  driver verdict was all-6 `unchanged`, `upload.any=false` — a true no-op. Conventions header
+  re-validated clean against the fresh build (every token/component/prop still resolves). Nothing
+  uploaded, nothing committed. If a future re-sync reports `upload.any=false` and the header
+  validates, that's the expected steady state — stop there.

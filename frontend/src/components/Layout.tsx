@@ -11,6 +11,7 @@ import { api } from '@/api/client';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
+import { useAccent } from '@/auth/AccentContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NavSection } from '@/components/NavSection';
@@ -57,6 +58,7 @@ export function Layout() {
   const { user, logout, switchOrganization } = useAuth();
   const { t } = useTranslation();
   const { effectiveTheme, toggleTheme } = useDarkMode();
+  const { accent, toggleAccent } = useAccent();
   const qc = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -307,6 +309,14 @@ export function Layout() {
           >
             {effectiveTheme === 'dark' ? '☀️' : '🌙'}
           </button>
+          <button
+            onClick={toggleAccent}
+            style={styles.accentBtn}
+            aria-label={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
+            title={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
+          >
+            <span style={styles.accentDot} />
+          </button>
           <ChangelogPanel />
             <button onClick={handleLogout} style={styles.logoutBtn}>
             {t('common.signOut')}
@@ -421,5 +431,25 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.9rem',
     alignSelf: 'flex-start' as const,
+  },
+  accentBtn: {
+    background: 'transparent',
+    border: '1px solid var(--sidebar-border)',
+    padding: '4px 10px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start' as const,
+  },
+  accentDot: {
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    // Live swatch of the current accent — recolours with the toggle + theme.
+    background: 'var(--accent)',
+    border: '1px solid var(--accent-active)',
+    display: 'block',
   },
 };
