@@ -45,6 +45,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const db = require('../config/database');
+const { inPlaceholders } = require('../utils/sqlBuild');
 
 const router = Router();
 
@@ -105,6 +106,11 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
     }
 
     const deviceIds = devices.map(d => d.id);
+    // db.query() is execute()-backed: `IN (?)` does NOT expand an array bind
+    // (silently returns empty rows on real MySQL — DB-mocked jest can't see
+    // it). Expand placeholders explicitly and spread the ids. See
+    // sqlBuild.inPlaceholders for the full story.
+    const idsIn = inPlaceholders(deviceIds);
 
     // Latest device-level (interface_id IS NULL) cpu/memory/uptime reading per device.
     const [latestRows] = await db.query(
@@ -113,12 +119,12 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
        INNER JOIN (
          SELECT device_id, MAX(polled_at) AS latest
          FROM snmp_metrics
-         WHERE device_id IN (?) AND interface_id IS NULL
+         WHERE device_id IN (${idsIn}) AND interface_id IS NULL
            AND polled_at >= NOW() - INTERVAL 3 HOUR
          GROUP BY device_id
        ) lr ON m.device_id = lr.device_id AND m.polled_at = lr.latest
-       WHERE m.device_id IN (?) AND m.interface_id IS NULL`,
-      [deviceIds, deviceIds],
+       WHERE m.device_id IN (${idsIn}) AND m.interface_id IS NULL`,
+      [...deviceIds, ...deviceIds],
     );
     const latestByDevice = new Map(latestRows.map(r => [r.device_id, r]));
 
@@ -126,10 +132,10 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
     const [sparkRows] = await db.query(
       `SELECT device_id, polled_at, cpu_usage
        FROM snmp_metrics
-       WHERE device_id IN (?) AND interface_id IS NULL
+       WHERE device_id IN (${idsIn}) AND interface_id IS NULL
          AND polled_at >= NOW() - INTERVAL 2 HOUR
        ORDER BY device_id ASC, polled_at ASC`,
-      [deviceIds],
+      [...deviceIds],
     );
     const sparkByDevice = new Map();
     for (const row of sparkRows) {
@@ -163,11 +169,11 @@ router.get('/fleet', requirePermission('devices.view'), async (req, res, next) =
               COUNT(DISTINCT interface_id) AS iface_count,
               GROUP_CONCAT(DISTINCT interface_id ORDER BY interface_id) AS iface_signature
        FROM snmp_metrics
-       WHERE device_id IN (?) AND interface_id IS NOT NULL
+       WHERE device_id IN (${idsIn}) AND interface_id IS NOT NULL
          AND polled_at >= NOW() - INTERVAL 3 HOUR
        GROUP BY device_id, minute_bucket
        ORDER BY device_id ASC, minute_bucket DESC`,
-      [deviceIds],
+      [...deviceIds],
     );
     const trafficByDevice = new Map();
     for (const row of trafficRows) {

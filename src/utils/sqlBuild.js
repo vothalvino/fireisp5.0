@@ -123,4 +123,30 @@ function buildBulkValues(rows) {
   };
 }
 
-module.exports = { buildInsert, buildUpdate, buildBulkValues, quoteIdent };
+/**
+ * Placeholder list for a SQL `IN (...)` clause: `inPlaceholders([1,2,3])`
+ * → `'?, ?, ?'`, to be interpolated as `WHERE col IN (${inPlaceholders(ids)})`
+ * with the array SPREAD into the params (`...ids`), never passed as a single
+ * nested-array bind.
+ *
+ * Why this exists: `db.query()` is backed by mysql2's `pool.execute()`
+ * (prepared statements — see src/config/database.js), which does NOT expand
+ * `IN (?)` given an array parameter the way `pool.query()` would. The bind
+ * silently mis-serialises and the query returns wrong/empty rows with no
+ * error — the same driver quirk behind the bulk-INSERT `VALUES ?` breakage
+ * that buildBulkValues() above was written for (PR #406), rediscovered live
+ * on the /snmp-metrics/fleet endpoint (PR #439's queries returned nothing in
+ * production while DB-mocked jest stayed green).
+ *
+ * Throws on an empty array — `IN ()` is not valid SQL; callers must
+ * early-return when there is nothing to look up (every current call site
+ * already guards on a non-empty id list).
+ */
+function inPlaceholders(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error('inPlaceholders: non-empty array required (IN () is not valid SQL)');
+  }
+  return values.map(() => '?').join(', ');
+}
+
+module.exports = { buildInsert, buildUpdate, buildBulkValues, quoteIdent, inPlaceholders };
