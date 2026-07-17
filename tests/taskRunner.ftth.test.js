@@ -6,6 +6,7 @@
 
 const mockQuery = jest.fn();
 const mockSnmpPoll = jest.fn();
+const mockPollWithConfig = jest.fn();
 const mockTrapStop = jest.fn();
 const mockTrapStart = jest.fn();
 const mockLoggerWarn = jest.fn();
@@ -28,6 +29,14 @@ jest.mock('../src/services/billingService',         () => ({}));
 jest.mock('../src/services/suspensionService',      () => ({}));
 jest.mock('../src/services/radiusService',          () => ({}));
 jest.mock('../src/services/snmpPoller',             () => ({ poll: mockSnmpPoll }));
+jest.mock('../src/services/pollerEngine',           () => ({
+  pollWithConfig: mockPollWithConfig,
+  adaptivePollCheck: jest.fn(),
+  recordPerformanceSnapshot: jest.fn(),
+}));
+jest.mock('../src/services/paymentPlanService',     () => ({ checkInstallmentsDue: jest.fn() }));
+jest.mock('../src/services/rolloverService',        () => ({ accrueRollover: jest.fn() }));
+jest.mock('../src/services/cpeSessionLogService',   () => ({ cleanupOldLogs: jest.fn() }));
 jest.mock('../src/services/snmpTrapReceiver',       () => ({ stop: mockTrapStop, start: mockTrapStart }));
 jest.mock('../src/services/emailTransport',         () => ({ processQueue: jest.fn(), sendEmail: jest.fn() }));
 jest.mock('../src/services/smsTransport',           () => ({ processQueue: jest.fn() }));
@@ -57,14 +66,15 @@ afterEach(() => jest.clearAllMocks());
 // §6.1 SNMP tasks (migration 254)
 // =============================================================================
 
-describe('taskRunner — snmp_discovery_poll (migration 254)', () => {
-  it('delegates to snmpPoller.poll()', async () => {
-    mockSnmpPoll.mockResolvedValueOnce({ polled: 3, errors: 0, total: 3 });
+describe('taskRunner — snmp_discovery_poll (migration 254, rerouted by migration 402)', () => {
+  it('delegates to the interval-aware pollerEngine.pollWithConfig(), not the raw full poll', async () => {
+    mockPollWithConfig.mockResolvedValueOnce({ polled: 3, skipped: 1, errors: 0, total: 4 });
 
     const result = await runTask('snmp_discovery_poll');
 
-    expect(mockSnmpPoll).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ polled: 3, errors: 0, total: 3 });
+    expect(mockPollWithConfig).toHaveBeenCalledTimes(1);
+    expect(mockSnmpPoll).not.toHaveBeenCalled();
+    expect(result).toEqual({ polled: 3, skipped: 1, errors: 0, total: 4 });
   });
 });
 

@@ -21,7 +21,18 @@ jest.mock('net-snmp', () => ({
   isVarbindError: jest.fn(),
 }), { virtual: true });
 
+jest.mock('../src/services/snmpPoller', () => ({
+  pollDevice: jest.fn(),
+  poll: jest.fn(),
+}));
+
+jest.mock('../src/services/deviceStatusService', () => ({
+  recordPollResult: jest.fn(),
+}));
+
 const db = require('../src/config/database');
+const { pollDevice } = require('../src/services/snmpPoller');
+const deviceStatusService = require('../src/services/deviceStatusService');
 const pollerEngine = require('../src/services/pollerEngine');
 
 describe('pollerEngine', () => {
@@ -144,6 +155,85 @@ describe('pollerEngine', () => {
   // =========================================================================
   // recordPerformanceSnapshot
   // =========================================================================
+  // =========================================================================
+  // pollWithConfig
+  // =========================================================================
+  describe('pollWithConfig()', () => {
+    const dueDevice = {
+      id: 1, ip_address: '10.0.0.1', snmp_community: 'public', snmp_version: '2c',
+      snmp_port: 161, snmp_profile_id: 1, last_polled_at: null,
+    };
+    const freshDevice = {
+      id: 2, ip_address: '10.0.0.2', snmp_community: 'public', snmp_version: '2c',
+      snmp_port: 161, snmp_profile_id: 1, last_polled_at: new Date().toISOString(),
+    };
+    const cfgRow = {
+      device_id: 1, poll_interval_sec: 300, bulk_get_enabled: 1, timeout_ms: 5000,
+      retries: 1, adaptive_polling_enabled: 0, adaptive_min_interval_sec: 60,
+    };
+
+    test('selects SNMPv3 credential columns so v3 devices can actually poll (regression)', async () => {
+      db.query.mockResolvedValueOnce([[]]); // no devices
+      await pollerEngine.pollWithConfig();
+      const [sql] = db.query.mock.calls[0];
+      expect(sql).toContain('snmp_v3_security_name');
+      expect(sql).toContain('snmp_v3_auth_key_encrypted');
+      expect(sql).toContain('snmp_v3_priv_key_encrypted');
+      expect(sql).toContain('snmp_v3_context_name');
+    });
+
+    test('skips devices not yet due and polls the due ones', async () => {
+      pollDevice.mockResolvedValue({});
+      deviceStatusService.recordPollResult.mockResolvedValue();
+      db.query
+        .mockResolvedValueOnce([[dueDevice, freshDevice]]) // device list
+        .mockResolvedValueOnce([[cfgRow]]) // config for device 1
+        .mockResolvedValueOnce([[{ ...cfgRow, device_id: 2 }]]); // config for device 2
+
+      const result = await pollerEngine.pollWithConfig();
+      expect(result).toEqual({ polled: 1, skipped: 1, errors: 0, total: 2 });
+      expect(pollDevice).toHaveBeenCalledTimes(1);
+      expect(pollDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+      expect(deviceStatusService.recordPollResult).toHaveBeenCalledWith(1, true);
+    });
+
+    test('records a failure and keeps counting when a device poll rejects', async () => {
+      pollDevice.mockRejectedValue(new Error('snmp timeout'));
+      deviceStatusService.recordPollResult.mockResolvedValue();
+      db.query
+        .mockResolvedValueOnce([[dueDevice]])
+        .mockResolvedValueOnce([[cfgRow]]);
+
+      const result = await pollerEngine.pollWithConfig();
+      expect(result).toEqual({ polled: 0, skipped: 0, errors: 1, total: 1 });
+      expect(deviceStatusService.recordPollResult).toHaveBeenCalledWith(1, false, expect.stringContaining('snmp timeout'));
+    });
+
+    test('refuses to stack a second cycle while one is still in flight', async () => {
+      deviceStatusService.recordPollResult.mockResolvedValue();
+      let releasePoll;
+      pollDevice.mockReturnValue(new Promise(resolve => { releasePoll = resolve; }));
+      db.query
+        .mockResolvedValueOnce([[dueDevice]])
+        .mockResolvedValueOnce([[cfgRow]]);
+
+      const first = pollerEngine.pollWithConfig();
+      // Give the first cycle time to reach the in-flight poll
+      await new Promise(resolve => setImmediate(resolve));
+      const second = await pollerEngine.pollWithConfig();
+      expect(second.overlap_skipped).toBe(true);
+
+      releasePoll({});
+      const result = await first;
+      expect(result.polled).toBe(1);
+
+      // And a fresh cycle runs again after the first completes
+      db.query.mockResolvedValueOnce([[]]);
+      const third = await pollerEngine.pollWithConfig();
+      expect(third.overlap_skipped).toBeUndefined();
+    });
+  });
+
   describe('recordPerformanceSnapshot()', () => {
     test('inserts one row per active poller node', async () => {
       db.query
@@ -168,6 +258,20 @@ describe('pollerEngine', () => {
 
       const result = await pollerEngine.recordPerformanceSnapshot();
       expect(result.snapshots).toBe(0);
+    });
+
+    test('computes timeout rate against total polled (failed rows are already inside the COUNT)', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, current_queue_depth: 0, avg_poll_duration_ms: 100 }]])
+        .mockResolvedValueOnce([[{ devices_polled: 10, devices_failed: 2 }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await pollerEngine.recordPerformanceSnapshot();
+      const insertCall = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO poller_performance_snapshots'));
+      // params: [node_id, devices_polled, devices_failed, avg_ms, queue_depth, timeout_rate_pct]
+      expect(insertCall[1][1]).toBe(10);
+      expect(insertCall[1][2]).toBe(2);
+      expect(insertCall[1][5]).toBe(20); // 2/10, not 2/12
     });
   });
 
