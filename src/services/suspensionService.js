@@ -446,7 +446,7 @@ async function sendRadiusDisconnect(contractId) {
 /**
  * Send a RADIUS CoA-Request (Code 43) for reconnection or attribute change.
  */
-async function sendRadiusCoA(contractId, _action) {
+async function sendRadiusCoA(contractId, _action, extraAttributes = []) {
   const [radiusRows] = await db.query(
     `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
      FROM radius r
@@ -467,12 +467,13 @@ async function sendRadiusCoA(contractId, _action) {
     return { sent: false, response: 'NAS RADIUS secret not configured' };
   }
 
-  // TODO: for 'soft_suspend' action, encode Mikrotik-Rate-Limit or similar VSA
-  // based on the suspension rule's soft_suspend_download_kbps / upload_kbps.
-  // The radiusCoaEncoder module supports encodeMikrotikRateLimit() for this.
-  // Requires the caller to pass ruleId / kbps values into this function.
+  // Callers can shape the session by passing named attributes (e.g.
+  // Mikrotik-Rate-Limit — see speedWindowService.applySpeedWindows).
+  // TODO: the 'soft_suspend' action still sends a bare CoA; wire the
+  // suspension rule's soft_suspend_download_kbps / upload_kbps through here
+  // the same way.
 
-  return sendWithFailover(nas, 43, nas.username);
+  return sendWithFailover(nas, 43, nas.username, extraAttributes);
 }
 
 /**

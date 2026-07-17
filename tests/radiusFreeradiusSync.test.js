@@ -47,7 +47,7 @@ function noSettingReply() {
  *   7. suspension_logs / walled usernames query (Phase B)
  *   8+ DELETE / INSERT per subscriber + plan
  */
-function setupMockDb({ mabMode, subscribers, certs, planId, planVendor }) {
+function setupMockDb({ mabMode, subscribers, certs, planId, planVendor, speedWindows }) {
   const calls = [];
   db.query.mockImplementation((sql, params) => {
     calls.push({ sql, params });
@@ -55,6 +55,10 @@ function setupMockDb({ mabMode, subscribers, certs, planId, planVendor }) {
     // 1. Settings
     if (sql.includes('mab_password_mode')) {
       return Promise.resolve(mabMode ? settingQueryReply(mabMode) : noSettingReply());
+    }
+    // §10.2: speed-window overlay lookup during plan group writes
+    if (sql.includes('FROM plan_speed_windows')) {
+      return Promise.resolve([speedWindows || []]);
     }
     // 2. Subscribers
     if (sql.includes('FROM radius r') && sql.includes('LEFT JOIN contracts')) {
@@ -288,6 +292,43 @@ describe('syncFreeradiusTables — EAP-TLS subscriber with certificate', () => {
     expect(mikrotikRow).toBeDefined();
     // dl100/ul50, burst→2x, threshold→CIR, burst-time 8, priority 2
     expect(mikrotikRow.params[3]).toBe('100M/50M 200M/100M 100M/50M 8 2');
+  });
+
+  test('carries burst_threshold_mbps and burst_time_seconds into the rate string (writer-parity regression)', async () => {
+    // Regression for a reviewer-confirmed critical: speedWindowService compares
+    // the rows this sync writes against generateAttributes() over the FULL
+    // plan column set. When this sync dropped burst_threshold/burst_time, the
+    // two writers computed DIFFERENT strings for the same plan and flipped
+    // radgroupreply (+ CoA fan-out) every 5 minutes, forever.
+    const bursty = { ...subscriber, burst_threshold_mbps: 90, burst_time_seconds: 4 };
+    const calls = setupMockDb({ subscribers: [bursty], certs: [] });
+
+    await syncFreeradiusTables(10);
+
+    const mikrotikRow = calls.find(
+      c => c.sql.includes('INSERT INTO radgroupreply') && c.params && c.params[1] === 'Mikrotik-Rate-Limit',
+    );
+    expect(mikrotikRow).toBeDefined();
+    expect(mikrotikRow.params[3]).toBe('100M/50M 200M/100M 90M/90M 4');
+  });
+
+  test('writes the ACTIVE speed window speeds instead of plan speeds (§10.2 — sync must not flip a window back)', async () => {
+    // A radius_sync running mid-window used to rewrite radgroupreply with
+    // plan speeds, silently undoing the window until the next window tick.
+    const calls = setupMockDb({
+      subscribers: [subscriber],
+      certs: [],
+      speedWindows: [{ id: 4, plan_id: 7, download_speed_mbps: 30, upload_speed_mbps: 15, priority: 10 }],
+    });
+
+    await syncFreeradiusTables(10);
+
+    const mikrotikRow = calls.find(
+      c => c.sql.includes('INSERT INTO radgroupreply') && c.params && c.params[1] === 'Mikrotik-Rate-Limit',
+    );
+    expect(mikrotikRow).toBeDefined();
+    // Window CIR 30M/15M, bursts re-derived from the window, not the plan's 100M/50M
+    expect(mikrotikRow.params[3]).toBe('30M/15M 60M/30M 30M/15M 8');
   });
 });
 
