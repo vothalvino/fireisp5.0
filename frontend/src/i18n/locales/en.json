@@ -398,7 +398,7 @@
     "modalTitle": "DR Drill Warning",
     "neverRun": {
       "headline": "⚠️ Quarterly DR Drill Has Never Been Run",
-      "detail": "No disaster-recovery drill has been recorded yet. Please follow the runbook in docs/dr-drill.md to validate your backup and restore procedure."
+      "detail": "No disaster-recovery drill has been recorded yet. Please follow the DR runbook to validate your backup and restore procedure."
     },
     "failed": {
       "headline": "🚨 Last DR Drill FAILED ({{date}})",
@@ -407,10 +407,10 @@
     },
     "overdue": {
       "headline": "⚠️ DR Drill Overdue — Last Run {{days}} days ago ({{date}})",
-      "detail": "The quarterly disaster-recovery drill has not been run in over 90 days. Please schedule a manual drill per docs/dr-drill.md to confirm recoverability."
+      "detail": "The quarterly disaster-recovery drill has not been run in over 90 days. Please schedule a manual drill per the DR runbook to confirm recoverability."
     },
     "hint": "Automated checks (backup + integrity queries) run every quarter. Phases 2–3 (destroy + restore) must be run manually on a test instance.",
-    "openRunbook": "Open DR Runbook ↗",
+    "openRunbook": "Open DR runbook",
     "dismiss": "Acknowledge & dismiss for this session"
   },
   "emailVerify": {

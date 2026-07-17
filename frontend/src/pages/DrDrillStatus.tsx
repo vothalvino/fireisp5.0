@@ -4,14 +4,20 @@
 // Admin page at /dr-drill. Read-only view of the latest automated DR drill
 // result via GET /dr-drill/status: when it last ran, whether it passed, how
 // many days have elapsed, and whether a new drill is overdue (> 90 days or the
-// last run did not pass). Data is fetched through the typed `api` client +
-// React Query and can be refreshed on demand. This is a status view, so there
-// are no mutations.
+// last run did not pass) — plus the full DR runbook document (served by
+// GET /dr-drill/runbook; this page is where the DrDrillBanner modal's
+// "Open DR runbook" link lands). Data is fetched through the typed `api`
+// client + React Query and can be refreshed on demand. This is a status view,
+// so there are no mutations.
 // =============================================================================
 
+import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, fmtDate } from './crudStyles';
+
+// Markdown renderer loads only on this page (own chunk), not with the app shell.
+const MarkdownView = lazy(() => import('@/components/MarkdownView'));
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +39,12 @@ async function fetchStatus(): Promise<DrDrillStatus> {
   const res = await api.GET('/dr-drill/status', {});
   if (res.error) throw new Error('Failed to load DR drill status');
   return (res.data as unknown as { data: DrDrillStatus }).data;
+}
+
+async function fetchRunbook(): Promise<string> {
+  const res = await api.GET('/dr-drill/runbook', {});
+  if (res.error) throw new Error('Failed to load DR runbook');
+  return (res.data as unknown as { data: { markdown: string } }).data.markdown;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +73,13 @@ export function DrDrillStatus() {
   const statusQ = useQuery({
     queryKey: ['dr-drill-status'],
     queryFn: fetchStatus,
+  });
+
+  // The runbook document only changes with a code deploy — cache it long.
+  const runbookQ = useQuery({
+    queryKey: ['dr-drill-runbook'],
+    queryFn: fetchRunbook,
+    staleTime: 60 * 60 * 1000,
   });
 
   const status = statusQ.data;
@@ -124,6 +143,20 @@ export function DrDrillStatus() {
               )}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Full runbook document (docs/dr-drill.md served by the backend) */}
+      <div style={{ ...styles.tableCard, marginTop: '1rem', padding: '1rem 1.25rem' }} id="runbook">
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>📖 DR Runbook</h2>
+        {runbookQ.isLoading ? (
+          <p style={styles.msg}>Loading runbook…</p>
+        ) : runbookQ.error || !runbookQ.data ? (
+          <p style={styles.msgError}>Failed to load the runbook document.</p>
+        ) : (
+          <Suspense fallback={<p style={styles.msg}>Loading…</p>}>
+            <MarkdownView markdown={runbookQ.data} />
+          </Suspense>
         )}
       </div>
     </div>

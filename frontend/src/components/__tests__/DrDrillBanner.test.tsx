@@ -112,6 +112,37 @@ describe('DrDrillBanner', () => {
     expect(screen.getByText('DR Drill Warning')).toBeInTheDocument();
   });
 
+  it('links the runbook button to the in-app /dr-drill page and dismisses on click', async () => {
+    mockUseAuth(adminUser);
+    mockApiGet.mockResolvedValueOnce({
+      data: {
+        data: {
+          last_run_at: new Date(Date.now() - 95 * 24 * 60 * 60 * 1000).toISOString(),
+          status: 'pass',
+          days_since_drill: 95,
+          overdue: true,
+          last_error: null,
+        },
+      },
+      error: undefined,
+    });
+
+    renderBanner();
+
+    await waitFor(() =>
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument(),
+    );
+    const link = screen.getByRole('link', { name: /runbook/i });
+    // Must be an SPA route, never the old repo-file path (/docs/dr-drill.md
+    // 404'd — nothing serves repo files in production).
+    expect(link).toHaveAttribute('href', '/dr-drill');
+    fireEvent.click(link);
+    // Navigating to the runbook also dismisses the modal so it doesn't cover
+    // the page it just opened.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('drDrillBannerDismissed')).toBe('1');
+  });
+
   it('shows the modal when last drill failed', async () => {
     mockUseAuth(adminUser);
     mockApiGet.mockResolvedValueOnce({

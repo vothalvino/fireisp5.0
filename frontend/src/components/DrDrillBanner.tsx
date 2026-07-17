@@ -10,6 +10,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
@@ -164,14 +165,12 @@ export function DrDrillBanner() {
         </p>
 
         <div style={styles.actions}>
-          <a
-            href="/docs/dr-drill.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={styles.docsLink}
-          >
+          {/* In-app runbook on the /dr-drill page (the old /docs/dr-drill.md
+              href pointed at a repo file nothing serves → SPA 404). Dismiss on
+              navigate so the modal doesn't cover the page it just opened. */}
+          <Link to="/dr-drill" onClick={handleDismiss} style={styles.docsLink}>
             {t('drDrill.openRunbook')}
-          </a>
+          </Link>
           <button
             type="button"
             onClick={handleDismiss}

@@ -398,7 +398,7 @@
     "modalTitle": "Advertencia de simulacro de DR",
     "neverRun": {
       "headline": "⚠️ El simulacro trimestral de DR nunca ha sido ejecutado",
-      "detail": "Aún no se ha registrado ningún simulacro de recuperación ante desastres. Sigue el runbook en docs/dr-drill.md para validar tu procedimiento de copia de seguridad y restauración."
+      "detail": "Aún no se ha registrado ningún simulacro de recuperación ante desastres. Sigue el runbook de DR para validar tu procedimiento de copia de seguridad y restauración."
     },
     "failed": {
       "headline": "🚨 El último simulacro de DR FALLÓ ({{date}})",
@@ -407,10 +407,10 @@
     },
     "overdue": {
       "headline": "⚠️ Simulacro de DR pendiente — Último hace {{days}} días ({{date}})",
-      "detail": "El simulacro trimestral de recuperación ante desastres no se ha ejecutado en más de 90 días. Programa un simulacro manual según docs/dr-drill.md para confirmar la recuperabilidad."
+      "detail": "El simulacro trimestral de recuperación ante desastres no se ha ejecutado en más de 90 días. Programa un simulacro manual según el runbook de DR para confirmar la recuperabilidad."
     },
     "hint": "Las verificaciones automáticas (copia de seguridad + consultas de integridad) se ejecutan trimestralmente. Las fases 2–3 (destrucción + restauración) deben ejecutarse manualmente en una instancia de prueba.",
-    "openRunbook": "Abrir runbook de DR ↗",
+    "openRunbook": "Abrir runbook de DR",
     "dismiss": "Reconocer y descartar para esta sesión"
   },
   "emailVerify": {
