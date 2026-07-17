@@ -29,16 +29,11 @@ import { Badge, Sparkline, type BadgeTone } from '@/components/ui';
 import { seriesToRates, currentRate, fmtBps, bucketedRates, type TrafficSample } from './snmpMetrics/rateTransform';
 import { fmtUptimeTicks, fmtRelativeTime, fmtPct, fmtSignal, fmtLatency, normalizeCpuSpark } from './snmpMetrics/format';
 
-// ---------------------------------------------------------------------------
-// Local page-root CSS custom properties (chart series colors) — validated
-// against the app's light/dark surfaces. Scoped to this page only, with a
-// [data-theme="dark"] override, per the app's theming convention.
-// ---------------------------------------------------------------------------
-
-const VIZ_CSS = `
-  .fi-snmp-metrics { --viz-in: #2a78d6; --viz-out: #eb6834; --viz-aqua: #1baf7a; }
-  [data-theme="dark"] .fi-snmp-metrics { --viz-in: #3987e5; --viz-out: #d95926; --viz-aqua: #199e70; }
-`;
+// Chart series colours (--viz-in/out/aqua) are defined in the bundled
+// index.css under `.fi-snmp-metrics`, NOT injected here. The app's CSP
+// (style-src 'self' 'nonce-…', no 'unsafe-inline') blocks a runtime
+// <style>{…}</style> without the per-request nonce, which silently left every
+// chart line's `stroke: var(--viz-in)` resolving to `none` (invisible).
 
 // ---------------------------------------------------------------------------
 // Types
@@ -538,7 +533,6 @@ function SwitchPortsPanel({ deviceId }: { deviceId: number }) {
 function NotFoundPanel({ onBack, t }: { onBack: () => void; t: TFn }) {
   return (
     <div className="fi-snmp-metrics" style={cs.page}>
-      <style>{VIZ_CSS}</style>
       <BackLink onBack={onBack} t={t} />
       <div style={cs.notFoundBox}>
         <div style={cs.notFoundTitle}>{t('snmpMetrics.history.notFound.title')}</div>
@@ -669,7 +663,6 @@ function FleetGlance({
 
   return (
     <div className="fi-snmp-metrics" style={cs.page}>
-      <style>{VIZ_CSS}</style>
       <div style={cs.header}>
         <h1 style={cs.title}>📶 {t('snmpMetrics.title')}</h1>
         <button onClick={onRefresh} disabled={isFetching} style={cs.refreshBtn}>
@@ -857,7 +850,6 @@ function DeviceHistoryView({
 
   return (
     <div className="fi-snmp-metrics" style={cs.page}>
-      <style>{VIZ_CSS}</style>
       <div style={cs.header}>
         <div>
           <BackLink onBack={onBack} t={t} />
