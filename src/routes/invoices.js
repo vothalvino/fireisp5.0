@@ -15,6 +15,7 @@ const billingService = require('../services/billingService');
 const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const db = require('../config/database');
 const { AppError, NotFoundError, ValidationError } = require('../utils/errors');
+const logger = require('../utils/logger').child({ route: 'invoices' });
 
 const router = Router();
 // A voided invoice is terminal: any edit is rejected (PUT/PATCH that isn't a
@@ -70,22 +71,106 @@ router.get('/:id/items', requirePermission('invoices.view'), async (req, res, ne
 // transaction (src/services/inventoryDrawdownService.js) — see PR brief
 // "Inventory Phase 2". Free-text/non-inventory lines are unchanged: no
 // transaction is opened, same as before this feature existed.
+// After a line is added, the invoice's stored subtotal/tax/total must follow —
+// before this existed, POST /:id/items left them untouched, so the invoice
+// (and the client's computed balance) silently under-billed by the full line
+// amount. The quarterly DR drill's financial-consistency check is what
+// surfaced it. The totals move by the line's DELTA (never a recompute from
+// lines — manual invoices carry totals with no line items); `FOR UPDATE` on
+// the invoice row serializes concurrent adds; the balance-ledger delta debit
+// mirrors the one POST /generate writes for the original total.
+async function applyItemTotals(conn, invoice, orgId, lineAmount) {
+  const delta = await billingService.applyLineItemToTotals(
+    conn.execute.bind(conn), invoice.id, invoice.tax_rate, lineAmount,
+  );
+  if (delta > 0) {
+    await conn.execute(
+      `INSERT INTO client_balance_ledger
+         (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+       VALUES (?, ?, 'debit', ?, ?, 'invoice', ?, ?)`,
+      [invoice.client_id, orgId, delta, invoice.currency, invoice.id,
+        `Invoice ${invoice.invoice_number} — line item added`],
+    );
+  }
+}
+
+// A line's `amount` is what drives the invoice totals and the ledger, while
+// quantity/unit_price drive stock drawdown and the GENERATED items.total
+// column — an inconsistent pair writes wrong money somewhere no matter which
+// side you trust. Every internal writer computes amount = quantity ×
+// unit_price; hold API callers to the same identity (±1¢ for rounding).
+function assertAmountMatchesLine(body) {
+  const expected = Math.round(body.quantity * body.unit_price * 100) / 100;
+  if (Math.abs(body.amount - expected) > 0.01) {
+    throw new ValidationError(
+      'amount must equal quantity × unit_price',
+      [{ field: 'amount', message: `amount ${body.amount} does not match quantity × unit_price (${expected})` }],
+    );
+  }
+}
+
+// Amounts on an invoice with a live (stamped) CFDI are fiscally frozen — the
+// XML on file with SAT is immutable, so growing the invoice would make the
+// system disagree with the legal document. Cancel/substitute the CFDI first.
+async function assertNoLiveCfdi(exec, invoiceId) {
+  const [rows] = await exec(
+    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    [invoiceId],
+  );
+  if (rows && rows[0]) {
+    throw new AppError(
+      'Invoice has a stamped CFDI — amounts are fiscally frozen. Cancel or substitute the CFDI before modifying line items.',
+      422, 'CFDI_STAMPED',
+    );
+  }
+}
+
+// Post-commit paid-status refresh is best-effort: the money is already
+// durably committed, so a transient failure here must never turn the request
+// into a 5xx (a retry would double-add the line). Worst case the invoice
+// stays 'paid' until the next payment-side refresh touches it.
+async function refreshPaidStatusBestEffort(invoiceId) {
+  try {
+    await billingService.refreshInvoicePaidStatus(invoiceId);
+  } catch (err) {
+    logger.warn({ err, invoiceId }, 'post-add-item paid-status refresh failed (non-fatal)');
+  }
+}
+
 router.post('/:id/items', requirePermission('invoices.update'), validate(addInvoiceItem), async (req, res, next) => {
   try {
+    assertAmountMatchesLine(req.body);
+
     if (!req.body.inventory_item_id) {
-      // Org-scoped + void-guarded even for the plain (non-inventory) path —
-      // no transaction is opened here since there's no drawdown, but the
-      // invoice must still be looked up to enforce both. Mirrors the
-      // beforeUpdate INVOICE_VOID guard on PUT/PATCH (top of this file).
-      const [[invoice]] = await db.query(
-        'SELECT id, status FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
-        [req.params.id, req.orgId],
-      );
-      if (!invoice) throw new NotFoundError('Invoice');
-      if (invoice.status === 'void') {
-        throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+      // Plain (non-inventory) path — transactional since the totals update
+      // must be atomic with the item insert. Org-scoped + void-guarded,
+      // mirroring the beforeUpdate INVOICE_VOID guard on PUT/PATCH.
+      const conn = await db.getConnection();
+      let item;
+      try {
+        await conn.beginTransaction();
+        const [[invoice]] = await conn.execute(
+          `SELECT id, client_id, invoice_number, status, tax_rate, total, currency
+           FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL FOR UPDATE`,
+          [req.params.id, req.orgId],
+        );
+        if (!invoice) throw new NotFoundError('Invoice');
+        if (invoice.status === 'void') {
+          throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+        }
+        await assertNoLiveCfdi(conn.execute.bind(conn), invoice.id);
+        item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body }, conn.execute.bind(conn));
+        await applyItemTotals(conn, invoice, req.orgId, req.body.amount);
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
       }
-      const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body });
+      // A grown total can turn a fully-paid invoice back into an underpaid
+      // one — reuse the existing allocation-vs-total status refresh.
+      await refreshPaidStatusBestEffort(req.params.id);
       return res.status(201).json({ data: item });
     }
 
@@ -102,21 +187,25 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
     }
 
     const conn = await db.getConnection();
+    let item;
     try {
       await conn.beginTransaction();
 
       // Org-scoped invoice lookup — also closes a pre-existing gap where this
       // route never verified the invoice belonged to the caller's org before
       // writing to it; needed here regardless to source client_id/invoice_number
-      // for the ledger row. status drives the void guard below.
+      // for the ledger row. status drives the void guard below; FOR UPDATE
+      // serializes concurrent adds for the totals recompute.
       const [[invoice]] = await conn.execute(
-        'SELECT id, client_id, invoice_number, status FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        `SELECT id, client_id, invoice_number, status, tax_rate, total, currency
+         FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL FOR UPDATE`,
         [req.params.id, req.orgId],
       );
       if (!invoice) throw new NotFoundError('Invoice');
       if (invoice.status === 'void') {
         throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
       }
+      await assertNoLiveCfdi(conn.execute.bind(conn), invoice.id);
 
       // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)
       // — 422 on cross-org/nonexistent, never a raw FK-violation 500.
@@ -131,7 +220,7 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
         );
       }
 
-      const item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body }, conn.execute.bind(conn));
+      item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body }, conn.execute.bind(conn));
 
       await inventoryDrawdownService.drawdownForSale(conn.execute.bind(conn), {
         orgId: req.orgId,
@@ -144,14 +233,17 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
         reference: invoice.invoice_number,
       });
 
+      await applyItemTotals(conn, invoice, req.orgId, req.body.amount);
+
       await conn.commit();
-      res.status(201).json({ data: item });
     } catch (err) {
       await conn.rollback();
       throw err;
     } finally {
       conn.release();
     }
+    await refreshPaidStatusBestEffort(req.params.id);
+    res.status(201).json({ data: item });
   } catch (err) {
     next(err);
   }

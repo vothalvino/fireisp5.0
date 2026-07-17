@@ -183,16 +183,20 @@ async function runDrill() {
     // Phase 4c — Financial consistency (all must be 0)
     // ------------------------------------------------------------------
     logger.info('DR drill Phase 4c: financial consistency');
-    // invoice_items has no `subtotal` — the per-line value is the GENERATED
-    // `total` (quantity × unit_price; always populated, unlike `amount` whose
-    // DEFAULT 0 predates billingService writing it). These queries never ran
-    // in production before this drill phase became reachable, so the wrong
-    // column names went unnoticed.
+    // Compare stored subtotal against SUM(items.amount) — `amount` is what
+    // every writer folds into invoices.subtotal (generate, one-off, add-item
+    // delta), and POST /invoices/:id/items enforces amount ≈ quantity ×
+    // unit_price at the API. The GENERATED `total` column (round2(q×p) per
+    // line) drifts from `amount` by sub-cent rounding on fractional-quantity
+    // lines (e.g. data-overage GB), so comparing against it would flag
+    // healthy invoices. Manually-created invoices (POST /invoices) with
+    // later-added lines keep their base amount outside any line — those are
+    // genuinely unreconcilable from lines and SHOULD flag.
     const [inconsistentInvoices] = await db.query(
       `SELECT COUNT(*) AS n
        FROM invoices i
        JOIN (
-         SELECT invoice_id, SUM(total) AS lines_subtotal
+         SELECT invoice_id, SUM(amount) AS lines_subtotal
          FROM invoice_items
          WHERE deleted_at IS NULL
          GROUP BY invoice_id

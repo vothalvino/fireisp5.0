@@ -298,6 +298,15 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
       [invoiceId, `${plan.name} — ${billingPeriod.period_start} to ${billingPeriod.period_end}`, price, price],
     );
 
+    // Extra line items (overage, add-ons) accumulate here; the invoice's
+    // stored totals and the ledger debit are updated ONCE from the running
+    // subtotal. Previously the overage UPDATE used its own local numbers that
+    // never reached the ledger debit below, and add-on lines were inserted
+    // WITHOUT being folded into subtotal/tax/total or the ledger at all —
+    // every contract with an active add-on under-billed by the add-on amount
+    // (caught by the DR drill's subtotal-vs-line-items consistency check).
+    let runningSubtotal = subtotal;
+
     // Add overage line item if applicable
     if (!inTrial && plan.overage_mode === 'per_gb') {
       const overage = await calculateOverageCharges(contract.id, billingPeriod.period_start, billingPeriod.period_end);
@@ -308,15 +317,7 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
           [invoiceId, `Data overage — ${overage.overage_gb} GB @ ${currency} ${plan.overage_price_per_gb}/GB`,
             overage.overage_gb, parseFloat(plan.overage_price_per_gb), overage.amount],
         );
-        // Update invoice totals for overage
-        const newSubtotal = subtotal + overage.amount;
-        // Same fraction-to-percent conversion as above — taxPct is a fraction.
-        const newTaxAmount = Math.round(newSubtotal * taxPct * 100) / 100;
-        const newTotal = newSubtotal + newTaxAmount;
-        await conn.execute(
-          'UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?',
-          [newSubtotal, newTaxAmount, newTotal, invoiceId],
-        );
+        runningSubtotal += overage.amount;
       }
     }
 
@@ -337,6 +338,20 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
          VALUES (?, ?, ?, ?, ?)`,
         [invoiceId, addon.addon_name, addon.quantity || 1, addonPrice, addonTotal],
       );
+      runningSubtotal += addonTotal;
+    }
+
+    // Fold overage + add-ons into the stored totals (single UPDATE); the
+    // ledger debit below uses the same final figures.
+    let finalTotal = total;
+    if (runningSubtotal !== subtotal) {
+      const newSubtotal = Math.round(runningSubtotal * 100) / 100;
+      const newTaxAmount = Math.round(newSubtotal * taxPct * 100) / 100;
+      finalTotal = Math.round((newSubtotal + newTaxAmount) * 100) / 100;
+      await conn.execute(
+        'UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?',
+        [newSubtotal, newTaxAmount, finalTotal, invoiceId],
+      );
     }
 
     // Update billing period
@@ -345,16 +360,17 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
       [invoiceId, billingPeriod.id],
     );
 
-    // Debit client balance ledger
+    // Debit client balance ledger — the FINAL total (incl. overage/add-ons),
+    // not the base plan figure.
     await conn.execute(
       `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
        VALUES (?, ?, 'debit', ?, ?, 'invoice', ?, ?)`,
-      [contract.client_id, orgId, total, currency, invoiceId, `Invoice ${invoiceNumber}`],
+      [contract.client_id, orgId, finalTotal, currency, invoiceId, `Invoice ${invoiceNumber}`],
     );
 
     await conn.commit();
 
-    logger.info({ contractId: contract.id, invoiceId, invoiceNumber, total, currency }, 'Invoice generated');
+    logger.info({ contractId: contract.id, invoiceId, invoiceNumber, total: finalTotal, currency }, 'Invoice generated');
     return Invoice.findById(invoiceId);
   } catch (err) {
     await conn.rollback();
@@ -573,6 +589,48 @@ async function reversePaymentCredit(paymentId) {
  * 'issued' (clearing paid_at) when it is no longer covered. Other statuses are
  * left untouched — the dunning/late-fee jobs re-derive overdue from there.
  */
+/**
+ * Normalize invoices.tax_rate to a fraction. Everything the system writes is
+ * a DECIMAL(5,4) FRACTION (0.1600 = 16%), but manually-created invoices
+ * (POST /invoices; schema allows up to 100) can carry percent-style values —
+ * a stored "8" means 8%, and DECIMAL(5,4) caps at 9.9999 so no legitimate
+ * fraction is ever > 1. Values > 1 are therefore treated as percent, so a
+ * stray 8 taxes a line at 8% — never 800%.
+ */
+function invoiceTaxFraction(taxRate) {
+  const r = parseFloat(taxRate) || 0;
+  return r > 1 ? r / 100 : r;
+}
+
+/**
+ * Fold ONE new line item into an invoice's stored money columns as a DELTA:
+ * subtotal += amount, tax_amount += the line's tax at the invoice-level rate,
+ * total += amount + tax. Deliberately NOT a recompute-from-lines — manually
+ * created invoices (POST /invoices) carry totals with NO line items, so a
+ * recompute would collapse their base amount to just the added line. The
+ * addition happens in SQL so DECIMAL arithmetic stays in MySQL (no JS float
+ * drift on the stored columns). Runs on the caller's transaction connection.
+ *
+ * Per-line tax_rate_id remains stored-but-unused by ALL totals math in the
+ * system; this uses the invoice-level rate, matching generate/one-off.
+ *
+ * @param {(sql: string, params: unknown[]) => Promise<[unknown, unknown]>} exec
+ * @param {number|string} invoiceId
+ * @param {number|string} taxRate invoices.tax_rate (fraction; percent tolerated)
+ * @param {number} lineAmount the new line's amount
+ * @returns {Promise<number>} the delta applied to `total`
+ */
+async function applyLineItemToTotals(exec, invoiceId, taxRate, lineAmount) {
+  const amt = Math.round((parseFloat(lineAmount) || 0) * 100) / 100;
+  const lineTax = Math.round(amt * invoiceTaxFraction(taxRate) * 100) / 100;
+  const delta = Math.round((amt + lineTax) * 100) / 100;
+  await exec(
+    'UPDATE invoices SET subtotal = subtotal + ?, tax_amount = tax_amount + ?, total = total + ? WHERE id = ?',
+    [amt, lineTax, delta, invoiceId],
+  );
+  return delta;
+}
+
 async function refreshInvoicePaidStatus(invoiceId) {
   const [rows] = await db.query(
     `SELECT i.total,
@@ -708,7 +766,7 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
 module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
-  reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus,
+  reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
   releaseInvoiceAllocations,
   voidInvoiceById,
   isContractInTrial, calculateOverageCharges,

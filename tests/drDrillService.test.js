@@ -141,8 +141,12 @@ describe('drDrillService.runDrill', () => {
     const sqls = db.query.mock.calls.map(([sql]) => sql).filter((s) => typeof s === 'string');
     const items = sqls.find((s) => s.includes('invoice_items'));
     const allocs = sqls.find((s) => s.includes('payment_allocations') && s.includes('SUM('));
-    expect(items).toContain('SUM(total)');
+    // SUM(amount): the value every writer folds into invoices.subtotal — the
+    // GENERATED q×p `total` column drifts by sub-cent rounding on
+    // fractional-quantity (overage) lines and would flag healthy invoices.
+    expect(items).toContain('SUM(amount)');
     expect(items).not.toContain('SUM(subtotal)');
+    expect(items).not.toContain('SUM(total)');
     expect(allocs).toContain('SUM(amount)');
     expect(allocs).not.toContain('amount_applied');
     expect(sqls.some((s) => s.includes('r.contract_id IS NOT NULL'))).toBe(true);
