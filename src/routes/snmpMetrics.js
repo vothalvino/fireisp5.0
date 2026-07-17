@@ -217,12 +217,26 @@ router.get('/top-talkers', requirePermission('snmp_metrics.top_talkers'), async 
     const limit = (rawLimit > 0 && rawLimit <= 100) ? rawLimit : 10;
 
     // Use 1hr aggregates for performance. Join with devices to enforce org scope.
+    //
+    // ifIn/OutOctets are CUMULATIVE counters, so a bucket's traffic is the
+    // counter's movement within it: max - min. Summing avg_* octet columns
+    // (the old math) sums average counter POSITIONS — a number that scales
+    // with counter age × bucket count, not with traffic. GREATEST(..., 0)
+    // clamps the (never-expected) min>max case; COALESCE drops buckets where
+    // the octet columns are NULL. Known approximations, both fine for a
+    // ranking: traffic between a bucket's last sample and the next bucket's
+    // first is not counted (~1 poll interval per hour), and a mid-bucket
+    // counter reset/wrap contributes max-min of the surviving run instead of
+    // the true total.
     const [rows] = await db.query(
       `SELECT m.device_id, d.name AS device_name, d.ip_address,
               m.interface_id,
-              CAST(SUM(COALESCE(m.avg_if_in_octets, 0) + COALESCE(m.avg_if_out_octets, 0)) AS UNSIGNED) AS total_bytes,
-              CAST(SUM(COALESCE(m.avg_if_in_octets, 0)) AS UNSIGNED) AS total_in_bytes,
-              CAST(SUM(COALESCE(m.avg_if_out_octets, 0)) AS UNSIGNED) AS total_out_bytes,
+              CAST(SUM(
+                GREATEST(COALESCE(m.max_if_in_octets - m.min_if_in_octets, 0), 0) +
+                GREATEST(COALESCE(m.max_if_out_octets - m.min_if_out_octets, 0), 0)
+              ) AS UNSIGNED) AS total_bytes,
+              CAST(SUM(GREATEST(COALESCE(m.max_if_in_octets - m.min_if_in_octets, 0), 0)) AS UNSIGNED) AS total_in_bytes,
+              CAST(SUM(GREATEST(COALESCE(m.max_if_out_octets - m.min_if_out_octets, 0), 0)) AS UNSIGNED) AS total_out_bytes,
               SUM(m.sample_count) AS samples
        FROM snmp_metrics_1hr m
        JOIN devices d ON d.id = m.device_id

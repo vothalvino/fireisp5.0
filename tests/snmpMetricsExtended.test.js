@@ -158,6 +158,30 @@ describe('SNMP Metrics extended routes (§6.2/6.3)', () => {
     expect(res.body.meta).toHaveProperty('lookback_hours', 24);
   });
 
+  test('top-talkers sums per-bucket counter DELTAS (max - min), never average counter positions', async () => {
+    // Regression: ifIn/OutOctets are cumulative counters. The old query
+    // summed avg_if_*_octets — average counter POSITIONS — so total_bytes
+    // scaled with counter age × lookback instead of traffic (live on the
+    // demo: 73.6 MB "in" reported for 24h against a counter whose true
+    // movement was ~1 MB). The fix must aggregate max-min within each 1hr
+    // bucket, clamped at 0.
+    const res = await request(app)
+      .get('/api/v1/snmp-metrics/top-talkers?hours=24&limit=5')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Org-Id', '10');
+    expect(res.status).toBe(200);
+
+    const call = db.query.mock.calls.find(([sql]) =>
+      typeof sql === 'string' && sql.includes('total_bytes'));
+    expect(call).toBeDefined();
+    const [sql] = call;
+    expect(sql).toMatch(/GREATEST\(COALESCE\(m\.max_if_in_octets - m\.min_if_in_octets, 0\), 0\)/);
+    expect(sql).toMatch(/GREATEST\(COALESCE\(m\.max_if_out_octets - m\.min_if_out_octets, 0\), 0\)/);
+    // The broken shape: SUM over avg octet columns.
+    expect(sql).not.toMatch(/SUM\(\s*COALESCE\(m\.avg_if_in_octets/);
+    expect(sql).not.toMatch(/COALESCE\(m\.avg_if_in_octets, 0\) \+ COALESCE\(m\.avg_if_out_octets, 0\)/);
+  });
+
   // §6.3 Per-interface utilization
   test('GET /api/v1/snmp-metrics/interfaces/:deviceId returns stats', async () => {
     const res = await request(app)
