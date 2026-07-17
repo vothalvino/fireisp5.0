@@ -173,6 +173,28 @@
 }
 
 /* =============================================================================
+   Chart series colours (--viz-*)
+   -----------------------------------------------------------------------------
+   These MUST live in this bundled stylesheet, not an injected <style> tag. The
+   app's CSP is `style-src 'self' 'nonce-…'` (no 'unsafe-inline'), so a runtime
+   React <style>{…}</style> without the per-request nonce is blocked and its
+   custom properties never apply — which left every SNMP-metrics chart line with
+   `stroke: var(--viz-in)` resolving to `none` (invisible). Bundled CSS is
+   'self', so it always applies. Validated against the chart surfaces (#fff /
+   #18181b) with the dataviz palette validator.
+   ============================================================================= */
+.fi-snmp-metrics {
+  --viz-in:   #2a78d6;
+  --viz-out:  #eb6834;
+  --viz-aqua: #1baf7a;
+}
+[data-theme="dark"] .fi-snmp-metrics {
+  --viz-in:   #3987e5;
+  --viz-out:  #d95926;
+  --viz-aqua: #199e70;
+}
+
+/* =============================================================================
    3. Base / reset
    ============================================================================= */
 
