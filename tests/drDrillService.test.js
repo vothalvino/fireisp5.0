@@ -10,6 +10,7 @@ const { backup } = require('../src/scripts/backup');
 const drDrillService = require('../src/services/drDrillService');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,9 +37,29 @@ function setupHealthyDb() {
   });
 }
 
+/**
+ * Write a structurally valid fake dump: real gzip, contains CREATE TABLE,
+ * ends with the mysqldump completion trailer, and (via incompressible random
+ * base64 payload) comfortably exceeds the 64 KB size floor.
+ */
+function healthyDumpGz({ trailer = true, sizeBoost = true } = {}) {
+  const crypto = require('crypto');
+  const parts = [
+    '-- MySQL dump 10.19\n',
+    'CREATE TABLE `clients` (`id` int NOT NULL);\n',
+  ];
+  if (sizeBoost) {
+    for (let i = 0; i < 40; i++) {
+      parts.push(`INSERT INTO blobs VALUES ('${crypto.randomBytes(3000).toString('base64')}');\n`);
+    }
+  }
+  if (trailer) parts.push('-- Dump completed on 2026-07-17 20:00:00\n');
+  return zlib.gzipSync(Buffer.from(parts.join('')));
+}
+
 /** Set up backup mock to return a healthy backup filepath. */
 function setupHealthyBackup(tmpPath) {
-  fs.writeFileSync(tmpPath, Buffer.alloc(1_100_000, 'x'));
+  fs.writeFileSync(tmpPath, healthyDumpGz());
   backup.mockResolvedValue({ filepath: tmpPath, cloudUrl: null });
 }
 
@@ -72,7 +93,7 @@ describe('drDrillService.runDrill', () => {
   });
 
   it('throws and writes error log when backup file is too small', async () => {
-    // Write file under 1MB
+    // Under the 64 KB floor
     fs.writeFileSync(tmpFile, Buffer.alloc(512, 'x'));
     backup.mockResolvedValue({ filepath: tmpFile, cloudUrl: null });
     setupHealthyDb();
@@ -84,6 +105,35 @@ describe('drDrillService.runDrill', () => {
     );
     expect(insertCall).toBeTruthy();
     expect(insertCall[1][0]).toBe('error');
+  });
+
+  it('a COMPLETE small-org dump passes — the old 1 MB floor was a false positive', async () => {
+    // ~300 KB gz like the live demo org: structurally complete, over the 64 KB
+    // floor, but far under the old hardcoded 1 MB minimum.
+    setupHealthyBackup(tmpFile);
+    expect(fs.statSync(tmpFile).size).toBeLessThan(1_048_576);
+    setupHealthyDb();
+
+    const result = await drDrillService.runDrill();
+    expect(result.status).toBe('pass');
+    expect(result.checks.backup_size_ok).toBe(true);
+    expect(result.checks.backup_structure_ok).toBe(true);
+  });
+
+  it('rejects a truncated dump (no "-- Dump completed" trailer) regardless of size', async () => {
+    fs.writeFileSync(tmpFile, healthyDumpGz({ trailer: false }));
+    backup.mockResolvedValue({ filepath: tmpFile, cloudUrl: null });
+    setupHealthyDb();
+
+    await expect(drDrillService.runDrill()).rejects.toThrow(/truncated dump/);
+  });
+
+  it('rejects a large file that is not a valid gzip stream', async () => {
+    fs.writeFileSync(tmpFile, Buffer.alloc(200_000, 'x'));
+    backup.mockResolvedValue({ filepath: tmpFile, cloudUrl: null });
+    setupHealthyDb();
+
+    await expect(drDrillService.runDrill()).rejects.toThrow(/not a valid gzip/);
   });
 
   it('returns status=fail when FK orphans are detected', async () => {
