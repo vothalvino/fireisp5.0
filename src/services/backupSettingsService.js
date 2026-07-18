@@ -191,9 +191,14 @@ async function listBackups() {
     files = fs.readdirSync(BACKUP_DIR)
       .filter(f => f.endsWith('.sql.gz'))
       .map(f => {
-        const stats = fs.statSync(path.join(BACKUP_DIR, f));
+        // lstat, and keep only real regular files — so every listed row is
+        // one resolveBackupFile() will actually serve. A directory or symlink
+        // named *.sql.gz would otherwise render a Download button that 404s.
+        const stats = fs.lstatSync(path.join(BACKUP_DIR, f));
+        if (!stats.isFile() || stats.isSymbolicLink()) return null;
         return { filename: f, size_bytes: stats.size, modified_at: stats.mtime };
       })
+      .filter(Boolean)
       .sort((a, b) => b.modified_at - a.modified_at);
   } catch (err) {
     // Directory may not exist before the first backup ever runs.
@@ -209,8 +214,10 @@ async function listBackups() {
  * a file that IS the entire database, so validation is an allowlist, not a
  * denylist: only dump-shaped names (letters/digits/._- ending in .sql.gz —
  * no path separators, so no traversal), and the resolved path must still sit
- * directly inside BACKUP_DIR. Throws ValidationError on a malformed name,
- * NotFoundError when no such backup exists.
+ * directly inside BACKUP_DIR. lstat (not stat) is used so a SYMLINK planted
+ * in BACKUP_DIR pointing outside it is rejected rather than followed — the
+ * string containment check alone is realpath-blind. Throws ValidationError on
+ * a malformed name, NotFoundError when no such regular backup file exists.
  */
 function resolveBackupFile(name) {
   const { BACKUP_DIR } = require('../scripts/backup'); // lazy — see header
@@ -226,11 +233,14 @@ function resolveBackupFile(name) {
 
   let stats;
   try {
-    stats = fs.statSync(filepath);
+    stats = fs.lstatSync(filepath); // lstat: do NOT follow a symlink
   } catch (err) {
     if (err.code === 'ENOENT') throw new NotFoundError('Backup file');
     throw err;
   }
+  // Only a real regular file is servable — a symlink (even to a valid file)
+  // or a directory named *.sql.gz is refused.
+  if (stats.isSymbolicLink()) throw new ValidationError('Invalid backup filename');
   if (!stats.isFile()) throw new NotFoundError('Backup file');
 
   return { filepath, filename, sizeBytes: stats.size };

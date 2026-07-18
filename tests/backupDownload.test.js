@@ -50,18 +50,27 @@ const db = require('../src/config/database');
 const app = require('../src/app');
 
 const FILE_CONTENT = Buffer.from('fake gzip backup content for download test');
+const OUTSIDE_SECRET = path.join(os.tmpdir(), 'fireisp-download-test-outside-secret.txt');
 
 beforeAll(() => {
   fs.mkdirSync(TEST_BACKUP_DIR, { recursive: true });
   fs.writeFileSync(path.join(TEST_BACKUP_DIR, 'fireisp_2026-07-17T03-00-00.sql.gz'), FILE_CONTENT);
   // A sibling file OUTSIDE the allowlisted extension — must never be servable.
   fs.writeFileSync(path.join(TEST_BACKUP_DIR, 'secrets.env'), 'DB_PASSWORD=hunter2');
-  // A directory whose name matches the pattern — statSync isFile() must refuse it.
+  // A directory whose name matches the pattern — isFile() must refuse it.
   fs.mkdirSync(path.join(TEST_BACKUP_DIR, 'dir.sql.gz'), { recursive: true });
+  // A SYMLINK with a dump-shaped name pointing OUTSIDE BACKUP_DIR — the
+  // string containment check passes it, so only an lstat/symlink check stops
+  // it being followed and its target streamed to the caller.
+  fs.writeFileSync(OUTSIDE_SECRET, 'OUTSIDE-SECRET-DO-NOT-LEAK');
+  try {
+    fs.symlinkSync(OUTSIDE_SECRET, path.join(TEST_BACKUP_DIR, 'leak.sql.gz'));
+  } catch { /* platforms without symlink perms skip the symlink case */ }
 });
 
 afterAll(() => {
   fs.rmSync(TEST_BACKUP_DIR, { recursive: true, force: true });
+  fs.rmSync(OUTSIDE_SECRET, { force: true });
 });
 
 beforeEach(() => {
@@ -114,5 +123,30 @@ describe('GET /api/v1/backup-settings/download/:filename', () => {
   it('refuses a directory whose name matches the dump pattern', async () => {
     const res = await request(app).get('/api/v1/backup-settings/download/dir.sql.gz');
     expect(res.status).toBe(404);
+  });
+
+  it('refuses a symlink in BACKUP_DIR pointing outside it (does not follow it)', async () => {
+    const linkExists = fs.existsSync(path.join(TEST_BACKUP_DIR, 'leak.sql.gz'));
+    if (!linkExists) return; // symlink creation unsupported on this platform
+    const res = await request(app)
+      .get('/api/v1/backup-settings/download/leak.sql.gz')
+      .buffer(true)
+      .parse((r, cb) => { const c = []; r.on('data', d => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+    expect(res.status).toBe(422); // ValidationError — symlink rejected outright
+    expect(res.headers['content-disposition']).toBeUndefined();
+    expect(res.body.toString()).not.toContain('OUTSIDE-SECRET');
+  });
+});
+
+describe('GET /api/v1/backup-settings/runs — local file listing', () => {
+  it('lists only real regular files, never the directory or symlink lures', async () => {
+    const res = await request(app).get('/api/v1/backup-settings/runs');
+    expect(res.status).toBe(200);
+    const names = res.body.data.files.map(f => f.filename);
+    // Every listed file must be one the download route would actually serve.
+    expect(names).toContain('fireisp_2026-07-17T03-00-00.sql.gz');
+    expect(names).not.toContain('dir.sql.gz');
+    expect(names).not.toContain('leak.sql.gz');
+    expect(names).not.toContain('secrets.env');
   });
 });
