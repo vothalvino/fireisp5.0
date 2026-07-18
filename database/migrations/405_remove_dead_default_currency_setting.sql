@@ -1,0 +1,22 @@
+-- =============================================================================
+-- Migration 405 — Remove the dead `default_currency` global setting
+-- =============================================================================
+-- An organization's currency is a first-class column, `organizations.currency`,
+-- edited in the org Edit modal and read authoritatively by
+-- Organization.getCurrency() — it drives every invoice, payment, quote, and
+-- balance. Migration 120 ALSO seeded a `default_currency` key into the global
+-- `settings` key/value map (surfaced by the org "Settings" modal), but nothing
+-- in the application ever reads it. The result is currency appearing in TWO
+-- places that can silently disagree: on the demo the column reads MXN while
+-- this dead setting reads USD. Editing the settings copy changes nothing,
+-- which is worse than useless — it's misleading.
+--
+-- This is another instance of the USD-default ghost cleaned up in the
+-- 2026-07-15 balance/currency sweep. Currency should live in exactly one
+-- place (the column); this removes the duplicate. `default_currency` has zero
+-- readers in src/ or the frontend, so deleting it changes no behavior.
+--
+-- Data-only, idempotent (DELETE of a keyed row; re-running is a no-op).
+-- =============================================================================
+
+DELETE FROM settings WHERE setting_key = 'default_currency';
