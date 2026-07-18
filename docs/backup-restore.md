@@ -31,7 +31,11 @@ This script (`src/scripts/backup.js`):
    `--no-tablespaces` (so the app's DB user needs no global PROCESS privilege)
 2. Compresses the output with gzip (in-process — no shell pipeline)
 3. Saves to `storage/backups/` with timestamped filename
-4. Rotates old backups (keeps last 7 by default)
+4. Uploads the file to the configured remote destination, if any (see
+   [Remote (off-site) backups](#remote-off-site-backups))
+5. Records the run — including the remote-upload outcome — in the
+   `backup_runs` table, visible on the **/backups** admin page
+6. Rotates old backups (keeps last 7 by default)
 
 It **fails loudly** — a missing `mysqldump` binary, a non-zero dump exit, or a
 suspiciously small output file (`BACKUP_MIN_BYTES`, default 512) throws and
@@ -191,19 +195,77 @@ tar xzf storage-20260401.tar.gz -C /path/to/fireisp5.0/
 
 1. **Daily**: Automated backup runs at 2:00 AM
 2. **Daily**: Verify backup file exists and is > 0 bytes
-3. **Weekly**: Copy latest backup to off-site storage (S3, GCS, etc.)
+3. **Nightly (automatic)**: Remote upload to the configured S3-compatible destination — verify `remote_status` on the **/backups** page weekly
 4. **Monthly**: Test restore procedure on a staging environment
 5. **Quarterly**: Full disaster recovery drill
 
-### Off-Site Backup with AWS S3
+### Remote (Off-Site) Backups
+
+FireISP uploads every backup to an S3-compatible destination automatically —
+no extra tooling on the app server. Configure it either way:
+
+* **UI (recommended)** — **Admin → Backups** (`/backups`, permission
+  `backup_settings.view`/`.update`, admin-only): pick a provider, fill in
+  bucket/region/keys, **Test connection** (uploads + deletes a probe object),
+  enable, save. The secret key is AES-256-GCM encrypted at rest and never
+  returned by the API. The same page shows the run history — including
+  whether each night's remote upload actually succeeded.
+* **Environment variables** — `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION`,
+  `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`, optional
+  `BACKUP_S3_ENDPOINT` / `BACKUP_S3_PREFIX` (see `.env.example`). Env vars
+  are the fallback: an **enabled** UI configuration overrides them.
+
+Supported providers (everything speaks the S3 API; only the endpoint differs):
+
+| Provider | Endpoint | Notes |
+|----------|----------|-------|
+| Amazon S3 | *(derived from region)* | Standard access key + secret |
+| Google Cloud Storage | `https://storage.googleapis.com` | Create **HMAC keys**: Cloud Storage → Settings → Interoperability → *Create a key*. Region `auto` works. |
+| Backblaze B2 | `https://s3.<region>.backblazeb2.com` | Application Key ID + Application Key |
+| Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | R2 API token (S3 credentials); region `auto` |
+| MinIO / self-hosted | `http(s)://your-server:9000` | See below |
+| Any S3-compatible | custom | Wasabi, DigitalOcean Spaces, Ceph RGW, … |
+
+Remote retention is the bucket's job — set a lifecycle/expiration rule on the
+bucket (e.g. delete objects under `db-backups/` after 90 days). The app only
+rotates the **local** copies.
+
+#### Self-hosted backup server with MinIO
+
+To use your own second server as the backup target, install MinIO on **that
+server** (it makes any Linux box speak the S3 API):
 
 ```bash
-# Install AWS CLI and configure credentials
-aws s3 cp storage/backups/latest.sql.gz s3://fireisp-backups/$(date +%Y/%m)/
+# On the BACKUP server (as root; adjust paths/user to taste)
+curl -fLo /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+chmod +x /usr/local/bin/minio
+useradd -r -s /sbin/nologin minio || true
+mkdir -p /srv/minio-data && chown minio: /srv/minio-data
 
-# Or sync all backups
-aws s3 sync storage/backups/ s3://fireisp-backups/
+# Run as a service (systemd unit shown minimal; see min.io docs for TLS)
+cat > /etc/systemd/system/minio.service <<'EOF'
+[Unit]
+Description=MinIO object storage
+After=network.target
+[Service]
+User=minio
+Environment="MINIO_ROOT_USER=CHANGE-ME-KEY"
+Environment="MINIO_ROOT_PASSWORD=CHANGE-ME-SECRET-32-CHARS"
+ExecStart=/usr/local/bin/minio server /srv/minio-data --console-address :9001
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now minio
 ```
+
+Then open the MinIO console (`http://backup-server:9001`), create a bucket
+(e.g. `fireisp-backups`) plus a dedicated access key, and in FireISP's
+**Admin → Backups** choose provider **MinIO / self-hosted**, endpoint
+`http://backup-server:9000`, region `us-east-1` (MinIO accepts any), and the
+bucket + keys you created. Click **Test connection**. Prefer HTTPS (put
+MinIO behind TLS or a reverse proxy) when backups cross the public internet —
+the dump contains your entire customer database.
 
 ### Monitoring
 

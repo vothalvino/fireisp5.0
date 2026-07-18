@@ -1,16 +1,22 @@
 // =============================================================================
 // FireISP 5.0 — Cloud Storage Service (S3-compatible)
 // =============================================================================
-// Uploads files to AWS S3 or Backblaze B2 (S3-compatible API) using
-// AWS Signature Version 4 and Node.js built-in modules only.
+// Uploads files to any S3-compatible object store using AWS Signature
+// Version 4 and Node.js built-in modules only: AWS S3, Google Cloud Storage
+// (XML interoperability API + HMAC keys), Backblaze B2, Cloudflare R2, or a
+// self-hosted MinIO server.
 //
-// Required env vars (when cloud upload is enabled):
+// The remote target is resolved by the caller (see
+// backupSettingsService.getEffectiveRemoteConfig(): UI-saved settings first,
+// BACKUP_S3_* env vars as fallback) and passed in as a config object. When no
+// config is passed, the env vars are read directly — the pre-migration-404
+// behavior, kept for compatibility:
 //   BACKUP_S3_BUCKET      — Target bucket name
 //   BACKUP_S3_REGION      — AWS region (e.g. us-east-1) or B2 region (e.g. us-west-002)
-//   BACKUP_S3_ACCESS_KEY  — Access key ID (AWS) or Application Key ID (B2)
-//   BACKUP_S3_SECRET_KEY  — Secret access key (AWS) or Application Key (B2)
-//   BACKUP_S3_ENDPOINT    — Optional: override endpoint for B2 or S3-compatible
-//                           providers (e.g. https://s3.us-west-002.backblazeb2.com)
+//   BACKUP_S3_ACCESS_KEY  — Access key ID (AWS) / Application Key ID (B2) / HMAC key (GCS)
+//   BACKUP_S3_SECRET_KEY  — Secret access key / Application Key / HMAC secret
+//   BACKUP_S3_ENDPOINT    — Optional: override endpoint for B2/R2/GCS/MinIO
+//                           (e.g. https://s3.us-west-002.backblazeb2.com)
 //   BACKUP_S3_PREFIX      — Optional: key prefix / folder (default: "db-backups/")
 // =============================================================================
 
@@ -18,6 +24,7 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 const logger = require('../utils/logger').child({ service: 'cloudStorage' });
 
@@ -45,44 +52,32 @@ function getSigningKey(secretKey, dateStamp, region, service) {
 }
 
 /**
- * Build canonical request + string-to-sign + Authorization header for S3 PUT.
+ * Build the SigV4 Authorization header for an S3 request.
  *
  * @param {object} opts
- * @param {string} opts.method        — HTTP method (PUT)
- * @param {string} opts.host          — Host header value
- * @param {string} opts.path          — URL path (e.g. "/backups/file.sql.gz")
- * @param {string} opts.region        — AWS region
- * @param {string} opts.accessKey     — Access key ID
- * @param {string} opts.secretKey     — Secret access key
- * @param {string} opts.payloadHash   — SHA-256 hex of the request body
- * @param {string} opts.dateISO       — ISO-8601 date/time (yyyymmddTHHMMSSZ)
- * @param {string} opts.dateStamp     — Date stamp (yyyymmdd)
- * @param {string} opts.contentType   — Content-Type header
- * @param {number} opts.contentLength — Content-Length in bytes
- * @returns {{ Authorization: string, 'x-amz-content-sha256': string, 'x-amz-date': string }}
+ * @param {string} opts.method       — HTTP method (PUT / DELETE / HEAD)
+ * @param {string} opts.path         — URL path (e.g. "/bucket/backups/file.sql.gz")
+ * @param {string} opts.region       — AWS region
+ * @param {string} opts.accessKey    — Access key ID
+ * @param {string} opts.secretKey    — Secret access key
+ * @param {string} opts.payloadHash  — SHA-256 hex of the request body
+ * @param {string} opts.dateISO      — ISO-8601 date/time (yyyymmddTHHMMSSZ)
+ * @param {string} opts.dateStamp    — Date stamp (yyyymmdd)
+ * @param {object} opts.headers      — Headers to sign, EXACT values as sent
+ *                                     (lowercase names; must include host)
+ * @returns {string} the Authorization header value
  */
 function buildAuthorizationHeader(opts) {
-  const {
-    method, host, path, region, accessKey, secretKey,
-    payloadHash, dateISO, dateStamp, contentType, contentLength,
-  } = opts;
+  const { method, path: urlPath, region, accessKey, secretKey, payloadHash, dateISO, dateStamp, headers } = opts;
 
   const service = 's3';
-
-  // Canonical headers (must be sorted by lowercase header name)
-  const canonicalHeaders = [
-    `content-length:${contentLength}`,
-    `content-type:${contentType}`,
-    `host:${host}`,
-    `x-amz-content-sha256:${payloadHash}`,
-    `x-amz-date:${dateISO}`,
-  ].join('\n') + '\n';
-
-  const signedHeaders = 'content-length;content-type;host;x-amz-content-sha256;x-amz-date';
+  const names = Object.keys(headers).map(h => h.toLowerCase()).sort();
+  const canonicalHeaders = names.map(n => `${n}:${String(headers[n]).trim()}\n`).join('');
+  const signedHeaders = names.join(';');
 
   const canonicalRequest = [
     method,
-    path,
+    urlPath,
     '', // query string
     canonicalHeaders,
     signedHeaders,
@@ -101,21 +96,15 @@ function buildAuthorizationHeader(opts) {
   const signingKey = getSigningKey(secretKey, dateStamp, region, service);
   const signature = hmac(signingKey, stringToSign, 'hex');
 
-  const authorization = [
+  return [
     `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}`,
     `SignedHeaders=${signedHeaders}`,
     `Signature=${signature}`,
   ].join(', ');
-
-  return {
-    Authorization: authorization,
-    'x-amz-content-sha256': payloadHash,
-    'x-amz-date': dateISO,
-  };
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Config + endpoint resolution
 // ---------------------------------------------------------------------------
 
 /**
@@ -131,115 +120,200 @@ function isConfigured() {
 }
 
 /**
- * Upload a local file to the configured S3-compatible bucket.
- *
- * @param {string} localPath  — Absolute path to the file to upload.
- * @param {string} [filename] — Destination filename inside the bucket prefix.
- *                             Defaults to the basename of localPath.
- * @returns {Promise<string>} — The S3 URL of the uploaded object.
+ * Read the BACKUP_S3_* env vars into a config object, or null when unset.
  */
-async function uploadBackup(localPath, filename) {
-  if (!isConfigured()) {
-    throw new Error(
-      'Cloud storage is not configured. Set BACKUP_S3_BUCKET, BACKUP_S3_REGION, ' +
-      'BACKUP_S3_ACCESS_KEY, and BACKUP_S3_SECRET_KEY.',
-    );
+function resolveEnvConfig() {
+  if (!isConfigured()) return null;
+  return {
+    bucket: process.env.BACKUP_S3_BUCKET,
+    region: process.env.BACKUP_S3_REGION,
+    accessKey: process.env.BACKUP_S3_ACCESS_KEY,
+    secretKey: process.env.BACKUP_S3_SECRET_KEY,
+    endpoint: process.env.BACKUP_S3_ENDPOINT || null,
+    prefix: process.env.BACKUP_S3_PREFIX !== undefined ? process.env.BACKUP_S3_PREFIX : 'db-backups/',
+    source: 'env',
+  };
+}
+
+/**
+ * Resolve host + base URL + base path for a config. Path-style addressing
+ * throughout — required by MinIO without wildcard DNS, accepted by every
+ * other provider. `basePath` carries any path component of a custom endpoint
+ * (e.g. a reverse-proxied MinIO at https://host/minio) so the SIGNED path and
+ * the SENT path always agree.
+ */
+function resolveTarget(config) {
+  if (config.endpoint) {
+    const u = new URL(config.endpoint);
+    const basePath = u.pathname.replace(/\/+$/, '');
+    return { host: u.host, origin: u.origin, endpointBase: `${u.origin}${basePath}`, basePath };
   }
+  const host = `s3.${config.region}.amazonaws.com`;
+  const origin = `https://${host}`;
+  return { host, origin, endpointBase: origin, basePath: '' };
+}
 
-  const bucket = process.env.BACKUP_S3_BUCKET;
-  const region = process.env.BACKUP_S3_REGION;
-  const accessKey = process.env.BACKUP_S3_ACCESS_KEY;
-  const secretKey = process.env.BACKUP_S3_SECRET_KEY;
-  const prefix = process.env.BACKUP_S3_PREFIX !== undefined
-    ? process.env.BACKUP_S3_PREFIX
-    : 'db-backups/';
+/**
+ * AWS UriEncode of one path segment: like encodeURIComponent, but also
+ * percent-encodes ! ' ( ) * — S3 canonicalizes those, and a mismatch means
+ * SignatureDoesNotMatch for perfectly legal object keys.
+ */
+function uriEncodeSegment(segment) {
+  return encodeURIComponent(segment)
+    .replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
 
-  const destFilename = filename || require('path').basename(localPath);
-  const objectKey = `${prefix}${destFilename}`;
+function objectPath(config, objectKey) {
+  // Encode per segment, keeping literal slashes so S3 treats the key as a
+  // path (prefix/filename) rather than a single URL-encoded segment.
+  const encodedKey = String(objectKey).split('/').map(uriEncodeSegment).join('/');
+  return `/${config.bucket}/${encodedKey}`;
+}
 
-  // Resolve the S3 endpoint
-  let host;
-  let endpointBase;
-  if (process.env.BACKUP_S3_ENDPOINT) {
-    const u = new URL(process.env.BACKUP_S3_ENDPOINT);
-    host = u.host;
-    endpointBase = process.env.BACKUP_S3_ENDPOINT.replace(/\/$/, '');
-  } else {
-    // Default AWS S3 path-style: https://s3.{region}.amazonaws.com/{bucket}
-    host = `s3.${region}.amazonaws.com`;
-    endpointBase = `https://${host}`;
-  }
+/**
+ * The object-key prefix for a config: '' stays '' (bucket root); anything
+ * else is guaranteed to end in exactly one '/'. A prefix saved without the
+ * trailing slash must become a folder, not a filename prefix glued onto the
+ * backup name.
+ */
+function normalizedPrefix(config) {
+  const prefix = config.prefix ?? 'db-backups/';
+  if (!prefix) return '';
+  return prefix.endsWith('/') ? prefix : `${prefix}/`;
+}
 
-  const urlPath = `/${bucket}/${encodeURIComponent(objectKey).replace(/%2F/g, '/')}`;
-  // Restore literal slashes so S3 treats the key as a path (prefix/filename)
-  // rather than a single URL-encoded segment.
+// ---------------------------------------------------------------------------
+// Signed requests
+// ---------------------------------------------------------------------------
 
-  // Read file and compute SHA-256
-  const fileBuffer = fs.readFileSync(localPath);
-  const payloadHash = hash(fileBuffer, 'hex');
-  const contentLength = fileBuffer.length;
-  const contentType = 'application/gzip';
+/**
+ * Perform a signed S3 request with an optional buffer body.
+ * Resolves {statusCode, body}; rejects only on transport errors.
+ */
+function signedRequest(config, method, objectKey, body, contentType) {
+  const { host, origin, basePath } = resolveTarget(config);
+  // The signed path includes any endpoint base path, and the request URL is
+  // origin + this exact path — signed and sent always match.
+  const urlPath = `${basePath}${objectPath(config, objectKey)}`;
+  const payloadHash = hash(body || '', 'hex');
 
-  // Timestamps for signature
   const now = new Date();
   const dateISO = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const dateStamp = dateISO.slice(0, 8);
 
-  const authHeaders = buildAuthorizationHeader({
-    method: 'PUT',
+  const headers = {
     host,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': dateISO,
+  };
+  if (body) {
+    headers['content-length'] = body.length;
+    headers['content-type'] = contentType || 'application/octet-stream';
+  }
+
+  const authorization = buildAuthorizationHeader({
+    method,
     path: urlPath,
-    region,
-    accessKey,
-    secretKey,
+    region: config.region,
+    accessKey: config.accessKey,
+    secretKey: config.secretKey,
     payloadHash,
     dateISO,
     dateStamp,
-    contentType,
-    contentLength,
+    headers,
   });
 
-  const fullUrl = `${endpointBase}${urlPath}`;
-  const parsedUrl = new URL(fullUrl);
-
+  const parsedUrl = new URL(`${origin}${urlPath}`);
   const requestOptions = {
-    method: 'PUT',
+    method,
     hostname: parsedUrl.hostname,
     port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
     path: parsedUrl.pathname + (parsedUrl.search || ''),
-    headers: {
-      'Content-Type': contentType,
-      'Content-Length': contentLength,
-      Host: host,
-      ...authHeaders,
-    },
+    headers: { ...headers, Authorization: authorization },
   };
-
-  logger.info({ bucket, objectKey, sizeKB: (contentLength / 1024).toFixed(1) }, 'Uploading backup to cloud');
 
   return new Promise((resolve, reject) => {
     const transport = parsedUrl.protocol === 'https:' ? https : http;
     const req = transport.request(requestOptions, (res) => {
-      let body = '';
-      res.on('data', chunk => { body += chunk; });
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          const s3Url = `${endpointBase}/${bucket}/${objectKey}`;
-          logger.info({ bucket, objectKey, statusCode: res.statusCode }, 'Backup uploaded to cloud');
-          resolve(s3Url);
-        } else {
-          reject(new Error(`Cloud upload failed: HTTP ${res.statusCode} — ${body}`));
-        }
-      });
+      let responseBody = '';
+      res.on('data', chunk => { responseBody += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
     });
-
-    req.on('error', (err) => {
-      reject(err);
-    });
-
-    req.write(fileBuffer);
+    req.on('error', reject);
+    if (body) req.write(body);
     req.end();
   });
 }
 
-module.exports = { uploadBackup, isConfigured };
+/**
+ * Build the client-facing error for a failed S3 request. The raw response
+ * body is NEVER included — these messages end up in last_test_error /
+ * backup_runs.error_message, i.e. in HTTP responses and the UI, and the
+ * endpoint is admin-supplied (reflecting an arbitrary host's response body
+ * would turn the accepted blind-SSRF into a readable one). Only the S3
+ * error <Code> token (a bare word like AccessDenied / NoSuchBucket) is
+ * surfaced; the full body goes to the server log.
+ */
+function remoteError(kind, res) {
+  logger.warn({ kind, statusCode: res.statusCode, body: String(res.body).slice(0, 500) }, 'S3 request failed');
+  const code = /<Code>([A-Za-z0-9]{1,64})<\/Code>/.exec(String(res.body));
+  return new Error(`Cloud ${kind} failed: HTTP ${res.statusCode}${code ? ` (${code[1]})` : ''}`);
+}
+
+/**
+ * Upload a buffer to the bucket. Throws on any non-2xx response.
+ * @returns {Promise<string>} — the object URL.
+ */
+async function uploadObject(config, objectKey, body, contentType) {
+  const { endpointBase } = resolveTarget(config);
+  const res = await signedRequest(config, 'PUT', objectKey, body, contentType);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    throw remoteError('upload', res);
+  }
+  return `${endpointBase}/${config.bucket}/${objectKey}`;
+}
+
+/**
+ * Delete an object. 404 is treated as success (already gone).
+ */
+async function deleteObject(config, objectKey) {
+  const res = await signedRequest(config, 'DELETE', objectKey, null, null);
+  if (res.statusCode !== 404 && (res.statusCode < 200 || res.statusCode >= 300)) {
+    throw remoteError('delete', res);
+  }
+}
+
+/**
+ * Upload a local backup file to the configured bucket.
+ *
+ * @param {string} localPath  — Absolute path to the file to upload.
+ * @param {string} [filename] — Destination filename inside the bucket prefix.
+ *                             Defaults to the basename of localPath.
+ * @param {object} [config]   — Remote config (from
+ *                             backupSettingsService.getEffectiveRemoteConfig()).
+ *                             Defaults to the BACKUP_S3_* env vars.
+ * @returns {Promise<string>} — The URL of the uploaded object.
+ */
+async function uploadBackup(localPath, filename, config) {
+  const effective = config || resolveEnvConfig();
+  if (!effective) {
+    throw new Error(
+      'Cloud storage is not configured. Save remote backup settings in the UI or set ' +
+      'BACKUP_S3_BUCKET, BACKUP_S3_REGION, BACKUP_S3_ACCESS_KEY, and BACKUP_S3_SECRET_KEY.',
+    );
+  }
+
+  const destFilename = filename || path.basename(localPath);
+  const objectKey = `${normalizedPrefix(effective)}${destFilename}`;
+  const fileBuffer = fs.readFileSync(localPath);
+
+  logger.info(
+    { bucket: effective.bucket, objectKey, source: effective.source, sizeKB: (fileBuffer.length / 1024).toFixed(1) },
+    'Uploading backup to cloud',
+  );
+  const url = await uploadObject(effective, objectKey, fileBuffer, 'application/gzip');
+  logger.info({ bucket: effective.bucket, objectKey }, 'Backup uploaded to cloud');
+  return url;
+}
+
+module.exports = { uploadBackup, uploadObject, deleteObject, isConfigured, resolveEnvConfig, normalizedPrefix };

@@ -85,7 +85,7 @@ async function runDrill() {
     logger.info('DR drill Phase 1: taking backup');
     let backupResult;
     try {
-      backupResult = await backup();
+      backupResult = await backup({ trigger: 'drill' });
       backupFile = backupResult.filepath;
     } catch (backupErr) {
       throw new Error(`Backup failed: ${backupErr.message}`, { cause: backupErr });
