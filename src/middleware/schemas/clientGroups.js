@@ -16,4 +16,22 @@ const updateClientGroup = {
   notes: { type: 'string', max: 65535 },
 };
 
-module.exports = { createClientGroup, updateClientGroup };
+// Pay the group balance on behalf of members. All fields optional: amount
+// omitted = pay the full payable total; invoice_ids restricts to a subset.
+// The PAYMENT_METHODS enum mirrors payments — per-element checks on invoice_ids
+// happen in the service (validate()'s 'array' only confirms the top-level shape).
+const PAYMENT_METHODS = [
+  'cash', 'check', 'card', 'transfer', 'online',
+  'credit_card', 'debit_card', 'bank_transfer',
+  'oxxo_pay', 'spei', 'codi', 'convenience_store',
+  'digital_wallet', 'other',
+];
+
+const payClientGroup = {
+  amount: { type: 'number', min: 0 },
+  payment_method: { type: 'string', enum: PAYMENT_METHODS },
+  reference_number: { type: 'string', max: 100 },
+  invoice_ids: { type: 'array' },
+};
+
+module.exports = { createClientGroup, updateClientGroup, payClientGroup };

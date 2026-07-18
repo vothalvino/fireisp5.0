@@ -324,7 +324,15 @@ function generateSpec() {
 
       // ---- Client Groups ----
       ...crudPaths('client-groups', 'Client Groups', 'ClientGroup'),
-      '/client-groups/{id}/members': { get: { tags: ['Client Groups'], summary: 'List member clients of a group', operationId: 'listClientGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client[]') } },
+      '/client-groups/{id}/members': {
+        get: { tags: ['Client Groups'], summary: 'List member clients of a group', operationId: 'listClientGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Client[]') },
+        post: { tags: ['Client Groups'], summary: 'Add existing clients to the group (bulk)', operationId: 'addClientGroupMembers', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('AddGroupMembers'), responses: r200('GroupMembersResult') },
+      },
+      '/client-groups/{id}/members/{clientId}': {
+        delete: { tags: ['Client Groups'], summary: 'Remove a client from the group', operationId: 'removeClientGroupMember', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'clientId', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('GroupMembersResult') },
+      },
+      '/client-groups/{id}/billing': { get: { tags: ['Client Groups'], summary: 'Shared-billing group: combined balance + open invoices across members', operationId: 'getClientGroupBilling', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('GroupBilling') } },
+      '/client-groups/{id}/pay': { post: { tags: ['Client Groups'], summary: 'Primary pays the group balance on behalf of members (FIFO across open invoices)', operationId: 'payClientGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('GroupPay'), responses: r201('GroupPaymentResult') } },
       '/client-groups/{id}/restore': { post: { tags: ['Client Groups'], summary: 'Restore a soft-deleted client group', operationId: 'restoreClientGroup', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ClientGroup') } },
 
       // ---- Leads (prospect pipeline) ----
