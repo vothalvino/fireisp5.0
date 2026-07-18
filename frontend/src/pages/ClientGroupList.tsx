@@ -387,6 +387,56 @@ function GroupMembersRow({ group, colSpan }: { group: ClientGroup; colSpan: numb
   );
 }
 
+// ---- Reusable single-client search+select (like the Clients list search) ---
+function ClientSearchSelect({ valueId, valueLabel, onPick, placeholder }: {
+  valueId?: number; valueLabel?: string; onPick: (id: number | undefined, name: string) => void; placeholder?: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const results = useQuery({
+    queryKey: ['client-search-select', search],
+    enabled: open && search.trim().length > 0,
+    queryFn: async () => {
+      const res = await api.GET('/clients', { params: { query: { search, limit: 10 } as never } });
+      if (res.error) throw new Error('Failed to search clients');
+      return (res.data as unknown as { data: { id: number; name: string }[] }).data;
+    },
+  });
+
+  if (valueId && !open) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...inputStyle, display: 'flex', alignItems: 'center', flex: 1 }}>
+          ★ {valueLabel || `Client #${valueId}`}
+        </span>
+        <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }} onClick={() => { setOpen(true); setSearch(''); }}>Change</button>
+        <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }} onClick={() => onPick(undefined, '')}>Clear</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input style={inputStyle} type="text" value={search} placeholder={placeholder || 'Search clients by name, email or phone…'}
+        onFocus={() => setOpen(true)} onChange={e => { setSearch(e.target.value); setOpen(true); }} />
+      {open && search.trim().length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 10, left: 0, right: 0, background: 'var(--bg-primary, #fff)', border: '1px solid var(--border)', borderRadius: 6, maxHeight: 200, overflowY: 'auto' }}>
+          {results.isLoading && <p style={{ padding: 8, margin: 0, color: 'var(--text-secondary)' }}>Searching…</p>}
+          {results.data && results.data.length === 0 && <p style={{ padding: 8, margin: 0, color: 'var(--text-secondary)' }}>No clients found.</p>}
+          {results.data && results.data.map(c => (
+            <button key={c.id} type="button"
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }}
+              onClick={() => { onPick(c.id, c.name); setOpen(false); setSearch(''); }}>
+              {c.name} <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>#{c.id}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroupFormModal({
   mode,
   initial,
@@ -404,6 +454,7 @@ function GroupFormModal({
     primary_client_id: initial?.primary_client_id ?? undefined,
     notes: initial?.notes ?? '',
   });
+  const [primaryLabel, setPrimaryLabel] = useState('');
   const [error, setError] = useState('');
 
   const mutation = useMutation({
@@ -451,11 +502,14 @@ function GroupFormModal({
           </select>
 
           <label style={labelStyle}>Primary member (billing owner)</label>
-          <input style={inputStyle} type="number" min={1} placeholder="Set from the members list ↓"
-            value={form.primary_client_id ?? ''}
-            onChange={e => setForm(p => ({ ...p, primary_client_id: e.target.value ? Number(e.target.value) : undefined }))} />
+          <ClientSearchSelect
+            valueId={form.primary_client_id}
+            valueLabel={primaryLabel}
+            placeholder="Search for the billing owner…"
+            onPick={(id, name) => { setForm(p => ({ ...p, primary_client_id: id })); setPrimaryLabel(name); }}
+          />
           <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            For shared billing. Easiest: expand the group and click ★ Make primary on a member.
+            For shared billing. You can also set it later with ★ Make primary in the members list.
           </p>
 
           <label style={labelStyle}>Notes</label>

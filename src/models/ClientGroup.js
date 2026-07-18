@@ -36,7 +36,11 @@ class ClientGroup extends BaseModel {
 
   /**
    * Assign existing clients to this group. Org-scoped: only clients in the
-   * same org are moved. Returns the count of clients actually assigned.
+   * same org are moved. A client has exactly one client_group_id, so a client
+   * can never be in a group twice; re-adding a current member is an explicit
+   * no-op (the WHERE excludes rows already in this group, so the returned
+   * count is the number of GENUINELY-new members regardless of the driver's
+   * affected-vs-changed-rows flag). Returns that count.
    */
   static async addMembers(groupId, clientIds, orgId) {
     const ids = [...new Set((clientIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
@@ -45,8 +49,9 @@ class ClientGroup extends BaseModel {
     const placeholders = ids.map(() => '?').join(', ');
     const [result] = await db.query(
       `UPDATE clients SET client_group_id = ?
-        WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL`,
-      [groupId, ...ids, orgId],
+        WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL
+          AND (client_group_id IS NULL OR client_group_id <> ?)`,
+      [groupId, ...ids, orgId, groupId],
     );
     return result.affectedRows || 0;
   }

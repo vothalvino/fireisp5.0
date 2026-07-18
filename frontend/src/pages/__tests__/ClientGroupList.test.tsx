@@ -139,4 +139,43 @@ describe('ClientGroupList page', () => {
     })));
     await waitFor(() => expect(within(dialog).getByText(/Applied MXN 150.00/)).toBeInTheDocument());
   });
+
+  it('the add-members picker disables clients already in the group (no double-add)', async () => {
+    // /clients returns a client (id 7) who is already a member of this group.
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/client-groups')
+        return Promise.resolve({ data: { data: [group1], meta: { total: 1, page: 1, limit: 200, totalPages: 1 } }, error: undefined });
+      if (path === '/client-groups/{id}/members')
+        return Promise.resolve({ data: { data: [{ id: 7, name: 'Ana', email: null, phone: null, client_type: 'residential', status: 'active' }] }, error: undefined });
+      if (path === '/client-groups/{id}/billing')
+        return Promise.resolve({ data: { data: { group: { id: 1, name: 'Familia García', primary_client_id: 7 }, members: [], open_invoices: [], group_balance: 0, group_currency: 'MXN', payable_total: 0 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [{ id: 7, name: 'Ana', client_group_id: 1 }, { id: 9, name: 'Carla', client_group_id: null }] }, error: undefined });
+      return Promise.resolve({ data: {}, error: undefined });
+    });
+    await expandGroup();
+    fireEvent.click(await screen.findByRole('button', { name: /Add members/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add members' });
+
+    // Ana (already a member) is shown but her checkbox is disabled.
+    await within(dialog).findByText('Ana');
+    const checkboxes = within(dialog).getAllByRole('checkbox');
+    // The already-member checkbox is disabled; the other is enabled.
+    expect(checkboxes.some(c => (c as HTMLInputElement).disabled)).toBe(true);
+    expect(within(dialog).getByText('already in this group')).toBeInTheDocument();
+  });
+
+  it('primary is chosen by client search in the group form (not a raw id)', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Familia García')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '+ New Group' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'New Account Group' });
+    // No numeric id input for the primary; it's a search box.
+    const search = within(dialog).getByPlaceholderText(/Search for the billing owner/);
+    fireEvent.focus(search);
+    fireEvent.change(search, { target: { value: 'Car' } });
+    // The search dropdown offers Carla to pick.
+    await waitFor(() => expect(within(dialog).getByText(/Carla/)).toBeInTheDocument());
+  });
 });
