@@ -26,10 +26,10 @@ const ORG = {
 };
 
 const IDENTITIES = [
-  { organization_id: 1, email_function: 'general', enabled: true, smtp_host: 'g.smtp', smtp_port: 587, smtp_secure: false, smtp_user: 'gu', from_email: 'general@demo.mx', from_name: 'Demo', configured: true, last_test_at: null, last_test_status: null, last_test_error: null },
-  { organization_id: 1, email_function: 'support', enabled: false, smtp_host: null, smtp_port: 587, smtp_secure: false, smtp_user: null, from_email: null, from_name: null, configured: false, last_test_at: null, last_test_status: null, last_test_error: null },
-  { organization_id: 1, email_function: 'billing', enabled: true, smtp_host: 'b.smtp', smtp_port: 587, smtp_secure: false, smtp_user: 'bu', from_email: 'billing@demo.mx', from_name: 'Billing', configured: true, last_test_at: null, last_test_status: null, last_test_error: null },
-  { organization_id: 1, email_function: 'noc', enabled: false, smtp_host: null, smtp_port: 587, smtp_secure: false, smtp_user: null, from_email: null, from_name: null, configured: false, last_test_at: null, last_test_status: null, last_test_error: null },
+  { organization_id: 1, email_function: 'general', enabled: true, smtp_host: 'g.smtp', smtp_port: 587, smtp_secure: false, smtp_user: 'gu', from_email: 'general@demo.mx', from_name: 'Demo', configured: true, has_password: true, last_test_at: null, last_test_status: null, last_test_error: null },
+  { organization_id: 1, email_function: 'support', enabled: false, smtp_host: null, smtp_port: 587, smtp_secure: false, smtp_user: null, from_email: null, from_name: null, configured: false, has_password: false, last_test_at: null, last_test_status: null, last_test_error: null },
+  { organization_id: 1, email_function: 'billing', enabled: true, smtp_host: 'b.smtp', smtp_port: 587, smtp_secure: false, smtp_user: 'bu', from_email: 'billing@demo.mx', from_name: 'Billing', configured: true, has_password: true, last_test_at: null, last_test_status: null, last_test_error: null },
+  { organization_id: 1, email_function: 'noc', enabled: false, smtp_host: null, smtp_port: 587, smtp_secure: false, smtp_user: null, from_email: null, from_name: null, configured: false, has_password: false, last_test_at: null, last_test_status: null, last_test_error: null },
 ];
 
 function installGet() {

@@ -66,6 +66,7 @@ interface EmailSettingsData {
   from_email: string | null;
   from_name: string | null;
   configured: boolean;
+  has_password: boolean;
   last_test_at: string | null;
   last_test_status: 'success' | 'failed' | null;
   last_test_error: string | null;
@@ -865,6 +866,7 @@ function EmailSettingsTab() {
   }
 
   const configured = data?.data?.configured ?? false;
+  const hasPassword = data?.data?.has_password ?? false;
   const lastTestAt = data?.data?.last_test_at;
   const lastTestStatus = data?.data?.last_test_status;
 
@@ -925,7 +927,7 @@ function EmailSettingsTab() {
         <label style={sty.label}>
           {t('emailSettings.smtpPassword')} <span style={sty.hint}>({t('emailSettings.smtpPasswordHint')})</span>
           <input style={sty.input} type="password" autoComplete="new-password"
-            value={form.smtp_password} placeholder={configured ? '••••••••' : ''}
+            value={form.smtp_password} placeholder={hasPassword ? '••••••••' : ''}
             onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} />
         </label>
 

@@ -50,6 +50,7 @@ interface EmailIdentity {
   from_email: string | null;
   from_name: string | null;
   configured: boolean;
+  has_password: boolean;
   last_test_at: string | null;
   last_test_status: string | null;
   last_test_error: string | null;
@@ -331,7 +332,10 @@ function IdentityEditor({ id, identity }: { id: number; identity: EmailIdentity 
       const body: Record<string, unknown> = {
         enabled: form.enabled,
         smtp_host: form.smtp_host || null,
-        smtp_port: form.smtp_port ? Number(form.smtp_port) : undefined,
+        // The port field is always pre-filled and never meaningfully "blank";
+        // a cleared field means "reset to default", not "keep existing", so
+        // send 587 rather than undefined (which the model reads as keep).
+        smtp_port: form.smtp_port ? Number(form.smtp_port) : 587,
         smtp_secure: form.smtp_secure,
         smtp_user: form.smtp_user || null,
         from_email: form.from_email || null,
@@ -371,7 +375,7 @@ function IdentityEditor({ id, identity }: { id: number; identity: EmailIdentity 
       <label style={label}>{t('orgDetail.smtpUser')}<input style={input} value={form.smtp_user} onChange={e => set('smtp_user', e.target.value)} autoComplete="off" /></label>
       <label style={label}>{t('orgDetail.smtpPassword')}
         <input style={input} type="password" value={form.smtp_password} autoComplete="new-password"
-          placeholder={identity.configured ? t('orgDetail.secretSaved') : ''} onChange={e => set('smtp_password', e.target.value)} />
+          placeholder={identity.has_password ? t('orgDetail.secretSaved') : ''} onChange={e => set('smtp_password', e.target.value)} />
       </label>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>

@@ -40,6 +40,7 @@ interface EmailSettingsFixture {
   from_email: string | null;
   from_name: string | null;
   configured: boolean;
+  has_password: boolean;
   last_test_at: string | null;
   last_test_status: string | null;
   last_test_error: string | null;
@@ -47,14 +48,14 @@ interface EmailSettingsFixture {
 
 const notConfigured: EmailSettingsFixture = {
   organization_id: 1, enabled: false, smtp_host: null, smtp_port: 587, smtp_secure: false,
-  smtp_user: null, from_email: null, from_name: null, configured: false,
+  smtp_user: null, from_email: null, from_name: null, configured: false, has_password: false,
   last_test_at: null, last_test_status: null, last_test_error: null,
 };
 
 const configured: EmailSettingsFixture = {
   organization_id: 1, enabled: true, smtp_host: 'smtp.example.com', smtp_port: 587, smtp_secure: true,
   smtp_user: 'user@example.com', from_email: 'noreply@example.com', from_name: 'Example ISP',
-  configured: true, last_test_at: '2026-01-01T00:00:00Z', last_test_status: 'success', last_test_error: null,
+  configured: true, has_password: true, last_test_at: '2026-01-01T00:00:00Z', last_test_status: 'success', last_test_error: null,
 };
 
 // ---------------------------------------------------------------------------

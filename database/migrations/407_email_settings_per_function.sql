@@ -39,23 +39,28 @@ BEGIN
   END IF;
 
   -- 2. Swap UNIQUE(organization_id) -> UNIQUE(organization_id, email_function).
-  --    Drop the old single-column unique key if present...
-  IF EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
-      AND INDEX_NAME = 'uq_organization_email_settings_org'
-  ) THEN
-    ALTER TABLE organization_email_settings DROP INDEX uq_organization_email_settings_org;
-  END IF;
-
-  --    ...and add the composite unique key if not already present.
+  --    The old unique key is the ONLY index covering the organization_id FK
+  --    column (migration 386: PK is on id, no separate KEY(organization_id)).
+  --    InnoDB rejects DROP INDEX of an FK-covering index unless a replacement
+  --    is added in the SAME statement (error 1553). So the drop and add MUST
+  --    be one ALTER — mirroring migration 361's org-number unique swaps.
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
       AND INDEX_NAME = 'uq_organization_email_settings_org_function'
   ) THEN
-    ALTER TABLE organization_email_settings
-      ADD UNIQUE KEY uq_organization_email_settings_org_function (organization_id, email_function);
+    IF EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
+        AND INDEX_NAME = 'uq_organization_email_settings_org'
+    ) THEN
+      ALTER TABLE organization_email_settings
+        DROP INDEX uq_organization_email_settings_org,
+        ADD UNIQUE KEY uq_organization_email_settings_org_function (organization_id, email_function);
+    ELSE
+      ALTER TABLE organization_email_settings
+        ADD UNIQUE KEY uq_organization_email_settings_org_function (organization_id, email_function);
+    END IF;
   END IF;
 END//
 DELIMITER ;

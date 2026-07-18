@@ -32,6 +32,13 @@ let transporter = null;
 // src/config/database.js's tenantConfigCache Map-keyed pattern.
 const orgTransportCache = new Map();
 
+// Per-org generation counter, bumped by invalidateOrgTransport. A getOrgTransport
+// call captures the generation before its DB read and refuses to cache the
+// result if an invalidation raced in between — otherwise a save concurrent
+// with an in-flight resolve could re-populate the cache with a stale transport
+// that then persists until the NEXT save.
+const orgCacheGen = new Map();
+
 const DEFAULT_FUNCTION = 'general';
 
 function cacheKey(orgId, emailFunction) {
@@ -65,6 +72,17 @@ async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION)
     return orgTransportCache.get(key);
   }
 
+  // Snapshot the org's cache generation BEFORE the async read; if an
+  // invalidation fires while we're resolving, we return the fresh value but
+  // do not write it to the cache (a later call re-resolves cleanly).
+  const genAtStart = orgCacheGen.get(organizationId) || 0;
+  const cacheIfCurrent = (entry) => {
+    if ((orgCacheGen.get(organizationId) || 0) === genAtStart) {
+      orgTransportCache.set(key, entry);
+    }
+    return entry;
+  };
+
   // Lazy require to avoid a require cycle (EmailSettings.upsert() requires
   // this module to invalidate the cache on save).
   const EmailSettings = require('../models/EmailSettings');
@@ -77,8 +95,7 @@ async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION)
     const entry = emailFunction === DEFAULT_FUNCTION
       ? null
       : await getOrgTransport(organizationId, DEFAULT_FUNCTION);
-    orgTransportCache.set(key, entry);
-    return entry;
+    return cacheIfCurrent(entry);
   }
 
   const orgTransporter = nodemailer.createTransport({
@@ -95,9 +112,7 @@ async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION)
     ? `${row.from_name} <${row.from_email || row.smtp_user}>`
     : (row.from_email || row.smtp_user);
 
-  const entry = { transporter: orgTransporter, from };
-  orgTransportCache.set(key, entry);
-  return entry;
+  return cacheIfCurrent({ transporter: orgTransporter, from });
 }
 
 /**
@@ -108,6 +123,9 @@ async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION)
  * resolved value of any function that inherits it.
  */
 function invalidateOrgTransport(organizationId) {
+  // Bump the generation first so any in-flight getOrgTransport resolve won't
+  // re-cache a now-stale value (see cacheIfCurrent).
+  orgCacheGen.set(organizationId, (orgCacheGen.get(organizationId) || 0) + 1);
   const prefix = `${organizationId}:`;
   for (const key of orgTransportCache.keys()) {
     if (key.startsWith(prefix)) orgTransportCache.delete(key);

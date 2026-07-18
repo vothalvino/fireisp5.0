@@ -64,7 +64,9 @@ function installDbMock() {
     if (sql.includes('INSERT INTO organization_email_settings') && sql.includes('last_test_at')) {
       const [orgId, fn, status, error] = params;
       const key = `${orgId}:${fn}`;
-      store[key] = store[key] || { id: 1, organization_id: orgId, email_function: fn };
+      // Real SQL: VALUES(?, ?, 0, NOW(), ?, ?) — a bare test-created row is
+      // enabled=0; an existing row keeps its enabled (not in the UPDATE list).
+      store[key] = store[key] || { id: 1, organization_id: orgId, email_function: fn, enabled: 0 };
       Object.assign(store[key], { last_test_status: status, last_test_error: error, last_test_at: '2026-01-02T00:00:00.000Z' });
       return Promise.resolve([{ affectedRows: 1 }]);
     }
@@ -177,5 +179,35 @@ describe('POST /api/v1/organizations/:id/email-settings/:function/test', () => {
       .post('/api/v1/organizations/1/email-settings/marketing/test')
       .send({ to: 'x@isp.mx' });
     expect(res.status).toBe(422);
+  });
+
+  it('testing an UNCONFIGURED function does not leave it appearing enabled', async () => {
+    mockSendEmail.mockResolvedValueOnce({ success: false, error: 'no transport' });
+    await request(app).post('/api/v1/organizations/1/email-settings/noc/test').send({ to: 'ops@isp.mx' });
+    // The bare row created purely by the test must be enabled=0 (not the
+    // column DEFAULT 1), so the list still shows noc as an unconfigured
+    // inheritor, not an active identity.
+    expect(store['1:noc'].enabled).toBe(0);
+    const list = (await request(app).get('/api/v1/organizations/1/email-settings')).body.data;
+    const noc = list.find(d => d.email_function === 'noc');
+    expect(noc.enabled).toBe(false);
+    expect(noc.configured).toBe(false);
+  });
+});
+
+describe('configured vs has_password', () => {
+  it('a host-only identity is configured but has_password:false; a saved secret sets has_password', async () => {
+    await request(app).put('/api/v1/organizations/1/email-settings/general')
+      .send({ enabled: true, smtp_host: 'g.smtp', from_email: 'g@isp.mx' }); // no password
+    await request(app).put('/api/v1/organizations/1/email-settings/billing')
+      .send({ enabled: true, smtp_host: 'b.smtp', smtp_user: 'bu', smtp_password: 'sekret' });
+
+    const list = (await request(app).get('/api/v1/organizations/1/email-settings')).body.data;
+    const general = list.find(d => d.email_function === 'general');
+    const billing = list.find(d => d.email_function === 'billing');
+    expect(general).toMatchObject({ configured: true, has_password: false });
+    expect(billing).toMatchObject({ configured: true, has_password: true });
+    // secret never leaks
+    expect(JSON.stringify(list)).not.toContain('enc:sekret');
   });
 });

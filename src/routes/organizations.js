@@ -18,6 +18,8 @@ const {
 } = require('../services/tenantDatabaseService');
 const emailSettingsService = require('../services/emailSettingsService');
 const { updateEmailSettings, testEmailSettings: testEmailSettingsSchema } = require('../middleware/schemas/emailSettings');
+const auditLog = require('../services/auditLog');
+const logger = require('../utils/logger').child({ service: 'routes/organizations' });
 
 const router = Router();
 const ctrl = crudController(Organization);
@@ -104,6 +106,13 @@ router.get('/:id/email-settings', requirePermission('email_settings.view'), asyn
 router.put('/:id/email-settings/:function', requirePermission('email_settings.update'), validate(updateEmailSettings), async (req, res, next) => {
   try {
     const data = await emailSettingsService.saveEmailSettings(req.params.id, req.params.function, req.body);
+    // Never log the password itself; logger redaction covers req.body.smtp_password too.
+    logger.info({ orgId: req.params.id, function: req.params.function, actorUserId: req.user?.id }, 'Org email identity updated');
+    await auditLog.log({
+      userId: req.user?.id, organizationId: Number(req.params.id), action: 'update',
+      tableName: 'organization_email_settings',
+      summary: `Updated ${req.params.function} email identity for org ${req.params.id}`,
+    });
     res.json({ data });
   } catch (err) {
     next(err);
@@ -113,6 +122,7 @@ router.put('/:id/email-settings/:function', requirePermission('email_settings.up
 router.post('/:id/email-settings/:function/test', requirePermission('email_settings.update'), validate(testEmailSettingsSchema), async (req, res, next) => {
   try {
     const data = await emailSettingsService.testEmailSettings(req.params.id, req.params.function, req.body.to);
+    logger.info({ orgId: req.params.id, function: req.params.function, actorUserId: req.user?.id, success: data.success }, 'Org email identity test sent');
     res.json({ data });
   } catch (err) {
     next(err);

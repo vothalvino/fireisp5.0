@@ -64,6 +64,7 @@ const REDACT_PATHS = [
   'req.body.secret',
   'req.body.apiKey',
   'req.body.api_key',
+  'req.body.smtp_password',
 ];
 
 const logger = pino({

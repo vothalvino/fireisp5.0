@@ -17,21 +17,26 @@ BEGIN
     DELETE FROM organization_email_settings WHERE email_function <> 'general';
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
-      AND INDEX_NAME = 'uq_organization_email_settings_org_function'
-  ) THEN
-    ALTER TABLE organization_email_settings DROP INDEX uq_organization_email_settings_org_function;
-  END IF;
-
+  -- Swap composite -> single-column unique in ONE ALTER: the composite is the
+  -- FK-covering index (organization_id leftmost), so a standalone DROP would
+  -- fail with error 1553. Mirrors the forward migration.
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
       AND INDEX_NAME = 'uq_organization_email_settings_org'
   ) THEN
-    ALTER TABLE organization_email_settings
-      ADD UNIQUE KEY uq_organization_email_settings_org (organization_id);
+    IF EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_email_settings'
+        AND INDEX_NAME = 'uq_organization_email_settings_org_function'
+    ) THEN
+      ALTER TABLE organization_email_settings
+        DROP INDEX uq_organization_email_settings_org_function,
+        ADD UNIQUE KEY uq_organization_email_settings_org (organization_id);
+    ELSE
+      ALTER TABLE organization_email_settings
+        ADD UNIQUE KEY uq_organization_email_settings_org (organization_id);
+    END IF;
   END IF;
 
   IF EXISTS (

@@ -46,6 +46,7 @@ class EmailSettings extends BaseModel {
       from_email: null,
       from_name: null,
       configured: false,
+      has_password: false,
       last_test_at: null,
       last_test_status: null,
       last_test_error: null,
@@ -65,7 +66,11 @@ class EmailSettings extends BaseModel {
       from_email: row.from_email || null,
       from_name: row.from_name || null,
       // smtp_password_encrypted is intentionally NEVER included here.
-      configured: Boolean(row.smtp_password_encrypted) || Boolean(row.smtp_host),
+      // `configured` = has a usable server (drives the status badge);
+      // `has_password` = a secret is stored (drives the write-only password
+      // placeholder). Split so a host-only row doesn't claim a saved password.
+      configured: Boolean(row.smtp_host),
+      has_password: Boolean(row.smtp_password_encrypted),
       last_test_at: row.last_test_at || null,
       last_test_status: row.last_test_status || null,
       last_test_error: row.last_test_error || null,
@@ -175,9 +180,12 @@ class EmailSettings extends BaseModel {
     const fn = normalizeFunction(emailFunction);
     // INSERT..ON DUPLICATE so the result is kept even when the function has no
     // row yet (an admin testing general/global before saving anything).
+    // enabled=0 explicitly: a row created purely by a test must NOT inherit
+    // the column's DEFAULT 1, or an untouched function would report as an
+    // active identity. On an existing row `enabled` is left as-is.
     await db.query(
-      `INSERT INTO organization_email_settings (organization_id, email_function, last_test_at, last_test_status, last_test_error)
-       VALUES (?, ?, NOW(), ?, ?)
+      `INSERT INTO organization_email_settings (organization_id, email_function, enabled, last_test_at, last_test_status, last_test_error)
+       VALUES (?, ?, 0, NOW(), ?, ?)
        ON DUPLICATE KEY UPDATE
          last_test_at = NOW(), last_test_status = VALUES(last_test_status), last_test_error = VALUES(last_test_error)`,
       [orgId, fn, success ? 'success' : 'failed', success ? null : (error || 'Unknown error')],
