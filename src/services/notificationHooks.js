@@ -137,6 +137,7 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
           html: template.html,
@@ -205,6 +206,7 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
           html: template.html,
@@ -267,6 +269,7 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
           html: template.html,
@@ -331,6 +334,7 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
           html: template.html,
@@ -407,6 +411,7 @@ function registerHooks() {
             + '<p>Consulta los detalles en tu panel de técnico.</p>';
           await emailTransport.sendEmail({
             organizationId,
+            emailFunction: 'support',
             to: assignee.email,
             subject: `Orden de trabajo asignada: #${workOrder.id} ${workOrder.title}`,
             html,
@@ -482,6 +487,7 @@ function registerHooks() {
           if (admin.email) {
             await emailTransport.sendEmail({
               organizationId,
+              emailFunction: 'noc',
               to: admin.email,
               subject: `Interrupción reportada: ${outage.title}`,
               html,
@@ -608,6 +614,7 @@ function registerHooks() {
             + (device.ip_address ? `<p>IP: ${esc(device.ip_address)}</p>` : '');
           await emailTransport.sendEmail({
             organizationId,
+            emailFunction: 'noc',
             to: recipient.email,
             subject: title,
             html,
@@ -741,6 +748,7 @@ function registerHooks() {
             + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
           await emailTransport.sendEmail({
             organizationId,
+            emailFunction: 'noc',
             to: recipient.email,
             subject: title,
             html,
@@ -833,6 +841,7 @@ function registerHooks() {
               + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
             await emailTransport.sendEmail({
               organizationId,
+              emailFunction: 'noc',
               to: step.recipient_email,
               subject: title,
               html,
@@ -890,6 +899,7 @@ function registerHooks() {
           + `<p>Vencimiento: ${reminder.due_at ? new Date(reminder.due_at).toISOString().slice(0, 16).replace('T', ' ') : 'N/A'}</p>`;
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'support',
           to: reminder.assignee_email,
           subject: `Seguimiento pendiente: ${reminder.title}`,
           html,
@@ -931,6 +941,7 @@ function registerHooks() {
           + '<p>¡Gracias por ayudarnos a mejorar!</p>';
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'support',
           to: client.email,
           subject: isNps ? 'Tu opinión nos importa — encuesta rápida' : '¿Cómo fue tu experiencia de soporte?',
           html,
@@ -1027,6 +1038,7 @@ function registerHooks() {
           if (client.email) {
             await emailTransport.sendEmail({
               organizationId,
+              emailFunction: 'noc',
               to: client.email,
               subject: `Aviso de mantenimiento: ${maintenance.title}`,
               html,
@@ -1062,6 +1074,7 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject,
           html,
@@ -1099,6 +1112,7 @@ function registerHooks() {
       if (client?.email) {
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'billing',
           to: client.email,
           subject: 'Your refund has been processed',
           html: `<p>Your refund of ${refundRequest.amount} has been processed.</p>`,
@@ -1144,6 +1158,7 @@ function registerHooks() {
         if (!admin.email) continue;
         await emailTransport.sendEmail({
           organizationId,
+          emailFunction: 'noc',
           to: admin.email,
           subject: `IP Pool Alert: ${pool.name} at ${percent}% capacity`,
           html,
