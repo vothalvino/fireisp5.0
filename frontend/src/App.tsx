@@ -124,6 +124,7 @@ import { WebhookList } from '@/pages/WebhookList';
 import { AuditLogList } from '@/pages/AuditLogList';
 import { ScheduledTaskList } from '@/pages/ScheduledTaskList';
 import { OrganizationList } from '@/pages/OrganizationList';
+import { OrganizationDetail } from '@/pages/OrganizationDetail';
 import { DsarTool } from '@/pages/DsarTool';
 import { DrDrillStatus } from '@/pages/DrDrillStatus';
 import { BackupSettings } from '@/pages/BackupSettings';
@@ -367,6 +368,7 @@ export function App() {
                 <Route path="admin" element={<HubPage section="admin" />} />
                 <Route path="users" element={<UserList />} />
                 <Route path="organizations" element={<OrganizationList />} />
+                <Route path="organizations/:id" element={<OrganizationDetail />} />
                 <Route path="dsar" element={<DsarTool />} />
                 <Route path="dr-drill" element={<DrDrillStatus />} />
                 <Route path="backups" element={<BackupSettings />} />

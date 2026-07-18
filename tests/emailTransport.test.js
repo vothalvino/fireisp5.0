@@ -196,6 +196,74 @@ describe('emailTransport', () => {
   });
 
   // =========================================================================
+  // getOrgTransport() — per-function identities (migration 407)
+  // =========================================================================
+  describe('getOrgTransport() — per-function', () => {
+    test('uses the function-specific identity when it is configured', async () => {
+      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
+        if (orgId === 701 && fn === 'billing') {
+          return Promise.resolve({
+            organization_id: 701, email_function: 'billing', enabled: 1,
+            smtp_host: 'billing.smtp', smtp_user: 'bu', smtp_password_encrypted: 'enc:bp',
+            from_email: 'billing@org.com', from_name: 'Billing',
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      const result = await emailTransport.getOrgTransport(701, 'billing');
+      expect(result.from).toBe('Billing <billing@org.com>');
+      expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'billing.smtp' }));
+    });
+
+    test('falls back to the general identity when the function is unconfigured', async () => {
+      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
+        if (orgId === 702 && fn === 'general') {
+          return Promise.resolve({
+            organization_id: 702, email_function: 'general', enabled: 1,
+            smtp_host: 'general.smtp', smtp_user: 'gu', smtp_password_encrypted: 'enc:gp',
+            from_email: 'general@org.com',
+          });
+        }
+        return Promise.resolve(null); // billing has no row
+      });
+
+      const result = await emailTransport.getOrgTransport(702, 'billing');
+      expect(result.from).toBe('general@org.com');
+      expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'general.smtp' }));
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledWith(702, 'billing');
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledWith(702, 'general');
+    });
+
+    test('returns null (global) when neither the function nor general is configured', async () => {
+      EmailSettings.findRawByOrgId.mockResolvedValue(null);
+      const result = await emailTransport.getOrgTransport(703, 'noc');
+      expect(result).toBeNull();
+    });
+
+    test('invalidateOrgTransport clears EVERY function so a general change re-resolves inheritors', async () => {
+      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
+        if (orgId === 705 && fn === 'general') {
+          return Promise.resolve({
+            organization_id: 705, email_function: 'general', enabled: 1,
+            smtp_host: 'g705.smtp', smtp_user: 'u', smtp_password_encrypted: 'enc:p', from_email: 'g@705.com',
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await emailTransport.getOrgTransport(705, 'billing'); // caches billing (inherits general)
+      await emailTransport.getOrgTransport(705, 'general'); // caches general
+      const callsBefore = EmailSettings.findRawByOrgId.mock.calls.length;
+
+      emailTransport.invalidateOrgTransport(705);
+
+      await emailTransport.getOrgTransport(705, 'billing'); // must re-query, not serve stale
+      expect(EmailSettings.findRawByOrgId.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+  });
+
+  // =========================================================================
   // sendEmail() — org-aware routing
   // =========================================================================
   describe('sendEmail() — org transport', () => {
@@ -222,6 +290,31 @@ describe('emailTransport', () => {
         to: 'dest@example.com',
       }));
       // The global relay's sendMail (shared mockSendMail) was never touched.
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    test('routes through the function identity when emailFunction is passed', async () => {
+      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
+        if (orgId === 704 && fn === 'billing') {
+          return Promise.resolve({
+            organization_id: 704, email_function: 'billing', enabled: 1,
+            smtp_host: 'billing.org704.com', smtp_user: 'u', smtp_password_encrypted: 'enc:p',
+            from_email: 'billing@org704.com',
+          });
+        }
+        return Promise.resolve(null);
+      });
+      const billingSendMail = jest.fn().mockResolvedValueOnce({ messageId: '<b@test>' });
+      nodemailer.createTransport.mockReturnValueOnce({ sendMail: billingSendMail });
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+
+      const result = await emailTransport.sendEmail({
+        organizationId: 704, emailFunction: 'billing',
+        to: 'client@example.com', subject: 'Invoice', html: '<p>due</p>',
+      });
+
+      expect(result.success).toBe(true);
+      expect(billingSendMail).toHaveBeenCalledWith(expect.objectContaining({ from: 'billing@org704.com' }));
       expect(mockSendMail).not.toHaveBeenCalled();
     });
   });

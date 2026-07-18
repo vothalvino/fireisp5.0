@@ -73,35 +73,42 @@ function resetStore() {
   store = {};
 }
 
+// Per migration 407 the table is keyed by (organization_id, email_function).
+// The legacy /email-settings routes exercised here always use 'general', so
+// the store is keyed by orgId and every row carries email_function:'general'.
 function installDbMock() {
   db.query.mockImplementation((sql, params = []) => {
-    if (sql.includes('SELECT * FROM organization_email_settings')) {
-      const orgId = params[0];
-      const row = store[orgId];
-      return Promise.resolve([row ? [row] : []]);
+    // recordTestResult(): INSERT ... last_test_at ... ON DUPLICATE KEY UPDATE
+    if (sql.includes('INSERT INTO organization_email_settings') && sql.includes('last_test_at')) {
+      const [orgId, emailFunction, status, error] = params;
+      store[orgId] = store[orgId] || { id: 1, organization_id: orgId, email_function: emailFunction };
+      store[orgId].last_test_status = status;
+      store[orgId].last_test_error = error;
+      store[orgId].last_test_at = '2026-01-02T00:00:00.000Z';
+      return Promise.resolve([{ affectedRows: 1 }]);
     }
+    // upsert(): 10-column INSERT ... ON DUPLICATE KEY UPDATE
     if (sql.includes('INSERT INTO organization_email_settings')) {
       const [
-        organization_id, enabled, smtp_host, smtp_port, smtp_secure,
+        organization_id, email_function, enabled, smtp_host, smtp_port, smtp_secure,
         smtp_user, smtp_password_encrypted, from_email, from_name,
       ] = params;
       store[organization_id] = {
-        id: 1, organization_id, enabled, smtp_host, smtp_port, smtp_secure,
+        id: 1, organization_id, email_function, enabled, smtp_host, smtp_port, smtp_secure,
         smtp_user, smtp_password_encrypted, from_email, from_name,
-        last_test_at: null, last_test_status: null, last_test_error: null,
+        last_test_at: store[organization_id]?.last_test_at ?? null,
+        last_test_status: store[organization_id]?.last_test_status ?? null,
+        last_test_error: store[organization_id]?.last_test_error ?? null,
         created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
       };
       return Promise.resolve([{ insertId: 1 }]);
     }
-    if (sql.includes('UPDATE organization_email_settings') && sql.includes('last_test_at')) {
-      const [status, error, orgId] = params;
-      if (store[orgId]) {
-        store[orgId].last_test_status = status;
-        store[orgId].last_test_error = error;
-        store[orgId].last_test_at = '2026-01-02T00:00:00.000Z';
-        return Promise.resolve([{ affectedRows: 1 }]);
-      }
-      return Promise.resolve([{ affectedRows: 0 }]);
+    // findRawByOrgId (…AND email_function=?) and listByOrgId (…WHERE org=?):
+    // params[0] is orgId either way.
+    if (sql.includes('SELECT * FROM organization_email_settings')) {
+      const orgId = params[0];
+      const row = store[orgId];
+      return Promise.resolve([row ? [row] : []]);
     }
     return Promise.resolve([[]]);
   });

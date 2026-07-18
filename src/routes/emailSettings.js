@@ -32,7 +32,8 @@ router.get('/',
   requirePermission('email_settings.view'),
   async (req, res, next) => {
     try {
-      const settings = await emailSettingsService.getEmailSettings(req.orgId);
+      // Legacy single-identity route: operates on the 'general' function.
+      const settings = await emailSettingsService.getEmailSettings(req.orgId, 'general');
       res.json({ data: settings });
     } catch (err) {
       next(err);
@@ -45,7 +46,7 @@ router.put('/',
   validate(updateEmailSettings),
   async (req, res, next) => {
     try {
-      const settings = await emailSettingsService.saveEmailSettings(req.orgId, req.body);
+      const settings = await emailSettingsService.saveEmailSettings(req.orgId, 'general', req.body);
       logger.info({ orgId: req.orgId, userId: req.user?.id }, 'Email settings updated');
       res.json({ data: settings });
     } catch (err) {
@@ -59,7 +60,7 @@ router.post('/test',
   validate(testEmailSettings),
   async (req, res, next) => {
     try {
-      const result = await emailSettingsService.testEmailSettings(req.orgId, req.body.to);
+      const result = await emailSettingsService.testEmailSettings(req.orgId, 'general', req.body.to);
       logger.info({ orgId: req.orgId, userId: req.user?.id, success: result.success }, 'Email settings test sent');
       res.json({ data: result });
     } catch (err) {

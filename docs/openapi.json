@@ -1383,6 +1383,162 @@
         }
       }
     },
+    "/organizations/{id}/email-settings": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "List per-function outbound email identities (general/support/billing/noc; secrets masked)",
+        "operationId": "listOrganizationEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EmailSettings[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/email-settings/{function}": {
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Update one function outbound email identity (write-only three-state password)",
+        "operationId": "updateOrganizationEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "function",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "general",
+                "support",
+                "billing",
+                "noc"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "EmailSettingsUpdate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EmailSettings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{id}/email-settings/{function}/test": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Send a test email using one function identity (fallback function→general→global)",
+        "operationId": "testOrganizationEmailSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "function",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "general",
+                "support",
+                "billing",
+                "noc"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "EmailSettingsTest",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EmailTestResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users": {
       "get": {
         "tags": [
