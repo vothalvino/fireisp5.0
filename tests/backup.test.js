@@ -213,4 +213,98 @@ describe('cloudStorageService', () => {
       fs.unlinkSync(tmpFile);
     }
   });
+
+  test('error messages surface the S3 <Code> token but never the raw response body', async () => {
+    const xmlBody = '<?xml version="1.0"?><Error><Code>NoSuchBucket</Code><Message>internal-hostname-and-secrets-here</Message></Error>';
+    const { originalRequest } = mockHttpsRequest(404, xmlBody);
+    const tmpFile = path.join(os.tmpdir(), 'test_reflect.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    delete process.env.BACKUP_S3_ENDPOINT;
+
+    try {
+      await cloudStorage.uploadBackup(tmpFile, 'test_reflect.sql.gz');
+      throw new Error('expected rejection');
+    } catch (err) {
+      // The endpoint is admin-supplied: reflecting its response body would
+      // turn the accepted blind-SSRF into a readable one. Code token only.
+      expect(err.message).toBe('Cloud upload failed: HTTP 404 (NoSuchBucket)');
+      expect(err.message).not.toContain('internal-hostname');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('object keys are AWS-UriEncoded per segment (space, !\'()* — slashes preserved)', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_enc.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    process.env.BACKUP_S3_PREFIX = 'weird prefix/';
+    delete process.env.BACKUP_S3_ENDPOINT;
+
+    try {
+      await cloudStorage.uploadBackup(tmpFile, "odd !'()*name.sql.gz");
+      const callOpts = https.request.mock.calls[0][0];
+      expect(callOpts.path).toBe("/my-bucket/weird%20prefix/odd%20%21%27%28%29%2Aname.sql.gz");
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('a prefix saved without a trailing slash still becomes a folder', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_noslash.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.BACKUP_S3_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    process.env.BACKUP_S3_PREFIX = 'prod';
+    delete process.env.BACKUP_S3_ENDPOINT;
+
+    try {
+      const url = await cloudStorage.uploadBackup(tmpFile, 'test_noslash.sql.gz');
+      expect(url).toContain('prod/test_noslash.sql.gz');
+      expect(url).not.toContain('prodtest_noslash');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  test('an endpoint with a base path (reverse-proxied MinIO) signs and sends the same path', async () => {
+    const { originalRequest } = mockHttpsRequest(200);
+    const tmpFile = path.join(os.tmpdir(), 'test_basepath.sql.gz');
+    fs.writeFileSync(tmpFile, 'fake content');
+
+    process.env.BACKUP_S3_BUCKET = 'my-bucket';
+    process.env.BACKUP_S3_REGION = 'us-east-1';
+    process.env.BACKUP_S3_ACCESS_KEY = 'k';
+    process.env.BACKUP_S3_SECRET_KEY = 's';
+    process.env.BACKUP_S3_ENDPOINT = 'https://proxy.example.com/minio/';
+    delete process.env.BACKUP_S3_PREFIX;
+
+    try {
+      const url = await cloudStorage.uploadBackup(tmpFile, 'test_basepath.sql.gz');
+      const callOpts = https.request.mock.calls[0][0];
+      expect(callOpts.path).toBe('/minio/my-bucket/db-backups/test_basepath.sql.gz');
+      expect(callOpts.hostname).toBe('proxy.example.com');
+      expect(url).toBe('https://proxy.example.com/minio/my-bucket/db-backups/test_basepath.sql.gz');
+    } finally {
+      https.request = originalRequest;
+      fs.unlinkSync(tmpFile);
+    }
+  });
 });

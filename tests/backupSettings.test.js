@@ -58,6 +58,11 @@ jest.mock('../src/services/cloudStorageService', () => ({
   uploadBackup: jest.fn(),
   isConfigured: () => mockIsConfigured(),
   resolveEnvConfig: () => mockResolveEnvConfig(),
+  normalizedPrefix: (config) => {
+    const prefix = config.prefix ?? 'db-backups/';
+    if (!prefix) return '';
+    return prefix.endsWith('/') ? prefix : `${prefix}/`;
+  },
 }));
 
 const mockBackup = jest.fn();

@@ -173,10 +173,13 @@ export function BackupSettings() {
     secret_key: '',
   });
   const [saveError, setSaveError] = useState<string | null>(null);
+  // While the admin has unsaved edits, background refetches (e.g. after a
+  // connection test) must NOT resync the form and clobber their input.
+  const [dirty, setDirty] = useState(false);
 
   const settings = overviewQ.data?.settings;
   useEffect(() => {
-    if (!settings) return;
+    if (!settings || dirty) return;
     setForm({
       remote_enabled: settings.remote_enabled,
       provider: settings.provider,
@@ -187,20 +190,32 @@ export function BackupSettings() {
       access_key: settings.access_key ?? '',
       secret_key: '',
     });
-  }, [settings]);
+  }, [settings, dirty]);
 
-  const set = (field: string, value: string | boolean) => setForm(f => ({ ...f, [field]: value }));
+  const set = (field: string, value: string | boolean) => {
+    setDirty(true);
+    setForm(f => ({ ...f, [field]: value }));
+  };
 
   const onProviderChange = (provider: string) => {
     const preset = PROVIDERS[provider] ?? {};
-    setForm(f => ({
-      ...f,
-      provider,
+    setDirty(true);
+    setForm(f => {
+      const oldPreset = PROVIDERS[f.provider] ?? {};
       // AWS derives its endpoint from the region; fixed-endpoint providers
-      // (GCS) are filled in; the rest keep whatever is typed.
-      endpoint: provider === 'aws' ? '' : (preset.endpoint ?? f.endpoint),
-      region: f.region && f.region !== (PROVIDERS[f.provider]?.region ?? '') ? f.region : (preset.region ?? ''),
-    }));
+      // (GCS) are filled in; leaving a fixed-endpoint provider clears the
+      // stale value; otherwise whatever is typed is kept.
+      let endpoint = f.endpoint;
+      if (provider === 'aws') endpoint = '';
+      else if (preset.endpoint !== undefined) endpoint = preset.endpoint;
+      else if (oldPreset.endpoint !== undefined) endpoint = '';
+      return {
+        ...f,
+        provider,
+        endpoint,
+        region: f.region && f.region !== (oldPreset.region ?? '') ? f.region : (preset.region ?? ''),
+      };
+    });
   };
 
   const saveMut = useMutation({
@@ -224,6 +239,7 @@ export function BackupSettings() {
     },
     onSuccess: () => {
       setSaveError(null);
+      setDirty(false);
       setForm(f => ({ ...f, secret_key: '' }));
       queryClient.invalidateQueries({ queryKey: ['backup-settings'] });
     },
@@ -376,12 +392,14 @@ export function BackupSettings() {
           <button style={styles.btnPrimary} onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             {saveMut.isPending ? t('common.saving') : t('common.save')}
           </button>
-          <button style={styles.btnSecondary} onClick={() => testMut.mutate()} disabled={testMut.isPending || saveMut.isPending}>
+          <button style={styles.btnSecondary} onClick={() => testMut.mutate()} disabled={testMut.isPending || saveMut.isPending || dirty}>
             {testMut.isPending ? t('backups.testing') : t('backups.testConnection')}
           </button>
         </div>
+        {dirty && <p style={{ ...styles.msg, fontSize: '0.78rem' }}>{t('backups.testSaveFirst')}</p>}
 
         {saveError && <p style={styles.msgError}>{saveError}</p>}
+        {testMut.isError && <p style={styles.msgError}>{(testMut.error as Error).message}</p>}
         {saveMut.isSuccess && !saveError && <p style={{ ...styles.msg, color: '#065f46' }}>{t('backups.saved')}</p>}
         {testMut.data && (
           <p style={{ ...styles.msg, color: testMut.data.success ? '#065f46' : '#991b1b' }}>

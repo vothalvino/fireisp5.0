@@ -130,6 +130,38 @@ describe('BackupSettings page', () => {
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/backup-settings/run-now', {}));
   });
 
+  it('disables Test connection while the form has unsaved edits, with a hint', async () => {
+    renderPage();
+    const bucket = await screen.findByDisplayValue('fireisp-backups');
+    const testBtn = screen.getByText('Test connection');
+    expect(testBtn).not.toBeDisabled();
+
+    fireEvent.change(bucket, { target: { value: 'edited-bucket' } });
+    expect(testBtn).toBeDisabled();
+    expect(screen.getByText(/save first; the test runs against the saved destination/)).toBeInTheDocument();
+  });
+
+  it('shows an error when the test request itself fails (network/HTTP)', async () => {
+    mockApiPost.mockRejectedValue(new Error('boom'));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Test connection')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Test connection'));
+    await waitFor(() => expect(screen.getByText(/Connection test request failed|boom/)).toBeInTheDocument());
+  });
+
+  it('clears a stale fixed endpoint when switching away from GCS', async () => {
+    renderPage();
+    await screen.findByDisplayValue('fireisp-backups');
+    const select = screen.getByDisplayValue('MinIO / self-hosted');
+
+    fireEvent.change(select, { target: { value: 'gcs' } });
+    expect(screen.getByDisplayValue('https://storage.googleapis.com')).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: 'custom' } });
+    // The GCS endpoint must not stick to a provider without a fixed endpoint.
+    expect(screen.queryByDisplayValue('https://storage.googleapis.com')).toBeNull();
+  });
+
   it('warns when no off-site destination is configured at all', async () => {
     installGets({ settings: { ...SETTINGS, remote_enabled: false, secret_configured: false, effective_source: 'none' }, runs: [], files: [] });
     renderPage();

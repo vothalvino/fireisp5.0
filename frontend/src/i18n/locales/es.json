@@ -423,6 +423,7 @@
     "secretSaved": "•••••• (guardada — deja en blanco para conservarla)",
     "testing": "Probando…",
     "testConnection": "Probar conexión",
+    "testSaveFirst": "Tienes cambios sin guardar — guarda primero; la prueba usa el destino guardado.",
     "saved": "Configuración guardada.",
     "testOk": "Prueba de conexión exitosa (origen: {{source}}) — se subió y eliminó un objeto de prueba.",
     "testFail": "Falló la prueba de conexión: {{error}}",

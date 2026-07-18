@@ -423,6 +423,7 @@
     "secretSaved": "•••••• (salva — deixe em branco para manter)",
     "testing": "Testando…",
     "testConnection": "Testar conexão",
+    "testSaveFirst": "Você tem alterações não salvas — salve primeiro; o teste usa o destino salvo.",
     "saved": "Configurações salvas.",
     "testOk": "Teste de conexão bem-sucedido (origem: {{source}}) — um objeto de teste foi enviado e excluído.",
     "testFail": "Falha no teste de conexão: {{error}}",

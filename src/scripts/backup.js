@@ -157,9 +157,17 @@ async function doBackup(trigger) {
     }
   };
 
-  // Ensure backup directory exists
-  if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  // Ensure backup directory exists — a failure here (EACCES/EROFS/ENOSPC on
+  // a mis-owned volume) must finalize the run row like any other failure, or
+  // the run sits at 'running' forever on the /backups page.
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
+  } catch (err) {
+    logger.error({ err, backupDir: BACKUP_DIR }, 'Backup directory unavailable');
+    await finishRun({ status: 'failed', errorMessage: `Backup directory unavailable: ${err.message}` });
+    throw err;
   }
 
   const host = process.env.DB_HOST || '127.0.0.1';

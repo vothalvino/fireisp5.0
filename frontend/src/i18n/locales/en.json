@@ -423,6 +423,7 @@
     "secretSaved": "•••••• (saved — leave blank to keep)",
     "testing": "Testing…",
     "testConnection": "Test connection",
+    "testSaveFirst": "You have unsaved changes — save first; the test runs against the saved destination.",
     "saved": "Settings saved.",
     "testOk": "Connection test passed (source: {{source}}) — a probe object was uploaded and deleted.",
     "testFail": "Connection test failed: {{error}}",

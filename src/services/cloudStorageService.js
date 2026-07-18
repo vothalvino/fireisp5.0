@@ -136,22 +136,50 @@ function resolveEnvConfig() {
 }
 
 /**
- * Resolve host + base URL for a config. Path-style addressing throughout —
- * required by MinIO without wildcard DNS, accepted by every other provider.
+ * Resolve host + base URL + base path for a config. Path-style addressing
+ * throughout — required by MinIO without wildcard DNS, accepted by every
+ * other provider. `basePath` carries any path component of a custom endpoint
+ * (e.g. a reverse-proxied MinIO at https://host/minio) so the SIGNED path and
+ * the SENT path always agree.
  */
 function resolveTarget(config) {
   if (config.endpoint) {
     const u = new URL(config.endpoint);
-    return { host: u.host, endpointBase: config.endpoint.replace(/\/$/, '') };
+    const basePath = u.pathname.replace(/\/+$/, '');
+    return { host: u.host, origin: u.origin, endpointBase: `${u.origin}${basePath}`, basePath };
   }
   const host = `s3.${config.region}.amazonaws.com`;
-  return { host, endpointBase: `https://${host}` };
+  const origin = `https://${host}`;
+  return { host, origin, endpointBase: origin, basePath: '' };
+}
+
+/**
+ * AWS UriEncode of one path segment: like encodeURIComponent, but also
+ * percent-encodes ! ' ( ) * — S3 canonicalizes those, and a mismatch means
+ * SignatureDoesNotMatch for perfectly legal object keys.
+ */
+function uriEncodeSegment(segment) {
+  return encodeURIComponent(segment)
+    .replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
 function objectPath(config, objectKey) {
-  // Restore literal slashes so S3 treats the key as a path (prefix/filename)
-  // rather than a single URL-encoded segment.
-  return `/${config.bucket}/${encodeURIComponent(objectKey).replace(/%2F/g, '/')}`;
+  // Encode per segment, keeping literal slashes so S3 treats the key as a
+  // path (prefix/filename) rather than a single URL-encoded segment.
+  const encodedKey = String(objectKey).split('/').map(uriEncodeSegment).join('/');
+  return `/${config.bucket}/${encodedKey}`;
+}
+
+/**
+ * The object-key prefix for a config: '' stays '' (bucket root); anything
+ * else is guaranteed to end in exactly one '/'. A prefix saved without the
+ * trailing slash must become a folder, not a filename prefix glued onto the
+ * backup name.
+ */
+function normalizedPrefix(config) {
+  const prefix = config.prefix ?? 'db-backups/';
+  if (!prefix) return '';
+  return prefix.endsWith('/') ? prefix : `${prefix}/`;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,8 +191,10 @@ function objectPath(config, objectKey) {
  * Resolves {statusCode, body}; rejects only on transport errors.
  */
 function signedRequest(config, method, objectKey, body, contentType) {
-  const { host, endpointBase } = resolveTarget(config);
-  const urlPath = objectPath(config, objectKey);
+  const { host, origin, basePath } = resolveTarget(config);
+  // The signed path includes any endpoint base path, and the request URL is
+  // origin + this exact path — signed and sent always match.
+  const urlPath = `${basePath}${objectPath(config, objectKey)}`;
   const payloadHash = hash(body || '', 'hex');
 
   const now = new Date();
@@ -193,7 +223,7 @@ function signedRequest(config, method, objectKey, body, contentType) {
     headers,
   });
 
-  const parsedUrl = new URL(`${endpointBase}${urlPath}`);
+  const parsedUrl = new URL(`${origin}${urlPath}`);
   const requestOptions = {
     method,
     hostname: parsedUrl.hostname,
@@ -216,6 +246,21 @@ function signedRequest(config, method, objectKey, body, contentType) {
 }
 
 /**
+ * Build the client-facing error for a failed S3 request. The raw response
+ * body is NEVER included — these messages end up in last_test_error /
+ * backup_runs.error_message, i.e. in HTTP responses and the UI, and the
+ * endpoint is admin-supplied (reflecting an arbitrary host's response body
+ * would turn the accepted blind-SSRF into a readable one). Only the S3
+ * error <Code> token (a bare word like AccessDenied / NoSuchBucket) is
+ * surfaced; the full body goes to the server log.
+ */
+function remoteError(kind, res) {
+  logger.warn({ kind, statusCode: res.statusCode, body: String(res.body).slice(0, 500) }, 'S3 request failed');
+  const code = /<Code>([A-Za-z0-9]{1,64})<\/Code>/.exec(String(res.body));
+  return new Error(`Cloud ${kind} failed: HTTP ${res.statusCode}${code ? ` (${code[1]})` : ''}`);
+}
+
+/**
  * Upload a buffer to the bucket. Throws on any non-2xx response.
  * @returns {Promise<string>} — the object URL.
  */
@@ -223,7 +268,7 @@ async function uploadObject(config, objectKey, body, contentType) {
   const { endpointBase } = resolveTarget(config);
   const res = await signedRequest(config, 'PUT', objectKey, body, contentType);
   if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new Error(`Cloud upload failed: HTTP ${res.statusCode} — ${res.body.slice(0, 500)}`);
+    throw remoteError('upload', res);
   }
   return `${endpointBase}/${config.bucket}/${objectKey}`;
 }
@@ -234,7 +279,7 @@ async function uploadObject(config, objectKey, body, contentType) {
 async function deleteObject(config, objectKey) {
   const res = await signedRequest(config, 'DELETE', objectKey, null, null);
   if (res.statusCode !== 404 && (res.statusCode < 200 || res.statusCode >= 300)) {
-    throw new Error(`Cloud delete failed: HTTP ${res.statusCode} — ${res.body.slice(0, 500)}`);
+    throw remoteError('delete', res);
   }
 }
 
@@ -259,7 +304,7 @@ async function uploadBackup(localPath, filename, config) {
   }
 
   const destFilename = filename || path.basename(localPath);
-  const objectKey = `${effective.prefix ?? 'db-backups/'}${destFilename}`;
+  const objectKey = `${normalizedPrefix(effective)}${destFilename}`;
   const fileBuffer = fs.readFileSync(localPath);
 
   logger.info(
@@ -271,4 +316,4 @@ async function uploadBackup(localPath, filename, config) {
   return url;
 }
 
-module.exports = { uploadBackup, uploadObject, deleteObject, isConfigured, resolveEnvConfig };
+module.exports = { uploadBackup, uploadObject, deleteObject, isConfigured, resolveEnvConfig, normalizedPrefix };
