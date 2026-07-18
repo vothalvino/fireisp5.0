@@ -90,6 +90,7 @@ describe('notificationHooks', () => {
         organizationId: 1,
         to: 'tech@demo-isp.com',
         subject: expect.stringContaining('#42'),
+        emailFunction: 'support', // work-order emails route from the Support identity
       }));
 
       expect(webhookService.dispatch).toHaveBeenCalledWith(1, 'work_order.assigned', expect.objectContaining({ id: 42, assigned_to: 9 }));
@@ -128,7 +129,7 @@ describe('notificationHooks', () => {
         expect.objectContaining({ clientName: 'Juan Pérez', invoiceNumber: 'INV-001' }),
       );
       expect(emailTransport.sendEmail).toHaveBeenCalledWith(
-        expect.objectContaining({ organizationId: 1, to: 'juan@example.com' }),
+        expect.objectContaining({ organizationId: 1, to: 'juan@example.com', emailFunction: 'billing' }),
       );
 
       // SSE broadcast
@@ -805,6 +806,7 @@ describe('notificationHooks', () => {
       });
 
       const call = emailTransport.sendEmail.mock.calls[0][0];
+      expect(call.emailFunction).toBe('support'); // satisfaction survey routes from the Support identity
       expect(call.html).not.toContain('<script>alert(1)</script>');
       expect(call.html).toContain('O&#x27;Brien');
       expect(call.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
@@ -858,6 +860,7 @@ describe('notificationHooks', () => {
 
       const call = emailTransport.sendEmail.mock.calls.find(c => c[0].to === 'admin@example.com');
       expect(call).toBeTruthy();
+      expect(call[0].emailFunction).toBe('noc'); // outage alerts route from the NOC identity
       expect(call[0].html).not.toContain('<script>alert(1)</script>');
       expect(call[0].html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; Fiber cut');
 
