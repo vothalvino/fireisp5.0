@@ -856,6 +856,7 @@ async function sfpLifespan(organizationId) {
       DATEDIFF(NOW(), installed_at) AS age_days
     FROM \`sfp_inventory\`
     WHERE organization_id = ?
+      AND deleted_at IS NULL
       AND lifecycle_status IN ('installed', 'removed', 'failed', 'retired')
     ORDER BY age_days DESC
   `, [organizationId]);
@@ -1066,6 +1067,7 @@ async function ponUtilization(organizationId) {
       END AS utilization_pct
     FROM \`olt_ports\`
     WHERE organization_id = ?
+      AND deleted_at IS NULL
       AND port_type IN ('gpon', 'epon', 'xgspon')
     ORDER BY utilization_pct DESC
   `, [organizationId]);
@@ -1138,6 +1140,7 @@ async function ipAssignmentLog(organizationId, { from, to, ip_address } = {}) {
     FROM \`ip_assignments\` ia
     LEFT JOIN \`clients\` c ON c.id = ia.client_id AND c.deleted_at IS NULL
     WHERE ia.organization_id = ?
+      AND ia.deleted_at IS NULL
       AND ia.assigned_at >= ? AND ia.assigned_at <= ?
       ${ipFilter}
     ORDER BY ia.assigned_at DESC
@@ -1201,7 +1204,7 @@ async function interceptionReadiness(organizationId) {
     db.queryReplica(`
       SELECT COUNT(*) AS cnt
       FROM \`ip_assignments\`
-      WHERE organization_id = ? AND status = 'active'
+      WHERE organization_id = ? AND status = 'active' AND deleted_at IS NULL
     `, [organizationId]),
   ]);
 
@@ -1240,7 +1243,7 @@ async function regulatoryExport(organizationId, { from, to } = {}) {
       ia.assigned_at
     FROM \`clients\` c
     JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id AND co.deleted_at IS NULL
-    JOIN \`ip_assignments\` ia ON ia.contract_id = co.id AND ia.organization_id = c.organization_id
+    JOIN \`ip_assignments\` ia ON ia.contract_id = co.id AND ia.organization_id = c.organization_id AND ia.deleted_at IS NULL
     LEFT JOIN \`plans\` p ON p.id = co.plan_id
     WHERE c.organization_id = ?
       AND co.status = 'active'
