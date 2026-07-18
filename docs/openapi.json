@@ -3732,6 +3732,176 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Add existing clients to the group (bulk)",
+        "operationId": "addClientGroupMembers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "AddGroupMembers",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "GroupMembersResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups/{id}/members/{clientId}": {
+      "delete": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Remove a client from the group",
+        "operationId": "removeClientGroupMember",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GroupMembersResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups/{id}/billing": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Shared-billing group: combined balance + open invoices across members",
+        "operationId": "getClientGroupBilling",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GroupBilling",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/client-groups/{id}/pay": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Primary pays the group balance on behalf of members (FIFO across open invoices)",
+        "operationId": "payClientGroup",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "GroupPay",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "GroupPaymentResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/client-groups/{id}/restore": {
@@ -52619,6 +52789,41 @@
           "notes": {
             "type": "string",
             "maximum": 65535
+          }
+        }
+      },
+      "clientGroups_payClientGroup": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "check",
+              "card",
+              "transfer",
+              "online",
+              "credit_card",
+              "debit_card",
+              "bank_transfer",
+              "oxxo_pay",
+              "spei",
+              "codi",
+              "convenience_store",
+              "digital_wallet",
+              "other"
+            ]
+          },
+          "reference_number": {
+            "type": "string",
+            "maximum": 100
+          },
+          "invoice_ids": {
+            "type": "string"
           }
         }
       },

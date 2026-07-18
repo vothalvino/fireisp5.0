@@ -41,7 +41,7 @@ interface GroupsResponse {
 interface GroupFormBody {
   name: string;
   billing_mode: string;
-  primary_client_id?: number;
+  primary_client_id?: number | null;
   notes?: string;
 }
 
@@ -54,7 +54,29 @@ interface GroupMember {
   status: string;
 }
 
+interface MemberBalance {
+  client_id: number;
+  name: string;
+  is_primary: boolean;
+  balance: number;
+  currency: string;
+}
+
+interface GroupBilling {
+  group: { id: number; name: string; primary_client_id: number | null };
+  members: MemberBalance[];
+  open_invoices: { invoice_id: number; invoice_number: string; client_name: string; balance_due: number; currency: string }[];
+  group_balance: number;
+  group_currency: string;
+  payable_total: number;
+}
+
 const BILLING_MODES = ['separate', 'shared'];
+const PAYMENT_METHODS = ['cash', 'transfer', 'card', 'spei', 'oxxo_pay', 'check', 'other'];
+
+function fmtMoney(n: number, currency: string): string {
+  return `${n < 0 ? '-' : ''}${currency} ${Math.abs(n).toFixed(2)}`;
+}
 
 async function fetchGroups(page: number, pageSize: number): Promise<GroupsResponse> {
   const res = await api.GET('/client-groups', { params: { query: { page, limit: pageSize } as never } });
@@ -66,9 +88,168 @@ async function fetchGroups(page: number, pageSize: number): Promise<GroupsRespon
 // Expandable members sub-row (lazy-loaded when the row is toggled open)
 // ---------------------------------------------------------------------------
 
-function GroupMembersRow({ groupId, colSpan }: { groupId: number; colSpan: number }) {
+// ---- Add-members picker: search existing clients and assign them in bulk ---
+function AddMembersModal({ groupId, existingIds, onClose, onSaved }: {
+  groupId: number; existingIds: Set<number>; onClose: () => void; onSaved: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Record<number, string>>({});
+  const [error, setError] = useState('');
+
+  const results = useQuery({
+    queryKey: ['client-picker', search],
+    queryFn: async () => {
+      const res = await api.GET('/clients', { params: { query: { search, limit: 20 } as never } });
+      if (res.error) throw new Error('Failed to search clients');
+      return (res.data as unknown as { data: { id: number; name: string; client_group_id: number | null }[] }).data;
+    },
+  });
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const ids = Object.keys(selected).map(Number);
+      const { error: e } = await api.POST('/client-groups/{id}/members', {
+        params: { path: { id: groupId } }, body: { client_ids: ids } as never,
+      });
+      if (e) throw new Error(extractApiError(e, 'Failed to add members'));
+    },
+    onSuccess: () => { onSaved(); onClose(); },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Failed to add members'),
+  });
+
+  const toggle = (id: number, name: string) => setSelected(prev => {
+    const next = { ...prev };
+    if (next[id]) delete next[id]; else next[id] = name;
+    return next;
+  });
+  const selCount = Object.keys(selected).length;
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Add members">
+      <div style={{ ...modalBox, width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Add members</h3>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          Search for existing clients and add them to this group.
+        </p>
+        {error && <div style={errorBox}>{error}</div>}
+        <input style={inputStyle} type="text" placeholder="Search by name, email or phone…" autoFocus
+          value={search} onChange={e => setSearch(e.target.value)} />
+
+        <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginTop: 8 }}>
+          {results.isLoading && <p style={{ padding: 10, color: 'var(--text-secondary)' }}>Searching…</p>}
+          {results.data && results.data.length === 0 && <p style={{ padding: 10, color: 'var(--text-secondary)' }}>No clients found.</p>}
+          {results.data && results.data.map(c => {
+            const already = existingIds.has(c.id);
+            return (
+              <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: '1px solid var(--border-subtle)', opacity: already ? 0.5 : 1, cursor: already ? 'default' : 'pointer' }}>
+                <input type="checkbox" disabled={already} checked={already || Boolean(selected[c.id])} onChange={() => toggle(c.id, c.name)} />
+                <span style={{ fontWeight: 600 }}>{c.name}</span>
+                {already && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>already in this group</span>}
+                {!already && c.client_group_id != null && <span style={{ fontSize: '0.75rem', color: '#b45309' }}>in another group — will move</span>}
+              </label>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: '1rem', justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
+          <button type="button" onClick={() => { setError(''); add.mutate(); }} style={submitBtn} disabled={add.isPending || selCount === 0}>
+            {add.isPending ? 'Adding…' : `Add ${selCount || ''} member${selCount === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Pay the group balance on behalf of members ----------------------------
+function PayGroupModal({ group, billing, onClose, onSaved }: {
+  group: ClientGroup; billing: GroupBilling; onClose: () => void; onSaved: () => void;
+}) {
+  const [amount, setAmount] = useState(String(billing.payable_total.toFixed(2)));
+  const [method, setMethod] = useState('cash');
+  const [reference, setReference] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ allocated_total: number; unallocated_credit: number; settled_invoices: unknown[] } | null>(null);
+
+  const pay = useMutation({
+    mutationFn: async () => {
+      const { data, error: e } = await api.POST('/client-groups/{id}/pay', {
+        params: { path: { id: group.id } },
+        body: { amount: Number(amount), payment_method: method, reference_number: reference || undefined } as never,
+      });
+      if (e) throw new Error(extractApiError(e, 'Payment failed'));
+      return (data as unknown as { data: { allocated_total: number; unallocated_credit: number; settled_invoices: unknown[] } }).data;
+    },
+    onSuccess: (r) => { setResult(r); onSaved(); },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Payment failed'),
+  });
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Pay group balance">
+      <div style={{ ...modalBox, width: 460 }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Pay group balance — {group.name}</h3>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          A single payment recorded on the primary member, applied oldest-invoice-first across the group.
+        </p>
+        {error && <div style={errorBox}>{error}</div>}
+
+        {result ? (
+          <div>
+            <div style={{ padding: 12, background: 'var(--bg-subtle, #f0fdf4)', borderRadius: 6, fontSize: '0.9rem' }}>
+              ✓ Applied {fmtMoney(result.allocated_total, billing.group_currency)} across {result.settled_invoices.length} invoice(s).
+              {result.unallocated_credit > 0 && <> Remaining {fmtMoney(result.unallocated_credit, billing.group_currency)} left as credit on the primary.</>}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button type="button" onClick={onClose} style={submitBtn}>Done</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+              Group open balance: <strong>{fmtMoney(billing.payable_total, billing.group_currency)}</strong>
+            </div>
+            <label style={labelStyle}>Amount</label>
+            <input style={inputStyle} type="number" min={0.01} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
+            <label style={labelStyle}>Payment method</label>
+            <select style={inputStyle} value={method} onChange={e => setMethod(e.target.value)}>
+              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <label style={labelStyle}>Reference (optional)</label>
+            <input style={inputStyle} type="text" value={reference} onChange={e => setReference(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
+              <button type="button" onClick={() => { setError(''); pay.mutate(); }} style={submitBtn} disabled={pay.isPending || !(Number(amount) > 0)}>
+                {pay.isPending ? 'Processing…' : 'Pay now'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Expandable members sub-row (lazy-loaded when the row is toggled open) —
+// lists members with balances, lets you add/remove members and set the
+// primary, and (for shared groups) pay the combined balance.
+// ---------------------------------------------------------------------------
+
+function GroupMembersRow({ group, colSpan }: { group: ClientGroup; colSpan: number }) {
   const { t } = useTranslation();
-  const { data, isLoading, error } = useQuery({
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const groupId = group.id;
+  const canUpdate = can(user, 'clients.update');
+  const canPay = can(user, 'payments.create');
+  const canViewBilling = can(user, 'payments.view');
+  const isShared = group.billing_mode === 'shared';
+  const [showAdd, setShowAdd] = useState(false);
+  const [showPay, setShowPay] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  const membersQ = useQuery({
     queryKey: ['client-group-members', groupId],
     queryFn: async () => {
       const res = await api.GET('/client-groups/{id}/members', { params: { path: { id: groupId } } });
@@ -77,42 +258,185 @@ function GroupMembersRow({ groupId, colSpan }: { groupId: number; colSpan: numbe
     },
   });
 
+  const billingQ = useQuery({
+    queryKey: ['client-group-billing', groupId],
+    enabled: isShared && canViewBilling,
+    queryFn: async () => {
+      const res = await api.GET('/client-groups/{id}/billing', { params: { path: { id: groupId } } });
+      if (res.error) throw new Error('Failed to load billing');
+      return (res.data as unknown as { data: GroupBilling }).data;
+    },
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['client-group-members', groupId] });
+    qc.invalidateQueries({ queryKey: ['client-group-billing', groupId] });
+    qc.invalidateQueries({ queryKey: ['client-groups'] });
+  };
+
+  const removeMember = useMutation({
+    mutationFn: async (clientId: number) => {
+      const { error: e } = await api.DELETE('/client-groups/{id}/members/{clientId}', { params: { path: { id: groupId, clientId } } });
+      if (e) throw new Error(extractApiError(e, 'Failed to remove member'));
+    },
+    onSuccess: invalidate,
+    onError: (err: unknown) => setActionError(err instanceof Error ? err.message : 'Failed to remove member'),
+  });
+
+  const makePrimary = useMutation({
+    mutationFn: async (clientId: number) => {
+      const { error: e } = await api.PUT('/client-groups/{id}', { params: { path: { id: groupId } }, body: { primary_client_id: clientId } as never });
+      if (e) throw new Error(extractApiError(e, 'Failed to set primary'));
+    },
+    onSuccess: invalidate,
+    onError: (err: unknown) => setActionError(err instanceof Error ? err.message : 'Failed to set primary'),
+  });
+
+  const members = membersQ.data ?? [];
+  const balanceByClient = new Map<number, MemberBalance>((billingQ.data?.members ?? []).map(m => [m.client_id, m]));
+  const existingIds = new Set(members.map(m => m.id));
+
   return (
     <tr>
-      <td colSpan={colSpan} style={{ padding: '0 8px 12px 24px', background: 'var(--bg-subtle, transparent)' }}>
-        {isLoading && <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.loading')}</p>}
-        {error && <div style={errorBox}>{(error as Error).message}</div>}
-        {data && data.length === 0 && (
+      <td colSpan={colSpan} style={{ padding: '0 8px 14px 24px', background: 'var(--bg-subtle, transparent)' }}>
+        {/* Toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '10px 0 6px' }}>
+          {canUpdate && (
+            <button type="button" style={{ ...submitBtn, padding: '5px 12px' }} onClick={() => { setActionError(''); setShowAdd(true); }}>
+              ＋ Add members
+            </button>
+          )}
+          {isShared && canViewBilling && billingQ.data && (
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '0.85rem' }}>
+                Group balance:{' '}
+                <strong style={{ color: billingQ.data.group_balance > 0.005 ? '#b91c1c' : '#15803d' }}>
+                  {fmtMoney(billingQ.data.group_balance, billingQ.data.group_currency)}
+                </strong>
+              </span>
+              {canPay && billingQ.data.payable_total > 0.005 && (
+                <button type="button" style={{ ...submitBtn, padding: '5px 12px' }} onClick={() => { setActionError(''); setShowPay(true); }}>
+                  Pay group balance
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+        {isShared && !group.primary_client_id && (
+          <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: '#b45309' }}>
+            This shared group has no primary member yet — use ★ Make primary on a member to enable group payment.
+          </p>
+        )}
+        {actionError && <div style={errorBox}>{actionError}</div>}
+        {isShared && canViewBilling && billingQ.error && (
+          <div style={errorBox}>{(billingQ.error as Error).message}</div>
+        )}
+
+        {membersQ.isLoading && <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.loading')}</p>}
+        {membersQ.error && <div style={errorBox}>{(membersQ.error as Error).message}</div>}
+        {members.length === 0 && !membersQ.isLoading && (
           <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.noMembers')}</p>
         )}
-        {data && data.length > 0 && (
+
+        {members.length > 0 && (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginTop: 4 }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ padding: '6px 8px' }}>{t('clientList.table.name')}</th>
                 <th style={{ padding: '6px 8px' }}>{t('clientList.table.email')}</th>
-                <th style={{ padding: '6px 8px' }}>{t('clientList.table.phone')}</th>
-                <th style={{ padding: '6px 8px' }}>{t('clientList.table.type')}</th>
                 <th style={{ padding: '6px 8px' }}>{t('clientList.table.status')}</th>
+                {isShared && canViewBilling && <th style={{ padding: '6px 8px', textAlign: 'right' }}>Balance</th>}
+                {canUpdate && <th style={{ padding: '6px 8px', textAlign: 'right' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {data.map(m => (
-                <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>
-                    <Link to={`/clients/${m.id}`} style={{ color: 'var(--link)', textDecoration: 'none' }}>{m.name}</Link>
-                  </td>
-                  <td style={{ padding: '6px 8px' }}>{m.email || '—'}</td>
-                  <td style={{ padding: '6px 8px' }}>{m.phone || '—'}</td>
-                  <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>{m.client_type || '—'}</td>
-                  <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>{m.status}</td>
-                </tr>
-              ))}
+              {members.map(m => {
+                const isPrimary = group.primary_client_id === m.id;
+                const bal = balanceByClient.get(m.id);
+                return (
+                  <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '6px 8px', fontWeight: 600 }}>
+                      <Link to={`/clients/${m.id}`} style={{ color: 'var(--link)', textDecoration: 'none' }}>{m.name}</Link>
+                      {isPrimary && <span title="Primary (billing owner)" style={{ marginLeft: 6, color: '#ca8a04' }}>★</span>}
+                    </td>
+                    <td style={{ padding: '6px 8px' }}>{m.email || '—'}</td>
+                    <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>{m.status}</td>
+                    {isShared && canViewBilling && (
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace', color: bal && bal.balance > 0.005 ? '#b91c1c' : 'inherit' }}>
+                        {bal ? fmtMoney(bal.balance, bal.currency) : '—'}
+                      </td>
+                    )}
+                    {canUpdate && (
+                      <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {isShared && !isPrimary && (
+                          <button type="button" style={{ ...cancelBtn, padding: '3px 8px', marginRight: 6 }}
+                            onClick={() => { setActionError(''); makePrimary.mutate(m.id); }} disabled={makePrimary.isPending}>★ Make primary</button>
+                        )}
+                        <button type="button" style={{ ...cancelBtn, padding: '3px 8px' }}
+                          onClick={() => { setActionError(''); removeMember.mutate(m.id); }} disabled={removeMember.isPending}>Remove</button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
+
+        {showAdd && <AddMembersModal groupId={groupId} existingIds={existingIds} onClose={() => setShowAdd(false)} onSaved={invalidate} />}
+        {showPay && billingQ.data && <PayGroupModal group={group} billing={billingQ.data} onClose={() => setShowPay(false)} onSaved={invalidate} />}
       </td>
     </tr>
+  );
+}
+
+// ---- Reusable single-client search+select (like the Clients list search) ---
+function ClientSearchSelect({ valueId, valueLabel, onPick, placeholder }: {
+  valueId?: number; valueLabel?: string; onPick: (id: number | undefined, name: string) => void; placeholder?: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const results = useQuery({
+    queryKey: ['client-search-select', search],
+    enabled: open && search.trim().length > 0,
+    queryFn: async () => {
+      const res = await api.GET('/clients', { params: { query: { search, limit: 10 } as never } });
+      if (res.error) throw new Error('Failed to search clients');
+      return (res.data as unknown as { data: { id: number; name: string }[] }).data;
+    },
+  });
+
+  if (valueId && !open) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...inputStyle, display: 'flex', alignItems: 'center', flex: 1 }}>
+          ★ {valueLabel || `Client #${valueId}`}
+        </span>
+        <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }} onClick={() => { setOpen(true); setSearch(''); }}>Change</button>
+        <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }} onClick={() => onPick(undefined, '')}>Clear</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input style={inputStyle} type="text" value={search} placeholder={placeholder || 'Search clients by name, email or phone…'}
+        onFocus={() => setOpen(true)} onChange={e => { setSearch(e.target.value); setOpen(true); }} />
+      {open && search.trim().length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 10, left: 0, right: 0, background: 'var(--bg-primary, #fff)', border: '1px solid var(--border)', borderRadius: 6, maxHeight: 200, overflowY: 'auto' }}>
+          {results.isLoading && <p style={{ padding: 8, margin: 0, color: 'var(--text-secondary)' }}>Searching…</p>}
+          {results.data && results.data.length === 0 && <p style={{ padding: 8, margin: 0, color: 'var(--text-secondary)' }}>No clients found.</p>}
+          {results.data && results.data.map(c => (
+            <button key={c.id} type="button"
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }}
+              onClick={() => { onPick(c.id, c.name); setOpen(false); setSearch(''); }}>
+              {c.name} <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>#{c.id}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -133,7 +457,22 @@ function GroupFormModal({
     primary_client_id: initial?.primary_client_id ?? undefined,
     notes: initial?.notes ?? '',
   });
+  const [primaryLabel, setPrimaryLabel] = useState('');
   const [error, setError] = useState('');
+
+  // In edit mode, resolve the existing primary's NAME so the picker shows a
+  // person, not "Client #id".
+  useQuery({
+    queryKey: ['client-name', initial?.primary_client_id],
+    enabled: mode === 'edit' && Boolean(initial?.primary_client_id),
+    queryFn: async () => {
+      const res = await api.GET('/clients/{id}', { params: { path: { id: initial!.primary_client_id! } } });
+      if (res.error) return null;
+      const name = (res.data as unknown as { data?: { name?: string } }).data?.name ?? '';
+      if (name) setPrimaryLabel(name);
+      return name;
+    },
+  });
 
   const mutation = useMutation({
     mutationFn: async (body: GroupFormBody) => {
@@ -156,7 +495,12 @@ function GroupFormModal({
     e.preventDefault();
     if (!form.name.trim()) { setError('Name is required.'); return; }
     const body: GroupFormBody = { name: form.name.trim(), billing_mode: form.billing_mode };
-    if (form.primary_client_id) body.primary_client_id = Number(form.primary_client_id);
+    if (form.primary_client_id) {
+      body.primary_client_id = Number(form.primary_client_id);
+    } else if (mode === 'edit' && initial?.primary_client_id) {
+      // Explicitly clear a previously-set primary (null, not omit-to-keep).
+      body.primary_client_id = null;
+    }
     if (form.notes && form.notes.trim()) body.notes = form.notes.trim();
     setError('');
     mutation.mutate(body);
@@ -179,9 +523,16 @@ function GroupFormModal({
             {BILLING_MODES.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
 
-          <label style={labelStyle}>Primary client ID (billing owner for shared)</label>
-          <input style={inputStyle} type="number" min={1} value={form.primary_client_id ?? ''}
-            onChange={e => setForm(p => ({ ...p, primary_client_id: e.target.value ? Number(e.target.value) : undefined }))} />
+          <label style={labelStyle}>Primary member (billing owner)</label>
+          <ClientSearchSelect
+            valueId={form.primary_client_id ?? undefined}
+            valueLabel={primaryLabel}
+            placeholder="Search for the billing owner…"
+            onPick={(id, name) => { setForm(p => ({ ...p, primary_client_id: id })); setPrimaryLabel(name); }}
+          />
+          <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            For shared billing. You can also set it later with ★ Make primary in the members list.
+          </p>
 
           <label style={labelStyle}>Notes</label>
           <input style={inputStyle} type="text" value={form.notes}
@@ -284,7 +635,7 @@ export function ClientGroupList() {
                     )}
                   </td>
                 </tr>
-                {expanded === g.id && <GroupMembersRow groupId={g.id} colSpan={5} />}
+                {expanded === g.id && <GroupMembersRow group={g} colSpan={5} />}
               </Fragment>
             ))}
           </tbody>
