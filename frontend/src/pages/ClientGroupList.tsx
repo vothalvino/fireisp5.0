@@ -62,13 +62,15 @@ interface MemberBalance {
   currency: string;
 }
 
+interface GroupInvoice { invoice_id: number; invoice_number: string; client_name: string; balance_due: number; currency: string }
 interface GroupBilling {
   group: { id: number; name: string; primary_client_id: number | null };
   members: MemberBalance[];
-  open_invoices: { invoice_id: number; invoice_number: string; client_name: string; balance_due: number; currency: string }[];
+  open_invoices: GroupInvoice[];
   group_balance: number;
   group_currency: string;
   payable_total: number;
+  other_currency_invoices?: GroupInvoice[];
 }
 
 const BILLING_MODES = ['separate', 'shared'];
@@ -325,6 +327,11 @@ function GroupMembersRow({ group, colSpan }: { group: ClientGroup; colSpan: numb
         {isShared && !group.primary_client_id && (
           <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: '#b45309' }}>
             This shared group has no primary member yet — use ★ Make primary on a member to enable group payment.
+          </p>
+        )}
+        {isShared && canViewBilling && (billingQ.data?.other_currency_invoices?.length ?? 0) > 0 && (
+          <p style={{ margin: '2px 0 6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            {billingQ.data!.other_currency_invoices!.length} legacy invoice(s) in another currency are shown below but settled separately — the group balance and payment are in {billingQ.data!.group_currency}.
           </p>
         )}
         {actionError && <div style={errorBox}>{actionError}</div>}

@@ -127,6 +127,19 @@ describe('getGroupBilling', () => {
     ClientGroup.findById.mockResolvedValue(null);
     await expect(groupBillingService.getGroupBilling(10, 7)).rejects.toMatchObject({ statusCode: 404 });
   });
+
+  it('payable_total counts only settlement-currency invoices; legacy foreign ones are surfaced separately', async () => {
+    mockGetInvoices.mockImplementation(async (_exec, _org, clientId) => {
+      if (clientId === 2) return [{ ...INVOICES[2][0], currency: 'USD' }]; // legacy USD 50
+      return (INVOICES[clientId] || []).map((r) => ({ ...r }));            // MXN
+    });
+    const res = await groupBillingService.getGroupBilling(10, 7);
+    // Settlement currency = org (MXN, mixed set). Payable = MXN invoices only:
+    // 101 (100) + 301 (30) = 130. The USD 50 is NOT in payable_total.
+    expect(res.group_currency).toBe('MXN');
+    expect(res.payable_total).toBe(130);
+    expect(res.other_currency_invoices.map((i) => i.invoice_id)).toEqual([201]);
+  });
 });
 
 describe('payGroup', () => {
@@ -153,12 +166,31 @@ describe('payGroup', () => {
     expect(byClient).toEqual({ 1: 100, 2: 50, 3: 30 });
   });
 
-  it('refuses to settle a group whose open invoices span more than one currency', async () => {
+  it('settles the org-currency invoices and SKIPS legacy foreign-currency ones (one-per-org)', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    // client 2's invoice is a legacy USD one; the rest are MXN (org currency).
     mockGetInvoices.mockImplementation(async (_exec, _org, clientId) => {
       if (clientId === 2) return [{ ...INVOICES[2][0], currency: 'USD' }];
       return (INVOICES[clientId] || []).map((r) => ({ ...r }));
     });
-    await expect(groupBillingService.payGroup(10, 7, {})).rejects.toMatchObject({ statusCode: 422 });
+
+    const res = await groupBillingService.payGroup(10, 7, {});
+    // Mixed → settlement currency falls back to org currency (MXN). Only the
+    // two MXN invoices settle, FIFO by date: 301 (Feb 10) then 101 (Mar 1);
+    // the USD 201 is left untouched.
+    expect(conn.allocations.map((a) => a.invoice_id)).toEqual([301, 101]);
+    expect(res.payment.currency).toBe('MXN');
+    expect(res.allocated_total).toBe(130);
+    expect(res.skipped_other_currency.map((s) => s.invoice_id)).toEqual([201]);
+  });
+
+  it('rejects explicit invoice_ids that span currencies (caller error, not silent skip)', async () => {
+    mockGetInvoices.mockImplementation(async (_exec, _org, clientId) => {
+      if (clientId === 2) return [{ ...INVOICES[2][0], currency: 'USD' }];
+      return (INVOICES[clientId] || []).map((r) => ({ ...r }));
+    });
+    await expect(groupBillingService.payGroup(10, 7, { invoice_ids: [101, 201] })).rejects.toMatchObject({ statusCode: 422 });
   });
 
   it('overpay credit is attributed to the primary in the ledger', async () => {

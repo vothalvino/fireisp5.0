@@ -123,8 +123,18 @@ async function getGroupBilling(orgId, groupId) {
   });
 
   const groupBalance = Math.round(memberBalances.reduce((s, m) => s + m.balance, 0) * 100) / 100;
-  const currencies = new Set(memberBalances.filter((m) => Math.abs(m.balance) > 0.005).map((m) => m.currency));
-  const groupCurrency = currencies.size === 1 ? [...currencies][0] : await Organization.getCurrency(orgId);
+  // Settlement currency = the single currency of the open invoices if they
+  // agree, else the org currency (one-per-org). payable_total is the amount a
+  // group payment would actually settle — the settlement-currency invoices —
+  // NOT a meaningless cross-currency sum. Legacy foreign invoices are exposed
+  // separately so the UI can note them without blocking payment.
+  const invoiceCurrencies = new Set(openInvoices.map((i) => i.currency));
+  const groupCurrency = invoiceCurrencies.size === 1
+    ? [...invoiceCurrencies][0]
+    : await Organization.getCurrency(orgId);
+  const payableTotal = Math.round(
+    openInvoices.filter((i) => i.currency === groupCurrency).reduce((s, i) => s + i.balance_due, 0) * 100,
+  ) / 100;
 
   return {
     group: { id: Number(group.id), name: group.name, billing_mode: group.billing_mode, primary_client_id: primaryId },
@@ -132,7 +142,8 @@ async function getGroupBilling(orgId, groupId) {
     open_invoices: openInvoices,
     group_balance: groupBalance,
     group_currency: groupCurrency,
-    payable_total: Math.round(openInvoices.reduce((s, i) => s + i.balance_due, 0) * 100) / 100,
+    payable_total: payableTotal,
+    other_currency_invoices: openInvoices.filter((i) => i.currency !== groupCurrency),
   };
 }
 
@@ -165,6 +176,8 @@ async function payGroup(orgId, groupId, opts = {}) {
 
   const conn = await db.getConnection();
   let payment;
+  // Assigned inside the transaction before the (post-commit) return reads it.
+  let skippedOtherCurrency;
   const settled = [];
   const justPaidInvoices = [];
   try {
@@ -191,17 +204,29 @@ async function payGroup(orgId, groupId, opts = {}) {
       invoiceRows = invoiceRows.filter((r) => requestedIds.has(Number(r.id)));
     }
 
-    // A single payment cannot honestly settle invoices in different currencies
-    // (there is no conversion here) — refuse to cross currencies. The payment
-    // is denominated in the currency of the invoices it settles, not blindly
-    // the org currency.
+    // A single payment can't honestly settle invoices in different currencies
+    // (there is no conversion here). FireISP currency is one-per-org, so a
+    // group's real invoices all share the org currency — but LEGACY invoices
+    // in a foreign currency may still exist as historical data. Rather than
+    // dead-ending the whole payment on those, settle the SETTLEMENT-currency
+    // invoices (the single shared currency if the payable set agrees, else the
+    // org currency) and skip any foreign-currency legacy ones (reported back,
+    // not silently dropped). The payment is denominated in that currency.
     const payableRows = invoiceRows.filter((inv) => Math.round(Number(inv.balance_due) * 100) / 100 > 0);
     const currencies = new Set(payableRows.map((inv) => inv.currency));
-    if (currencies.size > 1) {
-      await conn.rollback();
-      throw new ValidationError('This group has open invoices in more than one currency. Pay each currency separately (use invoice_ids to select one currency).');
-    }
     const currency = currencies.size === 1 ? [...currencies][0] : await Organization.getCurrency(orgId);
+
+    skippedOtherCurrency = payableRows
+      .filter((inv) => inv.currency !== currency)
+      .map((inv) => ({ invoice_id: Number(inv.id), invoice_number: inv.invoice_number, currency: inv.currency, balance_due: Math.round(Number(inv.balance_due) * 100) / 100 }));
+    if (requestedIds && skippedOtherCurrency.length) {
+      // If the caller explicitly asked for invoices, a currency mismatch is
+      // their error to fix, not something to silently skip.
+      await conn.rollback();
+      throw new ValidationError(`Selected invoice(s) span more than one currency; settle ${currency} invoices separately.`);
+    }
+    // Only settlement-currency invoices are eligible for allocation.
+    invoiceRows = invoiceRows.filter((inv) => inv.currency === currency);
 
     const payableTotal = Math.round(
       invoiceRows.reduce((s, inv) => s + Math.max(0, Math.round(Number(inv.balance_due) * 100) / 100), 0) * 100,
@@ -314,6 +339,8 @@ async function payGroup(orgId, groupId, opts = {}) {
     unallocated_credit: Math.round((payment.amount - allocatedTotal) * 100) / 100,
     settled_invoices: settled,
     fully_paid_count: justPaidInvoices.length,
+    // Legacy foreign-currency invoices left untouched (settle them separately).
+    skipped_other_currency: skippedOtherCurrency,
   };
 }
 
