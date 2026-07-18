@@ -193,6 +193,7 @@ async function sendPaymentReminders(organizationId) {
 
             await emailTransport.sendEmail({
               organizationId,
+              emailFunction: 'billing',
               to: invoice.client_email,
               subject,
               html,

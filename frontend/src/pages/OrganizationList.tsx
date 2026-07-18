@@ -2,18 +2,15 @@
 // FireISP 5.0 — Organization Management
 // =============================================================================
 // Admin page at /organizations. Lists tenant organizations with a paginated
-// table, a "New Organization" create modal plus per-row Edit and Delete
-// (soft-delete). Two sub-resource modals are reachable per row:
-//   • Settings — viewer + editor of the org key/value settings map. Each value
-//     is editable inline and saved per-key via PUT /organizations/{id}/settings/
-//     {key} ({ value }), the clean per-key contract shared with /settings/{key}.
-//   • Quota — shows current usage vs configured limits and lets an admin edit
-//     the per-tenant limits (PUT /organizations/{id}/quota; NULL = unlimited).
-// All mutations go through the typed `api` client + React Query, invalidating
-// the ['organizations'] query so the list refreshes.
+// table, a "New Organization" create modal, a per-row "Manage" link to the
+// detail page (/organizations/:id — where Edit, Settings, Quota, and the
+// per-function Mail identities live as tabs), and a per-row Delete
+// (soft-delete). All mutations go through the typed `api` client + React
+// Query, invalidating the ['organizations'] query so the list refreshes.
 // =============================================================================
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
@@ -64,21 +61,6 @@ interface OrganizationBody {
   status?: string;
 }
 
-interface QuotaResponse {
-  limits: {
-    max_clients: number | null;
-    max_devices: number | null;
-    max_storage_mb: number | null;
-    max_scheduled_tasks: number | null;
-  } | null;
-  usage: {
-    clients: number;
-    devices: number;
-    storage_mb: number;
-    scheduled_tasks: number;
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -86,13 +68,6 @@ interface QuotaResponse {
 const DEFAULT_PAGE_SIZE = 25;
 const LOCALES = ['global', 'MX'];
 const STATUSES = ['active', 'inactive'];
-
-const QUOTA_FIELDS: { key: keyof NonNullable<QuotaResponse['limits']>; usageKey: keyof QuotaResponse['usage']; label: string }[] = [
-  { key: 'max_clients', usageKey: 'clients', label: 'Clients' },
-  { key: 'max_devices', usageKey: 'devices', label: 'Devices' },
-  { key: 'max_storage_mb', usageKey: 'storage_mb', label: 'Storage (MB)' },
-  { key: 'max_scheduled_tasks', usageKey: 'scheduled_tasks', label: 'Scheduled Tasks' },
-];
 
 // ---------------------------------------------------------------------------
 // Fetch / mutate helpers
@@ -117,28 +92,6 @@ async function updateOrganization(id: number, body: Partial<OrganizationBody>): 
 async function deleteOrganization(id: number): Promise<void> {
   const res = await api.DELETE('/organizations/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete organization');
-}
-
-async function fetchSettings(id: number): Promise<Record<string, string>> {
-  const res = await api.GET('/organizations/{id}/settings', { params: { path: { id } } });
-  if (res.error) throw new Error('Failed to load settings');
-  return ((res.data as unknown as { data: Record<string, string> }).data) ?? {};
-}
-
-async function updateSetting(id: number, key: string, value: string): Promise<void> {
-  const res = await api.PUT('/organizations/{id}/settings/{key}', { params: { path: { id, key } }, body: { value } as never });
-  if (res.error) throw new Error('Failed to update setting');
-}
-
-async function fetchQuota(id: number): Promise<QuotaResponse> {
-  const res = await api.GET('/organizations/{id}/quota', { params: { path: { id } } });
-  if (res.error) throw new Error('Failed to load quota');
-  return (res.data as unknown as { data: QuotaResponse }).data;
-}
-
-async function updateQuota(id: number, body: Record<string, number | null>): Promise<void> {
-  const res = await api.PUT('/organizations/{id}/quota', { params: { path: { id } }, body: body as never });
-  if (res.error) throw new Error('Failed to update quota');
 }
 
 // ---------------------------------------------------------------------------
@@ -342,206 +295,6 @@ function OrgModal({ organization, onClose, onSaved }: OrgModalProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings editor modal
-// ---------------------------------------------------------------------------
-
-function SettingsModal({ organization, onClose }: { organization: Organization; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState('');
-
-  const settingsQ = useQuery({
-    queryKey: ['organization-settings', organization.id],
-    queryFn: () => fetchSettings(organization.id),
-  });
-
-  // Seed the editable form once the settings have loaded.
-  if (settingsQ.data && !loaded) {
-    const seed: Record<string, string> = {};
-    for (const [k, v] of Object.entries(settingsQ.data)) seed[k] = v == null ? '' : String(v);
-    setForm(seed);
-    setLoaded(true);
-  }
-
-  const original = settingsQ.data ?? {};
-  const keys = Object.keys(original);
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      // Persist only the keys whose value changed, one PUT per key.
-      for (const k of keys) {
-        const next = form[k] ?? '';
-        if (next !== (original[k] == null ? '' : String(original[k]))) {
-          await updateSetting(organization.id, k, next);
-        }
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organization-settings', organization.id] });
-      onClose();
-    },
-    onError: () => setError('Failed to save settings.'),
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    mutation.mutate();
-  }
-
-  return (
-    <div style={modalStyles.backdrop} onClick={onClose}>
-      <div style={modalStyles.panel} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Settings for ${organization.name}`}>
-        <div style={modalStyles.header}>
-          <h2 style={modalStyles.title}>⚙️ Settings — {organization.name}</h2>
-          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
-        </div>
-
-        {settingsQ.isLoading ? (
-          <p style={styles.msg}>Loading…</p>
-        ) : settingsQ.error ? (
-          <p style={styles.msgError}>Failed to load settings.</p>
-        ) : keys.length === 0 ? (
-          <p style={styles.msg}>No settings configured.</p>
-        ) : (
-          <form onSubmit={handleSubmit} style={modalStyles.form}>
-            {keys.map(k => (
-              <label key={k} style={modalStyles.label}>
-                {k}
-                <input
-                  style={modalStyles.input}
-                  type="text"
-                  value={form[k] ?? ''}
-                  onChange={e => setForm(prev => ({ ...prev, [k]: e.target.value }))}
-                />
-              </label>
-            ))}
-
-            {error && <p style={modalStyles.error}>{error}</p>}
-
-            <div style={modalStyles.actions}>
-              <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
-              <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
-                {mutation.isPending ? 'Saving…' : 'Save Settings'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Quota modal (view usage + edit limits)
-// ---------------------------------------------------------------------------
-
-function QuotaModal({ organization, onClose }: { organization: Organization; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState('');
-
-  const quotaQ = useQuery({
-    queryKey: ['organization-quota', organization.id],
-    queryFn: () => fetchQuota(organization.id),
-  });
-
-  // Seed the editable form once the quota has loaded.
-  if (quotaQ.data && !loaded) {
-    const limits = quotaQ.data.limits;
-    setForm({
-      max_clients: limits?.max_clients != null ? String(limits.max_clients) : '',
-      max_devices: limits?.max_devices != null ? String(limits.max_devices) : '',
-      max_storage_mb: limits?.max_storage_mb != null ? String(limits.max_storage_mb) : '',
-      max_scheduled_tasks: limits?.max_scheduled_tasks != null ? String(limits.max_scheduled_tasks) : '',
-    });
-    setLoaded(true);
-  }
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const body: Record<string, number | null> = {};
-      for (const f of QUOTA_FIELDS) {
-        const raw = (form[f.key] ?? '').trim();
-        body[f.key] = raw === '' ? null : Number(raw);
-      }
-      return updateQuota(organization.id, body);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organization-quota', organization.id] });
-      onClose();
-    },
-    onError: () => setError('Failed to save quota. Limits must be non-negative integers or left blank for unlimited.'),
-  });
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    for (const f of QUOTA_FIELDS) {
-      const raw = (form[f.key] ?? '').trim();
-      if (raw !== '' && (!/^\d+$/.test(raw))) {
-        setError('Limits must be non-negative integers or left blank for unlimited.');
-        return;
-      }
-    }
-    setError('');
-    mutation.mutate();
-  }
-
-  const usage = quotaQ.data?.usage;
-
-  return (
-    <div style={modalStyles.backdrop} onClick={onClose}>
-      <div style={modalStyles.panel} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Quota for ${organization.name}`}>
-        <div style={modalStyles.header}>
-          <h2 style={modalStyles.title}>📊 Quota — {organization.name}</h2>
-          <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
-        </div>
-
-        {quotaQ.isLoading ? (
-          <p style={styles.msg}>Loading…</p>
-        ) : quotaQ.error ? (
-          <p style={styles.msgError}>Failed to load quota.</p>
-        ) : (
-          <form onSubmit={handleSubmit} style={modalStyles.form}>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Leave a field blank for <strong>unlimited</strong>. Current usage is shown for reference.
-            </p>
-            {QUOTA_FIELDS.map(f => (
-              <label key={f.key} style={modalStyles.label}>
-                {f.label}{' '}
-                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
-                  (in use: {usage ? usage[f.usageKey] : '—'})
-                </span>
-                <input
-                  style={modalStyles.input}
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form[f.key] ?? ''}
-                  onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                  placeholder="Unlimited"
-                />
-              </label>
-            ))}
-
-            {error && <p style={modalStyles.error}>{error}</p>}
-
-            <div style={modalStyles.actions}>
-              <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
-              <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
-                {mutation.isPending ? 'Saving…' : 'Save Limits'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Confirm dialog
 // ---------------------------------------------------------------------------
 
@@ -567,9 +320,6 @@ export function OrganizationList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [showNew, setShowNew] = useState(false);
-  const [editOrg, setEditOrg] = useState<Organization | null>(null);
-  const [settingsOrg, setSettingsOrg] = useState<Organization | null>(null);
-  const [quotaOrg, setQuotaOrg] = useState<Organization | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const orgsQ = useQuery({
@@ -630,9 +380,7 @@ export function OrganizationList() {
                       <td style={styles.td}>{o.locale === 'MX' ? 'MX' : 'Global'}</td>
                       <td style={styles.td}><StatusBadge status={o.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button style={styles.actionBtn} onClick={() => setEditOrg(o)} title="Edit this organization">✏️ Edit</button>
-                        <button style={styles.actionBtn} onClick={() => setSettingsOrg(o)} title="View and edit settings">⚙️ Settings</button>
-                        <button style={styles.actionBtn} onClick={() => setQuotaOrg(o)} title="View and edit quota">📊 Quota</button>
+                        <Link to={`/organizations/${o.id}`} style={{ ...styles.actionBtn, textDecoration: 'none' }} title="Manage organization (edit, settings, quota, mail)">⚙️ Manage</Link>
                         <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setDeleteId(o.id)} title="Delete this organization">🗑 Delete</button>
                       </td>
                     </tr>
@@ -653,9 +401,6 @@ export function OrganizationList() {
       </div>
 
       {showNew && <OrgModal organization={null} onClose={() => setShowNew(false)} onSaved={invalidate} />}
-      {editOrg && <OrgModal organization={editOrg} onClose={() => setEditOrg(null)} onSaved={invalidate} />}
-      {settingsOrg && <SettingsModal organization={settingsOrg} onClose={() => setSettingsOrg(null)} />}
-      {quotaOrg && <QuotaModal organization={quotaOrg} onClose={() => setQuotaOrg(null)} />}
 
       {deleteId !== null && (
         <ConfirmDialog

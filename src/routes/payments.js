@@ -646,6 +646,7 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
 
     const result = await emailTransport.sendEmail({
       organizationId: req.orgId,
+      emailFunction: 'billing',
       to: payment.client_email,
       subject: template.subject,
       html: template.html,

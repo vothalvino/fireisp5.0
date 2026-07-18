@@ -575,6 +575,7 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
 
     const result = await emailTransport.sendEmail({
       organizationId: invoice.organization_id,
+      emailFunction: 'billing',
       to: invoice.client_email,
       subject: template.subject,
       html: template.html,

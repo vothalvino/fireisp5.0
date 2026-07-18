@@ -1,30 +1,43 @@
 // =============================================================================
-// FireISP 5.0 — Per-Organization Outbound Email (SMTP) Settings Model
+// FireISP 5.0 — Per-Organization, Per-Function Outbound Email (SMTP) Settings
 // =============================================================================
-// Mirrors src/models/OrganizationDatabaseConfig.js exactly: one row per org,
-// an AES-256-GCM encrypted secret column, and a toPublic() that returns a
-// masked boolean (`configured`) instead of the ciphertext. The encrypted
-// column is NEVER included in any response — see toPublic() below.
+// One row per (organization_id, email_function) since migration 407: an org
+// can hold a separate outbound identity for 'general', 'support', 'billing',
+// and 'noc'. The encrypted secret column is NEVER included in any response —
+// see toPublic(). At send time an unconfigured function falls back to the
+// org's 'general' identity, then the global SMTP env config
+// (see emailTransport.getOrgTransport).
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
 const { encrypt } = require('../utils/encryption');
 
+const FUNCTIONS = ['general', 'support', 'billing', 'noc'];
+const DEFAULT_FUNCTION = 'general';
+
+function normalizeFunction(fn) {
+  return FUNCTIONS.includes(fn) ? fn : DEFAULT_FUNCTION;
+}
+
 class EmailSettings extends BaseModel {
   static get tableName() { return 'organization_email_settings'; }
 
+  static get FUNCTIONS() { return FUNCTIONS; }
+  static get DEFAULT_FUNCTION() { return DEFAULT_FUNCTION; }
+
   static get fillable() {
     return [
-      'organization_id', 'enabled', 'smtp_host', 'smtp_port', 'smtp_secure',
-      'smtp_user', 'smtp_password_encrypted', 'from_email', 'from_name',
+      'organization_id', 'email_function', 'enabled', 'smtp_host', 'smtp_port',
+      'smtp_secure', 'smtp_user', 'smtp_password_encrypted', 'from_email', 'from_name',
     ];
   }
 
   static get hasOrgScope() { return false; }
 
-  static defaultForOrg(orgId) {
+  static defaultForOrg(orgId, emailFunction = DEFAULT_FUNCTION) {
     return {
       organization_id: Number(orgId),
+      email_function: normalizeFunction(emailFunction),
       enabled: false,
       smtp_host: null,
       smtp_port: 587,
@@ -43,6 +56,7 @@ class EmailSettings extends BaseModel {
     if (!row) return null;
     return {
       organization_id: row.organization_id,
+      email_function: row.email_function || DEFAULT_FUNCTION,
       enabled: Boolean(row.enabled),
       smtp_host: row.smtp_host || null,
       smtp_port: row.smtp_port || 587,
@@ -51,7 +65,7 @@ class EmailSettings extends BaseModel {
       from_email: row.from_email || null,
       from_name: row.from_name || null,
       // smtp_password_encrypted is intentionally NEVER included here.
-      configured: Boolean(row.smtp_password_encrypted),
+      configured: Boolean(row.smtp_password_encrypted) || Boolean(row.smtp_host),
       last_test_at: row.last_test_at || null,
       last_test_status: row.last_test_status || null,
       last_test_error: row.last_test_error || null,
@@ -60,39 +74,50 @@ class EmailSettings extends BaseModel {
     };
   }
 
-  static async findByOrgId(orgId) {
+  /** Public settings for one function (falls back to a safe default shape). */
+  static async findByOrgId(orgId, emailFunction = DEFAULT_FUNCTION) {
+    const fn = normalizeFunction(emailFunction);
+    const raw = await this.findRawByOrgId(orgId, fn);
+    return this.toPublic(raw) || this.defaultForOrg(orgId, fn);
+  }
+
+  /** Public settings for EVERY function — one entry per FUNCTIONS member. */
+  static async listByOrgId(orgId) {
     const db = require('../config/database');
     const [rows] = await db.query(
       'SELECT * FROM organization_email_settings WHERE organization_id = ?',
       [orgId],
     );
-    return this.toPublic(rows[0]) || this.defaultForOrg(orgId);
+    const byFunction = {};
+    for (const row of rows) byFunction[row.email_function] = row;
+    return FUNCTIONS.map(fn => this.toPublic(byFunction[fn]) || this.defaultForOrg(orgId, fn));
   }
 
   /**
-   * Raw row (including ciphertext) — internal use only. Consumed by
-   * emailTransport.getOrgTransport() at send/test time; never returned from
-   * a route handler.
+   * Raw row (including ciphertext) for one function — internal use only.
+   * Consumed by emailTransport.getOrgTransport() at send/test time; never
+   * returned from a route handler.
    */
-  static async findRawByOrgId(orgId) {
+  static async findRawByOrgId(orgId, emailFunction = DEFAULT_FUNCTION) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM organization_email_settings WHERE organization_id = ?',
-      [orgId],
+      'SELECT * FROM organization_email_settings WHERE organization_id = ? AND email_function = ?',
+      [orgId, normalizeFunction(emailFunction)],
     );
     return rows[0] || null;
   }
 
   /**
-   * Upsert settings for an org. Password three-state contract (mirrors
-   * ai.js:229-231 / OrganizationDatabaseConfig.upsert):
+   * Upsert settings for one (org, function). Password three-state contract
+   * (mirrors ai.js:229-231 / OrganizationDatabaseConfig.upsert):
    *   fields.smtp_password === undefined  -> keep existing encrypted value
    *   fields.smtp_password === ''         -> clear to NULL
    *   fields.smtp_password === 'value'    -> encrypt and replace
    */
-  static async upsert(orgId, fields) {
+  static async upsert(orgId, emailFunction, fields) {
     const db = require('../config/database');
-    const existing = await this.findRawByOrgId(orgId);
+    const fn = normalizeFunction(emailFunction);
+    const existing = await this.findRawByOrgId(orgId, fn);
 
     const row = {
       enabled: fields.enabled ?? existing?.enabled ?? true,
@@ -109,8 +134,8 @@ class EmailSettings extends BaseModel {
 
     await db.query(
       `INSERT INTO organization_email_settings
-         (organization_id, enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, from_email, from_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (organization_id, email_function, enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, from_email, from_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          enabled = VALUES(enabled),
          smtp_host = VALUES(smtp_host),
@@ -122,6 +147,7 @@ class EmailSettings extends BaseModel {
          from_name = VALUES(from_name)`,
       [
         orgId,
+        fn,
         row.enabled ? 1 : 0,
         row.smtp_host,
         row.smtp_port,
@@ -141,16 +167,20 @@ class EmailSettings extends BaseModel {
       emailTransport.invalidateOrgTransport(orgId);
     }
 
-    return this.findByOrgId(orgId);
+    return this.findByOrgId(orgId, fn);
   }
 
-  static async recordTestResult(orgId, { success, error }) {
+  static async recordTestResult(orgId, emailFunction, { success, error }) {
     const db = require('../config/database');
+    const fn = normalizeFunction(emailFunction);
+    // INSERT..ON DUPLICATE so the result is kept even when the function has no
+    // row yet (an admin testing general/global before saving anything).
     await db.query(
-      `UPDATE organization_email_settings
-         SET last_test_at = NOW(), last_test_status = ?, last_test_error = ?
-       WHERE organization_id = ?`,
-      [success ? 'success' : 'failed', success ? null : (error || 'Unknown error'), orgId],
+      `INSERT INTO organization_email_settings (organization_id, email_function, last_test_at, last_test_status, last_test_error)
+       VALUES (?, ?, NOW(), ?, ?)
+       ON DUPLICATE KEY UPDATE
+         last_test_at = NOW(), last_test_status = VALUES(last_test_status), last_test_error = VALUES(last_test_error)`,
+      [orgId, fn, success ? 'success' : 'failed', success ? null : (error || 'Unknown error')],
     );
   }
 }

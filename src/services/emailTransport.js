@@ -12,6 +12,13 @@
 // paymentReminderService, scheduledReportService, taskRunner, bulk.js) with
 // zero changes at those call sites — organizationId was silently ignored
 // before this migration.
+//
+// Per-function (migration 407): sendEmail({ emailFunction, ... }) picks the
+// org's identity for that function ('general' | 'support' | 'billing' |
+// 'noc'). Resolution falls back requested-function -> org 'general' -> global
+// env transport, so a function left unconfigured transparently inherits
+// general/global. emailFunction defaults to 'general', so existing callers
+// keep their exact behavior.
 // =============================================================================
 
 const nodemailer = require('nodemailer');
@@ -20,10 +27,16 @@ const { decrypt } = require('../utils/encryption');
 
 let transporter = null;
 
-// orgId (String) -> { transporter, from } | null (null = "no org config,
-// fall back to global"). Mirrors src/config/database.js's tenantConfigCache
-// Map-keyed-per-org pattern.
+// "orgId:function" (String) -> { transporter, from } | null (null = "no
+// config for this function or its general fallback, use global"). Mirrors
+// src/config/database.js's tenantConfigCache Map-keyed pattern.
 const orgTransportCache = new Map();
+
+const DEFAULT_FUNCTION = 'general';
+
+function cacheKey(orgId, emailFunction) {
+  return `${orgId}:${emailFunction}`;
+}
 
 /**
  * Initialize the global transport (called once at boot / on first send).
@@ -41,12 +54,13 @@ function init() {
 }
 
 /**
- * Resolve (and cache) the per-org SMTP transport. Returns null when the org
- * has no config, no host, or has disabled it — the caller should fall back
- * to the global transport in that case.
+ * Resolve (and cache) the SMTP transport for one org + function. Returns null
+ * when neither the requested function NOR the org's 'general' identity is
+ * enabled/configured — the caller then falls back to the global transport.
+ * Fallback order: requested function -> org 'general' -> null (global).
  */
-async function getOrgTransport(organizationId) {
-  const key = String(organizationId);
+async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION) {
+  const key = cacheKey(organizationId, emailFunction);
   if (orgTransportCache.has(key)) {
     return orgTransportCache.get(key);
   }
@@ -54,11 +68,17 @@ async function getOrgTransport(organizationId) {
   // Lazy require to avoid a require cycle (EmailSettings.upsert() requires
   // this module to invalidate the cache on save).
   const EmailSettings = require('../models/EmailSettings');
-  const row = await EmailSettings.findRawByOrgId(organizationId);
+  const row = await EmailSettings.findRawByOrgId(organizationId, emailFunction);
 
   if (!row || !row.enabled || !row.smtp_host) {
-    orgTransportCache.set(key, null);
-    return null;
+    // This function isn't configured — inherit the org's 'general' identity
+    // (unless we ARE resolving 'general', in which case fall through to
+    // global). Cache the resolved value under this function's key.
+    const entry = emailFunction === DEFAULT_FUNCTION
+      ? null
+      : await getOrgTransport(organizationId, DEFAULT_FUNCTION);
+    orgTransportCache.set(key, entry);
+    return entry;
   }
 
   const orgTransporter = nodemailer.createTransport({
@@ -81,23 +101,28 @@ async function getOrgTransport(organizationId) {
 }
 
 /**
- * Drop the cached transport for an org so the next send re-reads
+ * Drop every cached function transport for an org so the next send re-reads
  * organization_email_settings. Called by EmailSettings.upsert() after every
- * save so a change takes effect on the very next send, not after a TTL.
+ * save so a change takes effect on the very next send, not after a TTL. All
+ * functions are cleared because a change to 'general' also changes the
+ * resolved value of any function that inherits it.
  */
 function invalidateOrgTransport(organizationId) {
-  orgTransportCache.delete(String(organizationId));
+  const prefix = `${organizationId}:`;
+  for (const key of orgTransportCache.keys()) {
+    if (key.startsWith(prefix)) orgTransportCache.delete(key);
+  }
 }
 
 /**
  * Send a single email and log it to email_logs.
  */
-async function sendEmail({ to, subject, html, text, attachments, organizationId, clientId }) {
+async function sendEmail({ to, subject, html, text, attachments, organizationId, clientId, emailFunction = DEFAULT_FUNCTION }) {
   let activeTransporter = transporter;
   let from = process.env.SMTP_FROM || 'noreply@fireisp.local';
 
   if (organizationId) {
-    const org = await getOrgTransport(organizationId);
+    const org = await getOrgTransport(organizationId, emailFunction);
     if (org) {
       activeTransporter = org.transporter;
       from = org.from || from;

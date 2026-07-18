@@ -230,6 +230,15 @@ function generateSpec() {
         get: { tags: ['Organizations'], summary: 'Get organization quota and usage', operationId: 'getOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quota + usage') },
         put: { tags: ['Organizations'], summary: 'Update organization quota limits', operationId: 'updateOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('Quota limits'), responses: r200('Quota + usage') },
       },
+      '/organizations/{id}/email-settings': {
+        get: { tags: ['Organizations'], summary: 'List per-function outbound email identities (general/support/billing/noc; secrets masked)', operationId: 'listOrganizationEmailSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('EmailSettings[]') },
+      },
+      '/organizations/{id}/email-settings/{function}': {
+        put: { tags: ['Organizations'], summary: 'Update one function outbound email identity (write-only three-state password)', operationId: 'updateOrganizationEmailSettings', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'function', in: 'path', required: true, schema: { type: 'string', enum: ['general', 'support', 'billing', 'noc'] } }], requestBody: jsonBody('EmailSettingsUpdate'), responses: r200('EmailSettings') },
+      },
+      '/organizations/{id}/email-settings/{function}/test': {
+        post: { tags: ['Organizations'], summary: 'Send a test email using one function identity (fallback function→general→global)', operationId: 'testOrganizationEmailSettings', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'function', in: 'path', required: true, schema: { type: 'string', enum: ['general', 'support', 'billing', 'noc'] } }], requestBody: jsonBody('EmailSettingsTest'), responses: r200('EmailTestResult') },
+      },
 
       // ---- Users ----
       ...crudPaths('users', 'Users', 'User'),

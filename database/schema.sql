@@ -7865,7 +7865,10 @@ CREATE TABLE IF NOT EXISTS organization_database_configs (
 CREATE TABLE IF NOT EXISTS organization_email_settings (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id         BIGINT UNSIGNED  NOT NULL,
-    enabled                 TINYINT(1)       NOT NULL DEFAULT 1 COMMENT 'When 0, org falls back to global SMTP even if fields are populated',
+    email_function          ENUM('general', 'support', 'billing', 'noc')
+                                             NOT NULL DEFAULT 'general'
+                                             COMMENT 'Which outbound function this identity serves; unconfigured functions fall back to general, then global (migration 407)',
+    enabled                 TINYINT(1)       NOT NULL DEFAULT 1 COMMENT 'When 0, this function falls back to general/global SMTP even if fields are populated',
     smtp_host               VARCHAR(255)     NULL,
     smtp_port               INT UNSIGNED     NULL DEFAULT 587,
     smtp_secure             TINYINT(1)       NOT NULL DEFAULT 0,
@@ -7880,11 +7883,11 @@ CREATE TABLE IF NOT EXISTS organization_email_settings (
     updated_at              TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_organization_email_settings_org (organization_id),
+    UNIQUE KEY uq_organization_email_settings_org_function (organization_id, email_function),
     CONSTRAINT fk_organization_email_settings_org
         FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Per-organization outbound SMTP configuration (migration 386) — password encrypted at rest, never returned in API responses';
+  COMMENT='Per-organization, per-function outbound SMTP configuration (migrations 386, 407) — password encrypted at rest, never returned in API responses';
 
 -- =============================================================================
 -- Table: profeco_complaints (migration 168)
