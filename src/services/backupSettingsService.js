@@ -21,7 +21,7 @@ const path = require('path');
 const BackupSettings = require('../models/BackupSettings');
 const BackupRun = require('../models/BackupRun');
 const cloudStorage = require('./cloudStorageService');
-const { ValidationError, ConflictError } = require('../utils/errors');
+const { ValidationError, ConflictError, NotFoundError } = require('../utils/errors');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger').child({ service: 'backupSettings' });
 
@@ -191,9 +191,14 @@ async function listBackups() {
     files = fs.readdirSync(BACKUP_DIR)
       .filter(f => f.endsWith('.sql.gz'))
       .map(f => {
-        const stats = fs.statSync(path.join(BACKUP_DIR, f));
+        // lstat, and keep only real regular files — so every listed row is
+        // one resolveBackupFile() will actually serve. A directory or symlink
+        // named *.sql.gz would otherwise render a Download button that 404s.
+        const stats = fs.lstatSync(path.join(BACKUP_DIR, f));
+        if (!stats.isFile() || stats.isSymbolicLink()) return null;
         return { filename: f, size_bytes: stats.size, modified_at: stats.mtime };
       })
+      .filter(Boolean)
       .sort((a, b) => b.modified_at - a.modified_at);
   } catch (err) {
     // Directory may not exist before the first backup ever runs.
@@ -201,6 +206,44 @@ async function listBackups() {
   }
 
   return { runs, files };
+}
+
+/**
+ * Resolve a requested backup filename to a safe absolute path inside
+ * BACKUP_DIR, for the download endpoint. The filename is client input naming
+ * a file that IS the entire database, so validation is an allowlist, not a
+ * denylist: only dump-shaped names (letters/digits/._- ending in .sql.gz —
+ * no path separators, so no traversal), and the resolved path must still sit
+ * directly inside BACKUP_DIR. lstat (not stat) is used so a SYMLINK planted
+ * in BACKUP_DIR pointing outside it is rejected rather than followed — the
+ * string containment check alone is realpath-blind. Throws ValidationError on
+ * a malformed name, NotFoundError when no such regular backup file exists.
+ */
+function resolveBackupFile(name) {
+  const { BACKUP_DIR } = require('../scripts/backup'); // lazy — see header
+  const filename = String(name || '');
+
+  if (!/^[A-Za-z0-9._-]+\.sql\.gz$/.test(filename)) {
+    throw new ValidationError('Invalid backup filename');
+  }
+  const filepath = path.resolve(BACKUP_DIR, filename);
+  if (path.dirname(filepath) !== path.resolve(BACKUP_DIR)) {
+    throw new ValidationError('Invalid backup filename');
+  }
+
+  let stats;
+  try {
+    stats = fs.lstatSync(filepath); // lstat: do NOT follow a symlink
+  } catch (err) {
+    if (err.code === 'ENOENT') throw new NotFoundError('Backup file');
+    throw err;
+  }
+  // Only a real regular file is servable — a symlink (even to a valid file)
+  // or a directory named *.sql.gz is refused.
+  if (stats.isSymbolicLink()) throw new ValidationError('Invalid backup filename');
+  if (!stats.isFile()) throw new NotFoundError('Backup file');
+
+  return { filepath, filename, sizeBytes: stats.size };
 }
 
 /**
@@ -242,6 +285,7 @@ module.exports = {
   getEffectiveRemoteConfig,
   testRemote,
   listBackups,
+  resolveBackupFile,
   getSchedule,
   runBackupNow,
 };

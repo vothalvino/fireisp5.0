@@ -13846,17 +13846,18 @@ CREATE TABLE IF NOT EXISTS backup_runs (
   COMMENT='One row per database-backup execution (migration 404) — makes silent backup/upload failure visible in the UI';
 
 -- ---------------------------------------------------------------------------
--- Seed: backup_settings permissions (migration 404) — admin + super_admin
+-- Seed: backup_settings permissions (migrations 404 + 406) — admin + super_admin
 -- ONLY (migration 386 convention: infrastructure credential, excluded from
 -- readonly/auditor's blanket *.view wildcard).
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO permissions (name, description, module) VALUES
     ('backup_settings.view',   'View database backup runs and remote backup destination (secret masked)', 'settings'),
-    ('backup_settings.update', 'Configure the remote backup destination (incl. credentials), test it, and trigger manual backups', 'settings');
+    ('backup_settings.update', 'Configure the remote backup destination (incl. credentials), test it, and trigger manual backups', 'settings'),
+    ('backup_settings.download', 'Download database backup files (the full database) from the /backups page', 'settings');
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r
-JOIN permissions p ON p.name IN ('backup_settings.view', 'backup_settings.update')
+JOIN permissions p ON p.name IN ('backup_settings.view', 'backup_settings.update', 'backup_settings.download')
 WHERE r.name IN ('admin', 'super_admin');
 
 SET FOREIGN_KEY_CHECKS = 1;

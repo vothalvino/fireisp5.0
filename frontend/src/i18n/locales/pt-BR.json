@@ -437,6 +437,8 @@
     "colSize": "Tamanho",
     "colRemote": "Envio remoto",
     "colModified": "Modificado",
+    "download": "Baixar",
+    "downloadTitle": "Baixar este arquivo de backup (o banco de dados completo) — o download é auditado",
     "filesTitle": "Arquivos de backup locais",
     "noFiles": "Nenhum arquivo de backup local em disco."
   },

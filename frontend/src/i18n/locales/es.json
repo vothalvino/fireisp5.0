@@ -437,6 +437,8 @@
     "colSize": "Tamaño",
     "colRemote": "Subida remota",
     "colModified": "Modificado",
+    "download": "Descargar",
+    "downloadTitle": "Descargar este archivo de respaldo (la base de datos completa) — la descarga queda auditada",
     "filesTitle": "Archivos de respaldo locales",
     "noFiles": "No hay archivos de respaldo locales en disco."
   },

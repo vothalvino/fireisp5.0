@@ -22044,6 +22044,43 @@
         }
       }
     },
+    "/backup-settings/download/{filename}": {
+      "get": {
+        "tags": [
+          "Backup Settings"
+        ],
+        "summary": "Download a local backup file (full database dump; audit-logged, backup_settings.download)",
+        "operationId": "downloadBackupFile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File download",
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/late-fee-rules": {
       "get": {
         "tags": [

@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/api/client';
+import { api, tokenStore } from '@/api/client';
 import { styles, fmtDate } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +115,29 @@ async function fetchRuns(): Promise<{ runs: BackupRun[]; files: BackupFile[] }> 
 // Helpers
 // ---------------------------------------------------------------------------
 
+// The CfdiList downloadFile mold: fetch with the bearer token, save via a
+// blob anchor (a plain <a href> can't carry the Authorization header).
+function downloadBackupFile(filename: string, onError: (msg: string) => void): void {
+  const token = tokenStore.getAccess();
+  fetch(`/api/v1/backup-settings/download/${encodeURIComponent(filename)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+    .then(res => {
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      return res.blob();
+    })
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(err => {
+      onError(err instanceof Error ? err.message : 'Download failed');
+    });
+}
+
 function fmtBytes(n: number | null): string {
   if (n == null) return '—';
   if (n < 1024) return `${n} B`;
@@ -173,6 +196,7 @@ export function BackupSettings() {
     secret_key: '',
   });
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   // While the admin has unsaved edits, background refetches (e.g. after a
   // connection test) must NOT resync the form and clobber their input.
   const [dirty, setDirty] = useState(false);
@@ -457,6 +481,7 @@ export function BackupSettings() {
       {/* --- Local files ------------------------------------------------------ */}
       <div style={{ ...styles.tableCard, marginTop: '1rem' }}>
         <h2 style={{ margin: '0.75rem 1.25rem 0.25rem', fontSize: '1rem' }}>🗄️ {t('backups.filesTitle')}</h2>
+        {downloadError && <p style={styles.msgError}>{downloadError}</p>}
         {runsQ.data && runsQ.data.files.length === 0 ? (
           <p style={styles.msg}>{t('backups.noFiles')}</p>
         ) : (
@@ -466,6 +491,7 @@ export function BackupSettings() {
                 <th style={styles.th}>{t('backups.colFile')}</th>
                 <th style={styles.th}>{t('backups.colSize')}</th>
                 <th style={styles.th}>{t('backups.colModified')}</th>
+                <th style={styles.th} />
               </tr>
             </thead>
             <tbody>
@@ -474,6 +500,15 @@ export function BackupSettings() {
                   <td style={styles.td}>{file.filename}</td>
                   <td style={styles.td}>{fmtBytes(file.size_bytes)}</td>
                   <td style={styles.td}>{fmtDate(file.modified_at)}</td>
+                  <td style={styles.td}>
+                    <button
+                      style={styles.actionBtn}
+                      onClick={() => { setDownloadError(null); downloadBackupFile(file.filename, setDownloadError); }}
+                      title={t('backups.downloadTitle')}
+                    >
+                      ⬇ {t('backups.download')}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

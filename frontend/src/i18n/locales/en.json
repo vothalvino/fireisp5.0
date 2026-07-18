@@ -437,6 +437,8 @@
     "colSize": "Size",
     "colRemote": "Remote upload",
     "colModified": "Modified",
+    "download": "Download",
+    "downloadTitle": "Download this backup file (the full database) — the download is audit-logged",
     "filesTitle": "Local backup files",
     "noFiles": "No local backup files on disk."
   },
