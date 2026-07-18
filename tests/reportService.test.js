@@ -91,6 +91,23 @@ describe('reportService', () => {
       const [invoiceSql] = db.queryReplica.mock.calls[0];
       expect(invoiceSql).toContain("IN ('issued', 'sent', 'overdue')");
     });
+
+    test('all three financial queries EXCLUDE soft-deleted records (deleted_at IS NULL)', async () => {
+      // Regression: reportService had no deleted_at filter anywhere, so a
+      // voided-by-soft-delete invoice/payment still inflated the report (the
+      // demo showed 32 invoices / 36 payments when only 23 / 15 were live).
+      db.queryReplica
+        .mockResolvedValueOnce([[{ total_invoiced: '0', total_collected: '0', total_outstanding: '0', invoice_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_payments: '0', payment_count: 0 }]])
+        .mockResolvedValueOnce([[{ total_expenses: '0', expense_count: 0 }]]);
+      await reportService.financialSummary(1, {});
+      const [invoiceSql] = db.queryReplica.mock.calls[0];
+      const [paymentSql] = db.queryReplica.mock.calls[1];
+      const [expenseSql] = db.queryReplica.mock.calls[2];
+      expect(invoiceSql).toContain('deleted_at IS NULL');
+      expect(paymentSql).toContain('deleted_at IS NULL');
+      expect(expenseSql).toContain('deleted_at IS NULL');
+    });
   });
 
   describe('technicianReport()', () => {
