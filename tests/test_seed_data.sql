@@ -84,12 +84,14 @@ CALL assert_true(@ro_perms < @admin_perms, 'C3: Readonly role has fewer permissi
 -- =========================================================================
 SET @cnt = 0;
 SELECT COUNT(*) INTO @cnt FROM settings;
-CALL assert_true(@cnt >= 25, 'D1: At least 25 default settings seeded');
+CALL assert_true(@cnt >= 24, 'D1: At least 24 default settings seeded');
 
 -- Spot-check key settings
+-- Note: `default_currency` was removed by migration 405 (currency lives on
+-- organizations.currency, not the global settings map) — assert its ABSENCE.
 SET @val = NULL;
 SELECT setting_value INTO @val FROM settings WHERE setting_key = 'default_currency';
-CALL assert_true(@val IS NOT NULL, 'D2: Setting "default_currency" exists');
+CALL assert_true(@val IS NULL, 'D2: Setting "default_currency" removed (migration 405)');
 
 SET @val = NULL;
 SELECT setting_value INTO @val FROM settings WHERE setting_key = 'default_tax_rate';
