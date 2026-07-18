@@ -48,8 +48,8 @@ async function agingReport(organizationId, { currency } = {}) {
         ELSE '90+'
       END AS aging_bucket
     FROM \`invoices\` i
-    JOIN \`clients\` c ON c.id = i.client_id
-    WHERE i.organization_id = ? AND i.status IN ('issued', 'sent', 'overdue')
+    JOIN \`clients\` c ON c.id = i.client_id AND c.deleted_at IS NULL
+    WHERE i.organization_id = ? AND i.status IN ('issued', 'sent', 'overdue') AND i.deleted_at IS NULL
   `;
   const params = [organizationId];
 
@@ -95,21 +95,21 @@ async function financialSummary(organizationId, { from, to, currency } = {}) {
         COALESCE(SUM(CASE WHEN status IN ('issued', 'sent', 'overdue') THEN total ELSE 0 END), 0) AS total_outstanding,
         COUNT(CASE WHEN status NOT IN ('draft', 'void', 'cancelled') THEN 1 END) AS invoice_count
       FROM \`invoices\`
-      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
+      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? AND deleted_at IS NULL ${currencyFilter}
     `, baseParams),
     db.queryReplica(`
       SELECT
         COALESCE(SUM(amount), 0) AS total_payments,
         COUNT(*) AS payment_count
       FROM \`payments\`
-      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
+      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? AND deleted_at IS NULL ${currencyFilter}
     `, baseParams),
     db.queryReplica(`
       SELECT
         COALESCE(SUM(amount), 0) AS total_expenses,
         COUNT(*) AS expense_count
       FROM \`expenses\`
-      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? ${currencyFilter}
+      WHERE organization_id = ? AND created_at >= ? AND created_at <= ? AND deleted_at IS NULL ${currencyFilter}
     `, baseParams),
   ]);
 
@@ -158,6 +158,7 @@ async function technicianReport(organizationId, { from, to } = {}) {
     LEFT JOIN \`users\` u ON u.id = j.assigned_to
     WHERE j.organization_id = ?
       AND j.created_at >= ? AND j.created_at <= ?
+      AND j.deleted_at IS NULL
     GROUP BY j.assigned_to, u.first_name, u.last_name
     ORDER BY completed DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -182,6 +183,7 @@ async function subscriberGrowthReport(organizationId, { months = 12 } = {}) {
     FROM \`contracts\` c
     WHERE c.organization_id = ?
       AND c.created_at >= DATE_SUB(NOW(), INTERVAL ? MONTH)
+      AND c.deleted_at IS NULL
     GROUP BY month
     ORDER BY month DESC
   `, [organizationId, months]);
@@ -240,6 +242,7 @@ async function revenueByPeriod(organizationId, { period = 'monthly', from, to, c
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void', 'cancelled')
+      AND i.deleted_at IS NULL
       ${currencyFilter}
     GROUP BY period_label
     ORDER BY period_label ASC
@@ -267,11 +270,12 @@ async function revenueByPlan(organizationId, { from, to } = {}) {
       COALESCE(SUM(CASE WHEN i.status = 'paid' THEN i.total ELSE 0 END), 0) AS total_collected,
       COUNT(DISTINCT i.contract_id) AS contract_count
     FROM \`invoices\` i
-    LEFT JOIN \`contracts\` co ON co.id = i.contract_id
+    LEFT JOIN \`contracts\` co ON co.id = i.contract_id AND co.deleted_at IS NULL
     LEFT JOIN \`plans\` p ON p.id = co.plan_id
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void', 'cancelled')
+      AND i.deleted_at IS NULL
     GROUP BY p.name
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -297,11 +301,12 @@ async function revenueByRegion(organizationId, { from, to } = {}) {
       COALESCE(SUM(i.total), 0) AS total_invoiced,
       COUNT(DISTINCT i.contract_id) AS contract_count
     FROM \`invoices\` i
-    LEFT JOIN \`contracts\` co ON co.id = i.contract_id
+    LEFT JOIN \`contracts\` co ON co.id = i.contract_id AND co.deleted_at IS NULL
     LEFT JOIN \`sites\` s ON s.id = co.site_id
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void', 'cancelled')
+      AND i.deleted_at IS NULL
     GROUP BY s.city
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -333,6 +338,7 @@ async function revenueByAgent(organizationId, { from, to } = {}) {
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void', 'cancelled')
+      AND i.deleted_at IS NULL
     GROUP BY i.created_by, u.first_name, u.last_name
     ORDER BY total_invoiced DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -360,6 +366,7 @@ async function cashFlowReport(organizationId, { from, to } = {}) {
       FROM \`payments\`
       WHERE organization_id = ?
         AND payment_date >= ? AND payment_date <= ?
+        AND deleted_at IS NULL
       GROUP BY month
       ORDER BY month ASC
     `, [organizationId, dateFrom, dateTo]),
@@ -370,6 +377,7 @@ async function cashFlowReport(organizationId, { from, to } = {}) {
       FROM \`expenses\`
       WHERE organization_id = ?
         AND created_at >= ? AND created_at <= ?
+        AND deleted_at IS NULL
       GROUP BY month
       ORDER BY month ASC
     `, [organizationId, dateFrom, dateTo]),
@@ -414,6 +422,7 @@ async function paymentMethodBreakdown(organizationId, { from, to } = {}) {
     FROM \`payments\`
     WHERE organization_id = ?
       AND payment_date >= ? AND payment_date <= ?
+      AND deleted_at IS NULL
     GROUP BY payment_method
     ORDER BY total DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -478,6 +487,7 @@ async function agentCommissions(organizationId, { from, to, rate = 0.05 } = {}) 
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void', 'cancelled')
+      AND i.deleted_at IS NULL
     GROUP BY i.created_by, u.first_name, u.last_name
     ORDER BY total_invoiced DESC
   `, [rate, organizationId, dateFrom, dateTo]);
@@ -515,6 +525,7 @@ async function taxSummary(organizationId, { from, to, currency } = {}) {
       WHERE organization_id = ?
         AND issue_date >= ? AND issue_date <= ?
         AND status NOT IN ('draft', 'void', 'cancelled')
+        AND deleted_at IS NULL
         ${currencyFilter}
     `, params),
     db.queryReplica(`
@@ -527,6 +538,7 @@ async function taxSummary(organizationId, { from, to, currency } = {}) {
       WHERE organization_id = ?
         AND issue_date >= ? AND issue_date <= ?
         AND status NOT IN ('draft', 'void', 'cancelled')
+        AND deleted_at IS NULL
         ${currencyFilter}
       GROUP BY tax_rate
       ORDER BY tax_rate ASC
@@ -568,10 +580,11 @@ async function satExport(organizationId, { from, to } = {}) {
       c.name,
       c.email
     FROM \`invoices\` i
-    JOIN \`clients\` c ON c.id = i.client_id
+    JOIN \`clients\` c ON c.id = i.client_id AND c.deleted_at IS NULL
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
       AND i.status NOT IN ('draft', 'void')
+      AND i.deleted_at IS NULL
     ORDER BY i.issue_date ASC, i.invoice_number ASC
   `, [organizationId, dateFrom, dateTo]);
 
@@ -603,6 +616,7 @@ async function subscriberCounts(organizationId, { from, to } = {}) {
     FROM \`contracts\`
     WHERE organization_id = ?
       AND created_at >= ? AND created_at <= ?
+      AND deleted_at IS NULL
     GROUP BY month
     ORDER BY month ASC
   `, [organizationId, dateFrom, dateTo]);
@@ -736,6 +750,7 @@ async function mttrReport(organizationId, { from, to } = {}) {
         AND status = 'completed'
         AND completed_at IS NOT NULL
         AND created_at >= ? AND created_at <= ?
+        AND deleted_at IS NULL
     `, [organizationId, dateFrom, dateTo]),
     db.queryReplica(`
       SELECT
@@ -747,6 +762,7 @@ async function mttrReport(organizationId, { from, to } = {}) {
         AND status = 'completed'
         AND completed_at IS NOT NULL
         AND created_at >= ? AND created_at <= ?
+        AND deleted_at IS NULL
       GROUP BY month
       ORDER BY month ASC
     `, [organizationId, dateFrom, dateTo]),
@@ -780,6 +796,7 @@ async function installationCompletion(organizationId, { from, to } = {}) {
     FROM \`work_orders\`
     WHERE organization_id = ?
       AND created_at >= ? AND created_at <= ?
+      AND deleted_at IS NULL
     GROUP BY month
     ORDER BY month ASC
   `, [organizationId, dateFrom, dateTo]);
@@ -1077,6 +1094,9 @@ async function dataRetentionCompliance(organizationId) {
         AND created_at < DATE_SUB(NOW(), INTERVAL 7 YEAR)
     `, [organizationId]),
   );
+  // NOTE: intentionally NOT filtering deleted_at here — this is a retention /
+  // purge-obligation count, and a soft-deleted row still physically exists and
+  // is subject to the 7-year retention limit until it is truly purged.
 
   const results = await Promise.all(queries);
   const rows = tables.map((table_name, i) => ({
@@ -1116,7 +1136,7 @@ async function ipAssignmentLog(organizationId, { from, to, ip_address } = {}) {
       ia.expires_at,
       ia.status
     FROM \`ip_assignments\` ia
-    LEFT JOIN \`clients\` c ON c.id = ia.client_id
+    LEFT JOIN \`clients\` c ON c.id = ia.client_id AND c.deleted_at IS NULL
     WHERE ia.organization_id = ?
       AND ia.assigned_at >= ? AND ia.assigned_at <= ?
       ${ipFilter}
@@ -1147,9 +1167,10 @@ async function subscriberIdentity(organizationId, { from, to } = {}) {
       COUNT(co.id) AS contract_count,
       c.created_at
     FROM \`clients\` c
-    LEFT JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id
+    LEFT JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id AND co.deleted_at IS NULL
     WHERE c.organization_id = ?
       AND c.created_at >= ? AND c.created_at <= ?
+      AND c.deleted_at IS NULL
     GROUP BY c.id, c.name, c.email, c.status, c.created_at
     ORDER BY c.created_at DESC
   `, [organizationId, dateFrom, dateTo]);
@@ -1175,7 +1196,7 @@ async function interceptionReadiness(organizationId) {
     db.queryReplica(`
       SELECT COUNT(*) AS cnt
       FROM \`contracts\`
-      WHERE organization_id = ? AND status = 'active'
+      WHERE organization_id = ? AND status = 'active' AND deleted_at IS NULL
     `, [organizationId]),
     db.queryReplica(`
       SELECT COUNT(*) AS cnt
@@ -1218,13 +1239,14 @@ async function regulatoryExport(organizationId, { from, to } = {}) {
       p.name AS plan_name,
       ia.assigned_at
     FROM \`clients\` c
-    JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id
+    JOIN \`contracts\` co ON co.client_id = c.id AND co.organization_id = c.organization_id AND co.deleted_at IS NULL
     JOIN \`ip_assignments\` ia ON ia.contract_id = co.id AND ia.organization_id = c.organization_id
     LEFT JOIN \`plans\` p ON p.id = co.plan_id
     WHERE c.organization_id = ?
       AND co.status = 'active'
       AND ia.status = 'active'
       AND ia.assigned_at >= ? AND ia.assigned_at <= ?
+      AND c.deleted_at IS NULL
     ORDER BY c.name ASC
   `, [organizationId, dateFrom, dateTo]);
 
