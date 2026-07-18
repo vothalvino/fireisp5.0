@@ -27,9 +27,35 @@ const ClientGroup = require('../models/ClientGroup');
 const Organization = require('../models/Organization');
 const { computeClientBalance } = require('./clientBalanceService');
 const paymentAllocationService = require('./paymentAllocationService');
-const billingService = require('./billingService');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'groupBilling' });
+
+/**
+ * Write client_balance_ledger 'credit' rows for a group payment, allocation-
+ * aware: one credit per member for the amount actually applied to that
+ * member's invoices, plus the unallocated remainder credited to the primary.
+ * The sum equals the payment amount, so the ledger nets out per client the
+ * same way a normal same-client payment does. reference_type/id = the payment,
+ * so a payment delete (billingService.reversePaymentCredit) still removes them.
+ */
+async function writeGroupLedgerCredits({ orgId, paymentId, currency, settled, primaryId, totalAmount, allocatedTotal }) {
+  const byClient = new Map();
+  for (const a of settled) {
+    byClient.set(a.client_id, Math.round(((byClient.get(a.client_id) || 0) + a.amount) * 100) / 100);
+  }
+  const remainder = Math.round((totalAmount - allocatedTotal) * 100) / 100;
+  if (remainder > 0.005) {
+    byClient.set(primaryId, Math.round(((byClient.get(primaryId) || 0) + remainder) * 100) / 100);
+  }
+  for (const [clientId, amount] of byClient) {
+    if (amount <= 0.005) continue;
+    await db.query(
+      `INSERT INTO client_balance_ledger (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+       VALUES (?, ?, 'credit', ?, ?, 'payment', ?, ?)`,
+      [clientId, orgId, amount, currency, paymentId, `Group payment ${paymentId}`],
+    );
+  }
+}
 
 /**
  * Load a shared group + its members, or throw. Returns { group, memberIds,
@@ -137,8 +163,6 @@ async function payGroup(orgId, groupId, opts = {}) {
     requestedIds = new Set(opts.invoice_ids);
   }
 
-  const currency = await Organization.getCurrency(orgId);
-
   const conn = await db.getConnection();
   let payment;
   const settled = [];
@@ -166,6 +190,18 @@ async function payGroup(orgId, groupId, opts = {}) {
       }
       invoiceRows = invoiceRows.filter((r) => requestedIds.has(Number(r.id)));
     }
+
+    // A single payment cannot honestly settle invoices in different currencies
+    // (there is no conversion here) — refuse to cross currencies. The payment
+    // is denominated in the currency of the invoices it settles, not blindly
+    // the org currency.
+    const payableRows = invoiceRows.filter((inv) => Math.round(Number(inv.balance_due) * 100) / 100 > 0);
+    const currencies = new Set(payableRows.map((inv) => inv.currency));
+    if (currencies.size > 1) {
+      await conn.rollback();
+      throw new ValidationError('This group has open invoices in more than one currency. Pay each currency separately (use invoice_ids to select one currency).');
+    }
+    const currency = currencies.size === 1 ? [...currencies][0] : await Organization.getCurrency(orgId);
 
     const payableTotal = Math.round(
       invoiceRows.reduce((s, inv) => s + Math.max(0, Math.round(Number(inv.balance_due) * 100) / 100), 0) * 100,
@@ -241,11 +277,26 @@ async function payGroup(orgId, groupId, opts = {}) {
     conn.release();
   }
 
+  const allocatedTotal = Math.round(settled.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+
   // Post-commit side effects (own connections) — mirror allocate-auto.
+  // Ledger credits are written ALLOCATION-AWARE, not lumped on the primary: a
+  // normal same-client payment's credit offsets that client's invoice debit on
+  // one ledger, but here the primary's payment settles MEMBERS' invoices, so
+  // the credit must land on each member (the amount applied to their invoices)
+  // — else members' statements show a paid invoice as still owed and the
+  // primary's statement shows a phantom standing credit. The remainder
+  // (overpayment) is credited to the primary as ordinary unallocated credit.
+  // (The headline balance is computed from invoices+payments, not the ledger,
+  // so it is already correct regardless — this keeps the statement PDF /
+  // ledger views consistent too.)
   try {
-    await billingService.recordPaymentCredit(payment, orgId);
+    await writeGroupLedgerCredits({
+      orgId, paymentId: payment.id, currency: payment.currency,
+      settled, primaryId, totalAmount: payment.amount, allocatedTotal,
+    });
   } catch (err) {
-    logger.warn({ err, paymentId: payment.id }, 'recordPaymentCredit failed for group payment (ledger only)');
+    logger.warn({ err, paymentId: payment.id }, 'group ledger credit write failed (ledger only; computed balance unaffected)');
   }
   for (const invoice of justPaidInvoices) {
     try {
@@ -255,7 +306,6 @@ async function payGroup(orgId, groupId, opts = {}) {
     }
   }
 
-  const allocatedTotal = Math.round(settled.reduce((s, a) => s + a.amount, 0) * 100) / 100;
   logger.info({ groupId, paymentId: payment.id, amount: payment.amount, allocatedTotal, settledCount: settled.length }, 'Group payment settled');
 
   return {

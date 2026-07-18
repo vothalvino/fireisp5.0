@@ -53,6 +53,14 @@ class ClientGroup extends BaseModel {
           AND (client_group_id IS NULL OR client_group_id <> ?)`,
       [groupId, ...ids, orgId, groupId],
     );
+    // A moved client stops being a member of its OLD group — if it was that
+    // group's designated primary, clear it so no group is left pointing at a
+    // non-member (mirrors removeMember's cleanup).
+    await db.query(
+      `UPDATE client_groups SET primary_client_id = NULL
+        WHERE organization_id = ? AND id <> ? AND primary_client_id IN (${placeholders})`,
+      [orgId, groupId, ...ids],
+    );
     return result.affectedRows || 0;
   }
 

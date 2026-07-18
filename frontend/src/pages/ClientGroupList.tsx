@@ -41,7 +41,7 @@ interface GroupsResponse {
 interface GroupFormBody {
   name: string;
   billing_mode: string;
-  primary_client_id?: number;
+  primary_client_id?: number | null;
   notes?: string;
 }
 
@@ -328,6 +328,9 @@ function GroupMembersRow({ group, colSpan }: { group: ClientGroup; colSpan: numb
           </p>
         )}
         {actionError && <div style={errorBox}>{actionError}</div>}
+        {isShared && canViewBilling && billingQ.error && (
+          <div style={errorBox}>{(billingQ.error as Error).message}</div>
+        )}
 
         {membersQ.isLoading && <p style={{ margin: '8px 0', color: 'var(--text-secondary)' }}>{t('clientList.loading')}</p>}
         {membersQ.error && <div style={errorBox}>{(membersQ.error as Error).message}</div>}
@@ -457,6 +460,20 @@ function GroupFormModal({
   const [primaryLabel, setPrimaryLabel] = useState('');
   const [error, setError] = useState('');
 
+  // In edit mode, resolve the existing primary's NAME so the picker shows a
+  // person, not "Client #id".
+  useQuery({
+    queryKey: ['client-name', initial?.primary_client_id],
+    enabled: mode === 'edit' && Boolean(initial?.primary_client_id),
+    queryFn: async () => {
+      const res = await api.GET('/clients/{id}', { params: { path: { id: initial!.primary_client_id! } } });
+      if (res.error) return null;
+      const name = (res.data as unknown as { data?: { name?: string } }).data?.name ?? '';
+      if (name) setPrimaryLabel(name);
+      return name;
+    },
+  });
+
   const mutation = useMutation({
     mutationFn: async (body: GroupFormBody) => {
       if (mode === 'create') {
@@ -478,7 +495,12 @@ function GroupFormModal({
     e.preventDefault();
     if (!form.name.trim()) { setError('Name is required.'); return; }
     const body: GroupFormBody = { name: form.name.trim(), billing_mode: form.billing_mode };
-    if (form.primary_client_id) body.primary_client_id = Number(form.primary_client_id);
+    if (form.primary_client_id) {
+      body.primary_client_id = Number(form.primary_client_id);
+    } else if (mode === 'edit' && initial?.primary_client_id) {
+      // Explicitly clear a previously-set primary (null, not omit-to-keep).
+      body.primary_client_id = null;
+    }
     if (form.notes && form.notes.trim()) body.notes = form.notes.trim();
     setError('');
     mutation.mutate(body);
@@ -503,7 +525,7 @@ function GroupFormModal({
 
           <label style={labelStyle}>Primary member (billing owner)</label>
           <ClientSearchSelect
-            valueId={form.primary_client_id}
+            valueId={form.primary_client_id ?? undefined}
             valueLabel={primaryLabel}
             placeholder="Search for the billing owner…"
             onPick={(id, name) => { setForm(p => ({ ...p, primary_client_id: id })); setPrimaryLabel(name); }}

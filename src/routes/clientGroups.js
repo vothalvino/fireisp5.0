@@ -15,7 +15,23 @@ const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/clientGroups' });
 
 const router = Router();
-const ctrl = crudController(ClientGroup, { cacheResource: 'client-groups' });
+
+// A group's designated primary IS its billing owner, so it must be a member.
+// After create/update, ensure the chosen primary is in the group (org-scoped —
+// a cross-org / nonexistent id simply isn't added, and payGroup then refuses
+// to bill until a real member is primary). This closes the "primary set to a
+// non-member" gap without blocking the natural create-with-primary flow.
+async function ensurePrimaryIsMember(record, req) {
+  if (record && record.primary_client_id) {
+    await ClientGroup.addMembers(record.id, [record.primary_client_id], req.orgId);
+  }
+}
+
+const ctrl = crudController(ClientGroup, {
+  cacheResource: 'client-groups',
+  afterCreate: ensurePrimaryIsMember,
+  afterUpdate: ensurePrimaryIsMember,
+});
 
 router.use(authenticate);
 router.use(orgScope);
@@ -48,6 +64,12 @@ router.post('/:id/members', requirePermission('clients.update'), async (req, res
       return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'client_ids must be a non-empty array.' } });
     }
     const added = await ClientGroup.addMembers(req.params.id, clientIds, req.orgId);
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'update',
+      tableName: 'client_groups', recordId: Number(req.params.id),
+      summary: `Added ${added} member(s) to client group #${req.params.id}`,
+      newValues: { client_ids: clientIds },
+    });
     const members = await ClientGroup.getMembers(req.params.id, req.orgId);
     res.json({ data: { added, members } });
   } catch (err) { next(err); }
@@ -61,6 +83,11 @@ router.delete('/:id/members/:clientId', requirePermission('clients.update'), asy
     if (!removed) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'That client is not a member of this group.' } });
     }
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'update',
+      tableName: 'client_groups', recordId: Number(req.params.id),
+      summary: `Removed client #${req.params.clientId} from client group #${req.params.id}`,
+    });
     const members = await ClientGroup.getMembers(req.params.id, req.orgId);
     res.json({ data: { members } });
   } catch (err) { next(err); }

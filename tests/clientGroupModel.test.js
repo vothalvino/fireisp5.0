@@ -24,6 +24,17 @@ describe('ClientGroup.addMembers', () => {
     expect(params.filter((p) => p === 7)).toHaveLength(1); // input dedup
   });
 
+  it('clears the moved clients as primary of any OTHER group (no orphaned primary)', async () => {
+    db.query.mockResolvedValue([{ affectedRows: 1 }]);
+    await ClientGroup.addMembers(5, [7, 8], 1);
+    // Second query nulls primary_client_id on other groups pointing at moved ids.
+    const [sql, params] = db.query.mock.calls[1];
+    expect(sql).toMatch(/UPDATE client_groups SET primary_client_id = NULL/);
+    expect(sql).toMatch(/id <> \?/);
+    expect(sql).toMatch(/primary_client_id IN/);
+    expect(params).toEqual([1, 5, 7, 8]); // org, thisGroup, ...movedIds
+  });
+
   it('is a no-op for an empty id list', async () => {
     const added = await ClientGroup.addMembers(5, [], 1);
     expect(added).toBe(0);

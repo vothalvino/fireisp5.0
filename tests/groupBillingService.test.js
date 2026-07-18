@@ -145,7 +145,31 @@ describe('payGroup', () => {
     expect(conn.allocations.map((a) => a.invoice_id)).toEqual([201, 301, 101]);
     expect(conn.allocations.map((a) => a.amount)).toEqual([50, 30, 100]);
     expect(res.settled_invoices).toHaveLength(3);
-    expect(mockRecordCredit).toHaveBeenCalledTimes(1);
+    // Ledger credits are allocation-aware: one 'credit' per member for the
+    // amount applied to THEIR invoices (not the full amount lumped on primary).
+    const ledger = db.query.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.includes('client_balance_ledger'));
+    expect(ledger).toHaveLength(3);
+    const byClient = Object.fromEntries(ledger.map(([, p]) => [p[0], p[2]]));
+    expect(byClient).toEqual({ 1: 100, 2: 50, 3: 30 });
+  });
+
+  it('refuses to settle a group whose open invoices span more than one currency', async () => {
+    mockGetInvoices.mockImplementation(async (_exec, _org, clientId) => {
+      if (clientId === 2) return [{ ...INVOICES[2][0], currency: 'USD' }];
+      return (INVOICES[clientId] || []).map((r) => ({ ...r }));
+    });
+    await expect(groupBillingService.payGroup(10, 7, {})).rejects.toMatchObject({ statusCode: 422 });
+  });
+
+  it('overpay credit is attributed to the primary in the ledger', async () => {
+    db.getConnection.mockResolvedValue(makeConn());
+    await groupBillingService.payGroup(10, 7, { amount: 250 }); // 180 allocated, 70 overpay
+    const ledger = db.query.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.includes('client_balance_ledger'));
+    const byClient = Object.fromEntries(ledger.map(([, p]) => [p[0], p[2]]));
+    // primary (client 1) gets its own 100 + the 70 remainder = 170.
+    expect(byClient[1]).toBe(170);
+    expect(byClient[2]).toBe(50);
+    expect(byClient[3]).toBe(30);
   });
 
   it('partial amount settles oldest first and stops when exhausted', async () => {
