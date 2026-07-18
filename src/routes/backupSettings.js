@@ -10,6 +10,10 @@
 // POST /backup-settings/test     — live probe upload (+ best-effort delete)
 //                                  against the effective remote destination
 // GET  /backup-settings/runs     — backup run history + local backup files
+// GET  /backup-settings/download/:filename — download a local backup file
+//                                  (backup_settings.download, migration 406 —
+//                                  the file is the whole database, so the act
+//                                  has its own slug and is audit-logged)
 // POST /backup-settings/run-now  — trigger a manual backup (202; 409 when
 //                                  one is already running)
 //
@@ -26,6 +30,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { updateBackupSettings } = require('../middleware/schemas/backupSettings');
 const backupSettingsService = require('../services/backupSettingsService');
+const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/backupSettings' });
 
 const router = Router();
@@ -80,6 +85,27 @@ router.get('/runs',
     try {
       const result = await backupSettingsService.listBackups();
       res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/download/:filename',
+  requirePermission('backup_settings.download'),
+  async (req, res, next) => {
+    try {
+      const file = backupSettingsService.resolveBackupFile(req.params.filename);
+      // A backup download is a full-database exfiltration by design — always
+      // leave an audit trail before a single byte is sent.
+      await auditLog.log({
+        userId: req.user?.id,
+        action: 'download',
+        tableName: 'backup_files',
+        summary: `Downloaded database backup ${file.filename} (${file.sizeBytes} bytes)`,
+      });
+      logger.info({ userId: req.user?.id, filename: file.filename, sizeBytes: file.sizeBytes }, 'Backup file downloaded');
+      res.download(file.filepath, file.filename);
     } catch (err) {
       next(err);
     }

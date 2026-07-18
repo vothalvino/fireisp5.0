@@ -115,4 +115,26 @@ describe('backup_settings RBAC', () => {
     const res = await request(app).get('/api/v1/backup-settings');
     expect(res.status).toBe(401);
   });
+
+  it('download requires its own slug — view+update alone is refused (migration 406)', async () => {
+    mockAuthAndPermissions({
+      role: 'billing',
+      grantedSlugs: ['backup_settings.view', 'backup_settings.update'],
+    });
+    const res = await request(app)
+      .get('/api/v1/backup-settings/download/fireisp_2026-01-01T00-00-00.sql.gz')
+      .set('Authorization', `Bearer ${tokenFor('billing')}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('backup_settings.download grants the download route (404 for a missing file, not 403)', async () => {
+    mockAuthAndPermissions({
+      role: 'billing',
+      grantedSlugs: ['backup_settings.download'],
+    });
+    const res = await request(app)
+      .get('/api/v1/backup-settings/download/fireisp_2026-01-01T00-00-00.sql.gz')
+      .set('Authorization', `Bearer ${tokenFor('billing')}`);
+    expect(res.status).toBe(404);
+  });
 });

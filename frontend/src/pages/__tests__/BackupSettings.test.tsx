@@ -162,6 +162,40 @@ describe('BackupSettings page', () => {
     expect(screen.queryByDisplayValue('https://storage.googleapis.com')).toBeNull();
   });
 
+  it('downloads a backup file with the bearer token via blob anchor', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['gz'])),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    // jsdom has no createObjectURL/revokeObjectURL — assign, don't spy.
+    URL.createObjectURL = vi.fn(() => 'blob:x') as never;
+    URL.revokeObjectURL = vi.fn() as never;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    const btn = (await screen.findAllByTitle(/Download this backup file/))[0];
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('/api/v1/backup-settings/download/fireisp_2026-07-17.sql.gz');
+    expect((init as { headers: Record<string, string> }).headers.Authorization).toBe('Bearer tok');
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces a download failure inline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    renderPage();
+    const btn = (await screen.findAllByTitle(/Download this backup file/))[0];
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByText(/Download failed \(403\)/)).toBeInTheDocument());
+    vi.unstubAllGlobals();
+  });
+
   it('warns when no off-site destination is configured at all', async () => {
     installGets({ settings: { ...SETTINGS, remote_enabled: false, secret_configured: false, effective_source: 'none' }, runs: [], files: [] });
     renderPage();

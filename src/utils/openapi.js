@@ -1112,6 +1112,9 @@ function generateSpec() {
       '/backup-settings/run-now': {
         post: { tags: ['Backup Settings'], summary: 'Trigger a manual database backup (409 when one is already running)', operationId: 'runBackupNow', security: [{ bearerAuth: [] }], responses: { 202: { description: 'Backup started', content: { 'application/json': { schema: { type: 'object' } } } } } },
       },
+      '/backup-settings/download/{filename}': {
+        get: { tags: ['Backup Settings'], summary: 'Download a local backup file (full database dump; audit-logged, backup_settings.download)', operationId: 'downloadBackupFile', security: [{ bearerAuth: [] }], parameters: [{ name: 'filename', in: 'path', required: true, schema: { type: 'string' } }], responses: r200File('application/gzip') },
+      },
 
       // ---- Late Fee Rules — §2.2B ----
       ...crudPaths('late-fee-rules', 'Late Fee Rules', 'LateFeeRule'),

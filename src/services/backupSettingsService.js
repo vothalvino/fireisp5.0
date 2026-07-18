@@ -21,7 +21,7 @@ const path = require('path');
 const BackupSettings = require('../models/BackupSettings');
 const BackupRun = require('../models/BackupRun');
 const cloudStorage = require('./cloudStorageService');
-const { ValidationError, ConflictError } = require('../utils/errors');
+const { ValidationError, ConflictError, NotFoundError } = require('../utils/errors');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger').child({ service: 'backupSettings' });
 
@@ -204,6 +204,39 @@ async function listBackups() {
 }
 
 /**
+ * Resolve a requested backup filename to a safe absolute path inside
+ * BACKUP_DIR, for the download endpoint. The filename is client input naming
+ * a file that IS the entire database, so validation is an allowlist, not a
+ * denylist: only dump-shaped names (letters/digits/._- ending in .sql.gz —
+ * no path separators, so no traversal), and the resolved path must still sit
+ * directly inside BACKUP_DIR. Throws ValidationError on a malformed name,
+ * NotFoundError when no such backup exists.
+ */
+function resolveBackupFile(name) {
+  const { BACKUP_DIR } = require('../scripts/backup'); // lazy — see header
+  const filename = String(name || '');
+
+  if (!/^[A-Za-z0-9._-]+\.sql\.gz$/.test(filename)) {
+    throw new ValidationError('Invalid backup filename');
+  }
+  const filepath = path.resolve(BACKUP_DIR, filename);
+  if (path.dirname(filepath) !== path.resolve(BACKUP_DIR)) {
+    throw new ValidationError('Invalid backup filename');
+  }
+
+  let stats;
+  try {
+    stats = fs.statSync(filepath);
+  } catch (err) {
+    if (err.code === 'ENOENT') throw new NotFoundError('Backup file');
+    throw err;
+  }
+  if (!stats.isFile()) throw new NotFoundError('Backup file');
+
+  return { filepath, filename, sizeBytes: stats.size };
+}
+
+/**
  * The nightly database_backup scheduled task's row (global, org-NULL) —
  * shown on the /backups page so the admin sees when the next automatic
  * backup happens and whether the task is even enabled.
@@ -242,6 +275,7 @@ module.exports = {
   getEffectiveRemoteConfig,
   testRemote,
   listBackups,
+  resolveBackupFile,
   getSchedule,
   runBackupNow,
 };
