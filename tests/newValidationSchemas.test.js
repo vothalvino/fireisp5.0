@@ -1175,11 +1175,18 @@ describe('PacProvider validation schemas', () => {
     expectReject(next);
   });
 
-  test('createPacProvider accepts all valid providers', () => {
-    for (const prov of ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other']) {
-      const next = run(createPacProvider, { provider_name: prov });
+  test('createPacProvider accepts all valid providers (incl. simulator)', () => {
+    // label + api_url are NOT NULL columns — required since the live-walk
+    // hotfix (an absent value used to 500 from MySQL instead of 422).
+    for (const prov of ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other', 'simulator']) {
+      const next = run(createPacProvider, { provider_name: prov, label: 'X', api_url: 'https://pac.example' });
       expectPass(next);
     }
+  });
+
+  test('createPacProvider rejects a body missing label/api_url (NOT NULL, no default)', () => {
+    const next = run(createPacProvider, { provider_name: 'finkok' });
+    expectReject(next);
   });
 
   test('updatePacProvider allows partial updates', () => {

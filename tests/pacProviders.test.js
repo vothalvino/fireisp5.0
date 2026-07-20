@@ -137,6 +137,8 @@ describe('PAC Provider routes — secret redaction', () => {
       .set('X-Org-Id', '1')
       .send({
         provider_name: 'finkok',
+        label: 'Finkok prueba',
+        api_url: 'https://demo-facturacion.finkok.com',
         username_encrypted: 'PLAINTEXT_USERNAME',
         password_encrypted: 'PLAINTEXT_PASSWORD',
       });

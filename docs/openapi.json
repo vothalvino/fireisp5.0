@@ -62376,6 +62376,10 @@
             "type": "string",
             "maximum": 100
           },
+          "api_url": {
+            "type": "string",
+            "maximum": 500
+          },
           "environment": {
             "type": "string",
             "enum": [
@@ -62391,10 +62395,6 @@
             "type": "string",
             "maximum": 500
           },
-          "api_url": {
-            "type": "string",
-            "maximum": 500
-          },
           "status": {
             "type": "string",
             "enum": [
@@ -62404,7 +62404,9 @@
           }
         },
         "required": [
-          "provider_name"
+          "provider_name",
+          "label",
+          "api_url"
         ]
       },
       "pacProviders_updatePacProvider": {

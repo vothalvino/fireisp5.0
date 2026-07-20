@@ -397,7 +397,11 @@ async function callPacStamp(pac, xmlContent) {
 
   // First-class SIMULATOR provider — for demo/dev/test installs. Unlike the
   // dev fallback below it is ALLOWED in production, but only with
-  // environment='sandbox', and its UUIDs are unmistakably fake ('SIM-…').
+  // environment='sandbox', and its UUIDs are unmistakably fake: the first
+  // UUID block is the literal 'SIMULADO' (not valid hex — no real SAT folio
+  // fiscal can ever look like this), keeping the value exactly 36 chars so it
+  // fits cfdi_documents.uuid CHAR(36) and every downstream uuid column
+  // (cfdi_cancellations, payment-complement DoctoRelacionado).
   // A 'simulator' row with environment='production' is a misconfiguration.
   if (pac.provider_name === 'simulator') {
     if (pac.environment !== 'sandbox') {
@@ -405,7 +409,7 @@ async function callPacStamp(pac, xmlContent) {
     }
     logger.warn({ provider: 'simulator' }, 'SIMULATED stamping — NOT a fiscally valid CFDI');
     return {
-      uuid: `SIM-${crypto.randomUUID()}`,
+      uuid: `SIMULADO-${crypto.randomUUID().slice(9)}`,
       signedXml: null,
       selloSat: null,
       cadenaOriginal: null,

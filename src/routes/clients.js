@@ -163,7 +163,9 @@ router.get('/:id/mx-profile', requirePermission('clients.view'), async (req, res
 router.put('/:id/mx-profile', requirePermission('clients.update'), validate(updateMxProfile), async (req, res, next) => {
   try {
     await Client.findByIdOrFail(req.params.id, req.orgId);
-    const { rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal } = req.body;
+    // curp is optional — an absent key destructures to undefined, and mysql2
+    // rejects undefined bind params outright (500). Normalize to NULL.
+    const { rfc, curp = null, razon_social, regimen_fiscal, codigo_postal_fiscal } = req.body;
     const existing = await Client.getMxProfile(req.params.id);
 
     if (existing) {

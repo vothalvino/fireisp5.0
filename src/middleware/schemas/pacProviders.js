@@ -4,11 +4,13 @@
 
 const createPacProvider = {
   provider_name: { type: 'string', required: true, enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other', 'simulator'] },
-  label: { type: 'string', max: 100 },
+  // label + api_url are NOT NULL columns with no default — an absent value
+  // used to surface as a raw 500 from MySQL instead of a 422.
+  label: { type: 'string', required: true, max: 100 },
+  api_url: { type: 'string', required: true, max: 500 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
   username_encrypted: { type: 'string', max: 500 },
   password_encrypted: { type: 'string', max: 500 },
-  api_url: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
 };
 
