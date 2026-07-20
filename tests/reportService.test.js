@@ -257,6 +257,18 @@ describe('reportService', () => {
     });
   });
 
+  describe('satExport()', () => {
+    test('excludes draft, void AND SAT-cancelled invoices from the tax-authority export', async () => {
+      // A SAT-cancelled invoice's CFDI is cancelado on file with SAT — exporting
+      // it at full value would overstate the org's declared income.
+      db.queryReplica.mockResolvedValueOnce([[]]);
+      await reportService.satExport(1, {});
+      const [sql] = db.queryReplica.mock.calls[0];
+      expect(sql).toContain("i.status NOT IN ('draft', 'void', 'cancelled')");
+      expect(sql).toContain('i.deleted_at IS NULL');
+    });
+  });
+
   // =========================================================================
   // §15.2 Operational Report functions
   // =========================================================================

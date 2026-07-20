@@ -124,6 +124,39 @@ describe('PATCH /invoices/:id — void', () => {
     expect(ledgerZero()).toBeFalsy();
   });
 
+  // 'cancelled' (CFDI cancelled at SAT) is terminal like 'void': its money was
+  // released, and the CFDI is permanently cancelado at SAT. Un-cancelling to
+  // 'issued' would resurrect a $-total invoice with no allocations (double
+  // billing off the freed payment credit).
+  it('422s (INVOICE_CANCELLED) on a generic edit of a SAT-cancelled invoice', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'cancelled', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('422s (INVOICE_CANCELLED) when trying to VOID a SAT-cancelled invoice', async () => {
+    // The void dispatch bypasses beforeUpdate, so the service must refuse:
+    // re-labelling 'cancelled' as 'void' would erase the SAT-cancellation record.
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'cancelled', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    db.query.mockResolvedValueOnce([[]]); // stamped-CFDI guard: cancelado is not live
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  it("422s (INVOICE_CANCELLED) on a manual status:'cancelled' set — only the SAT flow may set it", async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'cancelled' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled(); // rejected before any guard/fetch
+  });
+
   it('a non-void PATCH still goes through the generic update path', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'overdue', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'overdue' });

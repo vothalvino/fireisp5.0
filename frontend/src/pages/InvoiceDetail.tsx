@@ -120,7 +120,10 @@ async function fetchInvoiceCfdis(invoiceId: number): Promise<CfdiDoc[]> {
 // Same call CfdiList.tsx makes: POST /cfdi/cancel submits the cancellation to
 // SAT via the org's PAC. Once SAT accepts, the backend marks the invoice
 // 'cancelled' automatically (cfdiService → billingService.cancelInvoiceForSat).
-async function cancelCfdiAtSat(cfdiDocumentId: number, reason: string, replacementUuid?: string): Promise<void> {
+// Returns the SAT outcome: 'cancelado' (accepted) or 'cancel_pending'
+// (awaiting SAT). A 'rejected' outcome arrives as HTTP 200 — the request
+// succeeded but SAT refused — so it must be surfaced as an error, not success.
+async function cancelCfdiAtSat(cfdiDocumentId: number, reason: string, replacementUuid?: string): Promise<string> {
   const body: Record<string, unknown> = { cfdi_document_id: cfdiDocumentId, reason };
   if (replacementUuid) body.replacement_uuid = replacementUuid;
   const res = await authedFetch(`${API_BASE}/cfdi/cancel`, {
@@ -128,10 +131,15 @@ async function cancelCfdiAtSat(cfdiDocumentId: number, reason: string, replaceme
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const resBody = await res.json().catch(() => ({})) as { data?: { status?: string }; error?: { message?: string } };
   if (!res.ok) {
-    const resBody = await res.json().catch(() => ({})) as { error?: { message?: string } };
     throw new Error(resBody.error?.message ?? 'Failed to cancel CFDI');
   }
+  const satStatus = resBody.data?.status ?? 'cancel_pending';
+  if (satStatus === 'rejected') {
+    throw new Error('SAT rejected the cancellation — the CFDI remains vigente.');
+  }
+  return satStatus;
 }
 
 async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
@@ -372,7 +380,10 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
 // Edit Invoice Modal
 // ---------------------------------------------------------------------------
 
-const INVOICE_STATUSES = ['draft', 'issued', 'paid', 'overdue', 'cancelled', 'void'];
+// 'cancelled' is deliberately absent: it means "CFDI cancelled at SAT" and is
+// set only by the SAT cancellation flow (the backend 422s a manual set).
+// 'void' stays listed because selecting it routes through the void flow.
+const INVOICE_STATUSES = ['draft', 'issued', 'paid', 'overdue', 'void'];
 
 interface EditInvoiceModalProps {
   invoice: Invoice;
@@ -485,7 +496,8 @@ interface CancelCfdiModalProps {
   cfdi: CfdiDoc;
   invoiceNumber: string;
   onClose: () => void;
-  onCancelled: () => void;
+  // Receives the SAT outcome: 'cancelado' (accepted now) or 'cancel_pending'.
+  onCancelled: (satStatus: string) => void;
 }
 
 function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCfdiModalProps) {
@@ -496,11 +508,16 @@ function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCf
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const trimmedUuid = replacementUuid.trim();
+    if (reason === '01' && !trimmedUuid) {
+      setError('Motivo 01 requires a replacement UUID (folio de sustitución).');
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
-      await cancelCfdiAtSat(cfdi.id, reason, reason === '01' ? replacementUuid : undefined);
-      onCancelled();
+      const satStatus = await cancelCfdiAtSat(cfdi.id, reason, reason === '01' ? trimmedUuid : undefined);
+      onCancelled(satStatus);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to cancel CFDI');
@@ -739,9 +756,11 @@ export function InvoiceDetail() {
               </button>
               <button
                 onClick={() => setShowEdit(true)}
-                disabled={invoice.status === 'void'}
+                disabled={['void', 'cancelled'].includes(invoice.status)}
                 style={actionBtn('#6b7280')}
-                title={invoice.status === 'void' ? 'Voided invoices cannot be edited' : undefined}
+                title={invoice.status === 'void' ? 'Voided invoices cannot be edited'
+                  : invoice.status === 'cancelled' ? 'SAT-cancelled invoices cannot be edited'
+                  : undefined}
               >
                 ✏️ Edit
               </button>
@@ -925,11 +944,16 @@ export function InvoiceDetail() {
               cfdi={liveCfdi}
               invoiceNumber={invoice.invoice_number || `#${invoice.id}`}
               onClose={() => setShowCancelCfdi(false)}
-              onCancelled={() => {
+              onCancelled={(satStatus) => {
                 qc.invalidateQueries({ queryKey: ['invoice', id] });
                 qc.invalidateQueries({ queryKey: ['invoices'] });
                 qc.invalidateQueries({ queryKey: ['invoice-cfdi', id] });
-                showToast('CFDI cancellation submitted to SAT');
+                // A paid invoice's allocations are released on acceptance —
+                // the Applied Payments card must not show them as still applied.
+                qc.invalidateQueries({ queryKey: ['invoice-payments', id] });
+                showToast(satStatus === 'cancelado'
+                  ? 'CFDI cancelled at SAT — invoice marked cancelled'
+                  : 'CFDI cancellation submitted to SAT — awaiting acceptance');
               }}
             />
           )}

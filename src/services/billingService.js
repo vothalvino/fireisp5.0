@@ -743,7 +743,15 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
     );
   }
 
-  return settleInvoiceTerminal(invoiceId, orgId, userId, { status: 'void', action: 'void' });
+  return settleInvoiceTerminal(invoiceId, orgId, userId, {
+    status: 'void',
+    action: 'void',
+    // A SAT-cancelled invoice must stay 'cancelled' — re-labelling it 'void'
+    // would erase the record that its CFDI was cancelled at SAT. (This path is
+    // reached directly by the PUT/PATCH void dispatch and the bulk endpoint,
+    // which bypass the route's beforeUpdate terminal guard.)
+    forbidFrom: ['cancelled'],
+  });
 }
 
 /**
@@ -770,9 +778,16 @@ async function cancelInvoiceForSat(invoiceId, orgId, userId = null) {
  * client credit) and zero its balance-ledger entries so it stops contributing
  * to the client's balance. Idempotent: re-settling an already-terminal invoice
  * only re-stamps the status and audit log, never double-releases money.
+ * `forbidFrom` lists starting statuses the transition must refuse (422).
  */
-async function settleInvoiceTerminal(invoiceId, orgId, userId, { status, action }) {
+async function settleInvoiceTerminal(invoiceId, orgId, userId, { status, action, forbidFrom = [] }) {
   const existing = await Invoice.findByIdOrFail(invoiceId, orgId);
+  if (forbidFrom.includes(existing.status)) {
+    throw new AppError(
+      'This invoice was cancelled at SAT — it is fiscally terminal and cannot be voided.',
+      422, 'INVOICE_CANCELLED',
+    );
+  }
   const record = await Invoice.update(invoiceId, { status }, orgId);
 
   const wasTerminal = existing.status === 'void' || existing.status === 'cancelled';

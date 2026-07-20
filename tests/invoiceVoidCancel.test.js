@@ -83,6 +83,19 @@ describe('voidInvoiceById — stamped-CFDI guard', () => {
     const sqls = db.query.mock.calls.map((c) => c[0]).join('\n');
     expect(sqls).toMatch(ALLOC_RELEASE);
   });
+
+  test('refuses to void a SAT-cancelled invoice (would erase the cancellation record)', async () => {
+    // The CFDI is cancelado (not live), so the stamped guard passes — the
+    // forbidFrom check on the invoice's own status must still refuse.
+    db.query.mockResolvedValueOnce([[]]);
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 13, status: 'cancelled', client_id: 3 });
+
+    await expect(billingService.voidInvoiceById(13, 1, 5))
+      .rejects.toMatchObject({ statusCode: 422, code: 'INVOICE_CANCELLED' });
+
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(auditLog.log).not.toHaveBeenCalled();
+  });
 });
 
 describe('cancelInvoiceForSat — SAT-cancellation sync', () => {

@@ -339,7 +339,46 @@ describe('InvoiceDetail void vs. SAT cancel', () => {
       expect(call).toBeDefined();
       expect(JSON.parse((call![1] as { body: string }).body)).toEqual({ cfdi_document_id: 7, reason: '02' });
     });
-    expect(await screen.findByText('CFDI cancellation submitted to SAT')).toBeInTheDocument();
+    // The mock PAC accepted immediately (status 'cancelado') → the toast says so.
+    expect(await screen.findByText('CFDI cancelled at SAT — invoice marked cancelled')).toBeInTheDocument();
+  });
+
+  it('surfaces a SAT-REJECTED cancellation as an error, not success', async () => {
+    // /cfdi/cancel answers HTTP 200 with status 'rejected' when SAT refuses —
+    // the modal must show an error and never toast success.
+    mockAuthedFetch.mockImplementation((url: string) => {
+      if (url.includes('/cfdi-documents')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: [vigenteDoc] }) });
+      }
+      if (url.includes('/cfdi/cancel')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: { status: 'rejected' } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '✕ Cancel CFDI (SAT)' }));
+    await screen.findByRole('dialog', { name: 'Cancel CFDI at SAT' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel CFDI' }));
+
+    expect(await screen.findByText('SAT rejected the cancellation — the CFDI remains vigente.')).toBeInTheDocument();
+    // Modal stays open; no success toast.
+    expect(screen.getByRole('dialog', { name: 'Cancel CFDI at SAT' })).toBeInTheDocument();
+    expect(screen.queryByText(/invoice marked cancelled|submitted to SAT/)).not.toBeInTheDocument();
+  });
+
+  it('blocks a motivo-01 submit with a whitespace-only replacement UUID', async () => {
+    wireAuthedFetch([vigenteDoc]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '✕ Cancel CFDI (SAT)' }));
+    await screen.findByRole('dialog', { name: 'Cancel CFDI at SAT' });
+
+    fireEvent.change(screen.getByLabelText('Cancellation reason (SAT)'), { target: { value: '01' } });
+    fireEvent.change(screen.getByLabelText('Replacement UUID (required for reason 01)'), { target: { value: '   ' } });
+    // fireEvent.submit bypasses native `required` — this targets our JS check.
+    fireEvent.submit(screen.getByRole('button', { name: 'Cancel CFDI' }).closest('form')!);
+
+    expect(await screen.findByText('Motivo 01 requires a replacement UUID (folio de sustitución).')).toBeInTheDocument();
+    expect(mockAuthedFetch.mock.calls.find(([url]) => (url as string).includes('/cfdi/cancel'))).toBeUndefined();
   });
 
   it('motivo 01 requires a replacement UUID and sends it', async () => {
@@ -379,5 +418,7 @@ describe('InvoiceDetail void vs. SAT cancel', () => {
     // No live CFDI anymore → the Void button returns, but the invoice is
     // already terminal so it stays disabled.
     expect(screen.getByRole('button', { name: '🚫 Void' })).toBeDisabled();
+    // Editing a SAT-cancelled invoice is blocked too (backend 422s it).
+    expect(screen.getByRole('button', { name: '✏️ Edit' })).toBeDisabled();
   });
 });
