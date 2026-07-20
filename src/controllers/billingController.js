@@ -81,6 +81,7 @@ async function allocatePayment(req, res, next) {
     const payment = payments[0];
 
     const conn = await db.getConnection();
+    let connReleased = false;
     try {
       await conn.beginTransaction();
 
@@ -117,6 +118,9 @@ async function allocatePayment(req, res, next) {
       await billingService.recordPaymentCredit(payment, req.orgId);
 
       await conn.commit();
+      // Committed — free the pool slot before the REP/PAC I/O.
+      conn.release();
+      connReleased = true;
 
       // MX/SAT: REP per allocation (best-effort, post-commit — mirrors the
       // /payments/:id/allocate hook).
@@ -126,10 +130,10 @@ async function allocatePayment(req, res, next) {
 
       res.status(201).json({ data: { payment_id, allocations: results } });
     } catch (err) {
-      await conn.rollback();
+      if (!connReleased) await conn.rollback();
       throw err;
     } finally {
-      conn.release();
+      if (!connReleased) conn.release();
     }
   } catch (err) {
     next(err);

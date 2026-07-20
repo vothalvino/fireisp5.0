@@ -27,8 +27,13 @@ const auditLog = require('./auditLog');
 const logger = require('../utils/logger').child({ service: 'rep' });
 
 // payments.payment_method → SAT c_FormaPago when sat_forma_pago isn't set.
+// Covers every value of the payment_method ENUM (schema.sql) — an unmapped
+// method would silently stamp the wrong forma.
 const FORMA_PAGO_BY_METHOD = {
   cash: '01', check: '02', transfer: '03', card: '04', online: '03',
+  credit_card: '04', debit_card: '28', bank_transfer: '03',
+  oxxo_pay: '01', spei: '03', codi: '06', convenience_store: '01',
+  digital_wallet: '05', other: '03',
 };
 
 /**
@@ -59,6 +64,11 @@ async function generateRepForAllocation(paymentId, invoiceId, allocatedAmount, o
   if (payment.currency && payment.currency !== 'MXN') {
     return { generated: false, reason: 'NON_MXN' };
   }
+  // Never report a payment SAT-side unless it actually settled: a REP for a
+  // failed/refunded/cancelled payment tells SAT money arrived that didn't.
+  if (payment.status && !['completed', 'pending'].includes(payment.status)) {
+    return { generated: false, reason: 'PAYMENT_NOT_SETTLED' };
+  }
 
   const [invRows] = await db.query(
     'SELECT id, client_id, total, currency FROM invoices WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -82,28 +92,69 @@ async function generateRepForAllocation(paymentId, invoiceId, allocatedAmount, o
     );
   }
 
-  // Parcialidad chain: prior non-cancelled REP items against this CFDI UUID.
-  // saldo_ant = invoice CFDI total minus everything already REP-reported.
-  const [[prior]] = await db.query(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(pci.imp_pagado), 0) AS pagado
-       FROM cfdi_payment_complement_items pci
-       JOIN cfdi_payment_complements pc ON pc.id = pci.complement_id
-       JOIN cfdi_documents d ON d.id = pc.cfdi_document_id
-      WHERE pci.related_cfdi_uuid = ? AND d.sat_status IN ('draft', 'vigente', 'cancel_pending')`,
-    [invoiceCfdi.uuid],
-  );
-  const numParcialidad = Number(prior.n) + 1;
-  const saldoAnt = Math.round((Number(invoiceCfdi.total) - Number(prior.pagado)) * 100) / 100;
-  const impPagado = Math.round(Number(allocatedAmount) * 100) / 100;
-  const saldoInsoluto = Math.max(0, Math.round((saldoAnt - impPagado) * 100) / 100);
-
-  // Serie/folio from the org profile (serie Pago + shared atomic folio).
+  // Everything from here to the complement INSERT runs under an invoice row
+  // lock: two concurrent payments against the same PPD CFDI must serialize so
+  // the parcialidad chain (num + saldo math) and the idempotency check can't
+  // both read the same stale snapshot (mirrors stampInvoice's FOR UPDATE
+  // pattern). The loser waits on the lock and then sees the winner's items.
   const conn = await db.getConnection();
-  let folio;
+  let numParcialidad, saldoAnt, impPagado, saldoInsoluto, folio;
   try {
+    await conn.beginTransaction();
+    await conn.execute(
+      'SELECT id FROM invoices WHERE id = ? AND organization_id = ? FOR UPDATE',
+      [invoiceId, orgId],
+    );
+
+    // Idempotency: one live REP per (payment → invoice CFDI). Unapply +
+    // re-allocate, hook + manual button, or a double-click must never report
+    // the same money to SAT twice.
+    const [dup] = await conn.execute(
+      `SELECT d.id FROM cfdi_documents d
+         JOIN cfdi_payment_complements pc ON pc.cfdi_document_id = d.id
+         JOIN cfdi_payment_complement_items pci ON pci.complement_id = pc.id
+        WHERE d.payment_id = ? AND d.organization_id = ? AND d.tipo_comprobante = 'P'
+          AND pci.related_cfdi_uuid = ? AND d.sat_status IN ('draft', 'vigente', 'cancel_pending')
+        LIMIT 1`,
+      [paymentId, orgId, invoiceCfdi.uuid],
+    );
+    if (dup[0]) {
+      await conn.rollback();
+      conn.release();
+      return { generated: false, reason: 'REP_ALREADY_EXISTS', cfdi_document_id: dup[0].id };
+    }
+
+    // Parcialidad chain: prior non-cancelled REP items against this CFDI UUID.
+    // saldo_ant = invoice CFDI total minus everything already REP-reported.
+    const [[prior]] = await conn.execute(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(pci.imp_pagado), 0) AS pagado
+         FROM cfdi_payment_complement_items pci
+         JOIN cfdi_payment_complements pc ON pc.id = pci.complement_id
+         JOIN cfdi_documents d ON d.id = pc.cfdi_document_id
+        WHERE pci.related_cfdi_uuid = ? AND d.sat_status IN ('draft', 'vigente', 'cancel_pending')`,
+      [invoiceCfdi.uuid],
+    );
+    numParcialidad = Number(prior.n) + 1;
+    saldoAnt = Math.max(0, Math.round((Number(invoiceCfdi.total) - Number(prior.pagado)) * 100) / 100);
+    if (saldoAnt <= 0) {
+      // The CFDI is already fully REP-reported — another REP would over-report.
+      await conn.rollback();
+      conn.release();
+      return { generated: false, reason: 'CFDI_FULLY_REPORTED' };
+    }
+    impPagado = Math.round(Number(allocatedAmount) * 100) / 100;
+    saldoInsoluto = Math.max(0, Math.round((saldoAnt - impPagado) * 100) / 100);
+
+    // Serie/folio from the org profile (serie Pago + shared atomic folio).
     folio = await nextCfdiFolio(conn, orgId);
-  } finally {
+
+    // NOTE: the transaction stays OPEN here — it is committed after the
+    // complement rows are inserted below, so a racer blocked on the FOR
+    // UPDATE lock re-reads the chain only once this REP's items are visible.
+  } catch (err) {
+    await conn.rollback().catch(() => {});
     conn.release();
+    throw err;
   }
 
   const formaPago = payment.sat_forma_pago || FORMA_PAGO_BY_METHOD[payment.payment_method] || '03';
@@ -113,38 +164,49 @@ async function generateRepForAllocation(paymentId, invoiceId, allocatedAmount, o
     ? new Date(payment.payment_date).toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
 
-  const result = await cfdiService.generatePaymentComplement({
-    organization_id: orgId,
-    client_id: invoice.client_id,
-    payment_id: paymentId,
-    serie: emisor.cfdi_serie_pago || 'P',
-    folio,
-    fecha_emision: cfdiService.cfdiExpeditionTime(),
-    lugar_expedicion: emisor.codigo_postal_fiscal,
-    emisor_rfc: emisor.rfc,
-    emisor_nombre: emisor.razon_social,
-    emisor_regimen_fiscal: emisor.regimen_fiscal,
-    receptor_rfc: receptor.rfc,
-    receptor_nombre: receptor.razon_social,
-    receptor_domicilio_fiscal: receptor.codigo_postal_fiscal,
-    receptor_regimen_fiscal: receptor.regimen_fiscal,
-    payment_date: paymentDate,
-    forma_pago: formaPago,
-    moneda: 'MXN',
-    amount: impPagado,
-    operation_number: payment.reference_number || null,
-    related_documents: [{
-      related_cfdi_uuid: invoiceCfdi.uuid,
-      serie: invoiceCfdi.serie,
-      folio: invoiceCfdi.folio,
-      moneda_dr: 'MXN',
-      equivalencia_dr: 1.0,
-      num_parcialidad: numParcialidad,
-      imp_saldo_ant: saldoAnt,
-      imp_pagado: impPagado,
-      imp_saldo_insoluto: saldoInsoluto,
-    }],
-  });
+  let result;
+  try {
+    result = await cfdiService.generatePaymentComplement({
+      organization_id: orgId,
+      client_id: invoice.client_id,
+      payment_id: paymentId,
+      serie: emisor.cfdi_serie_pago || 'P',
+      folio,
+      fecha_emision: cfdiService.cfdiExpeditionTime(),
+      lugar_expedicion: emisor.codigo_postal_fiscal,
+      emisor_rfc: emisor.rfc,
+      emisor_nombre: emisor.razon_social,
+      emisor_regimen_fiscal: emisor.regimen_fiscal,
+      receptor_rfc: receptor.rfc,
+      receptor_nombre: receptor.razon_social,
+      receptor_domicilio_fiscal: receptor.codigo_postal_fiscal,
+      receptor_regimen_fiscal: receptor.regimen_fiscal,
+      payment_date: paymentDate,
+      forma_pago: formaPago,
+      moneda: 'MXN',
+      amount: impPagado,
+      operation_number: payment.reference_number || null,
+      related_documents: [{
+        related_cfdi_uuid: invoiceCfdi.uuid,
+        serie: invoiceCfdi.serie,
+        folio: invoiceCfdi.folio,
+        moneda_dr: 'MXN',
+        equivalencia_dr: 1.0,
+        num_parcialidad: numParcialidad,
+        imp_saldo_ant: saldoAnt,
+        imp_pagado: impPagado,
+        imp_saldo_insoluto: saldoInsoluto,
+      }],
+    });
+    // Complement rows are inserted (pool, autocommit) — release the
+    // serialization lock so blocked racers can now see them.
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    throw err;
+  } finally {
+    conn.release();
+  }
 
   await auditLog.log({
     userId, organizationId: orgId, action: 'rep_generated',

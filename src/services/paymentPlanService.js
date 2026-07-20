@@ -166,6 +166,7 @@ async function payInstallment(planId, sequence, paymentId, orgId) {
   if (!payment) throw new NotFoundError('payments');
 
   const conn = await db.getConnection();
+  let connReleased = false;
   try {
     await conn.beginTransaction();
 
@@ -202,6 +203,9 @@ async function payInstallment(planId, sequence, paymentId, orgId) {
     }
 
     await conn.commit();
+    // Committed — free the pool slot before the REP/PAC I/O.
+    conn.release();
+    connReleased = true;
 
     // MX/SAT: REP for the installment's allocation (best-effort, post-commit).
     if (installment.invoice_id) {
@@ -214,10 +218,10 @@ async function payInstallment(planId, sequence, paymentId, orgId) {
     );
     return updatedInst[0];
   } catch (err) {
-    await conn.rollback();
+    if (!connReleased) await conn.rollback();
     throw err;
   } finally {
-    conn.release();
+    if (!connReleased) conn.release();
   }
 }
 

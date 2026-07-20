@@ -248,16 +248,21 @@ async function generateRep(paymentId: number, invoiceId: number): Promise<{ uuid
 }
 
 function AllocationsSection({ allocations, currency, paymentId, isMxOrg }: { allocations: PaymentAllocation[]; currency: string; paymentId: number; isMxOrg: boolean }) {
-  const [repMsg, setRepMsg] = useState<string | null>(null);
+  // Per-row, severity-aware REP feedback — a shared banner couldn't tell WHICH
+  // allocation succeeded/failed when a payment covers several invoices.
+  const [repMsgs, setRepMsgs] = useState<Record<string, { ok: boolean; text: string }>>({});
   const repMutation = useMutation({
     mutationFn: ({ invoiceId }: { invoiceId: number }) => generateRep(paymentId, invoiceId),
-    onSuccess: (d: { uuid: string | null; stamped: boolean }) => setRepMsg(d.stamped ? `REP stamped — UUID ${d.uuid}` : 'REP created but stamping failed — retry from the CFDI page'),
-    onError: (err: Error) => setRepMsg(`REP: ${err.message}`),
+    onSuccess: (d: { uuid: string | null; stamped: boolean }, { invoiceId }) =>
+      setRepMsgs(m => ({ ...m, [invoiceId]: d.stamped
+        ? { ok: true, text: `REP stamped — ${d.uuid}` }
+        : { ok: false, text: 'REP created but stamping failed — retry from the CFDI page' } })),
+    onError: (err: Error, { invoiceId }) =>
+      setRepMsgs(m => ({ ...m, [invoiceId]: { ok: false, text: err.message } })),
   });
   if (!allocations.length) return <p style={styles.msg}>No invoice allocations for this payment.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
-      {repMsg && <p style={{ ...styles.msg, fontSize: '0.82rem' }}>{repMsg}</p>}
       <table style={styles.table}>
         <thead>
           <tr>{['Invoice #', 'Allocated Amount', 'Invoice Total', 'Status', ...(isMxOrg ? ['SAT'] : [])].map(h => (
@@ -298,6 +303,11 @@ function AllocationsSection({ allocations, currency, paymentId, isMxOrg }: { all
                   >
                     Generate REP
                   </button>
+                  {repMsgs[alloc.invoiceId] && (
+                    <div style={{ fontSize: '0.72rem', marginTop: 4, color: repMsgs[alloc.invoiceId].ok ? '#065f46' : '#991b1b', maxWidth: 220 }}>
+                      {repMsgs[alloc.invoiceId].text}
+                    </div>
+                  )}
                 </td>
               )}
             </tr>
