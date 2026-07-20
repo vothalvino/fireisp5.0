@@ -346,6 +346,7 @@ describe('cfdiService', () => {
     test('cancels a vigente document', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 1 }])   // INSERT cancellation
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE → cancel_pending
@@ -371,6 +372,7 @@ describe('cfdiService', () => {
     test('passes replacement UUID for reason 01', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 2 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -379,13 +381,14 @@ describe('cfdiService', () => {
 
       await cfdiService.cancel(1, '01', 'REPLACE-UUID-123');
 
-      const insertCall = db.query.mock.calls[2];
+      const insertCall = db.query.mock.calls[3];
       expect(insertCall[1]).toContain('REPLACE-UUID-123');
     });
 
     test('stores cancellation with null replacement when not provided', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 3 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -394,7 +397,7 @@ describe('cfdiService', () => {
 
       await cfdiService.cancel(1, '02');
 
-      const insertCall = db.query.mock.calls[2];
+      const insertCall = db.query.mock.calls[3];
       expect(insertCall[1]).toContain(null); // replacementUuid default
     });
 
@@ -402,6 +405,7 @@ describe('cfdiService', () => {
       const doc77 = { ...vigentDoc, id: 77 };
       db.query
         .mockResolvedValueOnce([[doc77]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 4 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])

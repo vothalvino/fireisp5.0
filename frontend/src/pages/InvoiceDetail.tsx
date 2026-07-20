@@ -67,6 +67,12 @@ interface Client {
   email: string | null;
 }
 
+interface CfdiDoc {
+  id: number;
+  uuid: string | null;
+  sat_status: 'draft' | 'vigente' | 'cancelado' | 'cancel_pending' | null;
+}
+
 // ---------------------------------------------------------------------------
 // Fetch helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +101,45 @@ async function fetchClient(id: number): Promise<Client> {
   const res = await api.GET('/clients/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Client not found');
   return (res.data as unknown as { data: Client }).data ?? (res.data as unknown as Client);
+}
+
+// CFDIs stamped for this invoice. A stamped CFDI is registered at SAT the
+// moment it is timbrado, so while one is vigente (or its cancellation is still
+// pending at SAT) the invoice must be CANCELLED through SAT with a motivo —
+// an internal void would leave the CFDI fiscally valid with the government.
+// Best-effort: roles without cfdi_documents.view (or an error) just see the
+// plain Void button, and the backend's 422 INVOICE_STAMPED guard stays
+// authoritative.
+async function fetchInvoiceCfdis(invoiceId: number): Promise<CfdiDoc[]> {
+  const res = await authedFetch(`${API_BASE}/cfdi-documents?invoice_id=${invoiceId}&limit=100`);
+  if (!res.ok) return [];
+  const body = await res.json().catch(() => ({})) as { data?: CfdiDoc[] };
+  return body.data ?? [];
+}
+
+// Same call CfdiList.tsx makes: POST /cfdi/cancel submits the cancellation to
+// SAT via the org's PAC. Once SAT accepts, the backend marks the invoice
+// 'cancelled' automatically (cfdiService → billingService.cancelInvoiceForSat).
+// Returns the SAT outcome: 'cancelado' (accepted) or 'cancel_pending'
+// (awaiting SAT). A 'rejected' outcome arrives as HTTP 200 — the request
+// succeeded but SAT refused — so it must be surfaced as an error, not success.
+async function cancelCfdiAtSat(cfdiDocumentId: number, reason: string, replacementUuid?: string): Promise<string> {
+  const body: Record<string, unknown> = { cfdi_document_id: cfdiDocumentId, reason };
+  if (replacementUuid) body.replacement_uuid = replacementUuid;
+  const res = await authedFetch(`${API_BASE}/cfdi/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const resBody = await res.json().catch(() => ({})) as { data?: { status?: string }; error?: { message?: string } };
+  if (!res.ok) {
+    throw new Error(resBody.error?.message ?? 'Failed to cancel CFDI');
+  }
+  const satStatus = resBody.data?.status ?? 'cancel_pending';
+  if (satStatus === 'rejected') {
+    throw new Error('SAT rejected the cancellation — the CFDI remains vigente.');
+  }
+  return satStatus;
 }
 
 async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
@@ -189,6 +234,27 @@ function StatusBadge({ status }: { status: string }) {
       borderRadius: 12, fontSize: '0.78rem', fontWeight: 600, textTransform: 'capitalize',
     }}>
       {status}
+    </span>
+  );
+}
+
+// SAT status of the invoice's CFDI: vigente = registered and fiscally valid at
+// SAT; cancel_pending = cancellation submitted, awaiting SAT; cancelado = SAT
+// accepted the cancellation.
+function CfdiSatBadge({ satStatus }: { satStatus: CfdiDoc['sat_status'] }) {
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    vigente:        { bg: '#d1fae5', color: '#065f46', label: 'Vigente' },
+    cancel_pending: { bg: '#fef3c7', color: '#92400e', label: 'Cancel pending' },
+    cancelado:      { bg: '#fee2e2', color: '#991b1b', label: 'Cancelado' },
+    draft:          { bg: '#f3f4f6', color: '#6b7280', label: 'Draft' },
+  };
+  const s = map[satStatus ?? ''] ?? { bg: '#f3f4f6', color: '#374151', label: satStatus ?? '—' };
+  return (
+    <span style={{
+      background: s.bg, color: s.color, padding: '3px 10px',
+      borderRadius: 12, fontSize: '0.78rem', fontWeight: 600,
+    }}>
+      {s.label}
     </span>
   );
 }
@@ -314,7 +380,10 @@ function AddInvoiceItemForm({ onAdd, pending, error }: AddInvoiceItemFormProps) 
 // Edit Invoice Modal
 // ---------------------------------------------------------------------------
 
-const INVOICE_STATUSES = ['draft', 'issued', 'paid', 'overdue', 'cancelled', 'void'];
+// 'cancelled' is deliberately absent: it means "CFDI cancelled at SAT" and is
+// set only by the SAT cancellation flow (the backend 422s a manual set).
+// 'void' stays listed because selecting it routes through the void flow.
+const INVOICE_STATUSES = ['draft', 'issued', 'paid', 'overdue', 'void'];
 
 interface EditInvoiceModalProps {
   invoice: Invoice;
@@ -412,6 +481,100 @@ function EditInvoiceModal({ invoice, onClose, onSaved }: EditInvoiceModalProps) 
 }
 
 // ---------------------------------------------------------------------------
+// Cancel CFDI at SAT modal
+// ---------------------------------------------------------------------------
+
+// SAT cancellation reasons (motivo) — same catalog as CfdiList.tsx's modal.
+const SAT_CANCEL_REASONS = [
+  { code: '01', label: '01 — Comprobante emitido con errores con relación' },
+  { code: '02', label: '02 — Comprobante emitido con errores sin relación' },
+  { code: '03', label: '03 — No se llevó a cabo la operación' },
+  { code: '04', label: '04 — Operación nominativa relacionada en CFDI global' },
+];
+
+interface CancelCfdiModalProps {
+  cfdi: CfdiDoc;
+  invoiceNumber: string;
+  onClose: () => void;
+  // Receives the SAT outcome: 'cancelado' (accepted now) or 'cancel_pending'.
+  onCancelled: (satStatus: string) => void;
+}
+
+function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCfdiModalProps) {
+  const [reason, setReason] = useState('02');
+  const [replacementUuid, setReplacementUuid] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmedUuid = replacementUuid.trim();
+    if (reason === '01' && !trimmedUuid) {
+      setError('Motivo 01 requires a replacement UUID (folio de sustitución).');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const satStatus = await cancelCfdiAtSat(cfdi.id, reason, reason === '01' ? trimmedUuid : undefined);
+      onCancelled(satStatus);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel CFDI');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Cancel CFDI at SAT">
+      <div style={modalBox}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Cancel CFDI at SAT</h3>
+        <p style={{ margin: '0 0 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>
+          Invoice {invoiceNumber} — UUID: <span style={{ fontFamily: 'monospace' }}>{cfdi.uuid ?? `#${cfdi.id}`}</span>
+        </p>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#374151' }}>
+          This CFDI is registered with SAT, so it stays fiscally valid until SAT
+          accepts a cancellation. Once accepted, the invoice is marked cancelled
+          automatically and any applied payments are released as client credit.
+        </p>
+        {error && <div style={errorBox}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle} htmlFor="cfdi-cancel-reason">Cancellation reason (SAT)</label>
+          <select id="cfdi-cancel-reason" style={inputStyle} value={reason} onChange={e => setReason(e.target.value)} required>
+            {SAT_CANCEL_REASONS.map(r => (
+              <option key={r.code} value={r.code}>{r.label}</option>
+            ))}
+          </select>
+
+          {reason === '01' && (
+            <>
+              <label style={labelStyle} htmlFor="cfdi-cancel-replacement-uuid">Replacement UUID (required for reason 01)</label>
+              <input
+                id="cfdi-cancel-replacement-uuid"
+                style={inputStyle}
+                type="text"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={replacementUuid}
+                onChange={e => setReplacementUuid(e.target.value)}
+                required
+              />
+            </>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Dismiss</button>
+            <button type="submit" style={actionBtn('#b91c1c')} disabled={submitting}>
+              {submitting ? 'Cancelling…' : 'Cancel CFDI'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -421,6 +584,7 @@ export function InvoiceDetail() {
   const qc = useQueryClient();
   const [showPayment, setShowPayment] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showCancelCfdi, setShowCancelCfdi] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [addItemError, setAddItemError] = useState('');
 
@@ -447,6 +611,18 @@ export function InvoiceDetail() {
     queryFn: () => fetchClient(invoiceQ.data!.client_id),
     enabled: !!invoiceQ.data?.client_id,
   });
+
+  const cfdiQ = useQuery({
+    queryKey: ['invoice-cfdi', id],
+    queryFn: () => fetchInvoiceCfdis(Number(id)),
+    enabled: !!id,
+  });
+  // The CFDI that still binds this invoice at SAT (vigente, or with a SAT
+  // cancellation in flight). While one exists, Void is replaced by Cancel-at-SAT.
+  const liveCfdi = (cfdiQ.data ?? []).find(d => d.sat_status === 'vigente' || d.sat_status === 'cancel_pending') ?? null;
+  // For the metadata card: prefer the live CFDI, else show a cancelled one so a
+  // SAT-cancelled invoice still displays its fiscal history.
+  const displayCfdi = liveCfdi ?? (cfdiQ.data ?? []).find(d => d.sat_status === 'cancelado') ?? null;
 
   const sendEmailMutation = useMutation({
     mutationFn: () => sendInvoiceEmail(Number(id)),
@@ -499,11 +675,15 @@ export function InvoiceDetail() {
   });
 
   function handleVoid() {
-    const isPaid = invoice?.status === 'paid';
-    const msg = isPaid
-      ? 'Void this paid invoice? The invoice will be cancelled and its payment(s) will be released to the client as unallocated credit. This cannot be undone.'
-      : 'Void this invoice? This marks it as void and cannot be undone.';
-    if (window.confirm(msg)) {
+    // Voiding never strips payments as a side effect: the backend refuses
+    // (422 INVOICE_HAS_PAYMENTS) while allocations exist. Deallocating is a
+    // deliberate separate step (payment page → Unapply), which turns each
+    // payment into unallocated client credit ready to reallocate.
+    if ((paymentsQ.data ?? []).length > 0) {
+      showToast('This invoice has payment(s) applied. Unapply them first (open the payment and use Unapply) — each becomes client credit — then void.');
+      return;
+    }
+    if (window.confirm('Void this invoice? This marks it as void and cannot be undone.')) {
       voidMutation.mutate();
     }
   }
@@ -580,9 +760,11 @@ export function InvoiceDetail() {
               </button>
               <button
                 onClick={() => setShowEdit(true)}
-                disabled={invoice.status === 'void'}
+                disabled={['void', 'cancelled'].includes(invoice.status)}
                 style={actionBtn('#6b7280')}
-                title={invoice.status === 'void' ? 'Voided invoices cannot be edited' : undefined}
+                title={invoice.status === 'void' ? 'Voided invoices cannot be edited'
+                  : invoice.status === 'cancelled' ? 'SAT-cancelled invoices cannot be edited'
+                  : undefined}
               >
                 ✏️ Edit
               </button>
@@ -597,14 +779,31 @@ export function InvoiceDetail() {
               >
                 💳 Record Payment
               </button>
-              <button
-                onClick={handleVoid}
-                disabled={invoice.status === 'void' || voidMutation.isPending}
-                style={actionBtn('#b91c1c')}
-                title={invoice.status === 'paid' ? 'Voiding a paid invoice releases its payment(s) as unallocated client credit' : undefined}
-              >
-                {voidMutation.isPending ? 'Voiding…' : '🚫 Void'}
-              </button>
+              {liveCfdi ? (
+                // Stamped invoice: the CFDI is registered at SAT, so an internal
+                // void would leave it fiscally valid. The only way out is a SAT
+                // cancellation with a motivo (backend enforces this with 422
+                // INVOICE_STAMPED as well).
+                <button
+                  onClick={() => setShowCancelCfdi(true)}
+                  disabled={liveCfdi.sat_status === 'cancel_pending'}
+                  style={actionBtn('#b91c1c')}
+                  title={liveCfdi.sat_status === 'cancel_pending'
+                    ? 'A SAT cancellation is already pending for this invoice\'s CFDI'
+                    : 'This invoice has a stamped CFDI registered at SAT — it must be cancelled through SAT with a motivo, not voided'}
+                >
+                  {liveCfdi.sat_status === 'cancel_pending' ? '⏳ SAT cancel pending' : '✕ Cancel CFDI (SAT)'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleVoid}
+                  disabled={['void', 'cancelled'].includes(invoice.status) || voidMutation.isPending}
+                  style={actionBtn('#b91c1c')}
+                  title={(paymentsQ.data ?? []).length > 0 ? 'Unapply the applied payment(s) first — each becomes client credit — then void' : undefined}
+                >
+                  {voidMutation.isPending ? 'Voiding…' : '🚫 Void'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -622,6 +821,21 @@ export function InvoiceDetail() {
           <div style={card}>
             <div style={metaGrid}>
               <MetaRow label="Status" value={<StatusBadge status={invoice.status} />} />
+              {displayCfdi && (
+                <MetaRow
+                  label="CFDI (SAT)"
+                  value={
+                    <span title={displayCfdi.uuid ?? undefined}>
+                      <CfdiSatBadge satStatus={displayCfdi.sat_status} />
+                      {displayCfdi.uuid && (
+                        <span style={{ marginLeft: 8, fontSize: '0.75rem', color: '#9ca3af', fontFamily: 'monospace' }}>
+                          {displayCfdi.uuid.slice(0, 13)}…
+                        </span>
+                      )}
+                    </span>
+                  }
+                />
+              )}
               <MetaRow label="Total" value={<strong style={{ fontSize: '1.05rem' }}>{fmtAmount(invoice.total, invoice.currency)}</strong>} />
               <MetaRow label="Subtotal" value={fmtAmount(invoice.subtotal, invoice.currency)} />
               <MetaRow label="Tax" value={fmtAmount(invoice.tax_amount, invoice.currency)} />
@@ -674,9 +888,9 @@ export function InvoiceDetail() {
 
             {/* Add-item form: invoice_items has no PUT/DELETE route (mirrors
                 quote_items), so items can be added but not edited/removed
-                once saved. Hidden once the invoice is void — a voided
-                invoice cannot be modified. */}
-            {invoice.status !== 'void' && (
+                once saved. Hidden once the invoice is terminal — a voided or
+                SAT-cancelled invoice cannot gain line items. */}
+            {!['void', 'cancelled'].includes(invoice.status) && (
               <AddInvoiceItemForm
                 onAdd={(form) => addItemMutation.mutate(form)}
                 pending={addItemMutation.isPending}
@@ -724,6 +938,26 @@ export function InvoiceDetail() {
                 qc.invalidateQueries({ queryKey: ['invoice', id] });
                 qc.invalidateQueries({ queryKey: ['invoices'] });
                 showToast('Invoice updated');
+              }}
+            />
+          )}
+
+          {/* Cancel CFDI at SAT Modal */}
+          {showCancelCfdi && liveCfdi && (
+            <CancelCfdiModal
+              cfdi={liveCfdi}
+              invoiceNumber={invoice.invoice_number || `#${invoice.id}`}
+              onClose={() => setShowCancelCfdi(false)}
+              onCancelled={(satStatus) => {
+                qc.invalidateQueries({ queryKey: ['invoice', id] });
+                qc.invalidateQueries({ queryKey: ['invoices'] });
+                qc.invalidateQueries({ queryKey: ['invoice-cfdi', id] });
+                // A paid invoice's allocations are released on acceptance —
+                // the Applied Payments card must not show them as still applied.
+                qc.invalidateQueries({ queryKey: ['invoice-payments', id] });
+                showToast(satStatus === 'cancelado'
+                  ? 'CFDI cancelled at SAT — invoice marked cancelled'
+                  : 'CFDI cancellation submitted to SAT — awaiting acceptance');
               }}
             />
           )}

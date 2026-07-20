@@ -19,15 +19,24 @@ const { AppError, NotFoundError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ route: 'invoices' });
 
 const router = Router();
-// A voided invoice is terminal: any edit is rejected (PUT/PATCH that isn't a
-// re-void). Un-voiding back to 'issued' would also leave the reversed balance
-// ledger out of sync, so it must not be possible. Setting status to 'void' is
+// A terminal invoice is immutable: 'void' (internal discard of an unstamped
+// invoice) and 'cancelled' (its CFDI was cancelled at SAT) both released the
+// invoice's money — un-terminating back to 'issued' would leave the reversed
+// balance ledger out of sync and, for 'cancelled', resurrect an invoice whose
+// CFDI is permanently cancelado on file at SAT. Setting status to 'void' is
 // routed to voidInvoice (below), not through this hook.
+function assertInvoiceNotTerminal(status) {
+  if (status === 'void') {
+    throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
+  }
+  if (status === 'cancelled') {
+    throw new AppError('This invoice was cancelled at SAT — it is fiscally terminal and cannot be modified.', 422, 'INVOICE_CANCELLED');
+  }
+}
+
 const ctrl = crudController(Invoice, {
   beforeUpdate: (old) => {
-    if (old.status === 'void') {
-      throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
-    }
+    assertInvoiceNotTerminal(old.status);
   },
 });
 
@@ -51,9 +60,25 @@ async function voidInvoice(req, res, next) {
 router.get('/', requirePermission('invoices.view'), ctrl.list);
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
 router.post('/', requirePermission('invoices.create'), validate(createInvoice), ctrl.create);
-router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice),
+// 'cancelled' means "the CFDI was cancelled at SAT" and is set exclusively by
+// the SAT cancellation flow (cfdiService → billingService.cancelInvoiceForSat),
+// which also releases the invoice's money. Setting it by hand would fabricate a
+// compliance state with no SAT record — and, since 'cancelled' is terminal,
+// irreversibly. Discarding an unstamped invoice is 'void'; a stamped one goes
+// through POST /cfdi/cancel.
+function rejectManualCancelled(req, _res, next) {
+  if (req.body.status === 'cancelled') {
+    return next(new AppError(
+      "Invoices cannot be set to 'cancelled' directly — cancel the CFDI at SAT (POST /cfdi/cancel) and the invoice follows, or use 'void' for an unstamped invoice.",
+      422, 'INVOICE_CANCELLED',
+    ));
+  }
+  return next();
+}
+
+router.put('/:id', requirePermission('invoices.update'), validate(updateInvoice), rejectManualCancelled,
   (req, res, next) => (req.body.status === 'void' ? voidInvoice(req, res, next) : ctrl.update(req, res, next)));
-router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice),
+router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice), rejectManualCancelled,
   (req, res, next) => (req.body.status === 'void' ? voidInvoice(req, res, next) : ctrl.partialUpdate(req, res, next)));
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('invoices.update'), ctrl.restore);
@@ -156,9 +181,7 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
           [req.params.id, req.orgId],
         );
         if (!invoice) throw new NotFoundError('Invoice');
-        if (invoice.status === 'void') {
-          throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
-        }
+        assertInvoiceNotTerminal(invoice.status);
         await assertNoLiveCfdi(conn.execute.bind(conn), invoice.id);
         item = await Invoice.addItem({ invoice_id: req.params.id, ...req.body }, conn.execute.bind(conn));
         await applyItemTotals(conn, invoice, req.orgId, req.body.amount);
@@ -203,9 +226,7 @@ router.post('/:id/items', requirePermission('invoices.update'), validate(addInvo
         [req.params.id, req.orgId],
       );
       if (!invoice) throw new NotFoundError('Invoice');
-      if (invoice.status === 'void') {
-        throw new AppError('Voided invoices cannot be modified.', 422, 'INVOICE_VOID');
-      }
+      assertInvoiceNotTerminal(invoice.status);
       await assertNoLiveCfdi(conn.execute.bind(conn), invoice.id);
 
       // Org-ownership check (mirrors Phase 1's checks in src/routes/inventory.js)

@@ -583,7 +583,7 @@ async function satExport(organizationId, { from, to } = {}) {
     JOIN \`clients\` c ON c.id = i.client_id AND c.deleted_at IS NULL
     WHERE i.organization_id = ?
       AND i.issue_date >= ? AND i.issue_date <= ?
-      AND i.status NOT IN ('draft', 'void')
+      AND i.status NOT IN ('draft', 'void', 'cancelled')
       AND i.deleted_at IS NULL
     ORDER BY i.issue_date ASC, i.invoice_number ASC
   `, [organizationId, dateFrom, dateTo]);

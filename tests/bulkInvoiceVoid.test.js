@@ -111,6 +111,8 @@ describe('POST /api/bulk/invoices/void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 10, status: 'issued', client_id: 3, invoice_number: 'INV-10' });
     Invoice.update.mockResolvedValue({ id: 10, status: 'void', client_id: 3 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]) // allocation guard: no payments applied
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero ledger debits
 
@@ -134,43 +136,40 @@ describe('POST /api/bulk/invoices/void', () => {
     expect(insertCall).toBeFalsy();
   });
 
-  test('voids a paid invoice: releases allocations + zeroes ledger', async () => {
+  test('a paid invoice with live allocations lands in errors[] (deallocate first)', async () => {
     mockAuthUser();
     Invoice.findByIdOrFail.mockResolvedValue({ id: 11, status: 'paid', client_id: 4, invoice_number: 'INV-11' });
-    Invoice.update.mockResolvedValue({ id: 11, status: 'void', client_id: 4 });
     db.query
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations (UPDATE payment_allocations)
-      .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE void-reversal credit
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero ledger debits
+      .mockResolvedValueOnce([[]])             // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[{ id: 700 }]]); // allocation guard: live allocations found
 
     const res = await request(app)
       .post('/api/bulk/invoices/void')
       .set('Authorization', `Bearer ${authToken}`)
       .send({ invoice_ids: [11] });
 
+    // Voiding never strips payments as a side effect — the operator must
+    // deallocate first, so the bulk loop reports it as a per-item failure.
     expect(res.status).toBe(200);
-    expect(res.body.data.success).toBe(1);
-    expect(res.body.data.failed).toBe(0);
+    expect(res.body.data.success).toBe(0);
+    expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.errors[0].invoice_id).toBe(11);
+    expect(res.body.data.errors[0].error).toMatch(/[Dd]eallocate/);
 
-    // Allocation soft-delete ran
-    const allocCall = db.query.mock.calls.find(c => /UPDATE payment_allocations SET deleted_at/.test(c[0]));
-    expect(allocCall).toBeTruthy();
-    expect(allocCall[1]).toContain(11); // invoice id
-
-    // Ledger debits zeroed
-    const zeroCall = db.query.mock.calls.find(c => /UPDATE client_balance_ledger\s+SET amount = 0/.test(c[0]));
-    expect(zeroCall).toBeTruthy();
-
-    // Payment credit rows NOT touched
-    const insertCall = db.query.mock.calls.find(c => /INSERT INTO client_balance_ledger/.test(c[0]));
-    expect(insertCall).toBeFalsy();
+    // Nothing moved: no allocation soft-delete, no ledger writes
+    const sqls = db.query.mock.calls.map(c => c[0]).join('\n');
+    expect(sqls).not.toMatch(/UPDATE payment_allocations SET deleted_at/);
+    expect(sqls).not.toMatch(/client_balance_ledger/);
+    expect(Invoice.update).not.toHaveBeenCalled();
   });
 
   test('idempotent: already-void invoice counts as success with no DB writes', async () => {
     mockAuthUser();
     Invoice.findByIdOrFail.mockResolvedValue({ id: 12, status: 'void', client_id: 5, invoice_number: 'INV-12' });
     Invoice.update.mockResolvedValue({ id: 12, status: 'void', client_id: 5 });
-    // No db.query calls expected
+    db.query
+      .mockResolvedValueOnce([[]])  // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]); // allocation guard: no payments applied
 
     const res = await request(app)
       .post('/api/bulk/invoices/void')
@@ -180,7 +179,10 @@ describe('POST /api/bulk/invoices/void', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.success).toBe(1);
     expect(res.body.data.failed).toBe(0);
-    expect(db.query).not.toHaveBeenCalled();
+    // Only the two guards ran — no money-moving writes
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(db.query.mock.calls[0][0]).toMatch(/FROM cfdi_documents/);
+    expect(db.query.mock.calls[1][0]).toMatch(/FROM payment_allocations/);
   });
 
   test('non-existent id lands in errors[] without failing the batch', async () => {
@@ -195,8 +197,12 @@ describe('POST /api/bulk/invoices/void', () => {
     Invoice.update.mockResolvedValueOnce({ id: 20, status: 'void', client_id: 7 });
 
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for id 20
+      .mockResolvedValueOnce([[]]) // allocation guard for id 20
       .mockResolvedValueOnce([{ affectedRows: 0 }])  // DELETE credit for id 20
-      .mockResolvedValueOnce([{ affectedRows: 1 }]);  // zero debits for id 20
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // zero debits for id 20
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for id 999 (runs before findByIdOrFail rejects)
+      .mockResolvedValueOnce([[]]); // allocation guard for id 999
 
     const res = await request(app)
       .post('/api/bulk/invoices/void')
@@ -225,9 +231,13 @@ describe('POST /api/bulk/invoices/void', () => {
       .mockResolvedValueOnce({ id: 31, status: 'void', client_id: 8 });
 
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for 30
+      .mockResolvedValueOnce([[]]) // allocation guard for 30
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE credit for 30
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // zero debits for 30
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // release allocations for 31
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for 31
+      .mockResolvedValueOnce([[]]) // allocation guard for 31 (paid but already deallocated)
+      .mockResolvedValueOnce([{ affectedRows: 0 }]) // releaseInvoiceAllocations for 31 (no-op)
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE credit for 31
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero debits for 31
 

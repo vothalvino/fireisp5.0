@@ -8,7 +8,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'cfdi' });
-const { CfdiStampingError, CfdiCancellationError } = require('../utils/errors');
+const { CfdiStampingError, CfdiCancellationError, AppError } = require('../utils/errors');
 
 // ---------------------------------------------------------------------------
 // Simple circuit breaker for PAC stamping calls
@@ -331,6 +331,33 @@ function httpRequest(url, method, body, headers) {
 }
 
 /**
+ * Once SAT ACCEPTS a CFDI cancellation (sat_status = 'cancelado'), the invoice
+ * behind it is no longer fiscally valid — it must drop out of receivables and
+ * every tax/financial report. Mark it 'cancelled' and release its money via the
+ * same path a void uses. Best-effort and non-fatal: the SAT cancellation has
+ * already succeeded, so a bookkeeping-sync failure here must not surface as a
+ * cancellation failure — it is logged for follow-up instead. Lazy-requires
+ * billingService to avoid a service-load cycle.
+ */
+async function syncInvoiceCancelled(cfdiDocumentId) {
+  try {
+    const [rows] = await db.query(
+      'SELECT invoice_id, organization_id FROM cfdi_documents WHERE id = ?',
+      [cfdiDocumentId],
+    );
+    const doc = rows[0];
+    if (!doc || !doc.invoice_id) return;
+    const billingService = require('./billingService');
+    await billingService.cancelInvoiceForSat(doc.invoice_id, doc.organization_id, null);
+  } catch (err) {
+    logger.error(
+      { cfdiDocumentId, err: err.message },
+      'CFDI cancelled at SAT but failed to sync the invoice to cancelled — reconcile manually',
+    );
+  }
+}
+
+/**
  * Cancel a stamped CFDI document via the PAC → SAT flow.
  *
  * SAT cancellation reasons (motivo):
@@ -358,6 +385,28 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   }
   if (reason === '01' && !replacementUuid) {
     throw new CfdiCancellationError('Motivo 01 requires a replacement UUID (folio_sustitucion)', { cfdiDocumentId });
+  }
+
+  // SAT rule: a CFDI cannot be cancelled while a vigente payment complement
+  // (REP / Complemento de Pago) still references it as a DoctoRelacionado —
+  // SAT would reject the request. The correct order for a paid+stamped invoice
+  // is: cancel the REP first, then cancel the invoice CFDI. Enforcing it here
+  // gives the operator a clear instruction instead of an opaque PAC rejection.
+  const [liveReps] = await db.query(
+    `SELECT d.id, d.uuid
+       FROM cfdi_payment_complement_items pci
+       JOIN cfdi_payment_complements pc ON pc.id = pci.complement_id
+       JOIN cfdi_documents d ON d.id = pc.cfdi_document_id
+      WHERE pci.related_cfdi_uuid = ?
+        AND d.sat_status IN ('vigente', 'cancel_pending')
+      LIMIT 1`,
+    [doc.uuid],
+  );
+  if (liveReps.length > 0) {
+    throw new AppError(
+      `This CFDI has a payment complement (REP ${liveReps[0].uuid || '#' + liveReps[0].id}) that is still valid at SAT — cancel the REP first, then cancel this CFDI.`,
+      422, 'CFDI_HAS_LIVE_REP',
+    );
   }
 
   // Get PAC provider
@@ -437,6 +486,7 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
       'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
       ['cancelado', cfdiDocumentId],
     );
+    await syncInvoiceCancelled(cfdiDocumentId);
   } else if (finalStatus === 'rejected') {
     // Revert to vigente since SAT rejected the cancellation
     await db.query(
@@ -637,6 +687,7 @@ async function getCancellationStatus(cancellationId) {
         'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
         ['cancelado', cancellation.cfdi_document_id],
       );
+      await syncInvoiceCancelled(cancellation.cfdi_document_id);
     } else if (finalStatus === 'rejected') {
       await db.query(
         'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',

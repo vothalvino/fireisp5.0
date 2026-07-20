@@ -45,23 +45,36 @@ const ledgerZero = () => db.query.mock.calls.find(c => /UPDATE client_balance_le
 beforeEach(() => { jest.clearAllMocks(); });
 
 describe('PATCH /invoices/:id — void', () => {
-  it('voids a PAID invoice: releases allocations + zeroes ledger, leaves payment credits', async () => {
+  // Voiding never strips payments as a side effect: the operator must
+  // deallocate first (POST /payments/:id/unapply → unallocated client credit).
+  it('422s (INVOICE_HAS_PAYMENTS) when payments are still allocated — deallocate first', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'paid', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
+    db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[{ id: 301 }]]); // live payment_allocations found
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_HAS_PAYMENTS');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    // No money was touched
+    expect(db.query.mock.calls.find(c => /UPDATE payment_allocations SET deleted_at/.test(c[0]))).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  it('voids a paid-status invoice once its payments were deallocated', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'paid', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
     db.query
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations (UPDATE payment_allocations)
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]) // allocation guard: payments already deallocated
+      .mockResolvedValueOnce([{ affectedRows: 0 }]) // releaseInvoiceAllocations (no-op — none live)
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('void');
-    // First db.query must soft-delete payment_allocations for this invoice
-    const allocRelease = db.query.mock.calls.find(c => /UPDATE payment_allocations SET deleted_at/.test(c[0]));
-    expect(allocRelease).toBeTruthy();
-    expect(allocRelease[1]).toContain(5); // invoice id
     // No new ledger credit is inserted — payment credits stay on the client
     expect(ledgerInsert()).toBeFalsy();
-    // The debit row is zeroed
     const zero = ledgerZero();
     expect(zero).toBeTruthy();
     expect(zero[1]).toEqual([5, 9]);
@@ -71,6 +84,8 @@ describe('PATCH /invoices/:id — void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]) // allocation guard: no payments applied
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
@@ -87,6 +102,8 @@ describe('PATCH /invoices/:id — void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]) // allocation guard: no payments applied
       .mockResolvedValueOnce([{ affectedRows: 0 }])
       .mockResolvedValueOnce([{ affectedRows: 0 }]);
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
@@ -97,9 +114,66 @@ describe('PATCH /invoices/:id — void', () => {
   it('does nothing to the ledger when the invoice is already void', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'void', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
+    db.query
+      .mockResolvedValueOnce([[]])  // stamped-CFDI guard: no live CFDI
+      .mockResolvedValueOnce([[]]); // allocation guard: no payments applied
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
-    expect(db.query).not.toHaveBeenCalled();
+    // Only the two guard SELECTs ran — the ledger was never touched
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(db.query.mock.calls[0][0]).toMatch(/FROM cfdi_documents/);
+    expect(db.query.mock.calls[1][0]).toMatch(/FROM payment_allocations/);
+    expect(ledgerDeleteCredit()).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  // Mexican compliance: a stamped CFDI is registered at SAT at timbrado — an
+  // internal void would leave it fiscally valid. The route must refuse and
+  // point the caller at the SAT cancellation flow.
+  it('422s (INVOICE_STAMPED) when the invoice has a live CFDI — nothing is modified', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    db.query.mockResolvedValueOnce([[{ id: 77 }]]); // guard finds a vigente/cancel_pending CFDI
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_STAMPED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(ledgerDeleteCredit()).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  // 'cancelled' (CFDI cancelled at SAT) is terminal like 'void': its money was
+  // released, and the CFDI is permanently cancelado at SAT. Un-cancelling to
+  // 'issued' would resurrect a $-total invoice with no allocations (double
+  // billing off the freed payment credit).
+  it('422s (INVOICE_CANCELLED) on a generic edit of a SAT-cancelled invoice', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'cancelled', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('422s (INVOICE_CANCELLED) when trying to VOID a SAT-cancelled invoice', async () => {
+    // The void dispatch bypasses beforeUpdate, so the service must refuse:
+    // re-labelling 'cancelled' as 'void' would erase the SAT-cancellation record.
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'cancelled', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    db.query
+      .mockResolvedValueOnce([[]])  // stamped-CFDI guard: cancelado is not live
+      .mockResolvedValueOnce([[]]); // allocation guard: released at cancellation
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  it("422s (INVOICE_CANCELLED) on a manual status:'cancelled' set — only the SAT flow may set it", async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'cancelled' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled(); // rejected before any guard/fetch
   });
 
   it('a non-void PATCH still goes through the generic update path', async () => {

@@ -429,6 +429,37 @@ describe('POST /api/v1/invoices/:id/items — inventory-linked sale drawdown', (
     expect(conn.commit).toHaveBeenCalled();
   });
 
+  it('returns 422 INVOICE_CANCELLED when adding a line item to a SAT-cancelled invoice', async () => {
+    // The invoice's CFDI is cancelado at SAT — growing the invoice would make
+    // its stored total disagree with the (immutable, cancelled) legal document
+    // and resurrect the zeroed ledger debit.
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 42, status: 'cancelled' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/invoices/42/items')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ description: 'Setup Fee', quantity: 1, unit_price: 50, amount: 50 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_CANCELLED');
+    expect(conn.rollback).toHaveBeenCalled();
+    const insertCall = conn.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO invoice_items'));
+    expect(insertCall).toBeUndefined();
+  });
+
   it('returns 422 INVOICE_VOID when adding a plain line item to a void invoice', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
