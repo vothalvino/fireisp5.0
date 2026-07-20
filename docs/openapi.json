@@ -62441,6 +62441,10 @@
             "type": "string",
             "maximum": 500
           },
+          "token_encrypted": {
+            "type": "string",
+            "maximum": 2000
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -62488,6 +62492,10 @@
           "password_encrypted": {
             "type": "string",
             "maximum": 500
+          },
+          "token_encrypted": {
+            "type": "string",
+            "maximum": 2000
           },
           "api_url": {
             "type": "string",

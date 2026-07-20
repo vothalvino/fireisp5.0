@@ -10,7 +10,7 @@ class PacProvider extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'provider_name', 'label', 'environment', 'username_encrypted',
-      'password_encrypted', 'api_url', 'is_default', 'status',
+      'password_encrypted', 'token_encrypted', 'api_url', 'is_default', 'status',
     ];
   }
 

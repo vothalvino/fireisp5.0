@@ -30,6 +30,7 @@ interface PacProvider {
   last_stamp_at: string | null;
   has_username?: boolean;
   has_password?: boolean;
+  has_token?: boolean;
 }
 
 interface PacResponse {
@@ -122,6 +123,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
     api_url: existing?.api_url ?? API_URL_PRESETS.sw_sapien.sandbox ?? '',
     username: '',
     password: '',
+    token: '',
     status: existing?.status ?? 'active',
   });
   const [error, setError] = useState('');
@@ -146,6 +148,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
       // Write-only three-state: blank = keep the stored credential.
       if (form.username.trim()) body.username_encrypted = form.username.trim();
       if (form.password.trim()) body.password_encrypted = form.password.trim();
+      if (form.token.trim()) body.token_encrypted = form.token.trim();
 
       const res = existing
         ? await api.PUT('/pac-providers/{id}', { params: { path: { id: existing.id } }, body: body as never })
@@ -212,6 +215,14 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
           <input id="pac-pass" type="password" style={input} maxLength={500} autoComplete="new-password"
             placeholder={existing?.has_password ? 'saved — leave blank to keep' : ''}
             value={form.password} onChange={e => set('password', e.target.value)} />
+
+          <label style={label} htmlFor="pac-token">Access token</label>
+          <input id="pac-token" type="password" style={input} maxLength={2000} autoComplete="off"
+            placeholder={existing?.has_token ? 'saved — leave blank to keep' : 'alternative to username + password'}
+            value={form.token} onChange={e => set('token', e.target.value)} />
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+            Use EITHER an access token (SW portal “infinite token”) OR username + password.
+          </p>
 
           <label style={label} htmlFor="pac-status">Status</label>
           <select id="pac-status" style={input} value={form.status} onChange={e => set('status', e.target.value)}>
