@@ -56,12 +56,21 @@ const baseParams = {
 // ---------------------------------------------------------------------------
 // Mock helper: simulate successful DB inserts
 // ---------------------------------------------------------------------------
-function mockSuccessfulInserts() {
-  db.query
-    .mockResolvedValueOnce([{ insertId: 10 }])   // INSERT cfdi_documents
-    .mockResolvedValueOnce([{ insertId: 20 }])   // INSERT cfdi_payment_complements
-    .mockResolvedValueOnce([{ affectedRows: 1 }]) // INSERT cfdi_payment_complement_items
-    .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE xml_content
+// SQL-dispatched (not an ordered once-queue): the tax-desglose enrichment adds
+// a SELECT against the original CFDI per related document between the item
+// inserts and the xml UPDATE, and ordered queues break every time a query is
+// added. `original` controls what that SELECT sees (default: no original on
+// file → ObjetoImpDR="01").
+function mockSuccessfulInserts({ original = null } = {}) {
+  db.query.mockImplementation(async (sql) => {
+    if (/INSERT INTO cfdi_documents/.test(sql)) return [{ insertId: 10 }];
+    if (/INSERT INTO cfdi_payment_complement_items/.test(sql)) return [{ affectedRows: 1 }];
+    if (/INSERT INTO cfdi_payment_complements/.test(sql)) return [{ insertId: 20 }];
+    if (/SELECT subtotal, total_impuestos, total FROM cfdi_documents/.test(sql)) {
+      return [original ? [{ ...original }] : []];
+    }
+    return [{ affectedRows: 1 }]; // UPDATE xml_content
+  });
 }
 
 // ===========================================================================
@@ -173,7 +182,9 @@ describe('buildPaymentComplementXml()', () => {
     expect(xml).toContain('<pago20:DoctoRelacionado');
     expect(xml).toContain('IdDocumento="aaaabbbb-1111-2222-3333-ccccddddeeee"');
     expect(xml).toContain('MonedaDR="MXN"');
-    expect(xml).toContain('EquivalenciaDR="1.0000"');
+    // CRP20238 (sandbox-verified): MonedaDR == MonedaP → literal "1"
+    expect(xml).toContain('EquivalenciaDR="1"');
+    expect(xml).not.toContain('EquivalenciaDR="1.0000"');
     expect(xml).toContain('NumParcialidad="1"');
     expect(xml).toContain('ImpSaldoAnt="580.00"');
     expect(xml).toContain('ImpPagado="580.00"');
@@ -221,9 +232,11 @@ describe('buildPaymentComplementXml()', () => {
     expect(xml).toContain('TipoCambioP="17.25"');
   });
 
-  test('omits TipoCambioP when tipo_cambio is null', () => {
+  test('MXN forces TipoCambioP="1" even when tipo_cambio is null (CRP20215)', () => {
+    // Sandbox-verified: SW reads an ABSENT TipoCambioP as 0 and rejects the
+    // REP — for MonedaP=MXN the attribute must be present as the literal "1".
     const xml = cfdiService.buildPaymentComplementXml(doc, complement, items);
-    expect(xml).not.toContain('TipoCambioP');
+    expect(xml).toContain('TipoCambioP="1"');
   });
 
   test('handles multiple DoctoRelacionado items', () => {
@@ -312,12 +325,7 @@ describe('generatePaymentComplement()', () => {
   });
 
   test('inserts one cfdi_payment_complement_items row per related document', async () => {
-    db.query
-      .mockResolvedValueOnce([{ insertId: 10 }])   // INSERT cfdi_documents
-      .mockResolvedValueOnce([{ insertId: 20 }])   // INSERT cfdi_payment_complements
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // INSERT item 1
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // INSERT item 2
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE xml
+    mockSuccessfulInserts();
 
     const paramsTwo = {
       ...baseParams,
@@ -329,8 +337,8 @@ describe('generatePaymentComplement()', () => {
 
     const result = await cfdiService.generatePaymentComplement(paramsTwo);
 
-    // 5 total DB calls: INSERT doc, INSERT complement, INSERT item×2, UPDATE xml
-    expect(db.query).toHaveBeenCalledTimes(5);
+    const itemInserts = db.query.mock.calls.filter(c => /INSERT INTO cfdi_payment_complement_items/.test(c[0]));
+    expect(itemInserts).toHaveLength(2);
     expect(result.cfdi_document_id).toBe(10);
   });
 
@@ -339,8 +347,8 @@ describe('generatePaymentComplement()', () => {
 
     await cfdiService.generatePaymentComplement(baseParams);
 
-    const updateCall = db.query.mock.calls[3]; // 4th call: UPDATE
-    expect(updateCall[0]).toContain('UPDATE cfdi_documents SET xml_content');
+    const updateCall = db.query.mock.calls.find(c => /UPDATE cfdi_documents SET xml_content/.test(c[0]));
+    expect(updateCall).toBeDefined();
     expect(updateCall[1][0]).toContain('TipoDeComprobante="P"');
     expect(updateCall[1][1]).toBe(10); // cfdi_document_id
   });
@@ -476,5 +484,211 @@ describe('getPaymentComplement()', () => {
 
     const selectCall = db.query.mock.calls[0];
     expect(selectCall[1]).toContain(5); // orgId in params
+  });
+});
+
+// ===========================================================================
+// Pagos 2.0 — sandbox-verified shape (SW live probe, 2026-07-20)
+// Every rule here was learned from a REAL PAC rejection (CO1003, CRP20215,
+// CRP20238) or acceptance — do not relax without re-proving against a PAC.
+// ===========================================================================
+describe('buildPaymentComplementXml — sandbox-verified Pagos 2.0 shape', () => {
+  const doc = {
+    serie: 'P', folio: 7, fecha_emision: '2026-07-20T14:51:13',
+    lugar_expedicion: '42501',
+    emisor_rfc: 'EKU9003173C9', emisor_nombre: 'ESCUELA KEMPER URGATE', emisor_regimen_fiscal: '601',
+    receptor_rfc: 'MISC491214B86', receptor_nombre: 'CECILIA MIRANDA SANCHEZ',
+    receptor_domicilio_fiscal: '01010', receptor_regimen_fiscal: '612',
+  };
+  const complement = { payment_date: '2026-07-20', forma_pago: '03', moneda: 'MXN', amount: 116 };
+  const ivaItem = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    serie: 'A', folio: 6, moneda_dr: 'MXN', equivalencia_dr: 1,
+    num_parcialidad: 1, imp_saldo_ant: 116, imp_pagado: 116, imp_saldo_insoluto: 0,
+    objeto_imp_dr: '02', traslado_dr: { base: 100, tasa: '0.160000', importe: 16 },
+  };
+
+  test('schemaLocation carries BOTH pairs — cfd/4 AND Pagos20 (CO1003)', () => {
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [ivaItem]);
+    expect(xml).toContain(
+      'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd '
+      + 'http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd"',
+    );
+  });
+
+  test('ObjetoImpDR=02 renders ImpuestosDR, aggregated ImpuestosP AFTER doctos, and Totales IVA16 attrs', () => {
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [ivaItem]);
+    expect(xml).toContain('ObjetoImpDR="02"');
+    expect(xml).toContain('<pago20:TrasladoDR BaseDR="100.00" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="16.00" />');
+    expect(xml).toContain('<pago20:TrasladoP BaseP="100.00" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="0.160000" ImporteP="16.00" />');
+    // XSD sequence: ImpuestosP comes after the DoctoRelacionado nodes
+    expect(xml.indexOf('pago20:ImpuestosP')).toBeGreaterThan(xml.indexOf('pago20:DoctoRelacionado'));
+    expect(xml).toContain('<pago20:Totales TotalTrasladosBaseIVA16="100.00" TotalTrasladosImpuestoIVA16="16.00" MontoTotalPagos="116.00" />');
+  });
+
+  test('ImpuestosP aggregates multiple doctos at the same rate', () => {
+    const second = {
+      ...ivaItem, related_cfdi_uuid: 'aaaa1111-2222-4333-8444-555566667777',
+      imp_saldo_ant: 232, imp_pagado: 232, imp_saldo_insoluto: 0,
+      traslado_dr: { base: 200, tasa: '0.160000', importe: 32 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, { ...complement, amount: 348 }, [ivaItem, second]);
+    expect(xml).toContain('BaseP="300.00"');
+    expect(xml).toContain('ImporteP="48.00"');
+    expect(xml).toContain('TotalTrasladosBaseIVA16="300.00" TotalTrasladosImpuestoIVA16="48.00"');
+  });
+
+  test('ObjetoImpDR=01 and 03 render self-closed doctos with no ImpuestosDR/ImpuestosP/Totales-IVA', () => {
+    for (const objeto of ['01', '03']) {
+      const item = { ...ivaItem, objeto_imp_dr: objeto, traslado_dr: undefined };
+      const xml = cfdiService.buildPaymentComplementXml(doc, complement, [item]);
+      expect(xml).toContain(`ObjetoImpDR="${objeto}"`);
+      expect(xml).not.toContain('ImpuestosDR');
+      expect(xml).not.toContain('ImpuestosP');
+      expect(xml).not.toContain('TotalTrasladosBaseIVA16');
+      expect(xml).toContain('MontoTotalPagos="116.00"');
+    }
+  });
+
+  test('Comprobante-level Serie/Folio are omitted entirely when absent (empty attr = XSD violation)', () => {
+    const xml = cfdiService.buildPaymentComplementXml({ ...doc, serie: null, folio: null }, complement, [ivaItem]);
+    expect(xml).not.toContain('Serie=""');
+    expect(xml).not.toContain('Folio=""');
+  });
+
+  test('a plain CDMX-local fecha_emision string passes through UNSHIFTED regardless of server TZ', () => {
+    // The old new Date(...).toISOString() round-trip re-emitted the local
+    // string as UTC — a future Fecha (SAT reject) on any non-UTC server.
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [ivaItem]);
+    expect(xml).toContain('Fecha="2026-07-20T14:51:13"');
+  });
+
+  test('foreign currency keeps the provided TipoCambioP and decimal EquivalenciaDR', () => {
+    const usd = { ...complement, moneda: 'USD', tipo_cambio: 17.25 };
+    const xml = cfdiService.buildPaymentComplementXml(doc, usd, [{ ...ivaItem, moneda_dr: 'MXN', equivalencia_dr: 0.058 }]);
+    expect(xml).toContain('TipoCambioP="17.25"');
+    expect(xml).toContain('EquivalenciaDR="0.0580"');
+  });
+});
+
+// ===========================================================================
+// enrichRelatedDocumentsWithTaxes — derives the desglose from the original CFDI
+// ===========================================================================
+describe('enrichRelatedDocumentsWithTaxes()', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  const rd = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    num_parcialidad: 1, imp_saldo_ant: 116, imp_pagado: 116, imp_saldo_insoluto: 0,
+  };
+
+  test('IVA-16 original → ObjetoImpDR 02 with proportional base/importe', async () => {
+    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('02');
+    expect(out.traslado_dr).toEqual({ base: 100, tasa: '0.160000', importe: 16 });
+  });
+
+  test('partial payment splits proportionally at the invoice rate', async () => {
+    db.query.mockResolvedValue([[{ subtotal: '500.00', total_impuestos: '80.00', total: '580.00' }]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, imp_pagado: 300 }], 5);
+    expect(out.traslado_dr.base).toBeCloseTo(258.62, 2); // 300 / 1.16
+    expect(out.traslado_dr.importe).toBeCloseTo(41.38, 2);
+  });
+
+  test('untaxed original → ObjetoImpDR 01, no desglose', async () => {
+    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '0.00', total: '100.00' }]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('01');
+    expect(out.traslado_dr).toBeUndefined();
+  });
+
+  test('no original CFDI on file → ObjetoImpDR 01 (never invents a rate)', async () => {
+    db.query.mockResolvedValue([[]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('01');
+  });
+
+  test('non-catalog effective rate → ObjetoImpDR 03 (sí objeto, sin desglose)', async () => {
+    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '11.00', total: '111.00' }]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('03');
+    expect(out.traslado_dr).toBeUndefined();
+  });
+
+  test('a caller that already set objeto_imp_dr wins — no DB lookup', async () => {
+    const preset = { ...rd, objeto_imp_dr: '02', traslado_dr: { base: 1, tasa: '0.160000', importe: 0.16 } };
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([preset], 5);
+    expect(out).toEqual(preset);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// Review-panel fixes (adversarially confirmed findings)
+// ===========================================================================
+describe('buildPaymentComplementXml — hardening (review findings)', () => {
+  const doc = {
+    serie: 'P', folio: 7, fecha_emision: '2026-07-20T14:51:13', lugar_expedicion: '42501',
+    emisor_rfc: 'EKU9003173C9', emisor_nombre: 'ESCUELA KEMPER URGATE', emisor_regimen_fiscal: '601',
+    receptor_rfc: 'MISC491214B86', receptor_nombre: 'CECILIA MIRANDA SANCHEZ',
+    receptor_domicilio_fiscal: '01010', receptor_regimen_fiscal: '612',
+  };
+  const complement = { payment_date: '2026-07-20', forma_pago: '03', moneda: 'MXN', amount: 116 };
+  const item = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    moneda_dr: 'MXN', equivalencia_dr: 1, num_parcialidad: 1,
+    imp_saldo_ant: 116, imp_pagado: 116, imp_saldo_insoluto: 0,
+  };
+
+  test('a crafted tasa string cannot inject XML — desglose fields are Number-coerced', () => {
+    const evil = {
+      ...item, objeto_imp_dr: '02',
+      traslado_dr: { base: 100, tasa: '0.160000"/><cfdi:Evil x="y', importe: 16 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [evil]);
+    expect(xml).not.toContain('Evil');
+    // unusable desglose → honest degrade to 03 (02 without ImpuestosDR = CRP reject)
+    expect(xml).toContain('ObjetoImpDR="03"');
+    expect(xml).not.toContain('ImpuestosDR');
+  });
+
+  test('a crafted objeto_imp_dr string is whitelisted to the catalog', () => {
+    const evil = { ...item, objeto_imp_dr: '01" Extra="x' };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [evil]);
+    expect(xml).not.toContain('Extra=');
+    expect(xml).toContain('ObjetoImpDR="01"');
+  });
+
+  test('numeric-but-string desglose values still render (coercion, not rejection)', () => {
+    const stringy = {
+      ...item, objeto_imp_dr: '02',
+      traslado_dr: { base: '100', tasa: '0.16', importe: '16' },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [stringy]);
+    expect(xml).toContain('TasaOCuotaDR="0.160000"');
+    expect(xml).toContain('BaseDR="100.00"');
+  });
+
+  test('Pago-level ImpuestosP/Totales convert MonedaDR amounts into MonedaP via EquivalenciaDR', () => {
+    const usdPago = { ...complement, moneda: 'USD', tipo_cambio: 19.5, amount: 5.95 };
+    const mxnDocto = {
+      ...item, equivalencia_dr: 19.5, objeto_imp_dr: '02',
+      traslado_dr: { base: 100, tasa: '0.160000', importe: 16 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, usdPago, [mxnDocto]);
+    // docto level stays in MonedaDR (MXN)
+    expect(xml).toContain('BaseDR="100.00"');
+    // Pago/Totales level is in MonedaP (USD): 100/19.5 = 5.13, 16/19.5 = 0.82
+    expect(xml).toContain('BaseP="5.13"');
+    expect(xml).toContain('ImporteP="0.82"');
+    expect(xml).toContain('TotalTrasladosBaseIVA16="5.13"');
+  });
+
+  test('date-only and MySQL space-separated fecha_emision are normalized to the Fecha XSD shape', () => {
+    const d1 = cfdiService.buildPaymentComplementXml({ ...doc, fecha_emision: '2026-07-20' }, complement, [item]);
+    expect(d1).toContain('Fecha="2026-07-20T00:00:00"');
+    const d2 = cfdiService.buildPaymentComplementXml({ ...doc, fecha_emision: '2026-07-20 14:51:13' }, complement, [item]);
+    expect(d2).toContain('Fecha="2026-07-20T14:51:13"');
   });
 });

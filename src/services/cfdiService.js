@@ -1111,7 +1111,8 @@ async function generatePaymentComplement(params) {
     payment_date, forma_pago, moneda, tipo_cambio, amount, operation_number,
     payer_rfc, payer_bank_name, payer_account, beneficiary_rfc, beneficiary_account,
   };
-  const xml = buildPaymentComplementXml(doc, complement, related_documents);
+  const enriched = await enrichRelatedDocumentsWithTaxes(related_documents, organization_id);
+  const xml = buildPaymentComplementXml(doc, complement, enriched);
 
   // 5. Store the generated XML
   await db.query(
@@ -1121,6 +1122,55 @@ async function generatePaymentComplement(params) {
 
   logger.info({ cfdiDocumentId, complementId }, 'Complemento de Pago generated');
   return { cfdi_document_id: cfdiDocumentId, complement_id: complementId, xml };
+}
+
+// Pagos 2.0 tax desglose. When the related invoice CFDI carried transferred
+// IVA, SAT requires the REP to break the payment down (ObjetoImpDR=02 +
+// ImpuestosDR/ImpuestosP + the per-rate Totales attributes) — a REP that says
+// ObjetoImpDR=01 against an IVA invoice misreports the tax. The rate is not
+// stored on the complement items; it is derived from the original CFDI's own
+// totals (total_impuestos / subtotal) and snapped to the c_TasaOCuota catalog —
+// TasaOCuotaDR must be a catalog value or the PAC rejects the REP outright.
+const CATALOG_IVA_RATES = [0.16, 0.08, 0];
+
+async function enrichRelatedDocumentsWithTaxes(relatedDocuments, organizationId) {
+  const out = [];
+  for (const rd of relatedDocuments) {
+    // A caller that already decided the tax treatment wins.
+    if (rd.objeto_imp_dr) { out.push(rd); continue; }
+    const [origRows] = await db.query(
+      'SELECT subtotal, total_impuestos, total FROM cfdi_documents WHERE uuid = ? AND organization_id = ? LIMIT 1',
+      [rd.related_cfdi_uuid, organizationId],
+    );
+    const orig = origRows[0];
+    const subtotal = Number(orig?.subtotal || 0);
+    const impuestos = Number(orig?.total_impuestos || 0);
+    if (!orig || subtotal <= 0 || impuestos <= 0) {
+      // No original on file / no transferred tax → not object of tax.
+      out.push({ ...rd, objeto_imp_dr: '01' });
+      continue;
+    }
+    const ratio = impuestos / subtotal;
+    const rate = CATALOG_IVA_RATES.find(r => Math.abs(ratio - r) < 0.005);
+    if (rate === undefined) {
+      // Taxed, but not at a catalog IVA rate we can assert — 03 = "sí objeto
+      // del impuesto y no obligado al desglose" keeps the REP honest without
+      // fabricating a TasaOCuotaDR the PAC would reject.
+      out.push({ ...rd, objeto_imp_dr: '03' });
+      continue;
+    }
+    // Proportional breakdown of this parcialidad's payment (guía de llenado):
+    // base = pagado net of IVA at the invoice's rate, importe = the remainder.
+    const pagado = Number(rd.imp_pagado);
+    const base = Math.round((pagado / (1 + rate)) * 100) / 100;
+    const importe = Math.round((pagado - base) * 100) / 100;
+    out.push({
+      ...rd,
+      objeto_imp_dr: '02',
+      traslado_dr: { base, tasa: rate.toFixed(6), importe },
+    });
+  }
+  return out;
 }
 
 /**
@@ -1133,11 +1183,32 @@ async function generatePaymentComplement(params) {
  *   - Single Concepto: ClaveProdServ=84111506, ValorUnitario=0, Importe=0, ObjetoImp=01
  *   - cfdi:Complemento > pago20:Pagos Version="2.0"
  *   - pago20:Totales MontoTotalPagos = sum of imp_pagado across all items
+ *   - xsi:schemaLocation must carry BOTH schema pairs (cfd/4 AND Pagos20) —
+ *     sandbox-verified: SW rejects a REP without the Pagos20 pair (CO1003)
+ *   - items may carry objeto_imp_dr + traslado_dr {base, tasa, importe} from
+ *     enrichRelatedDocumentsWithTaxes; 02 renders ImpuestosDR per docto,
+ *     aggregated ImpuestosP on the Pago, and per-rate Totales attributes
  */
 function buildPaymentComplementXml(doc, complement, items) {
-  const fecha = doc.fecha_emision
-    ? new Date(doc.fecha_emision).toISOString().replace(/\.\d+Z$/, '')
-    : '';
+  // Fecha must be Mexico-local wall time. The old round-trip through
+  // new Date(...).toISOString() re-emitted it as UTC — correct only on
+  // UTC-clock servers, +N hours (a rejected future Fecha) everywhere else.
+  // A plain string from cfdiExpeditionTime() is already CDMX wall time →
+  // pass through; a zoned string or Date is an instant → convert to CDMX.
+  let fecha = '';
+  if (doc.fecha_emision instanceof Date) {
+    fecha = cfdiExpeditionTime(doc.fecha_emision);
+  } else if (doc.fecha_emision) {
+    const s = String(doc.fecha_emision);
+    if (/Z$|[+-]\d{2}:\d{2}$/.test(s)) {
+      fecha = cfdiExpeditionTime(new Date(s));
+    } else {
+      // Local wall time, but callers may send MySQL 'YYYY-MM-DD HH:mm:ss' or a
+      // bare date — the Fecha XSD pattern demands YYYY-MM-DDTHH:mm:ss exactly.
+      fecha = s.replace(/\.\d+$/, '').replace(' ', 'T');
+      if (!fecha.includes('T')) fecha = `${fecha}T00:00:00`;
+    }
+  }
 
   // FechaPago must include time component; use T00:00:00 if only a date was given
   const fechaPago = complement.payment_date
@@ -1163,25 +1234,105 @@ function buildPaymentComplementXml(doc, complement, items) {
     ? ` NumOperacion="${escapeXml(complement.operation_number)}"`
     : '';
 
-  const tipoCambioAttr = complement.tipo_cambio !== null && complement.tipo_cambio !== undefined
-    ? ` TipoCambioP="${complement.tipo_cambio}"`
-    : '';
+  // CRP20215 (sandbox-verified): when MonedaP is MXN, TipoCambioP must be the
+  // literal "1" — no decimals, and NOT omitted (the validator reads absent as 0).
+  const monedaP = complement.moneda || 'MXN';
+  const tipoCambioAttr = monedaP === 'MXN'
+    ? ' TipoCambioP="1"'
+    : (complement.tipo_cambio !== null && complement.tipo_cambio !== undefined
+      ? ` TipoCambioP="${complement.tipo_cambio}"`
+      : '');
 
-  const doctosXml = items.map(rd => {
+  // Normalize the per-docto tax fields ONCE, before any XML assembly:
+  //   - ObjetoImpDR is whitelisted to the c_ObjetoImp catalog (the nested
+  //     related_documents fields are NOT walked by validate(), so a manual
+  //     caller can put arbitrary strings here — never interpolate them raw);
+  //   - the desglose numbers are Number-coerced for the same reason (a crafted
+  //     `tasa` string was an XML-attribute injection into the fiscal document);
+  //   - '02' with an unusable desglose degrades to '03' (sí objeto, sin
+  //     desglose) — emitting 02 without ImpuestosDR is a CRP reject;
+  //   - eq is the MonedaDR-per-MonedaP factor for the Pago-level rollup.
+  const normItems = items.map(rd => {
+    const eqNum = rd.equivalencia_dr !== undefined ? Number(rd.equivalencia_dr) : 1;
+    const sameCurrency = (rd.moneda_dr || 'MXN') === monedaP;
+    const eq = sameCurrency || !Number.isFinite(eqNum) || eqNum <= 0 ? 1 : eqNum;
+    let objeto = ['02', '03', '04'].includes(String(rd.objeto_imp_dr)) ? String(rd.objeto_imp_dr) : '01';
+    let traslado = null;
+    if (objeto === '02') {
+      const t = rd.traslado_dr || {};
+      const tasa = Number(t.tasa);
+      const base = Number(t.base);
+      const importe = Number(t.importe);
+      if ([tasa, base, importe].every(Number.isFinite)) traslado = { tasa, base, importe };
+      else objeto = '03';
+    }
+    return { rd, sameCurrency, eq, objeto, traslado };
+  });
+
+  const doctosXml = normItems.map(({ rd, sameCurrency, eq, objeto, traslado }) => {
     const serieAttr = rd.serie ? ` Serie="${escapeXml(rd.serie)}"` : '';
     const folioAttr = rd.folio ? ` Folio="${escapeXml(String(rd.folio))}"` : '';
-    const eqDR = rd.equivalencia_dr !== undefined ? Number(rd.equivalencia_dr) : 1;
-    return `        <pago20:DoctoRelacionado IdDocumento="${escapeXml(rd.related_cfdi_uuid)}"${serieAttr}${folioAttr} MonedaDR="${escapeXml(rd.moneda_dr || 'MXN')}" EquivalenciaDR="${eqDR.toFixed(4)}" NumParcialidad="${rd.num_parcialidad || 1}" ImpSaldoAnt="${Number(rd.imp_saldo_ant).toFixed(2)}" ImpPagado="${Number(rd.imp_pagado).toFixed(2)}" ImpSaldoInsoluto="${Number(rd.imp_saldo_insoluto).toFixed(2)}" ObjetoImpDR="01" />`;
+    // CRP20238 (sandbox-verified): same currency as MonedaP → EquivalenciaDR
+    // must be the literal "1", not a decimal rendering like "1.0000".
+    const eqVal = sameCurrency ? '1' : eq.toFixed(4);
+    const head = `        <pago20:DoctoRelacionado IdDocumento="${escapeXml(rd.related_cfdi_uuid)}"${serieAttr}${folioAttr} MonedaDR="${escapeXml(rd.moneda_dr || 'MXN')}" EquivalenciaDR="${eqVal}" NumParcialidad="${rd.num_parcialidad || 1}" ImpSaldoAnt="${Number(rd.imp_saldo_ant).toFixed(2)}" ImpPagado="${Number(rd.imp_pagado).toFixed(2)}" ImpSaldoInsoluto="${Number(rd.imp_saldo_insoluto).toFixed(2)}" ObjetoImpDR="${objeto}"`;
+    if (!traslado) return `${head} />`;
+    return `${head}>
+          <pago20:ImpuestosDR>
+            <pago20:TrasladosDR>
+              <pago20:TrasladoDR BaseDR="${traslado.base.toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="${traslado.tasa.toFixed(6)}" ImporteDR="${traslado.importe.toFixed(2)}" />
+            </pago20:TrasladosDR>
+          </pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>`;
   }).join('\n');
+
+  // Pago-level ImpuestosP: the docto traslados aggregated per (tasa) — XSD
+  // sequence puts it AFTER the DoctoRelacionado nodes. Totales then carries
+  // the per-rate TotalTraslados{Base,Impuesto}IVA{16,8,0} attribute pairs.
+  // SAT wants these amounts in MonedaP: docto amounts are in MonedaDR, so
+  // divide by eq (MonedaDR units per 1 MonedaP) when the currencies differ.
+  const byRate = new Map();
+  for (const { eq, traslado } of normItems) {
+    if (!traslado) continue;
+    const key = traslado.tasa.toFixed(6);
+    const agg = byRate.get(key) || { base: 0, importe: 0 };
+    agg.base += traslado.base / eq;
+    agg.importe += traslado.importe / eq;
+    byRate.set(key, agg);
+  }
+  const impuestosPXml = byRate.size === 0 ? '' : `
+        <pago20:ImpuestosP>
+          <pago20:TrasladosP>
+${[...byRate.entries()].map(([tasa, agg]) =>
+    `            <pago20:TrasladoP BaseP="${agg.base.toFixed(2)}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="${tasa}" ImporteP="${agg.importe.toFixed(2)}" />`,
+  ).join('\n')}
+          </pago20:TrasladosP>
+        </pago20:ImpuestosP>`;
+  const TOTALES_ATTR_BY_RATE = {
+    '0.160000': ['TotalTrasladosBaseIVA16', 'TotalTrasladosImpuestoIVA16'],
+    '0.080000': ['TotalTrasladosBaseIVA8', 'TotalTrasladosImpuestoIVA8'],
+    '0.000000': ['TotalTrasladosBaseIVA0', 'TotalTrasladosImpuestoIVA0'],
+  };
+  const totalesAttrs = [...byRate.entries()].map(([tasa, agg]) => {
+    const names = TOTALES_ATTR_BY_RATE[tasa];
+    return names ? ` ${names[0]}="${agg.base.toFixed(2)}" ${names[1]}="${agg.importe.toFixed(2)}"` : '';
+  }).join('');
+
+  // Serie/Folio are optional attributes with non-empty XSD patterns — an empty
+  // value is a schema violation, so omit them entirely when absent
+  // (sandbox-verified rule, same as the invoice builder).
+  const optAttrs = [
+    doc.serie ? `  Serie="${escapeXml(doc.serie)}"` : null,
+    doc.folio ? `  Folio="${escapeXml(String(doc.folio))}"` : null,
+  ].filter(Boolean).join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:pago20="http://www.sat.gob.mx/Pagos20"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd"
   Version="4.0"
-  Serie="${escapeXml(doc.serie || '')}"
-  Folio="${escapeXml(String(doc.folio || ''))}"
-  Fecha="${fecha}"
+${optAttrs ? `${optAttrs}\n` : ''}  Fecha="${fecha}"
   TipoDeComprobante="P"
   Exportacion="01"
   LugarExpedicion="${escapeXml(doc.lugar_expedicion || '')}"
@@ -1195,9 +1346,9 @@ function buildPaymentComplementXml(doc, complement, items) {
   </cfdi:Conceptos>
   <cfdi:Complemento>
     <pago20:Pagos Version="2.0">
-      <pago20:Totales MontoTotalPagos="${montoTotalPagos}" />
+      <pago20:Totales${totalesAttrs} MontoTotalPagos="${montoTotalPagos}" />
       <pago20:Pago FechaPago="${fechaPago}" FormaDePagoP="${escapeXml(complement.forma_pago || '')}" MonedaP="${escapeXml(complement.moneda || 'MXN')}"${tipoCambioAttr} Monto="${Number(complement.amount).toFixed(2)}"${operacionAttr}${payerAttrs}>
-${doctosXml}
+${doctosXml}${impuestosPXml}
       </pago20:Pago>
     </pago20:Pagos>
   </cfdi:Complemento>
@@ -1389,7 +1540,7 @@ module.exports = {
   generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, getEmisorProfile, swAuthToken, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
-  generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,
+  generatePaymentComplement, buildPaymentComplementXml, enrichRelatedDocumentsWithTaxes, getPaymentComplement,
   getReconciliationReport,
   httpRequest, circuitBreaker,
 };

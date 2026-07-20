@@ -811,7 +811,7 @@ router.get('/invoices/:id/cfdi', async (req, res, next) => {
       // column is sat_status ENUM('draft','vigente','cancelado',
       // 'cancel_pending') — 'stamped' was never a legal value; 'vigente' is
       // "successfully stamped and valid".
-      `SELECT cd.id, cd.uuid, cd.xml_content, cd.sat_status
+      `SELECT cd.id, cd.uuid, cd.xml_content, cd.signed_xml, cd.sat_status
        FROM cfdi_documents cd
        WHERE cd.invoice_id = ?
          AND cd.sat_status = 'vigente'
@@ -819,13 +819,17 @@ router.get('/invoices/:id/cfdi', async (req, res, next) => {
        LIMIT 1`,
       [req.params.id],
     );
-    if (!cfdiRows[0]) {
+    // The stamped (signed_xml, with the TimbreFiscalDigital) document is the
+    // fiscally valid one — xml_content is the pre-stamp builder draft, useless
+    // for the client's accounting. Same rule as cfdiController.downloadXml.
+    const fiscalXml = cfdiRows[0] && (cfdiRows[0].signed_xml || cfdiRows[0].xml_content);
+    if (!fiscalXml) {
       throw new NotFoundError('CFDI document');
     }
 
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="cfdi-${cfdiRows[0].uuid || cfdiRows[0].id}.xml"`);
-    res.send(cfdiRows[0].xml_content || '');
+    res.send(fiscalXml);
   } catch (err) {
     next(err);
   }
