@@ -239,6 +239,10 @@ function generateSpec() {
       '/organizations/{id}/email-settings/{function}/test': {
         post: { tags: ['Organizations'], summary: 'Send a test email using one function identity (fallback function→general→global)', operationId: 'testOrganizationEmailSettings', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'function', in: 'path', required: true, schema: { type: 'string', enum: ['general', 'support', 'billing', 'noc'] } }], requestBody: jsonBody('EmailSettingsTest'), responses: r200('EmailTestResult') },
       },
+      '/organizations/{id}/mx-profile': {
+        get: { tags: ['Organizations'], summary: 'Get MX fiscal identity (emisor: RFC, razón social, régimen, C.P., CFDI series) — 404 REGION_DISABLED unless the target org is MX-locale', operationId: 'getOrganizationMxProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('OrgMxProfile | null') },
+        put: { tags: ['Organizations'], summary: 'Create/update MX fiscal identity (CSD lives at /csd-certificates, PAC creds at /pac-providers)', operationId: 'updateOrganizationMxProfile', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('organizations_updateOrgMxProfile'), responses: r200('OrgMxProfile') },
+      },
 
       // ---- Users ----
       ...crudPaths('users', 'Users', 'User'),

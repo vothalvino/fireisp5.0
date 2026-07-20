@@ -37,11 +37,38 @@ const circuitBreaker = {
  * Generate CFDI XML for an invoice.
  * Builds the XML structure from cfdi_documents and cfdi_conceptos rows.
  */
+/**
+ * Load the issuing organization's fiscal identity (emisor) for a CFDI.
+ * Emisor data is deliberately NOT stored per-document — it lives once per org
+ * in organization_mx_profiles and is joined at XML-generation time, so a
+ * razón-social or régimen correction applies to every future document.
+ * Throws a clear 422 when the profile is missing/incomplete rather than
+ * emitting XML with blank Emisor attributes (which PACs reject cryptically).
+ */
+async function getEmisorProfile(organizationId) {
+  const [rows] = await db.query(
+    `SELECT rfc, razon_social, regimen_fiscal, codigo_postal_fiscal
+       FROM organization_mx_profiles
+      WHERE organization_id = ? AND deleted_at IS NULL`,
+    [organizationId],
+  );
+  const emisor = rows[0];
+  if (!emisor || !emisor.rfc || !emisor.razon_social || !emisor.regimen_fiscal || !emisor.codigo_postal_fiscal) {
+    throw new AppError(
+      'The organization has no complete MX fiscal profile (RFC, razón social, régimen fiscal, C.P.). Configure it under Organization → Fiscal (SAT) before generating CFDIs.',
+      422, 'ORG_MX_PROFILE_MISSING',
+    );
+  }
+  return emisor;
+}
+
 async function generateXml(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Generating CFDI XML');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
   if (!doc) throw new Error('CFDI document not found');
+
+  const emisor = await getEmisorProfile(doc.organization_id);
 
   // Fetch related conceptos
   const [conceptos] = await db.query(
@@ -62,7 +89,7 @@ async function generateXml(cfdiDocumentId) {
   }
 
   // Build minimal CFDI 4.0 XML structure
-  const xml = buildCfdi40Xml(doc, conceptos, impuestos);
+  const xml = buildCfdi40Xml(doc, emisor, conceptos, impuestos);
 
   // Store the generated XML
   await db.query(
@@ -74,9 +101,12 @@ async function generateXml(cfdiDocumentId) {
 }
 
 /**
- * Build CFDI 4.0 XML string.
+ * Build CFDI 4.0 XML string from REAL cfdi_documents columns + the org's
+ * emisor profile. (The previous version read seven columns that never existed
+ * on the table — fecha_emision, lugar_expedicion, emisor_*, receptor_
+ * domicilio_fiscal/regimen_fiscal — silently emitting blank attributes.)
  */
-function buildCfdi40Xml(doc, conceptos, impuestos) {
+function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
   const conceptosXml = conceptos.map(c => {
     const taxes = impuestos.filter(i => i.cfdi_concepto_id === c.id);
     const taxesXml = taxes.length > 0 ? `
@@ -92,26 +122,37 @@ function buildCfdi40Xml(doc, conceptos, impuestos) {
     </cfdi:Concepto>`;
   }).join('\n');
 
+  // Fecha = the moment of expedition (this XML generation), per CFDI 4.0
+  // "AAAA-MM-DDThh:mm:ss" with no timezone suffix or milliseconds.
+  const fecha = new Date().toISOString().slice(0, 19);
+
+  // Comprobante-level tax summary — required by Anexo 20 whenever any
+  // concepto carries a traslado.
+  const totalTraslados = impuestos.filter(i => i.tax_type === 'traslado')
+    .reduce((sum, i) => sum + Number(i.importe || 0), 0);
+  const impuestosXml = totalTraslados > 0 ? `
+  <cfdi:Impuestos TotalImpuestosTrasladados="${totalTraslados.toFixed(2)}" />` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   Version="4.0"
   Serie="${escapeXml(doc.serie || '')}"
   Folio="${escapeXml(doc.folio || '')}"
-  Fecha="${doc.fecha_emision ? new Date(doc.fecha_emision).toISOString().replace(/\\.\\d+Z$/, '') : ''}"
+  Fecha="${fecha}"
   FormaPago="${doc.forma_pago || ''}"
   MetodoPago="${doc.metodo_pago || ''}"
   TipoDeComprobante="${doc.tipo_comprobante || 'I'}"
   Exportacion="${doc.exportacion || '01'}"
-  LugarExpedicion="${doc.lugar_expedicion || ''}"
+  LugarExpedicion="${escapeXml(emisor.codigo_postal_fiscal)}"
   Moneda="${doc.moneda || 'MXN'}"
   SubTotal="${doc.subtotal || 0}"
   Total="${doc.total || 0}">
-  <cfdi:Emisor Rfc="${escapeXml(doc.emisor_rfc || '')}" Nombre="${escapeXml(doc.emisor_nombre || '')}" RegimenFiscal="${doc.emisor_regimen_fiscal || ''}" />
-  <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${doc.receptor_domicilio_fiscal || ''}" RegimenFiscalReceptor="${doc.receptor_regimen_fiscal || ''}" UsoCFDI="${doc.uso_cfdi || ''}" />
+  <cfdi:Emisor Rfc="${escapeXml(emisor.rfc)}" Nombre="${escapeXml(emisor.razon_social)}" RegimenFiscal="${escapeXml(emisor.regimen_fiscal)}" />
+  <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${escapeXml(doc.receptor_cp || '')}" RegimenFiscalReceptor="${escapeXml(doc.receptor_regimen || '')}" UsoCFDI="${doc.uso_cfdi || ''}" />
   <cfdi:Conceptos>
 ${conceptosXml}
-  </cfdi:Conceptos>
+  </cfdi:Conceptos>${impuestosXml}
 </cfdi:Comprobante>`;
 }
 

@@ -9,7 +9,8 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createOrganization, updateOrganization, patchOrganization, updateSetting } = require('../middleware/schemas/organizations');
+const { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile } = require('../middleware/schemas/organizations');
+const db = require('../config/database');
 const { getQuotaWithUsage } = require('../services/quotaService');
 const {
   getDatabaseIsolation,
@@ -19,6 +20,7 @@ const {
 const emailSettingsService = require('../services/emailSettingsService');
 const { updateEmailSettings, testEmailSettings: testEmailSettingsSchema } = require('../middleware/schemas/emailSettings');
 const auditLog = require('../services/auditLog');
+const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'routes/organizations' });
 
 const router = Router();
@@ -152,6 +154,104 @@ router.post('/:id/database-isolation/test', requirePermission('organizations.upd
   try {
     const data = await testDatabaseIsolation(req.params.id, req.body && Object.keys(req.body).length ? req.body : null);
     res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// MX fiscal identity (emisor) — GET/PUT /:id/mx-profile
+// ---------------------------------------------------------------------------
+// The org's SAT taxpayer identity (RFC, razón social, régimen fiscal, C.P.,
+// fiscal address, CFDI series). Joined by cfdiService at XML-generation time
+// as the cfdi:Emisor — never stored per-document. Gated on the TARGET org's
+// locale (this route manages org :id, which may differ from the caller's
+// active org, so the requireMxLocale middleware — which checks req.orgId —
+// would gate on the wrong org). CSD and PAC credentials are intentionally NOT
+// part of this surface: they live at /csd-certificates and /pac-providers.
+async function assertTargetOrgIsMx(orgId) {
+  const locale = await Organization.getLocale(orgId);
+  if (locale !== 'MX') {
+    throw new AppError('This organization is not MX-locale — SAT fiscal identity does not apply.', 404, 'REGION_DISABLED');
+  }
+}
+
+router.get('/:id/mx-profile', requirePermission('organizations.view'), async (req, res, next) => {
+  try {
+    await assertTargetOrgIsMx(req.params.id);
+    const [rows] = await db.query(
+      `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+              colonia, municipio, exterior_number, interior_number,
+              cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago, cfdi_folio_next,
+              created_at, updated_at
+         FROM organization_mx_profiles
+        WHERE organization_id = ? AND deleted_at IS NULL`,
+      [req.params.id],
+    );
+    res.json({ data: rows[0] || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/mx-profile', requirePermission('organizations.update'), validate(updateOrgMxProfile), async (req, res, next) => {
+  try {
+    await assertTargetOrgIsMx(req.params.id);
+    const {
+      rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+      colonia = null, municipio = null, exterior_number = null, interior_number = null,
+      cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago,
+    } = req.body;
+
+    const [existing] = await db.query(
+      'SELECT id FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL',
+      [req.params.id],
+    );
+
+    if (existing[0]) {
+      // Serie columns are NOT NULL with defaults — only overwrite when sent.
+      await db.query(
+        `UPDATE organization_mx_profiles
+            SET rfc = ?, razon_social = ?, regimen_fiscal = ?, codigo_postal_fiscal = ?,
+                colonia = ?, municipio = ?, exterior_number = ?, interior_number = ?,
+                cfdi_serie_ingreso = COALESCE(?, cfdi_serie_ingreso),
+                cfdi_serie_egreso  = COALESCE(?, cfdi_serie_egreso),
+                cfdi_serie_pago    = COALESCE(?, cfdi_serie_pago)
+          WHERE organization_id = ? AND deleted_at IS NULL`,
+        [rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+          colonia, municipio, exterior_number, interior_number,
+          cfdi_serie_ingreso ?? null, cfdi_serie_egreso ?? null, cfdi_serie_pago ?? null,
+          req.params.id],
+      );
+    } else {
+      await db.query(
+        `INSERT INTO organization_mx_profiles
+           (organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+            colonia, municipio, exterior_number, interior_number,
+            cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'A'), COALESCE(?, 'E'), COALESCE(?, 'P'))`,
+        [req.params.id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+          colonia, municipio, exterior_number, interior_number,
+          cfdi_serie_ingreso ?? null, cfdi_serie_egreso ?? null, cfdi_serie_pago ?? null],
+      );
+    }
+
+    await auditLog.log({
+      userId: req.user?.id, organizationId: Number(req.params.id), action: existing[0] ? 'update' : 'create',
+      tableName: 'organization_mx_profiles', recordId: existing[0]?.id ?? null,
+      summary: `Updated MX fiscal profile (emisor) for org ${req.params.id}`,
+    });
+
+    const [rows] = await db.query(
+      `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+              colonia, municipio, exterior_number, interior_number,
+              cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago, cfdi_folio_next,
+              created_at, updated_at
+         FROM organization_mx_profiles
+        WHERE organization_id = ? AND deleted_at IS NULL`,
+      [req.params.id],
+    );
+    res.json({ data: rows[0] });
   } catch (err) {
     next(err);
   }

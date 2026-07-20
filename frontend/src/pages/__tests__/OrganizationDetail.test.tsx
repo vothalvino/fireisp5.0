@@ -118,4 +118,70 @@ describe('OrganizationDetail page', () => {
     expect((opts as { body: { to: string } }).body.to).toBe('me@demo.mx');
     await waitFor(() => expect(screen.getByText('Test email sent.')).toBeInTheDocument());
   });
+
+  // -------------------------------------------------------------------------
+  // Fiscal (SAT) tab — MX-locale orgs only
+  // -------------------------------------------------------------------------
+
+  it('hides the Fiscal tab for a global-locale org', async () => {
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    expect(screen.queryByRole('button', { name: 'Fiscal (SAT)' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Fiscal tab for an MX org and saves the emisor identity', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/organizations/{id}') return Promise.resolve({ data: { data: { ...ORG, locale: 'MX' } }, error: undefined });
+      if (path === '/organizations/{id}/mx-profile') return Promise.resolve({ data: { data: null }, error: undefined });
+      if (path === '/sat-catalogs/regimen-fiscal') {
+        return Promise.resolve({ data: { data: [
+          { code: '601', description: 'General de Ley Personas Morales' },
+          { code: '626', description: 'RESICO' },
+        ] }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: {} }, error: undefined });
+    });
+    mockPut.mockResolvedValue({ data: { data: { rfc: 'EKU9003173C9' } }, error: undefined });
+
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(await screen.findByRole('button', { name: 'Fiscal (SAT)' }));
+
+    fireEvent.change(await screen.findByPlaceholderText('EKU9003173C9'), { target: { value: 'eku9003173c9' } });
+    fireEvent.change(screen.getByLabelText(/Razón social/), { target: { value: 'Escuela Kemper Urgate SA de CV' } });
+    // Régimen select fed from the SAT catalog
+    fireEvent.change(screen.getByLabelText(/Régimen fiscal/), { target: { value: '601' } });
+    fireEvent.change(screen.getByPlaceholderText('26015'), { target: { value: '26015' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith(
+      '/organizations/{id}/mx-profile',
+      expect.objectContaining({
+        params: { path: { id: 1 } },
+        body: expect.objectContaining({
+          rfc: 'EKU9003173C9', // uppercased
+          razon_social: 'Escuela Kemper Urgate SA de CV',
+          regimen_fiscal: '601',
+          codigo_postal_fiscal: '26015',
+        }),
+      }),
+    ));
+  });
+
+  it('blocks a Fiscal save with an invalid RFC before any request', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/organizations/{id}') return Promise.resolve({ data: { data: { ...ORG, locale: 'MX' } }, error: undefined });
+      if (path === '/organizations/{id}/mx-profile') return Promise.resolve({ data: { data: null }, error: undefined });
+      if (path === '/sat-catalogs/regimen-fiscal') return Promise.resolve({ data: { data: [] }, error: undefined });
+      return Promise.resolve({ data: { data: {} }, error: undefined });
+    });
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(await screen.findByRole('button', { name: 'Fiscal (SAT)' }));
+    fireEvent.change(await screen.findByPlaceholderText('EKU9003173C9'), { target: { value: 'SHORT' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText(/RFC must be 12/)).toBeInTheDocument();
+    expect(mockPut).not.toHaveBeenCalled();
+  });
 });

@@ -22,7 +22,7 @@ interface CfdiDocument {
   serie: string | null;
   folio: string | null;
   tipo_comprobante: string | null;
-  fecha_emision: string | null;
+  stamp_date: string | null;
   emisor_rfc: string | null;
   emisor_nombre: string | null;
   receptor_rfc: string | null;
@@ -434,7 +434,7 @@ export function CfdiList() {
 
                     {/* Date */}
                     <td style={{ padding: '9px 12px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                      {fmt(doc.fecha_emision || doc.created_at)}
+                      {fmt(doc.stamp_date || doc.created_at)}
                     </td>
 
                     {/* Status */}

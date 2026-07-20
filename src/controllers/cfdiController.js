@@ -170,6 +170,15 @@ async function downloadPdf(req, res, next) {
 
     const doc = docs[0];
 
+    // Emisor identity is not stored per-document — join the org's fiscal
+    // profile (may be absent on a half-configured org; render blanks then).
+    const [emisorRows] = await db.query(
+      `SELECT rfc, razon_social FROM organization_mx_profiles
+        WHERE organization_id = ? AND deleted_at IS NULL`,
+      [req.orgId],
+    );
+    const emisor = emisorRows[0] || {};
+
     // Fetch conceptos for the PDF
     const [conceptos] = await db.query(
       'SELECT * FROM cfdi_conceptos WHERE cfdi_document_id = ?',
@@ -189,14 +198,17 @@ async function downloadPdf(req, res, next) {
     pdfDoc.fontSize(10);
     pdfDoc.text(`UUID: ${doc.uuid || 'N/A'}`);
     pdfDoc.text(`Serie: ${doc.serie || ''} Folio: ${doc.folio || ''}`);
-    pdfDoc.text(`Fecha: ${doc.fecha_emision || ''}`);
+    // Real columns: stamp_date once stamped, created_at otherwise
+    // (fecha_emision never existed on this table).
+    const fecha = doc.stamp_date || doc.created_at;
+    pdfDoc.text(`Fecha: ${fecha ? new Date(fecha).toISOString().slice(0, 19).replace('T', ' ') : ''}`);
     pdfDoc.text(`Tipo: ${doc.tipo_comprobante || ''} | Moneda: ${doc.moneda || ''}`);
     pdfDoc.moveDown();
 
     // Emisor / Receptor
     pdfDoc.fontSize(12).text('Emisor', { underline: true });
     pdfDoc.fontSize(10);
-    pdfDoc.text(`RFC: ${doc.emisor_rfc || ''} — ${doc.emisor_nombre || ''}`);
+    pdfDoc.text(`RFC: ${emisor.rfc || ''} — ${emisor.razon_social || ''}`);
     pdfDoc.moveDown(0.5);
     pdfDoc.fontSize(12).text('Receptor', { underline: true });
     pdfDoc.fontSize(10);
@@ -220,7 +232,7 @@ async function downloadPdf(req, res, next) {
 
     if (doc.uuid) {
       pdfDoc.moveDown();
-      pdfDoc.fontSize(8).text(`Sello SAT: ${doc.sello_sat || 'N/A'}`);
+      pdfDoc.fontSize(8).text(`Sello SAT: ${doc.sat_seal || 'N/A'}`);
     }
 
     pdfDoc.end();
