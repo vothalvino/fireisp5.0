@@ -623,3 +623,72 @@ describe('enrichRelatedDocumentsWithTaxes()', () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 });
+
+// ===========================================================================
+// Review-panel fixes (adversarially confirmed findings)
+// ===========================================================================
+describe('buildPaymentComplementXml — hardening (review findings)', () => {
+  const doc = {
+    serie: 'P', folio: 7, fecha_emision: '2026-07-20T14:51:13', lugar_expedicion: '42501',
+    emisor_rfc: 'EKU9003173C9', emisor_nombre: 'ESCUELA KEMPER URGATE', emisor_regimen_fiscal: '601',
+    receptor_rfc: 'MISC491214B86', receptor_nombre: 'CECILIA MIRANDA SANCHEZ',
+    receptor_domicilio_fiscal: '01010', receptor_regimen_fiscal: '612',
+  };
+  const complement = { payment_date: '2026-07-20', forma_pago: '03', moneda: 'MXN', amount: 116 };
+  const item = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    moneda_dr: 'MXN', equivalencia_dr: 1, num_parcialidad: 1,
+    imp_saldo_ant: 116, imp_pagado: 116, imp_saldo_insoluto: 0,
+  };
+
+  test('a crafted tasa string cannot inject XML — desglose fields are Number-coerced', () => {
+    const evil = {
+      ...item, objeto_imp_dr: '02',
+      traslado_dr: { base: 100, tasa: '0.160000"/><cfdi:Evil x="y', importe: 16 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [evil]);
+    expect(xml).not.toContain('Evil');
+    // unusable desglose → honest degrade to 03 (02 without ImpuestosDR = CRP reject)
+    expect(xml).toContain('ObjetoImpDR="03"');
+    expect(xml).not.toContain('ImpuestosDR');
+  });
+
+  test('a crafted objeto_imp_dr string is whitelisted to the catalog', () => {
+    const evil = { ...item, objeto_imp_dr: '01" Extra="x' };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [evil]);
+    expect(xml).not.toContain('Extra=');
+    expect(xml).toContain('ObjetoImpDR="01"');
+  });
+
+  test('numeric-but-string desglose values still render (coercion, not rejection)', () => {
+    const stringy = {
+      ...item, objeto_imp_dr: '02',
+      traslado_dr: { base: '100', tasa: '0.16', importe: '16' },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [stringy]);
+    expect(xml).toContain('TasaOCuotaDR="0.160000"');
+    expect(xml).toContain('BaseDR="100.00"');
+  });
+
+  test('Pago-level ImpuestosP/Totales convert MonedaDR amounts into MonedaP via EquivalenciaDR', () => {
+    const usdPago = { ...complement, moneda: 'USD', tipo_cambio: 19.5, amount: 5.95 };
+    const mxnDocto = {
+      ...item, equivalencia_dr: 19.5, objeto_imp_dr: '02',
+      traslado_dr: { base: 100, tasa: '0.160000', importe: 16 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, usdPago, [mxnDocto]);
+    // docto level stays in MonedaDR (MXN)
+    expect(xml).toContain('BaseDR="100.00"');
+    // Pago/Totales level is in MonedaP (USD): 100/19.5 = 5.13, 16/19.5 = 0.82
+    expect(xml).toContain('BaseP="5.13"');
+    expect(xml).toContain('ImporteP="0.82"');
+    expect(xml).toContain('TotalTrasladosBaseIVA16="5.13"');
+  });
+
+  test('date-only and MySQL space-separated fecha_emision are normalized to the Fecha XSD shape', () => {
+    const d1 = cfdiService.buildPaymentComplementXml({ ...doc, fecha_emision: '2026-07-20' }, complement, [item]);
+    expect(d1).toContain('Fecha="2026-07-20T00:00:00"');
+    const d2 = cfdiService.buildPaymentComplementXml({ ...doc, fecha_emision: '2026-07-20 14:51:13' }, complement, [item]);
+    expect(d2).toContain('Fecha="2026-07-20T14:51:13"');
+  });
+});

@@ -1200,9 +1200,14 @@ function buildPaymentComplementXml(doc, complement, items) {
     fecha = cfdiExpeditionTime(doc.fecha_emision);
   } else if (doc.fecha_emision) {
     const s = String(doc.fecha_emision);
-    fecha = /Z$|[+-]\d{2}:\d{2}$/.test(s)
-      ? cfdiExpeditionTime(new Date(s))
-      : s.replace(/\.\d+$/, '');
+    if (/Z$|[+-]\d{2}:\d{2}$/.test(s)) {
+      fecha = cfdiExpeditionTime(new Date(s));
+    } else {
+      // Local wall time, but callers may send MySQL 'YYYY-MM-DD HH:mm:ss' or a
+      // bare date — the Fecha XSD pattern demands YYYY-MM-DDTHH:mm:ss exactly.
+      fecha = s.replace(/\.\d+$/, '').replace(' ', 'T');
+      if (!fecha.includes('T')) fecha = `${fecha}T00:00:00`;
+    }
   }
 
   // FechaPago must include time component; use T00:00:00 if only a date was given
@@ -1238,21 +1243,44 @@ function buildPaymentComplementXml(doc, complement, items) {
       ? ` TipoCambioP="${complement.tipo_cambio}"`
       : '');
 
-  const doctosXml = items.map(rd => {
+  // Normalize the per-docto tax fields ONCE, before any XML assembly:
+  //   - ObjetoImpDR is whitelisted to the c_ObjetoImp catalog (the nested
+  //     related_documents fields are NOT walked by validate(), so a manual
+  //     caller can put arbitrary strings here — never interpolate them raw);
+  //   - the desglose numbers are Number-coerced for the same reason (a crafted
+  //     `tasa` string was an XML-attribute injection into the fiscal document);
+  //   - '02' with an unusable desglose degrades to '03' (sí objeto, sin
+  //     desglose) — emitting 02 without ImpuestosDR is a CRP reject;
+  //   - eq is the MonedaDR-per-MonedaP factor for the Pago-level rollup.
+  const normItems = items.map(rd => {
+    const eqNum = rd.equivalencia_dr !== undefined ? Number(rd.equivalencia_dr) : 1;
+    const sameCurrency = (rd.moneda_dr || 'MXN') === monedaP;
+    const eq = sameCurrency || !Number.isFinite(eqNum) || eqNum <= 0 ? 1 : eqNum;
+    let objeto = ['02', '03', '04'].includes(String(rd.objeto_imp_dr)) ? String(rd.objeto_imp_dr) : '01';
+    let traslado = null;
+    if (objeto === '02') {
+      const t = rd.traslado_dr || {};
+      const tasa = Number(t.tasa);
+      const base = Number(t.base);
+      const importe = Number(t.importe);
+      if ([tasa, base, importe].every(Number.isFinite)) traslado = { tasa, base, importe };
+      else objeto = '03';
+    }
+    return { rd, sameCurrency, eq, objeto, traslado };
+  });
+
+  const doctosXml = normItems.map(({ rd, sameCurrency, eq, objeto, traslado }) => {
     const serieAttr = rd.serie ? ` Serie="${escapeXml(rd.serie)}"` : '';
     const folioAttr = rd.folio ? ` Folio="${escapeXml(String(rd.folio))}"` : '';
-    const eqDR = rd.equivalencia_dr !== undefined ? Number(rd.equivalencia_dr) : 1;
     // CRP20238 (sandbox-verified): same currency as MonedaP → EquivalenciaDR
     // must be the literal "1", not a decimal rendering like "1.0000".
-    const eqVal = (rd.moneda_dr || 'MXN') === monedaP ? '1' : eqDR.toFixed(4);
-    const objeto = rd.objeto_imp_dr || '01';
+    const eqVal = sameCurrency ? '1' : eq.toFixed(4);
     const head = `        <pago20:DoctoRelacionado IdDocumento="${escapeXml(rd.related_cfdi_uuid)}"${serieAttr}${folioAttr} MonedaDR="${escapeXml(rd.moneda_dr || 'MXN')}" EquivalenciaDR="${eqVal}" NumParcialidad="${rd.num_parcialidad || 1}" ImpSaldoAnt="${Number(rd.imp_saldo_ant).toFixed(2)}" ImpPagado="${Number(rd.imp_pagado).toFixed(2)}" ImpSaldoInsoluto="${Number(rd.imp_saldo_insoluto).toFixed(2)}" ObjetoImpDR="${objeto}"`;
-    if (objeto !== '02' || !rd.traslado_dr) return `${head} />`;
-    const t = rd.traslado_dr;
+    if (!traslado) return `${head} />`;
     return `${head}>
           <pago20:ImpuestosDR>
             <pago20:TrasladosDR>
-              <pago20:TrasladoDR BaseDR="${Number(t.base).toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="${t.tasa}" ImporteDR="${Number(t.importe).toFixed(2)}" />
+              <pago20:TrasladoDR BaseDR="${traslado.base.toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="${traslado.tasa.toFixed(6)}" ImporteDR="${traslado.importe.toFixed(2)}" />
             </pago20:TrasladosDR>
           </pago20:ImpuestosDR>
         </pago20:DoctoRelacionado>`;
@@ -1261,15 +1289,16 @@ function buildPaymentComplementXml(doc, complement, items) {
   // Pago-level ImpuestosP: the docto traslados aggregated per (tasa) — XSD
   // sequence puts it AFTER the DoctoRelacionado nodes. Totales then carries
   // the per-rate TotalTraslados{Base,Impuesto}IVA{16,8,0} attribute pairs.
+  // SAT wants these amounts in MonedaP: docto amounts are in MonedaDR, so
+  // divide by eq (MonedaDR units per 1 MonedaP) when the currencies differ.
   const byRate = new Map();
-  for (const rd of items) {
-    if (rd.objeto_imp_dr === '02' && rd.traslado_dr) {
-      const t = rd.traslado_dr;
-      const agg = byRate.get(t.tasa) || { base: 0, importe: 0 };
-      agg.base += Number(t.base);
-      agg.importe += Number(t.importe);
-      byRate.set(t.tasa, agg);
-    }
+  for (const { eq, traslado } of normItems) {
+    if (!traslado) continue;
+    const key = traslado.tasa.toFixed(6);
+    const agg = byRate.get(key) || { base: 0, importe: 0 };
+    agg.base += traslado.base / eq;
+    agg.importe += traslado.importe / eq;
+    byRate.set(key, agg);
   }
   const impuestosPXml = byRate.size === 0 ? '' : `
         <pago20:ImpuestosP>
