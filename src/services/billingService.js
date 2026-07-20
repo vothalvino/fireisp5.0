@@ -727,9 +727,13 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
   // live CFDI. A stamped invoice must be CANCELLED at SAT (with a motivo) via
   // cfdiService.cancel, which — once SAT accepts — flows back through
   // cancelInvoiceForSat and lands the invoice in 'cancelled', not 'void'.
+  // organization_id is filtered here too (not just in findByIdOrFail below,
+  // which runs after this guard): without it, probing another org's invoice id
+  // would answer 422 INVOICE_STAMPED instead of 404 — leaking that the foreign
+  // invoice exists and is stamped.
   const [live] = await db.query(
-    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
-    [invoiceId],
+    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    [invoiceId, orgId],
   );
   if (live.length > 0) {
     throw new AppError(

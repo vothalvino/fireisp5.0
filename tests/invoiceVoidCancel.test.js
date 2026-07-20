@@ -43,6 +43,11 @@ describe('voidInvoiceById — stamped-CFDI guard', () => {
     // Never touched the invoice — no status flip, no money movement, no audit.
     expect(Invoice.update).not.toHaveBeenCalled();
     expect(auditLog.log).not.toHaveBeenCalled();
+    // The guard is org-scoped: probing another org's invoice id must fall
+    // through to the 404, never answer 422 (stamped-invoice existence leak).
+    const [guardSql, guardParams] = db.query.mock.calls[0];
+    expect(guardSql).toMatch(/organization_id = \?/);
+    expect(guardParams).toEqual([10, 1]);
   });
 
   test('rejects voiding an invoice whose CFDI is cancel_pending', async () => {
