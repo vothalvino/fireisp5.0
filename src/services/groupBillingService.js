@@ -28,6 +28,7 @@ const Organization = require('../models/Organization');
 const { computeClientBalance } = require('./clientBalanceService');
 const paymentAllocationService = require('./paymentAllocationService');
 const { ValidationError, NotFoundError } = require('../utils/errors');
+const repService = require('./repService');
 const logger = require('../utils/logger').child({ service: 'groupBilling' });
 
 /**
@@ -304,6 +305,12 @@ async function payGroup(orgId, groupId, opts = {}) {
     } catch (err) {
       logger.warn({ err, invoiceId: invoice.id }, 'reconnectIfSuspended failed after group payment');
     }
+  }
+
+  // MX/SAT: REP per settled allocation against a vigente PPD CFDI —
+  // best-effort, mirrors the allocate endpoints' post-commit hook.
+  for (const a of settled) {
+    await repService.maybeGenerateRep(payment.id, a.invoice_id, a.amount, orgId, opts.actorUserId);
   }
 
   logger.info({ groupId, paymentId: payment.id, amount: payment.amount, allocatedTotal, settledCount: settled.length }, 'Group payment settled');

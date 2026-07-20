@@ -463,8 +463,9 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
 
       expect(res.status).toBe(201);
       expect(res.body.data).toMatchObject({ id: 2, amount: '300.00' });
-      // Invoice should NOT have been marked paid (only 5 db.query calls)
-      expect(db.query).toHaveBeenCalledTimes(5);
+      // Invoice should NOT have been marked paid. 5 core calls + 1 from the
+      // best-effort REP hook (cfdi_documents lookup after the allocation).
+      expect(db.query).toHaveBeenCalledTimes(6);
     });
   });
 

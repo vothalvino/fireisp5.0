@@ -12,6 +12,8 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createPayment, updatePayment, patchPayment, allocatePayment, allocateAuto } = require('../middleware/schemas/payments');
 const billingService = require('../services/billingService');
+const repService = require('../services/repService');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const paymentAllocationService = require('../services/paymentAllocationService');
 const db = require('../config/database');
 
@@ -125,7 +127,12 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
       await paymentAllocationService.reconnectIfSuspended(invoice, req.user.id);
     }
 
-    res.status(201).json({ data: allocation });
+    // MX/SAT: a payment against a vigente PPD CFDI must be reported with a
+    // Complemento de Pago (REP). Best-effort AFTER the allocation committed —
+    // never fails the payment operation; skipped silently for non-PPD/global.
+    const rep = await repService.maybeGenerateRep(parseInt(req.params.id, 10), invoice_id, amount, req.orgId, req.user?.id);
+
+    res.status(201).json({ data: allocation, rep });
   } catch (err) {
     next(err);
   }
@@ -263,15 +270,51 @@ router.post('/:id/allocate-auto', requirePermission('payments.create'), validate
       await paymentAllocationService.reconnectIfSuspended(invoice, req.user.id);
     }
 
+    // REP per allocation (see the single-allocate hook). One REP per
+    // (payment, invoice) pair — multiple REPs for one payment are SAT-valid.
+    const reps = [];
+    for (const a of allocations) {
+      reps.push(await repService.maybeGenerateRep(paymentId, a.invoice_id, a.amount, req.orgId, req.user?.id));
+    }
+
     const paidIds = new Set(justPaidInvoices.map((inv) => inv.id));
     const enrichedAllocations = allocations.map((a) => ({ ...a, fully_paid: paidIds.has(a.invoice_id) }));
 
-    res.status(201).json({ data: { allocations: enrichedAllocations, remaining_credit: remainder } });
+    res.status(201).json({ data: { allocations: enrichedAllocations, remaining_credit: remainder }, reps });
   } catch (err) {
     await conn.rollback().catch(() => {});
     next(err);
   } finally {
     conn.release();
+  }
+});
+
+// Manual REP (Complemento de Pago) generation — for allocations made before
+// the automation existed, or after an auto-attempt failed pre-creation.
+// The invoice must have a vigente PPD CFDI; amount = the live allocation.
+router.post('/:id/rep', requireMxLocale, requirePermission('cfdi_documents.create'), async (req, res, next) => {
+  try {
+    const paymentId = parseInt(req.params.id, 10);
+    const invoiceId = parseInt(req.body?.invoice_id, 10);
+    if (!invoiceId) {
+      return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'invoice_id is required.' } });
+    }
+    const [allocRows] = await db.query(
+      `SELECT pa.amount FROM payment_allocations pa
+         JOIN payments p ON p.id = pa.payment_id AND p.organization_id = ? AND p.deleted_at IS NULL
+        WHERE pa.payment_id = ? AND pa.invoice_id = ? AND pa.deleted_at IS NULL LIMIT 1`,
+      [req.orgId, paymentId, invoiceId],
+    );
+    if (!allocRows[0]) {
+      return res.status(422).json({ error: { code: 'ALLOCATION_NOT_FOUND', message: 'This payment is not applied to that invoice.' } });
+    }
+    const result = await repService.generateRepForAllocation(paymentId, invoiceId, allocRows[0].amount, req.orgId, req.user?.id);
+    if (!result.generated) {
+      return res.status(422).json({ error: { code: 'REP_NOT_APPLICABLE', message: `No REP generated: ${result.reason} — the invoice needs a vigente PPD CFDI.` } });
+    }
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -432,6 +475,10 @@ router.post('/:id/reallocate', requirePermission('payments.update'), async (req,
     // Re-derive paid status for both invoices (outside the transaction — reads committed state)
     await billingService.refreshInvoicePaidStatus(from_invoice_id);
     await billingService.refreshInvoicePaidStatus(to_invoice_id);
+
+    // REP for the NEW allocation (the moved-from invoice's REP, if any, stays
+    // on record — correcting it is a manual SAT cancellation of that REP).
+    await repService.maybeGenerateRep(paymentId, to_invoice_id, moveAmount, req.orgId, req.user?.id);
 
     const [newAllocRows] = await db.query('SELECT * FROM payment_allocations WHERE id = ?', [newAllocId]);
     res.status(201).json({ data: newAllocRows[0] });

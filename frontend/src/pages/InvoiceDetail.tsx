@@ -653,12 +653,17 @@ const SAT_CANCEL_REASONS = [
 interface CancelCfdiModalProps {
   cfdi: CfdiDoc;
   invoiceNumber: string;
+  // Sum of payments currently applied to the invoice (0 when none) — SAT
+  // acceptance releases them to client credit, and the operator must see that
+  // BEFORE submitting the cancellation.
+  appliedTotal: number;
+  currency: string;
   onClose: () => void;
   // Receives the SAT outcome: 'cancelado' (accepted now) or 'cancel_pending'.
   onCancelled: (satStatus: string) => void;
 }
 
-function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCfdiModalProps) {
+function CancelCfdiModal({ cfdi, invoiceNumber, appliedTotal, currency, onClose, onCancelled }: CancelCfdiModalProps) {
   const [reason, setReason] = useState('02');
   const [replacementUuid, setReplacementUuid] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -694,8 +699,15 @@ function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCf
         <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#374151' }}>
           This CFDI is registered with SAT, so it stays fiscally valid until SAT
           accepts a cancellation. Once accepted, the invoice is marked cancelled
-          automatically and any applied payments are released as client credit.
+          automatically.
         </p>
+        {appliedTotal > 0 && (
+          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#92400e', background: '#fef3c7', padding: '8px 10px', borderRadius: 6 }}>
+            ⚠ This invoice has <strong>{fmtAmount(String(appliedTotal), currency)}</strong> in
+            applied payments — SAT acceptance will release them as client credit
+            (reallocate to a substitute invoice or refund afterwards).
+          </p>
+        )}
         {error && <div style={errorBox}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <label style={labelStyle} htmlFor="cfdi-cancel-reason">Cancellation reason (SAT)</label>
@@ -1168,6 +1180,8 @@ export function InvoiceDetail() {
             <CancelCfdiModal
               cfdi={liveCfdi}
               invoiceNumber={invoice.invoice_number || `#${invoice.id}`}
+              appliedTotal={(paymentsQ.data ?? []).reduce((sum, p) => sum + Number(p.amount || 0), 0)}
+              currency={invoice.currency}
               onClose={() => setShowCancelCfdi(false)}
               onCancelled={(satStatus) => {
                 qc.invalidateQueries({ queryKey: ['invoice', id] });

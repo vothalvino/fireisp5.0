@@ -3,6 +3,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const repService = require('./repService');
 const logger = require('../utils/logger').child({ service: 'paymentPlan' });
 const { NotFoundError, ValidationError } = require('../utils/errors');
 
@@ -201,6 +202,11 @@ async function payInstallment(planId, sequence, paymentId, orgId) {
     }
 
     await conn.commit();
+
+    // MX/SAT: REP for the installment's allocation (best-effort, post-commit).
+    if (installment.invoice_id) {
+      await repService.maybeGenerateRep(paymentId, installment.invoice_id, installment.amount, orgId, null);
+    }
 
     const [updatedInst] = await db.query(
       'SELECT * FROM payment_plan_installments WHERE plan_id = ? AND sequence = ?',

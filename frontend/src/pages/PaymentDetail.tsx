@@ -10,10 +10,12 @@
 // in sync with the PaymentList row actions — no copy-paste divergence.
 // =============================================================================
 
+import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from '@/api/graphql';
 import { useAuth } from '@/auth/AuthContext';
+import { authedFetch } from '@/api/client';
 import { can } from '@/auth/permissions';
 import {
   PaymentActionButtons,
@@ -231,13 +233,34 @@ function PaymentInfoCard({ payment }: { payment: Payment }) {
 // Allocations section
 // ---------------------------------------------------------------------------
 
-function AllocationsSection({ allocations, currency }: { allocations: PaymentAllocation[]; currency: string }) {
+// MX orgs: each allocation row offers manual REP generation — for allocations
+// made before the automation existed or whose auto-attempt failed. The backend
+// 422s (REP_NOT_APPLICABLE) when the invoice has no vigente PPD CFDI.
+async function generateRep(paymentId: number, invoiceId: number): Promise<{ uuid: string | null; stamped: boolean }> {
+  const res = await authedFetch(`/api/v1/payments/${paymentId}/rep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invoice_id: invoiceId }),
+  });
+  const body = await res.json().catch(() => ({})) as { data?: { uuid: string | null; stamped: boolean }; error?: { message?: string } };
+  if (!res.ok) throw new Error(body.error?.message ?? 'Failed to generate REP');
+  return body.data as { uuid: string | null; stamped: boolean };
+}
+
+function AllocationsSection({ allocations, currency, paymentId, isMxOrg }: { allocations: PaymentAllocation[]; currency: string; paymentId: number; isMxOrg: boolean }) {
+  const [repMsg, setRepMsg] = useState<string | null>(null);
+  const repMutation = useMutation({
+    mutationFn: ({ invoiceId }: { invoiceId: number }) => generateRep(paymentId, invoiceId),
+    onSuccess: (d: { uuid: string | null; stamped: boolean }) => setRepMsg(d.stamped ? `REP stamped — UUID ${d.uuid}` : 'REP created but stamping failed — retry from the CFDI page'),
+    onError: (err: Error) => setRepMsg(`REP: ${err.message}`),
+  });
   if (!allocations.length) return <p style={styles.msg}>No invoice allocations for this payment.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
+      {repMsg && <p style={{ ...styles.msg, fontSize: '0.82rem' }}>{repMsg}</p>}
       <table style={styles.table}>
         <thead>
-          <tr>{['Invoice #', 'Allocated Amount', 'Invoice Total', 'Status'].map(h => (
+          <tr>{['Invoice #', 'Allocated Amount', 'Invoice Total', 'Status', ...(isMxOrg ? ['SAT'] : [])].map(h => (
             <th key={h} style={styles.th}>{h}</th>
           ))}</tr>
         </thead>
@@ -265,6 +288,18 @@ function AllocationsSection({ allocations, currency }: { allocations: PaymentAll
               <td style={styles.td}>
                 {alloc.invoice ? <StatusBadge status={alloc.invoice.status} /> : '—'}
               </td>
+              {isMxOrg && (
+                <td style={styles.td}>
+                  <button
+                    onClick={() => repMutation.mutate({ invoiceId: Number(alloc.invoiceId) })}
+                    disabled={repMutation.isPending}
+                    style={{ background: 'transparent', border: '1px solid var(--border-strong, #d1d5db)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-secondary)' }}
+                    title="Generate the Complemento de Pago (REP) for this allocation — needs a vigente PPD CFDI on the invoice"
+                  >
+                    Generate REP
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -385,7 +420,7 @@ export function PaymentDetail() {
         <h2 style={styles.sectionTitle}>Invoice Allocations</h2>
       </div>
       <div style={styles.sectionContent}>
-        <AllocationsSection allocations={payment.allocations} currency={payment.currency} />
+        <AllocationsSection allocations={payment.allocations} currency={payment.currency} paymentId={Number(payment.id)} isMxOrg={user?.organization_locale === 'MX'} />
       </div>
     </div>
   );
