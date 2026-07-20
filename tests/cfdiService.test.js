@@ -534,10 +534,15 @@ describe('simulator PAC provider', () => {
   const origEnv = process.env.NODE_ENV;
   afterEach(() => { process.env.NODE_ENV = origEnv; });
 
-  test('stamps with a SIM- UUID even under NODE_ENV=production (sandbox env)', async () => {
+  test('stamps with a SIMULADO- UUID even under NODE_ENV=production (sandbox env)', async () => {
     process.env.NODE_ENV = 'production';
     const result = await cfdiService.callPacStamp({ provider_name: 'simulator', environment: 'sandbox' }, '<xml/>');
-    expect(result.uuid).toMatch(/^SIM-/);
+    // 'SIMULADO' is not valid hex — no real SAT folio fiscal can look like
+    // this — and the whole value is EXACTLY 36 chars so it fits
+    // cfdi_documents.uuid CHAR(36) (the 'SIM-' + full-UUID form was 40 chars
+    // and blew up the column on the live walk).
+    expect(result.uuid).toMatch(/^SIMULADO-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(result.uuid).toHaveLength(36);
   });
 
   test('refuses environment=production outright — simulated CFDIs must never look real', async () => {
