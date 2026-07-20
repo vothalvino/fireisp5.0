@@ -374,17 +374,24 @@ async function callPacStamp(pac, xmlContent) {
       throw new Error('SW Sapien authentication failed');
     }
 
-    // Stamp
-    const stampResponse = await httpRequest(`${baseUrl}/cfdi33/stamp/v4`, 'POST',
-      xmlContent,
+    // Emisión Timbrado (issue): SW SEALS AND STAMPS our unsealed XML using
+    // the CSD registered in the SW account. This is the correct service for
+    // FireISP's builder, which emits no Sello/Certificado — SW's 'stamp'
+    // endpoint family (Timbrado corporativo) expects PRE-SEALED XML and
+    // rejects ours. The /cfdi33/ prefix is historical: the endpoint accepts
+    // CFDI 4.0 (SW docs, "nuevo inicio rápido"). JSON variant, base64 body.
+    const issueResponse = await httpRequest(`${baseUrl}/cfdi33/issue/json/v4`, 'POST',
+      JSON.stringify({ data: Buffer.from(xmlContent).toString('base64') }),
       {
-        'Content-Type': 'application/xml',
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${authData.data.token}`,
       },
     );
-    const stampData = JSON.parse(stampResponse.body);
+    const stampData = JSON.parse(issueResponse.body);
+    // SW error shape: { message, messageDetail } with status != 'success'.
     if (!stampData.data?.uuid) {
-      throw new Error(stampData.message || 'SW Sapien stamping failed');
+      const detail = [stampData.message, stampData.messageDetail].filter(Boolean).join(' — ');
+      throw new Error(detail || 'SW Sapien emisión (issue) failed');
     }
 
     return {
