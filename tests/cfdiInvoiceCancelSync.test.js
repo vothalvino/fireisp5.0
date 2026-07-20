@@ -104,3 +104,14 @@ test('stamp() refuses a draft whose linked invoice is void (backstop)', async ()
   const sqls = db.query.mock.calls.map((c) => c[0]).join('\n');
   expect(sqls).not.toMatch(/pac_providers/); // refused before any PAC work
 });
+
+test('acuse_fecha is bound as a Date object, never an ISO-Z string (MySQL DATETIME strict mode)', async () => {
+  // The simulator/dev PAC branches return acuseFecha as toISOString() — the
+  // 'T'+'Z' form MySQL DATETIME rejects (1292 → 500 on the live demo walk).
+  const res = await cfdiService.cancel(7, '02', null);
+  expect(res.status).toBe('cancelado');
+  const upd = db.query.mock.calls.find(([sql]) => /UPDATE cfdi_cancellations/.test(sql) && /acuse_fecha/.test(sql));
+  expect(upd).toBeTruthy();
+  const acuseFechaParam = upd[1][2];
+  expect(acuseFechaParam instanceof Date).toBe(true);
+});

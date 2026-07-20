@@ -603,7 +603,11 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   // Process PAC response
   const finalStatus = pacResult.status || 'pending';
   const acuseXml = pacResult.acuseXml || null;
-  const acuseFecha = pacResult.acuseFecha || null;
+  // PAC branches return acuseFecha in whatever form the provider gives
+  // (simulator/dev: ISO-8601 with 'T'+'Z') — MySQL DATETIME rejects that form
+  // in strict mode (error 1292 → opaque 500). Bind a JS Date instead: mysql2
+  // serializes it in the connection timezone, valid for any source format.
+  const acuseFecha = pacResult.acuseFecha ? new Date(pacResult.acuseFecha) : null;
 
   // Update cancellation record with PAC response
   await db.query(
@@ -824,7 +828,9 @@ async function getCancellationStatus(cancellationId) {
       `UPDATE cfdi_cancellations
        SET cancellation_status = ?, acuse_xml = ?, acuse_fecha = ?, responded_at = NOW()
        WHERE id = ?`,
-      [finalStatus, pacResult.acuseXml, pacResult.acuseFecha, cancellationId],
+      // Same DATETIME normalization as cancel(): ISO-Z strings are rejected
+      // by MySQL strict mode — bind a Date object.
+      [finalStatus, pacResult.acuseXml, pacResult.acuseFecha ? new Date(pacResult.acuseFecha) : null, cancellationId],
     );
 
     // Update CFDI document status
