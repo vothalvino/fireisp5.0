@@ -54,6 +54,11 @@ function makeConn(mocks = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The REP auto-generation hook (repService.maybeGenerateRep) issues extra
+  // best-effort db.query calls after allocations commit; give exhausted
+  // queues an empty default so those (and trailing reads) don't shift into
+  // undefined and 500 the route.
+  db.query.mockResolvedValue([[]]);
   User.findById.mockResolvedValue({
     id: 1, email: 'admin@test.com', status: 'active', role: 'admin', organization_id: 1,
   });
@@ -178,6 +183,7 @@ describe('POST /payments/:id/reallocate (Capability 2)', () => {
       .mockResolvedValueOnce([{ affectedRows: 0 }])                       // UPDATE issued
       .mockResolvedValueOnce([[{ total: '100.00', allocated: '100.00' }]]) // refresh to-invoice
       .mockResolvedValueOnce([{ affectedRows: 1 }])                       // UPDATE paid
+      .mockResolvedValueOnce([[]])                                        // REP hook: no PPD CFDI on invoice 31
       .mockResolvedValueOnce([[{ id: 200, payment_id: 20, invoice_id: 31, amount: '100.00' }]]); // final select
 
     const res = await request(app)
@@ -598,6 +604,7 @@ describe('INVOICE_NOT_PAYABLE guard — POST /payments/:id/reallocate', () => {
       .mockResolvedValueOnce([{ affectedRows: 0 }])
       .mockResolvedValueOnce([[{ total: '100.00', allocated: '100.00' }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[]])                                        // REP hook: no PPD CFDI on invoice 31
       .mockResolvedValueOnce([[{ id: 201, payment_id: 20, invoice_id: 31, amount: '100.00' }]]);
 
     const res = await request(app)

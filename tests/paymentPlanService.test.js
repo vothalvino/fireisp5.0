@@ -198,7 +198,9 @@ describe('paymentPlanService', () => {
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE installment paid
         .mockResolvedValueOnce([[{ remaining: 3 }]]);   // SELECT COUNT remaining
 
-      // SELECT updated installment
+      // REP hook (post-commit, best-effort): cfdi_documents lookup finds no
+      // PPD CFDI → skipped. Then the SELECT of the updated installment.
+      db.query.mockResolvedValueOnce([[]]);
       db.query.mockResolvedValueOnce([[{ ...installment, status: 'paid' }]]);
 
       const result = await paymentPlanService.payInstallment(1, 2, 5, 1);

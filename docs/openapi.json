@@ -6888,6 +6888,52 @@
         }
       }
     },
+    "/payments/{id}/rep": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Manually generate + stamp a Complemento de Pago (REP) for one allocation (MX orgs; invoice must have a vigente PPD CFDI)",
+        "operationId": "generatePaymentRep",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "invoice_id",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ cfdi_document_id, uuid, sat_status, stamped, num_parcialidad }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/payments/{id}/unapply": {
       "post": {
         "tags": [

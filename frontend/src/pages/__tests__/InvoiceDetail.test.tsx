@@ -551,4 +551,28 @@ describe('InvoiceDetail stamp-later', () => {
     expect(await screen.findByText(/CFDI stamped — UUID SIM-RETRY-1/)).toBeInTheDocument();
   });
 
+
+  it('cancel modal warns about applied payments that SAT acceptance will release', async () => {
+    authState.locale = 'MX';
+    wireAuthedFetch([vigenteDoc]);
+    // paid invoice with an applied payment
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/invoices/{id}') return Promise.resolve({ data: { data: makeInvoice('paid') }, error: undefined });
+      if (path === '/invoices/{id}/items') return Promise.resolve({ data: { data: [item1] }, error: undefined });
+      if (path === '/invoices/{id}/payments') {
+        return Promise.resolve({ data: { data: [{ id: 1, payment_id: 9, invoice_id: 42, amount: '116.00', payment_amount: '116.00', payment_method: 'cash', payment_date: '2026-07-01' }] }, error: undefined });
+      }
+      if (path === '/clients/{id}') return Promise.resolve({ data: { data: client1 }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '✕ Cancel CFDI (SAT)' }));
+    await screen.findByRole('dialog', { name: 'Cancel CFDI at SAT' });
+
+    const warning = screen.getByText(/applied payments — SAT acceptance will release them/);
+    expect(warning).toBeInTheDocument();
+    // The amount renders inside the warning itself (not just the totals card).
+    expect(warning.textContent).toMatch(/\$116\.00/);
+  });
+
 });

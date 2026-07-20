@@ -7,6 +7,7 @@
 
 const db = require('../config/database');
 const billingService = require('../services/billingService');
+const repService = require('../services/repService');
 
 /**
  * POST /api/billing/generate-period
@@ -80,6 +81,7 @@ async function allocatePayment(req, res, next) {
     const payment = payments[0];
 
     const conn = await db.getConnection();
+    let connReleased = false;
     try {
       await conn.beginTransaction();
 
@@ -116,12 +118,22 @@ async function allocatePayment(req, res, next) {
       await billingService.recordPaymentCredit(payment, req.orgId);
 
       await conn.commit();
+      // Committed — free the pool slot before the REP/PAC I/O.
+      conn.release();
+      connReleased = true;
+
+      // MX/SAT: REP per allocation (best-effort, post-commit — mirrors the
+      // /payments/:id/allocate hook).
+      for (const alloc of allocations) {
+        await repService.maybeGenerateRep(payment_id, alloc.invoice_id, alloc.amount, req.orgId, req.user?.id);
+      }
+
       res.status(201).json({ data: { payment_id, allocations: results } });
     } catch (err) {
-      await conn.rollback();
+      if (!connReleased) await conn.rollback();
       throw err;
     } finally {
-      conn.release();
+      if (!connReleased) conn.release();
     }
   } catch (err) {
     next(err);
