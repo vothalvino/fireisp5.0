@@ -142,13 +142,19 @@ async function downloadXml(req, res, next) {
       'SELECT * FROM cfdi_documents WHERE id = ? AND organization_id = ?',
       [req.params.id, req.orgId],
     );
-    if (!docs[0] || !docs[0].xml_content) {
+    // Once stamped, signed_xml (with the TimbreFiscalDigital complement and
+    // seals, as returned by the PAC) IS the fiscal document — serving the
+    // pre-stamp builder XML for a vigente CFDI hands the client a legally
+    // useless file. Caught live: the download of a freshly SW-stamped CFDI
+    // came back without its TFD.
+    const fiscalXml = docs[0] && (docs[0].signed_xml || docs[0].xml_content);
+    if (!fiscalXml) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'XML not found' } });
     }
 
     res.set('Content-Type', 'application/xml');
     res.set('Content-Disposition', `attachment; filename="CFDI-${docs[0].uuid || docs[0].id}.xml"`);
-    res.send(docs[0].xml_content);
+    res.send(fiscalXml);
   } catch (err) {
     next(err);
   }
