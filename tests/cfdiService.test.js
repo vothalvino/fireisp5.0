@@ -321,7 +321,8 @@ describe('cfdiService', () => {
           return [[{ rfc: 'EKU9003173C9', razon_social: 'ESCUELA KEMPER URGATE', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]];
         }
         if (/FROM cfdi_payment_complements WHERE cfdi_document_id/.test(sql)) return [[{ ...complement }]];
-        if (/FROM cfdi_payment_complement_items WHERE complement_id/.test(sql)) return [[{ ...item }]];
+        if (/FROM cfdi_payment_complement_item_taxes/.test(sql)) return [[]]; // legacy: no stored desglose
+        if (/FROM cfdi_payment_complement_items WHERE complement_id/.test(sql)) return [[{ ...item, id: 61, objeto_imp_dr: '02' }]];
         if (/SELECT subtotal, total_impuestos, total FROM cfdi_documents WHERE uuid/.test(sql)) {
           return [[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]];
         }
