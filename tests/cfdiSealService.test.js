@@ -65,8 +65,22 @@ describe('loadCredential + certificateInfo', () => {
     expect(info.certificate_number).toBe('30001000000500003416');
     expect(info.certificate_number).toHaveLength(20);
     expect(info.certificado_b64).toMatch(/^[A-Za-z0-9+/=]+$/);
-    expect(info.valid_to.getTime()).toBeGreaterThan(Date.now());
+    // pinned, not compared to the wall clock — the fixture expires 2027-05-18
+    // and a Date.now() comparison would turn CI red on that day for no code reason
+    expect(info.valid_to.toISOString().slice(0, 10)).toBe('2027-05-18');
     expect(info.is_test_certificate).toBe(true); // issuer CN=AC UAT
+  });
+
+  test('the CSD handle is safe to log: no passphrase or key PEM in any serialization', () => {
+    // Review-confirmed leak (fixed): the nodecfdi credential kept the
+    // PLAINTEXT passphrase + key PEM as enumerable properties, so a natural
+    // logger.info({ csd }) would have dumped them. The handle must carry only
+    // public certificate info + an opaque KeyObject.
+    const util = require('util');
+    const csd = loadCsd();
+    const dumps = JSON.stringify(csd) + util.inspect(csd, { depth: 20 });
+    expect(dumps).not.toContain(PASS);
+    expect(dumps).not.toContain('PRIVATE KEY');
   });
 
   test('422 CSD_INVALID on a wrong passphrase', () => {

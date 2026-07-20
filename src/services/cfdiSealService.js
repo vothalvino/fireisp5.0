@@ -34,11 +34,16 @@ const CADENA_SEF = require('../resources/sat/cadenaoriginal_4_0.sef.json');
 /**
  * Load a CSD from certificate + private key contents. Accepts PEM strings
  * (the database path) or DER Buffers (the upload path); passphrase is
- * required for SAT-issued .key files. Returns a handle
- * { credential, signingKey }: `credential` (nodecfdi) for certificate
- * parsing, `signingKey` (Node crypto KeyObject, decrypted once here) for
- * signing — nodecfdi's own pem() keeps the key encrypted and its sign()
- * digests latin1, so all signing goes through Node crypto instead.
+ * required for SAT-issued .key files.
+ *
+ * Returns a handle { info, signingKey } that is SAFE TO LOG: `info` holds
+ * only public certificate data and `signingKey` is an opaque Node
+ * KeyObject (serializes as {}). The nodecfdi credential object is used
+ * transiently and NEVER retained — it keeps the plaintext passphrase and
+ * key PEM as enumerable properties, so a handle that carried it would
+ * dump the org's CSD passphrase into logs on any logger.info({ csd })
+ * (review-confirmed). Signing goes through Node crypto over UTF-8 bytes;
+ * nodecfdi's own sign() digests latin1 and is never used.
  */
 function loadCredential(cerContents, keyContents, passphrase) {
   const cer = Buffer.isBuffer(cerContents) ? cerContents.toString('binary') : cerContents;
@@ -49,7 +54,7 @@ function loadCredential(cerContents, keyContents, passphrase) {
       key: credential.privateKey().pem(),
       passphrase: passphrase || '',
     });
-    return { credential, signingKey };
+    return { info: extractCertificateInfo(credential), signingKey };
   } catch (err) {
     throw new AppError(
       `The CSD could not be loaded — check that the .cer/.key pair matches and the passphrase is correct (${err.message}).`,
@@ -69,13 +74,12 @@ function isTestCertificate(certificate) {
   return /prueba/i.test(issuer) || /\bAC UAT\b/i.test(issuer);
 }
 
-/**
- * Everything the app needs to know about a CSD certificate:
- * the NoCertificado / Certificado attribute values, identity, validity,
- * and whether it is a SAT test certificate.
- */
-function certificateInfo(csd) {
-  const cert = csd.credential.certificate();
+// Everything the app needs to know about a CSD certificate — all PUBLIC data
+// (the NoCertificado / Certificado attribute values, identity, validity, and
+// whether it is a SAT test certificate). Extracted once at load time so the
+// passphrase-bearing credential object can be dropped immediately.
+function extractCertificateInfo(credential) {
+  const cert = credential.certificate();
   return {
     rfc: cert.rfc(),
     legal_name: cert.legalName(),
@@ -86,6 +90,11 @@ function certificateInfo(csd) {
     issuer: cert.issuerAsRfc4514(),
     is_test_certificate: isTestCertificate(cert),
   };
+}
+
+/** Public certificate info for a loaded CSD handle. */
+function certificateInfo(csd) {
+  return csd.info;
 }
 
 /**
@@ -120,7 +129,7 @@ function sealXml(xmlString, csd) {
   if (/\bSello="/.test(xmlString)) {
     throw new AppError('This XML already carries a Sello — refusing to double-seal.', 422, 'CFDI_ALREADY_SEALED');
   }
-  const info = certificateInfo(csd);
+  const info = csd.info;
   const withCert = injectComprobanteAttributes(
     xmlString,
     `NoCertificado="${info.certificate_number}"\n  Certificado="${info.certificado_b64}"`,
