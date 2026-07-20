@@ -1204,10 +1204,21 @@ describe('CfdiDocument validation schemas', () => {
   });
 
   test('createCfdiDocument accepts valid data', () => {
+    // client_id and uso_cfdi are now required: both are NOT NULL columns
+    // (client_id has no default; uso_cfdi is FK'd to sat_uso_cfdi).
     const next = run(createCfdiDocument, {
+      client_id: 7, uso_cfdi: 'G03',
       tipo_comprobante: 'I', exportacion: '01', moneda: 'MXN', total: 1160,
     });
     expectPass(next);
+  });
+
+  test('createCfdiDocument rejects a body missing client_id (NOT NULL, no default)', () => {
+    const next = run(createCfdiDocument, {
+      uso_cfdi: 'G03', tipo_comprobante: 'I', total: 1160,
+    });
+    expectReject(next);
+    expect(errorFields(next)).toContain('client_id');
   });
 
   test('cancelCfdiDocument requires cancellation_reason', () => {

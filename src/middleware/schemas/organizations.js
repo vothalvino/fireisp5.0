@@ -46,4 +46,20 @@ const patchOrganization = Object.fromEntries(
   Object.entries(updateOrganization).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createOrganization, updateOrganization, patchOrganization, updateSetting };
+// MX fiscal identity (emisor) — mirrors the client-level updateMxProfile
+// shape; regimen_fiscal is the 3-digit SAT régimen code (601, 612, 626, …).
+const updateOrgMxProfile = {
+  rfc: { type: 'string', required: true, min: 12, max: 13 },
+  razon_social: { type: 'string', required: true, min: 1, max: 300 },
+  regimen_fiscal: { type: 'string', required: true, min: 3, max: 3 },
+  codigo_postal_fiscal: { type: 'string', required: true, min: 5, max: 5 },
+  colonia: { type: 'string', max: 150 },
+  municipio: { type: 'string', max: 150 },
+  exterior_number: { type: 'string', max: 20 },
+  interior_number: { type: 'string', max: 20 },
+  cfdi_serie_ingreso: { type: 'string', max: 10 },
+  cfdi_serie_egreso: { type: 'string', max: 10 },
+  cfdi_serie_pago: { type: 'string', max: 10 },
+};
+
+module.exports = { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile };

@@ -37,11 +37,64 @@ const circuitBreaker = {
  * Generate CFDI XML for an invoice.
  * Builds the XML structure from cfdi_documents and cfdi_conceptos rows.
  */
+/**
+ * The expedition timestamp for a CFDI: current moment in Mexico local time,
+ * "AAAA-MM-DDThh:mm:ss" (Anexo 20 — no offset, no milliseconds). Uses
+ * Intl/America/Mexico_City so the value is correct regardless of server TZ.
+ */
+function cfdiExpeditionTime(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(now).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  // hourCycle quirk: some ICU versions render midnight as "24" with h23 defaults
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}:${parts.second}`;
+}
+
+/**
+ * Load the issuing organization's fiscal identity (emisor) for a CFDI.
+ * Emisor data is deliberately NOT stored per-document — it lives once per org
+ * in organization_mx_profiles and is joined at XML-generation time, so a
+ * razón-social or régimen correction applies to every future document.
+ * Throws a clear 422 when the profile is missing/incomplete rather than
+ * emitting XML with blank Emisor attributes (which PACs reject cryptically).
+ */
+async function getEmisorProfile(organizationId) {
+  const [rows] = await db.query(
+    `SELECT rfc, razon_social, regimen_fiscal, codigo_postal_fiscal
+       FROM organization_mx_profiles
+      WHERE organization_id = ? AND deleted_at IS NULL`,
+    [organizationId],
+  );
+  const emisor = rows[0];
+  if (!emisor || !emisor.rfc || !emisor.razon_social || !emisor.regimen_fiscal || !emisor.codigo_postal_fiscal) {
+    throw new AppError(
+      'The organization has no complete MX fiscal profile (RFC, razón social, régimen fiscal, C.P.). Configure it under Organization → Fiscal (SAT) before generating CFDIs.',
+      422, 'ORG_MX_PROFILE_MISSING',
+    );
+  }
+  return emisor;
+}
+
 async function generateXml(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Generating CFDI XML');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
   if (!doc) throw new Error('CFDI document not found');
+
+  const emisor = await getEmisorProfile(doc.organization_id);
+
+  // Receptor completeness gate — mirrors the emisor gate. A CFDI with a blank
+  // receptor RFC/nombre/régimen/CP is rejected by every PAC with an opaque
+  // error; fail fast with an actionable message instead.
+  if (!doc.receptor_rfc || !doc.receptor_nombre || !doc.receptor_regimen || !doc.receptor_cp) {
+    throw new AppError(
+      'The CFDI is missing receptor fiscal data (RFC, nombre, régimen fiscal, C.P.). Complete the client\'s MX fiscal profile and set the receptor fields before generating XML.',
+      422, 'RECEPTOR_INCOMPLETE',
+    );
+  }
 
   // Fetch related conceptos
   const [conceptos] = await db.query(
@@ -62,7 +115,7 @@ async function generateXml(cfdiDocumentId) {
   }
 
   // Build minimal CFDI 4.0 XML structure
-  const xml = buildCfdi40Xml(doc, conceptos, impuestos);
+  const xml = buildCfdi40Xml(doc, emisor, conceptos, impuestos);
 
   // Store the generated XML
   await db.query(
@@ -74,9 +127,12 @@ async function generateXml(cfdiDocumentId) {
 }
 
 /**
- * Build CFDI 4.0 XML string.
+ * Build CFDI 4.0 XML string from REAL cfdi_documents columns + the org's
+ * emisor profile. (The previous version read seven columns that never existed
+ * on the table — fecha_emision, lugar_expedicion, emisor_*, receptor_
+ * domicilio_fiscal/regimen_fiscal — silently emitting blank attributes.)
  */
-function buildCfdi40Xml(doc, conceptos, impuestos) {
+function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
   const conceptosXml = conceptos.map(c => {
     const taxes = impuestos.filter(i => i.cfdi_concepto_id === c.id);
     const taxesXml = taxes.length > 0 ? `
@@ -92,26 +148,64 @@ function buildCfdi40Xml(doc, conceptos, impuestos) {
     </cfdi:Concepto>`;
   }).join('\n');
 
+  // Fecha = the moment of expedition in MEXICO LOCAL time, per Anexo 20
+  // ("AAAA-MM-DDThh:mm:ss", no timezone suffix, no milliseconds). A bare
+  // toISOString() would be UTC — ~6h ahead of Mexico wall-clock, which PACs
+  // reject as a future expedition date after ~18:00 local. America/Mexico_City
+  // covers the CST bulk of the country (Mexico abolished DST in 2022); the few
+  // border/Sonora/Quintana Roo zones are an accepted approximation until the
+  // emisor profile carries an explicit zone.
+  const fecha = cfdiExpeditionTime();
+
+  // Comprobante-level tax summary — Anexo 20 requires that when conceptos
+  // carry traslados, the Comprobante-level cfdi:Impuestos node repeats them
+  // grouped by (Impuesto, TipoFactor, TasaOCuota) with summed Base/Importe,
+  // and TotalImpuestosTrasladados equal to the summed Importes (CFDI40110).
+  // A bare total attribute with no nested Traslados is rejected by PACs.
+  // Exento rows appear as groups without TasaOCuota/Importe and do not count
+  // toward the total.
+  const traslados = impuestos.filter(i => i.tax_type === 'traslado');
+  const groups = new Map();
+  for (const t of traslados) {
+    const exento = t.tipo_factor === 'Exento';
+    const key = `${t.impuesto}|${t.tipo_factor}|${exento ? '' : t.tasa_o_cuota}`;
+    const g = groups.get(key) || { impuesto: t.impuesto, tipo_factor: t.tipo_factor, tasa_o_cuota: t.tasa_o_cuota, exento, base: 0, importe: 0 };
+    g.base += Number(t.base || 0);
+    g.importe += Number(t.importe || 0);
+    groups.set(key, g);
+  }
+  const totalTraslados = [...groups.values()].filter(g => !g.exento)
+    .reduce((sum, g) => sum + g.importe, 0);
+  const impuestosXml = groups.size > 0 ? `
+  <cfdi:Impuestos TotalImpuestosTrasladados="${totalTraslados.toFixed(2)}">
+    <cfdi:Traslados>
+      ${[...groups.values()].map(g => g.exento
+    ? `<cfdi:Traslado Base="${g.base.toFixed(2)}" Impuesto="${g.impuesto}" TipoFactor="Exento" />`
+    : `<cfdi:Traslado Base="${g.base.toFixed(2)}" Impuesto="${g.impuesto}" TipoFactor="${g.tipo_factor}" TasaOCuota="${g.tasa_o_cuota}" Importe="${g.importe.toFixed(2)}" />`,
+  ).join('\n      ')}
+    </cfdi:Traslados>
+  </cfdi:Impuestos>` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   Version="4.0"
   Serie="${escapeXml(doc.serie || '')}"
   Folio="${escapeXml(doc.folio || '')}"
-  Fecha="${doc.fecha_emision ? new Date(doc.fecha_emision).toISOString().replace(/\\.\\d+Z$/, '') : ''}"
+  Fecha="${fecha}"
   FormaPago="${doc.forma_pago || ''}"
   MetodoPago="${doc.metodo_pago || ''}"
   TipoDeComprobante="${doc.tipo_comprobante || 'I'}"
   Exportacion="${doc.exportacion || '01'}"
-  LugarExpedicion="${doc.lugar_expedicion || ''}"
+  LugarExpedicion="${escapeXml(emisor.codigo_postal_fiscal)}"
   Moneda="${doc.moneda || 'MXN'}"
   SubTotal="${doc.subtotal || 0}"
   Total="${doc.total || 0}">
-  <cfdi:Emisor Rfc="${escapeXml(doc.emisor_rfc || '')}" Nombre="${escapeXml(doc.emisor_nombre || '')}" RegimenFiscal="${doc.emisor_regimen_fiscal || ''}" />
-  <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${doc.receptor_domicilio_fiscal || ''}" RegimenFiscalReceptor="${doc.receptor_regimen_fiscal || ''}" UsoCFDI="${doc.uso_cfdi || ''}" />
+  <cfdi:Emisor Rfc="${escapeXml(emisor.rfc)}" Nombre="${escapeXml(emisor.razon_social)}" RegimenFiscal="${escapeXml(emisor.regimen_fiscal)}" />
+  <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${escapeXml(doc.receptor_cp || '')}" RegimenFiscalReceptor="${escapeXml(doc.receptor_regimen || '')}" UsoCFDI="${doc.uso_cfdi || ''}" />
   <cfdi:Conceptos>
 ${conceptosXml}
-  </cfdi:Conceptos>
+  </cfdi:Conceptos>${impuestosXml}
 </cfdi:Comprobante>`;
 }
 
@@ -1195,7 +1289,7 @@ function lastDayOfMonth(year, month) {
 }
 
 module.exports = {
-  generateXml, buildCfdi40Xml, escapeXml, stamp, cancel,
+  generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,

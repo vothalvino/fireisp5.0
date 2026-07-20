@@ -145,9 +145,14 @@ router.delete('/:id/contacts/:contactId', requirePermission('clients.update'), a
   }
 });
 
-// MX Profile sub-routes
+// MX Profile sub-routes.
+// SECURITY: getMxProfile queries client_mx_profiles by client_id alone, so
+// without the org-ownership check first, any caller with clients.view could
+// read (or with clients.update, overwrite) another org's client RFC/CURP by
+// iterating ids — a cross-tenant PII leak. findByIdOrFail 404s foreign ids.
 router.get('/:id/mx-profile', requirePermission('clients.view'), async (req, res, next) => {
   try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
     const profile = await Client.getMxProfile(req.params.id);
     res.json({ data: profile });
   } catch (err) {
@@ -157,6 +162,7 @@ router.get('/:id/mx-profile', requirePermission('clients.view'), async (req, res
 
 router.put('/:id/mx-profile', requirePermission('clients.update'), validate(updateMxProfile), async (req, res, next) => {
   try {
+    await Client.findByIdOrFail(req.params.id, req.orgId);
     const { rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal } = req.body;
     const existing = await Client.getMxProfile(req.params.id);
 

@@ -71,7 +71,7 @@ const QUOTA_FIELDS: { key: keyof NonNullable<QuotaResponse['limits']>; usageKey:
   { key: 'max_scheduled_tasks', usageKey: 'scheduled_tasks' },
 ];
 
-type TabId = 'edit' | 'settings' | 'quota' | 'mail';
+type TabId = 'edit' | 'settings' | 'quota' | 'mail' | 'fiscal';
 
 // ---------------------------------------------------------------------------
 // Shared field styles
@@ -439,6 +439,192 @@ function MailTab({ id }: { id: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Fiscal (SAT) tab — the org's emisor identity for CFDI 4.0
+// ---------------------------------------------------------------------------
+// Only rendered for MX-locale orgs (gated on the VIEWED org's locale, not the
+// caller's active org). CSD certificates and PAC credentials deliberately live
+// on their own pages (/csd-certificates, /pac-providers) — this tab is the
+// taxpayer identity that cfdiService stamps into every CFDI as cfdi:Emisor.
+
+interface OrgMxProfile {
+  rfc: string;
+  razon_social: string;
+  regimen_fiscal: string;
+  codigo_postal_fiscal: string;
+  colonia: string | null;
+  municipio: string | null;
+  exterior_number: string | null;
+  interior_number: string | null;
+  cfdi_serie_ingreso: string;
+  cfdi_serie_egreso: string;
+  cfdi_serie_pago: string;
+  cfdi_folio_next: number;
+}
+
+function FiscalTab({ id }: { id: number }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const q = useQuery({
+    queryKey: ['organization-mx-profile', id],
+    queryFn: async () => {
+      const res = await api.GET('/organizations/{id}/mx-profile' as never, { params: { path: { id } } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('load failed');
+      return ((res as { data: { data: OrgMxProfile | null } }).data?.data) ?? null;
+    },
+  });
+
+  // Régimen fiscal from the seeded SAT catalog; degrade to a free-text code
+  // input if the caller lacks cfdi_documents.view.
+  const regimenQ = useQuery({
+    queryKey: ['sat-regimen-fiscal'],
+    queryFn: async () => {
+      const res = await api.GET('/sat-catalogs/regimen-fiscal' as never);
+      if ((res as { error?: unknown }).error) return [] as { code: string; description: string }[];
+      return ((res as { data: { data: { code: string; description: string }[] } }).data?.data) ?? [];
+    },
+  });
+
+  useEffect(() => {
+    if (q.data !== undefined && !loaded) {
+      const p = q.data;
+      setForm({
+        rfc: p?.rfc ?? '', razon_social: p?.razon_social ?? '',
+        regimen_fiscal: p?.regimen_fiscal ?? '', codigo_postal_fiscal: p?.codigo_postal_fiscal ?? '',
+        colonia: p?.colonia ?? '', municipio: p?.municipio ?? '',
+        exterior_number: p?.exterior_number ?? '', interior_number: p?.interior_number ?? '',
+        cfdi_serie_ingreso: p?.cfdi_serie_ingreso ?? 'A',
+        cfdi_serie_egreso: p?.cfdi_serie_egreso ?? 'E',
+        cfdi_serie_pago: p?.cfdi_serie_pago ?? 'P',
+      });
+      setLoaded(true);
+    }
+  }, [q.data, loaded]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, string> = {
+        rfc: form.rfc.trim().toUpperCase(),
+        razon_social: form.razon_social.trim(),
+        regimen_fiscal: form.regimen_fiscal.trim(),
+        codigo_postal_fiscal: form.codigo_postal_fiscal.trim(),
+      };
+      // Address fields are ALWAYS sent: the backend treats a present-but-empty
+      // value as "clear to NULL" and an omitted key as "leave unchanged" — so
+      // clearing an input genuinely clears the stored value.
+      for (const k of ['colonia', 'municipio', 'exterior_number', 'interior_number']) {
+        body[k] = (form[k] ?? '').trim();
+      }
+      // Serie columns are NOT NULL — only send a replacement value.
+      for (const k of ['cfdi_serie_ingreso', 'cfdi_serie_egreso', 'cfdi_serie_pago']) {
+        const v = (form[k] ?? '').trim();
+        if (v) body[k] = v;
+      }
+      const res = await api.PUT('/organizations/{id}/mx-profile' as never, { params: { path: { id } }, body: body as never } as never);
+      if ((res as { error?: unknown }).error) throw new Error('save failed');
+    },
+    onSuccess: () => {
+      setMsg({ ok: true, text: t('orgDetail.saved') });
+      // Re-sync the form from the persisted row (a blank serie input is a
+      // no-op server-side — without this it would stay blank while the DB
+      // kept its value, a false confirmation).
+      setLoaded(false);
+      qc.invalidateQueries({ queryKey: ['organization-mx-profile', id] });
+    },
+    onError: () => setMsg({ ok: false, text: t('orgDetail.fiscalError') }),
+  });
+
+  function submit() {
+    if (!/^[A-ZÑ&0-9]{12,13}$/i.test(form.rfc?.trim() ?? '')) { setMsg({ ok: false, text: t('orgDetail.fiscalRfcInvalid') }); return; }
+    if (!(form.razon_social ?? '').trim() || !/^\d{3}$/.test(form.regimen_fiscal ?? '') || !/^\d{5}$/.test(form.codigo_postal_fiscal ?? '')) {
+      setMsg({ ok: false, text: t('orgDetail.fiscalIncomplete') }); return;
+    }
+    setMsg(null);
+    save.mutate();
+  }
+
+  if (q.isLoading) return <p style={styles.msg}>{t('common.loading')}</p>;
+  if (q.error) return <p style={styles.msgError}>{t('orgDetail.fiscalLoadError')}</p>;
+
+  const regimenes = regimenQ.data ?? [];
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ ...styles.msg, fontSize: '0.82rem' }}>{t('orgDetail.fiscalHint')}</p>
+      <label style={label}>{t('orgDetail.fiscalRfc')} <RequiredMark />
+        <input style={input} maxLength={13} value={form.rfc ?? ''} placeholder="EKU9003173C9"
+          onChange={e => setForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+      </label>
+      <label style={label}>{t('orgDetail.fiscalRazonSocial')} <RequiredMark />
+        <input style={input} maxLength={300} value={form.razon_social ?? ''}
+          onChange={e => setForm(p => ({ ...p, razon_social: e.target.value }))} />
+      </label>
+      <label style={label}>{t('orgDetail.fiscalRegimen')} <RequiredMark />
+        {regimenes.length > 0 ? (
+          <select style={input} value={form.regimen_fiscal ?? ''} onChange={e => setForm(p => ({ ...p, regimen_fiscal: e.target.value }))}>
+            <option value="">—</option>
+            {/* Keep a stored code visible even when it's absent from the
+                fetched catalog — otherwise the select silently shows blank
+                while saving the stale value. */}
+            {form.regimen_fiscal && !regimenes.some(r => r.code === form.regimen_fiscal) && (
+              <option value={form.regimen_fiscal}>{form.regimen_fiscal} — ?</option>
+            )}
+            {regimenes.map(r => <option key={r.code} value={r.code}>{r.code} — {r.description}</option>)}
+          </select>
+        ) : (
+          <input style={input} maxLength={3} placeholder="601" value={form.regimen_fiscal ?? ''}
+            onChange={e => setForm(p => ({ ...p, regimen_fiscal: e.target.value }))} />
+        )}
+      </label>
+      <label style={label}>{t('orgDetail.fiscalCp')} <RequiredMark />
+        <input style={input} maxLength={5} placeholder="26015" value={form.codigo_postal_fiscal ?? ''}
+          onChange={e => setForm(p => ({ ...p, codigo_postal_fiscal: e.target.value }))} />
+      </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+        <label style={label}>{t('orgDetail.fiscalColonia')}
+          <input style={input} maxLength={150} value={form.colonia ?? ''} onChange={e => setForm(p => ({ ...p, colonia: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalMunicipio')}
+          <input style={input} maxLength={150} value={form.municipio ?? ''} onChange={e => setForm(p => ({ ...p, municipio: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalExterior')}
+          <input style={input} maxLength={20} value={form.exterior_number ?? ''} onChange={e => setForm(p => ({ ...p, exterior_number: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalInterior')}
+          <input style={input} maxLength={20} value={form.interior_number ?? ''} onChange={e => setForm(p => ({ ...p, interior_number: e.target.value }))} />
+        </label>
+      </div>
+      <p style={{ ...styles.msg, fontSize: '0.82rem', marginTop: '0.75rem' }}>{t('orgDetail.fiscalSeriesHint')}</p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 12px' }}>
+        <label style={label}>{t('orgDetail.fiscalSerieIngreso')}
+          <input style={input} maxLength={10} value={form.cfdi_serie_ingreso ?? ''} onChange={e => setForm(p => ({ ...p, cfdi_serie_ingreso: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalSerieEgreso')}
+          <input style={input} maxLength={10} value={form.cfdi_serie_egreso ?? ''} onChange={e => setForm(p => ({ ...p, cfdi_serie_egreso: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalSeriePago')}
+          <input style={input} maxLength={10} value={form.cfdi_serie_pago ?? ''} onChange={e => setForm(p => ({ ...p, cfdi_serie_pago: e.target.value }))} />
+        </label>
+      </div>
+      <p style={{ ...styles.msg, fontSize: '0.8rem' }}>
+        {t('orgDetail.fiscalCsdPacHint')}{' '}
+        <Link to="/csd-certificates" style={{ color: 'var(--accent)' }}>{t('orgDetail.fiscalCsdLink')}</Link>
+        {' · '}
+        <Link to="/pac-providers" style={{ color: 'var(--accent)' }}>{t('orgDetail.fiscalPacLink')}</Link>
+      </p>
+      <div style={{ marginTop: '1rem' }}>
+        <button style={styles.btnPrimary} onClick={submit} disabled={save.isPending}>
+          {save.isPending ? t('common.saving') : t('common.save')}
+        </button>
+      </div>
+      {msg && <p style={{ ...styles.msg, color: msg.ok ? '#065f46' : '#991b1b' }}>{msg.text}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // OrganizationDetail
 // ---------------------------------------------------------------------------
 
@@ -463,6 +649,9 @@ export function OrganizationDetail() {
     { id: 'settings', labelKey: 'orgDetail.tabSettings' },
     { id: 'quota', labelKey: 'orgDetail.tabQuota' },
     { id: 'mail', labelKey: 'orgDetail.tabMail' },
+    // Fiscal identity only applies to MX-locale orgs — gate on the VIEWED
+    // org's locale (the backend 404s REGION_DISABLED for global orgs anyway).
+    ...(orgQ.data?.locale === 'MX' ? [{ id: 'fiscal' as TabId, labelKey: 'orgDetail.tabFiscal' }] : []),
   ];
 
   return (
@@ -498,6 +687,7 @@ export function OrganizationDetail() {
             {tab === 'settings' && <SettingsTab id={id} />}
             {tab === 'quota' && <QuotaTab id={id} />}
             {tab === 'mail' && <MailTab id={id} />}
+            {tab === 'fiscal' && orgQ.data.locale === 'MX' && <FiscalTab id={id} />}
           </div>
         </>
       )}

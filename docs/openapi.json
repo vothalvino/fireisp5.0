@@ -1539,6 +1539,86 @@
         }
       }
     },
+    "/organizations/{id}/mx-profile": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Get MX fiscal identity (emisor: RFC, razón social, régimen, C.P., CFDI series) — 404 REGION_DISABLED unless the target org is MX-locale",
+        "operationId": "getOrganizationMxProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OrgMxProfile | null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Create/update MX fiscal identity (CSD lives at /csd-certificates, PAC creds at /pac-providers)",
+        "operationId": "updateOrganizationMxProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "organizations_updateOrgMxProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OrgMxProfile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users": {
       "get": {
         "tags": [
@@ -52513,17 +52593,25 @@
             "type": "number",
             "minimum": 1
           },
+          "credit_note_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "payment_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "tipo_comprobante": {
             "type": "string",
             "maximum": 1
           },
           "serie": {
             "type": "string",
-            "maximum": 25
+            "maximum": 10
           },
           "folio": {
-            "type": "string",
-            "maximum": 40
+            "type": "number",
+            "minimum": 0
           },
           "forma_pago": {
             "type": "string",
@@ -52553,29 +52641,39 @@
               "03"
             ]
           },
+          "receptor_rfc": {
+            "type": "string",
+            "maximum": 13
+          },
+          "receptor_nombre": {
+            "type": "string",
+            "maximum": 300
+          },
+          "receptor_regimen": {
+            "type": "string",
+            "maximum": 3
+          },
+          "receptor_cp": {
+            "type": "string",
+            "maximum": 5
+          },
           "subtotal": {
             "type": "number",
             "minimum": 0
           },
-          "descuento": {
+          "total_impuestos": {
             "type": "number",
             "minimum": 0
           },
           "total": {
             "type": "number",
             "minimum": 0
-          },
-          "lugar_expedicion": {
-            "type": "string",
-            "maximum": 5
-          },
-          "notes": {
-            "type": "string",
-            "maximum": 5000
           }
         },
         "required": [
-          "tipo_comprobante"
+          "client_id",
+          "tipo_comprobante",
+          "uso_cfdi"
         ]
       },
       "cfdiDocuments_updateCfdiDocument": {
@@ -52583,11 +52681,11 @@
         "properties": {
           "serie": {
             "type": "string",
-            "maximum": 25
+            "maximum": 10
           },
           "folio": {
-            "type": "string",
-            "maximum": 40
+            "type": "number",
+            "minimum": 0
           },
           "forma_pago": {
             "type": "string",
@@ -52617,9 +52715,21 @@
               "03"
             ]
           },
-          "notes": {
+          "receptor_rfc": {
             "type": "string",
-            "maximum": 5000
+            "maximum": 13
+          },
+          "receptor_nombre": {
+            "type": "string",
+            "maximum": 300
+          },
+          "receptor_regimen": {
+            "type": "string",
+            "maximum": 3
+          },
+          "receptor_cp": {
+            "type": "string",
+            "maximum": 5
           }
         }
       },
@@ -61782,6 +61892,65 @@
         },
         "required": [
           "value"
+        ]
+      },
+      "organizations_updateOrgMxProfile": {
+        "type": "object",
+        "properties": {
+          "rfc": {
+            "type": "string",
+            "minimum": 12,
+            "maximum": 13
+          },
+          "razon_social": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "regimen_fiscal": {
+            "type": "string",
+            "minimum": 3,
+            "maximum": 3
+          },
+          "codigo_postal_fiscal": {
+            "type": "string",
+            "minimum": 5,
+            "maximum": 5
+          },
+          "colonia": {
+            "type": "string",
+            "maximum": 150
+          },
+          "municipio": {
+            "type": "string",
+            "maximum": 150
+          },
+          "exterior_number": {
+            "type": "string",
+            "maximum": 20
+          },
+          "interior_number": {
+            "type": "string",
+            "maximum": 20
+          },
+          "cfdi_serie_ingreso": {
+            "type": "string",
+            "maximum": 10
+          },
+          "cfdi_serie_egreso": {
+            "type": "string",
+            "maximum": 10
+          },
+          "cfdi_serie_pago": {
+            "type": "string",
+            "maximum": 10
+          }
+        },
+        "required": [
+          "rfc",
+          "razon_social",
+          "regimen_fiscal",
+          "codigo_postal_fiscal"
         ]
       },
       "otdrTests_createOtdrTest": {
