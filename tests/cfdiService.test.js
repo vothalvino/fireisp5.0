@@ -148,7 +148,7 @@ describe('cfdiService', () => {
   describe('generateXml()', () => {
     test('generates CFDI 4.0 XML for a valid document', async () => {
       const doc = {
-        id: 1, organization_id: 42, serie: 'A', folio: '001',
+        id: 1, organization_id: 42, sat_status: 'draft', serie: 'A', folio: '001',
         forma_pago: '01', metodo_pago: 'PUE', tipo_comprobante: 'I',
         exportacion: '01', moneda: 'MXN',
         subtotal: '500.00', total: '580.00',
@@ -187,7 +187,7 @@ describe('cfdiService', () => {
 
     test('422s (ORG_MX_PROFILE_MISSING) when the org has no complete fiscal profile', async () => {
       db.query
-        .mockResolvedValueOnce([[{ id: 5, organization_id: 42 }]]) // doc exists
+        .mockResolvedValueOnce([[{ id: 5, organization_id: 42, sat_status: 'draft' }]]) // doc exists
         .mockResolvedValueOnce([[]]);                              // no org mx profile
       await expect(cfdiService.generateXml(5))
         .rejects.toMatchObject({ statusCode: 422, code: 'ORG_MX_PROFILE_MISSING' });
@@ -195,7 +195,7 @@ describe('cfdiService', () => {
 
     test('422s when the fiscal profile exists but is incomplete (blank régimen)', async () => {
       db.query
-        .mockResolvedValueOnce([[{ id: 6, organization_id: 42 }]])
+        .mockResolvedValueOnce([[{ id: 6, organization_id: 42, sat_status: 'draft' }]])
         .mockResolvedValueOnce([[{ rfc: 'XAXX010101000', razon_social: 'Test SA', regimen_fiscal: null, codigo_postal_fiscal: '64000' }]]);
       await expect(cfdiService.generateXml(6))
         .rejects.toMatchObject({ statusCode: 422, code: 'ORG_MX_PROFILE_MISSING' });
@@ -203,7 +203,7 @@ describe('cfdiService', () => {
 
     test('422s (RECEPTOR_INCOMPLETE) when the doc lacks receptor fiscal data', async () => {
       db.query
-        .mockResolvedValueOnce([[{ id: 7, organization_id: 42, receptor_rfc: 'XBXX020202000', receptor_nombre: 'Client' }]]) // no regimen/cp
+        .mockResolvedValueOnce([[{ id: 7, organization_id: 42, sat_status: 'draft', receptor_rfc: 'XBXX020202000', receptor_nombre: 'Client' }]]) // no regimen/cp
         .mockResolvedValueOnce([[{ rfc: 'XAXX010101000', razon_social: 'Test SA', regimen_fiscal: '601', codigo_postal_fiscal: '64000' }]]);
       await expect(cfdiService.generateXml(7))
         .rejects.toMatchObject({ statusCode: 422, code: 'RECEPTOR_INCOMPLETE' });
@@ -219,7 +219,7 @@ describe('cfdiService', () => {
 
     test('generates XML with no conceptos', async () => {
       const doc = {
-        id: 2, organization_id: 42, serie: 'B', folio: '002', moneda: 'MXN', subtotal: '0', total: '0',
+        id: 2, organization_id: 42, sat_status: 'draft', serie: 'B', folio: '002', moneda: 'MXN', subtotal: '0', total: '0',
         receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000',
       };
       db.query
@@ -233,7 +233,7 @@ describe('cfdiService', () => {
     });
 
     test('stores generated XML in database with draft status', async () => {
-      const doc = { id: 3, organization_id: 42, serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
+      const doc = { id: 3, organization_id: 42, sat_status: 'draft', serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
         receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000' };
 
       db.query
@@ -251,7 +251,7 @@ describe('cfdiService', () => {
     });
 
     test('generates XML with multiple conceptos', async () => {
-      const doc = { id: 4, organization_id: 42, serie: 'D', moneda: 'MXN', subtotal: '800', total: '928',
+      const doc = { id: 4, organization_id: 42, sat_status: 'draft', serie: 'D', moneda: 'MXN', subtotal: '800', total: '928',
         receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000' };
       const c1 = { id: 10, clave_prod_serv: '81161700', cantidad: 1, clave_unidad: 'E48',
         descripcion: 'Internet', valor_unitario: '500', importe: '500', objeto_imp: '02' };
@@ -282,6 +282,73 @@ describe('cfdiService', () => {
       // Two Concepto elements
       const conceptoMatches = result.xml.match(/<cfdi:Concepto /g);
       expect(conceptoMatches).toHaveLength(2);
+    });
+
+    test('refuses to regenerate a non-draft CFDI (sat_status stays unforgeable)', async () => {
+      // Without this guard, generate-xml demoted a VIGENTE doc back to draft
+      // and overwrote its XML — re-opening a stamped CFDI for a second stamp.
+      for (const status of ['vigente', 'cancelado', 'cancel_pending']) {
+        db.query.mockReset();
+        db.query.mockResolvedValueOnce([[{ id: 8, organization_id: 42, sat_status: status }]]);
+        await expect(cfdiService.generateXml(8))
+          .rejects.toMatchObject({ statusCode: 422, code: 'CFDI_NOT_DRAFT' });
+        // and it must never have written anything
+        expect(db.query.mock.calls.some(c => /UPDATE/.test(c[0]))).toBe(false);
+      }
+    });
+
+    test('rebuilds a tipo-P (REP) draft through the Pagos 2.0 builder, not the invoice builder', async () => {
+      const doc = {
+        id: 9, organization_id: 42, sat_status: 'draft', tipo_comprobante: 'P',
+        serie: 'P', folio: 7,
+        receptor_rfc: 'MISC491214B86', receptor_nombre: 'CECILIA MIRANDA SANCHEZ',
+        receptor_regimen: '612', receptor_cp: '01010',
+      };
+      const complement = {
+        id: 50, cfdi_document_id: 9, payment_date: new Date('2026-07-20T00:00:00Z'),
+        forma_pago: '03', moneda: 'MXN', tipo_cambio: null, amount: '116.00',
+        operation_number: 'SPEI-1', payer_rfc: null, payer_bank_name: null,
+        payer_account: null, beneficiary_rfc: null, beneficiary_account: null,
+      };
+      const item = {
+        complement_id: 50, related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+        serie: 'A', folio: 6, moneda_dr: 'MXN', equivalencia_dr: '1.0000',
+        num_parcialidad: 1, imp_saldo_ant: '116.00', imp_pagado: '116.00', imp_saldo_insoluto: '0.00',
+      };
+      db.query.mockImplementation(async (sql) => {
+        if (/SELECT \* FROM cfdi_documents WHERE id/.test(sql)) return [[{ ...doc }]];
+        if (/FROM organization_mx_profiles/.test(sql)) {
+          return [[{ rfc: 'EKU9003173C9', razon_social: 'ESCUELA KEMPER URGATE', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]];
+        }
+        if (/FROM cfdi_payment_complements WHERE cfdi_document_id/.test(sql)) return [[{ ...complement }]];
+        if (/FROM cfdi_payment_complement_items WHERE complement_id/.test(sql)) return [[{ ...item }]];
+        if (/SELECT subtotal, total_impuestos, total FROM cfdi_documents WHERE uuid/.test(sql)) {
+          return [[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]];
+        }
+        return [{ affectedRows: 1 }];
+      });
+
+      const result = await cfdiService.generateXml(9);
+      expect(result.xml).toContain('TipoDeComprobante="P"');
+      expect(result.xml).toContain('<pago20:Pagos Version="2.0">');
+      expect(result.xml).toContain('FechaPago="2026-07-20T12:00:00"');
+      // enrichment ran: IVA desglose derived from the original CFDI
+      expect(result.xml).toContain('ObjetoImpDR="02"');
+      expect(result.xml).toContain('TotalTrasladosBaseIVA16="100.00"');
+      // never the invoice shape
+      expect(result.xml).not.toContain('<cfdi:Traslado ');
+      // the UPDATE must not touch sat_status
+      const update = db.query.mock.calls.find(c => /UPDATE cfdi_documents/.test(c[0]));
+      expect(update[0]).not.toContain('sat_status');
+    });
+
+    test('422s a tipo-P doc with no complement rows instead of corrupting it', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 9, organization_id: 42, sat_status: 'draft', tipo_comprobante: 'P', receptor_rfc: 'X', receptor_nombre: 'Y', receptor_regimen: '612', receptor_cp: '01010' }]])
+        .mockResolvedValueOnce([[{ rfc: 'EKU9003173C9', razon_social: 'E', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]])
+        .mockResolvedValueOnce([[]]); // no complement
+      await expect(cfdiService.generateXml(9))
+        .rejects.toMatchObject({ statusCode: 422, code: 'COMPLEMENT_MISSING' });
     });
   });
 
