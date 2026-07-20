@@ -584,3 +584,30 @@ describe('swAuthToken', () => {
     )).rejects.toThrow(); // network error, NOT a silent undefined-user auth
   });
 });
+
+// Live-sandbox-verified XML shape (SW probe session): schemaLocation is
+// required (CC3001) and empty optional attributes violate XSD patterns.
+describe('buildCfdi40Xml — sandbox-verified shape', () => {
+  const EMISOR2 = { rfc: 'EKU9003173C9', razon_social: 'ESCUELA KEMPER URGATE', regimen_fiscal: '601', codigo_postal_fiscal: '42501' };
+
+  test('always emits xsi:schemaLocation on the Comprobante', () => {
+    const xml = cfdiService.buildCfdi40Xml({}, EMISOR2, [], []);
+    expect(xml).toContain('xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"');
+  });
+
+  test('omits empty optional attributes (Serie/Folio/FormaPago/MetodoPago/NoIdentificacion)', () => {
+    const concepto = { id: 1, clave_prod_serv: '81161700', no_identificacion: null, cantidad: 1, clave_unidad: 'E48', descripcion: 'X', valor_unitario: '100', importe: '100', objeto_imp: '02' };
+    const xml = cfdiService.buildCfdi40Xml({}, EMISOR2, [concepto], []);
+    for (const attr of ['Serie=""', 'Folio=""', 'FormaPago=""', 'MetodoPago=""', 'NoIdentificacion']) {
+      expect(xml).not.toContain(attr);
+    }
+  });
+
+  test('keeps them when present', () => {
+    const xml = cfdiService.buildCfdi40Xml({ serie: 'A', folio: 7, forma_pago: '99', metodo_pago: 'PPD' }, EMISOR2, [], []);
+    expect(xml).toContain('Serie="A"');
+    expect(xml).toContain('Folio="7"');
+    expect(xml).toContain('FormaPago="99"');
+    expect(xml).toContain('MetodoPago="PPD"');
+  });
+});

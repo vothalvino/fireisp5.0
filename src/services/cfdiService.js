@@ -167,7 +167,11 @@ function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
         </cfdi:Traslados>
       </cfdi:Impuestos>` : '';
 
-    return `    <cfdi:Concepto ClaveProdServ="${c.clave_prod_serv || ''}" NoIdentificacion="${c.no_identificacion || ''}" Cantidad="${c.cantidad}" ClaveUnidad="${c.clave_unidad || ''}" Descripcion="${escapeXml(c.descripcion || '')}" ValorUnitario="${c.valor_unitario}" Importe="${c.importe}" ObjetoImp="${c.objeto_imp || '02'}">${taxesXml}
+    // Optional attributes must be OMITTED when empty — an empty string
+    // violates the XSD pattern (live SW reject: "The 'NoIdentificacion'
+    // attribute is invalid ... The Pattern constraint failed").
+    const noIdent = c.no_identificacion ? ` NoIdentificacion="${escapeXml(c.no_identificacion)}"` : '';
+    return `    <cfdi:Concepto ClaveProdServ="${c.clave_prod_serv || ''}"${noIdent} Cantidad="${c.cantidad}" ClaveUnidad="${c.clave_unidad || ''}" Descripcion="${escapeXml(c.descripcion || '')}" ValorUnitario="${c.valor_unitario}" Importe="${c.importe}" ObjetoImp="${c.objeto_imp || '02'}">${taxesXml}
     </cfdi:Concepto>`;
   }).join('\n');
 
@@ -209,15 +213,23 @@ function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
     </cfdi:Traslados>
   </cfdi:Impuestos>` : '';
 
+  // Optional Comprobante attributes are omitted when empty (XSD patterns
+  // reject empty strings); xsi:schemaLocation is REQUIRED by PAC validation
+  // (live SW reject CC3001 without it).
+  const optAttrs = [
+    doc.serie ? `  Serie="${escapeXml(doc.serie)}"` : null,
+    doc.folio ? `  Folio="${escapeXml(doc.folio)}"` : null,
+    doc.forma_pago ? `  FormaPago="${doc.forma_pago}"` : null,
+    doc.metodo_pago ? `  MetodoPago="${doc.metodo_pago}"` : null,
+  ].filter(Boolean).join('\n');
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
   Version="4.0"
-  Serie="${escapeXml(doc.serie || '')}"
-  Folio="${escapeXml(doc.folio || '')}"
+${optAttrs}
   Fecha="${fecha}"
-  FormaPago="${doc.forma_pago || ''}"
-  MetodoPago="${doc.metodo_pago || ''}"
   TipoDeComprobante="${doc.tipo_comprobante || 'I'}"
   Exportacion="${doc.exportacion || '01'}"
   LugarExpedicion="${escapeXml(emisor.codigo_postal_fiscal)}"
@@ -395,8 +407,11 @@ async function callPacStamp(pac, xmlContent) {
     // endpoint family (Timbrado corporativo) expects PRE-SEALED XML and
     // rejects ours. The /cfdi33/ prefix is historical: the endpoint accepts
     // CFDI 4.0 (SW docs, "nuevo inicio rápido"). JSON variant, base64 body.
+    // Probe-verified against the live sandbox: the json/v4 endpoint expects
+    // the PLAIN XML string in `data` — a base64 body is parsed as-is and
+    // rejected with 301 "Data at the root level is invalid".
     const issueResponse = await httpRequest(`${baseUrl}/cfdi33/issue/json/v4`, 'POST',
-      JSON.stringify({ data: Buffer.from(xmlContent).toString('base64') }),
+      JSON.stringify({ data: xmlContent }),
       {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${swToken}`,
@@ -707,16 +722,20 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
 
     const swToken = await swAuthToken(pac, baseUrl);
 
-    // Submit cancellation
-    const cancelBody = JSON.stringify({
-      uuid,
-      rfc: doc.emisor_rfc,
-      motivo: reason,
-      folioSustitucion: replacementUuid || '',
-    });
-
-    const cancelResponse = await httpRequest(`${baseUrl}/cfdi33/cancel`, 'POST',
-      cancelBody,
+    // Submit cancellation — probe-verified shape: PATH parameters
+    // /cfdi33/cancel/{rfc}/{uuid}/{motivo}[/{folioSustitucion}] using the CSD
+    // in the SW vault (the old JSON-body POST to /cfdi33/cancel was never a
+    // real SW endpoint). RFC comes from the org's emisor profile, not the
+    // document (cfdi_documents has no emisor_rfc column).
+    const emisor = await getEmisorProfile(doc.organization_id);
+    const cancelPath = [
+      `${baseUrl}/cfdi33/cancel`,
+      encodeURIComponent(emisor.rfc),
+      encodeURIComponent(uuid),
+      encodeURIComponent(reason),
+      ...(replacementUuid ? [encodeURIComponent(replacementUuid)] : []),
+    ].join('/');
+    const cancelResponse = await httpRequest(cancelPath, 'POST', '',
       {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${swToken}`,
@@ -724,12 +743,16 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
     );
     const cancelData = JSON.parse(cancelResponse.body);
     if (cancelData.status === 'error') {
-      throw new Error(cancelData.message || 'SW Sapien cancellation failed');
+      throw new Error([cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed');
     }
 
+    // The acuse XML carries the SAT status: EstatusUUID 201 (cancelled) /
+    // 202 (pending receptor acceptance).
+    const acuse = cancelData.data?.acuse || null;
+    const estatusMatch = acuse ? acuse.match(/<EstatusUUID>(\d+)<\/EstatusUUID>/) : null;
     return {
-      status: parseCancellationStatus(cancelData.data?.estatus || cancelData.data?.status),
-      acuseXml: cancelData.data?.acuse || null,
+      status: parseCancellationStatus(estatusMatch?.[1] || cancelData.data?.estatus || cancelData.data?.status),
+      acuseXml: acuse,
       acuseFecha: cancelData.data?.fechaCancelacion || null,
     };
   }
