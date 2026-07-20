@@ -107,7 +107,69 @@ async function generateXml(cfdiDocumentId) {
   const doc = docs[0];
   if (!doc) throw new Error('CFDI document not found');
 
+  // Only drafts may be (re)generated. Without this gate, generate-xml on a
+  // VIGENTE document overwrote its XML and reset sat_status to 'draft' —
+  // demoting a stamped CFDI and re-opening it for a second stamp (duplicate
+  // at SAT). sat_status must remain writable only by the stamp/cancel flows.
+  if (doc.sat_status !== 'draft') {
+    throw new AppError(
+      `Only draft CFDIs can be regenerated — this document is '${doc.sat_status}'.`,
+      422, 'CFDI_NOT_DRAFT',
+    );
+  }
+
   const emisor = await getEmisorProfile(doc.organization_id);
+
+  // Tipo P (payment complement / REP): rebuild from the stored complement
+  // rows through the Pagos 2.0 builder. Before this branch, generate-xml ran
+  // every doc through the INVOICE builder — corrupting a REP draft's XML —
+  // which made the "retry a PAC-rejected REP draft after fixing the builder"
+  // path (its whole reason to exist) a dead end: xml_content is deliberately
+  // not fillable and stamp() sends the stored XML verbatim.
+  if (doc.tipo_comprobante === 'P') {
+    const [comps] = await db.query(
+      'SELECT * FROM cfdi_payment_complements WHERE cfdi_document_id = ?',
+      [cfdiDocumentId],
+    );
+    const complement = comps[0];
+    if (!complement) {
+      throw new AppError(
+        'This tipo-P CFDI has no payment complement record — it cannot be rebuilt.',
+        422, 'COMPLEMENT_MISSING',
+      );
+    }
+    const [items] = await db.query(
+      'SELECT * FROM cfdi_payment_complement_items WHERE complement_id = ?',
+      [complement.id],
+    );
+    if (items.length === 0) {
+      throw new AppError(
+        'This payment complement has no related documents — it cannot be rebuilt.',
+        422, 'COMPLEMENT_MISSING',
+      );
+    }
+    // payment_date is a DATE column (mysql2 → Date object); the builder wants
+    // the plain day string.
+    const paymentDate = complement.payment_date instanceof Date
+      ? complement.payment_date.toISOString().slice(0, 10)
+      : complement.payment_date;
+    const enriched = await enrichRelatedDocumentsWithTaxes(items, doc.organization_id);
+    const xml = buildPaymentComplementXml(
+      {
+        serie: doc.serie, folio: doc.folio,
+        fecha_emision: cfdiExpeditionTime(),
+        lugar_expedicion: emisor.codigo_postal_fiscal,
+        emisor_rfc: emisor.rfc, emisor_nombre: emisor.razon_social,
+        emisor_regimen_fiscal: emisor.regimen_fiscal,
+        receptor_rfc: doc.receptor_rfc, receptor_nombre: doc.receptor_nombre,
+        receptor_domicilio_fiscal: doc.receptor_cp, receptor_regimen_fiscal: doc.receptor_regimen,
+      },
+      { ...complement, payment_date: paymentDate },
+      enriched,
+    );
+    await db.query('UPDATE cfdi_documents SET xml_content = ? WHERE id = ?', [xml, cfdiDocumentId]);
+    return { cfdi_document_id: cfdiDocumentId, xml };
+  }
 
   // Receptor completeness gate — mirrors the emisor gate. A CFDI with a blank
   // receptor RFC/nombre/régimen/CP is rejected by every PAC with an opaque

@@ -103,7 +103,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
     test('generates XML → stamps → can cancel', async () => {
       // Step 1: Generate XML (emisor now joined from organization_mx_profiles)
       db.query
-        .mockResolvedValueOnce([[{ id: 1, organization_id: 42, receptor_rfc: 'XYZ789', receptor_nombre: 'Client', receptor_regimen: '616', receptor_cp: '01000', subtotal: 500, total: 580 }]])
+        .mockResolvedValueOnce([[{ id: 1, organization_id: 42, sat_status: 'draft', receptor_rfc: 'XYZ789', receptor_nombre: 'Client', receptor_regimen: '616', receptor_cp: '01000', subtotal: 500, total: 580 }]])
         .mockResolvedValueOnce([[{ rfc: 'ABC123', razon_social: 'Test SA', regimen_fiscal: '601', codigo_postal_fiscal: '64000' }]]) // org mx profile
         .mockResolvedValueOnce([[{ id: 1, cfdi_document_id: 1, clave_prod_serv: '43231500', cantidad: 1, clave_unidad: 'E48', descripcion: 'Internet', valor_unitario: 500, importe: 500, objeto_imp: '02' }]])
         .mockResolvedValueOnce([[]])  // no taxes
