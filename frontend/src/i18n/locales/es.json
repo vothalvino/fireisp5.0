@@ -3845,7 +3845,10 @@
     "recordsOut": "Salida",
     "recordsError": "Errores",
     "errorMessage": "Error",
-    "noLogs": "Sin registros de sincronizacion"
+    "noLogs": "Sin registros de sincronizacion",
+    "mxFiscalHint": "¿Buscas el timbrado CFDI? Las integraciones fiscales están en Cumplimiento:",
+    "mxPacLink": "Proveedores PAC",
+    "mxCsdLink": "Certificados CSD"
   },
   "deviceDetail": {
     "backToList": "Volver a Dispositivos",

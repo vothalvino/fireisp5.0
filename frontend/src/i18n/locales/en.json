@@ -3845,7 +3845,10 @@
     "recordsOut": "Out",
     "recordsError": "Errors",
     "errorMessage": "Error",
-    "noLogs": "No sync logs yet"
+    "noLogs": "No sync logs yet",
+    "mxFiscalHint": "Looking for CFDI stamping? The fiscal integrations live under Compliance:",
+    "mxPacLink": "PAC providers",
+    "mxCsdLink": "CSD certificates"
   },
   "deviceDetail": {
     "backToList": "Back to Devices",

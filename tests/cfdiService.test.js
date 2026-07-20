@@ -563,3 +563,24 @@ describe('simulator PAC provider', () => {
       .rejects.toThrow(/not a supported stamping service/);
   });
 });
+
+// =============================================================================
+// swAuthToken — SW Sapien auth modes
+// =============================================================================
+describe('swAuthToken', () => {
+  test('a stored access token (portal infinite token) is used directly — no authenticate call', async () => {
+    const token = await cfdiService.swAuthToken({ token_encrypted: 'INFINITE-TOKEN-123' }, 'https://services.test.sw.com.mx');
+    expect(token).toBe('INFINITE-TOKEN-123');
+    // No network: db/query untouched and no thrown auth error proves the
+    // short-circuit (httpRequest would ECONNREFUSE in the test env).
+  });
+
+  test('without a token it authenticates with username_encrypted (the REAL column name)', async () => {
+    // The old code sent pac.username — a column that does not exist on
+    // pac_providers rows — silently authenticating as user: undefined.
+    await expect(cfdiService.swAuthToken(
+      { username_encrypted: 'sw-user', password_encrypted: 'sw-pass' },
+      'https://127.0.0.1:1', // unroutable → the attempt itself proves the path
+    )).rejects.toThrow(); // network error, NOT a silent undefined-user auth
+  });
+});

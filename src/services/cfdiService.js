@@ -54,6 +54,28 @@ function cfdiExpeditionTime(now = new Date()) {
 }
 
 /**
+ * Bearer token for SW Sapien calls. Two SW auth modes:
+ *  - token_encrypted set on the pac row = the portal's long-lived "infinite
+ *    token" → used directly, no authenticate round-trip.
+ *  - else username/password → POST /security/authenticate → temporary token.
+ * NOTE: the credential columns are username_encrypted/password_encrypted —
+ * the old code read pac.username (nonexistent), silently authenticating with
+ * user: undefined on real rows.
+ */
+async function swAuthToken(pac, baseUrl) {
+  if (pac.token_encrypted) return pac.token_encrypted;
+  const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
+    JSON.stringify({ user: pac.username_encrypted || pac.username, password: pac.password_encrypted }),
+    { 'Content-Type': 'application/json' },
+  );
+  const authData = JSON.parse(authResponse.body);
+  if (!authData.data?.token) {
+    throw new Error('SW Sapien authentication failed');
+  }
+  return authData.data.token;
+}
+
+/**
  * Load the issuing organization's fiscal identity (emisor) for a CFDI.
  * Emisor data is deliberately NOT stored per-document — it lives once per org
  * in organization_mx_profiles and is joined at XML-generation time, so a
@@ -364,15 +386,8 @@ async function callPacStamp(pac, xmlContent) {
       ? 'https://services.sw.com.mx'
       : 'https://services.test.sw.com.mx';
 
-    // Authenticate to get token
-    const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
-      JSON.stringify({ user: pac.username, password: pac.password_encrypted }),
-      { 'Content-Type': 'application/json' },
-    );
-    const authData = JSON.parse(authResponse.body);
-    if (!authData.data?.token) {
-      throw new Error('SW Sapien authentication failed');
-    }
+    // Token: direct (portal infinite token) or via authenticate.
+    const swToken = await swAuthToken(pac, baseUrl);
 
     // Emisión Timbrado (issue): SW SEALS AND STAMPS our unsealed XML using
     // the CSD registered in the SW account. This is the correct service for
@@ -384,7 +399,7 @@ async function callPacStamp(pac, xmlContent) {
       JSON.stringify({ data: Buffer.from(xmlContent).toString('base64') }),
       {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authData.data.token}`,
+        'Authorization': `Bearer ${swToken}`,
       },
     );
     const stampData = JSON.parse(issueResponse.body);
@@ -690,15 +705,7 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
       ? 'https://services.sw.com.mx'
       : 'https://services.test.sw.com.mx';
 
-    // Authenticate
-    const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
-      JSON.stringify({ user: pac.username, password: pac.password_encrypted }),
-      { 'Content-Type': 'application/json' },
-    );
-    const authData = JSON.parse(authResponse.body);
-    if (!authData.data?.token) {
-      throw new Error('SW Sapien authentication failed');
-    }
+    const swToken = await swAuthToken(pac, baseUrl);
 
     // Submit cancellation
     const cancelBody = JSON.stringify({
@@ -712,7 +719,7 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
       cancelBody,
       {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authData.data.token}`,
+        'Authorization': `Bearer ${swToken}`,
       },
     );
     const cancelData = JSON.parse(cancelResponse.body);
@@ -898,20 +905,13 @@ async function callPacCancelStatus(pac, uuid, _cancellation) {
       ? 'https://services.sw.com.mx'
       : 'https://services.test.sw.com.mx';
 
-    const authResponse = await httpRequest(`${baseUrl}/security/authenticate`, 'POST',
-      JSON.stringify({ user: pac.username, password: pac.password_encrypted }),
-      { 'Content-Type': 'application/json' },
-    );
-    const authData = JSON.parse(authResponse.body);
-    if (!authData.data?.token) {
-      throw new Error('SW Sapien authentication failed');
-    }
+    const swToken = await swAuthToken(pac, baseUrl);
 
     const statusResponse = await httpRequest(
       `${baseUrl}/cfdi33/cancel/${encodeURIComponent(uuid)}/status`,
       'GET',
       null,
-      { 'Authorization': `Bearer ${authData.data.token}` },
+      { 'Authorization': `Bearer ${swToken}` },
     );
     const statusData = JSON.parse(statusResponse.body);
     return {
@@ -1363,7 +1363,7 @@ function lastDayOfMonth(year, month) {
 }
 
 module.exports = {
-  generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, getEmisorProfile, stamp, cancel,
+  generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, getEmisorProfile, swAuthToken, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,
