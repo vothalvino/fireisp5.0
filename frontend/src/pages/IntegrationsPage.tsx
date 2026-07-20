@@ -10,6 +10,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { readCsrfCookie } from '@/api/csrf';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -455,6 +457,8 @@ function LogsTab({ connection }: { connection: IntegrationConnection | null }) {
 
 export function IntegrationsPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isMxOrg = user?.organization_locale === 'MX';
   const [activeTab, setActiveTab] = useState<Tab>('providers');
   const [selectedConnection, setSelectedConnection] = useState<IntegrationConnection | null>(null);
 
@@ -472,6 +476,18 @@ export function IntegrationsPage() {
   return (
     <div style={{ padding: 24 }}>
       <h2 style={{ marginTop: 0 }}>{t('integration.pageTitle')}</h2>
+
+      {/* MX orgs: fiscal integrations (PAC / CSD) live under Compliance —
+          cross-link them here because operators naturally look for their PAC
+          on this page first. */}
+      {isMxOrg && (
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280', background: 'var(--bg-card, #f9fafb)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 8, padding: '10px 14px' }}>
+          🇲🇽 {t('integration.mxFiscalHint')}{' '}
+          <Link to="/pac-providers" style={{ color: 'var(--accent, #2563eb)', fontWeight: 600 }}>{t('integration.mxPacLink')}</Link>
+          {' · '}
+          <Link to="/csd-certificates" style={{ color: 'var(--accent, #2563eb)', fontWeight: 600 }}>{t('integration.mxCsdLink')}</Link>
+        </p>
+      )}
 
       <div style={{ borderBottom: '2px solid #e5e7eb', marginBottom: 20, display: 'flex', gap: 0 }}>
         {tabs.map(tab => (
