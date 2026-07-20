@@ -111,6 +111,7 @@ describe('CFDI Cancellation Flow', () => {
     test('successfully cancels a vigente document (accepted by PAC)', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])              // SELECT cfdi_documents
+        .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])               // SELECT pac_providers
         .mockResolvedValueOnce([{ insertId: 100 }])        // INSERT cfdi_cancellations
         .mockResolvedValueOnce([{ affectedRows: 1 }])      // UPDATE cfdi_documents → cancel_pending
@@ -169,6 +170,7 @@ describe('CFDI Cancellation Flow', () => {
     test('accepts motivo 01 with replacement UUID', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 101 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -180,21 +182,35 @@ describe('CFDI Cancellation Flow', () => {
       expect(result.reason).toBe('01');
 
       // Verify replacement UUID was passed to INSERT
-      const insertCall = db.query.mock.calls[2];
+      const insertCall = db.query.mock.calls[3];
       expect(insertCall[1]).toContain('REPLACEMENT-UUID-789');
     });
 
     test('throws when no active PAC provider', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])   // REP guard: no live payment complement
         .mockResolvedValueOnce([[]]);  // No PAC providers
       await expect(cfdiService.cancel(1, '02'))
         .rejects.toThrow('No active PAC provider');
     });
 
+    test('throws when a vigente payment complement (REP) still references the CFDI', async () => {
+      db.query
+        .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[{ id: 55, uuid: 'REP-UUID-55' }]]); // live REP found
+      await expect(cfdiService.cancel(1, '02'))
+        .rejects.toMatchObject({ statusCode: 422, code: 'CFDI_HAS_LIVE_REP' });
+      // Refused before any state change: no cancellation record, no PAC lookup.
+      const sqls = db.query.mock.calls.map(c => c[0]).join('\n');
+      expect(sqls).not.toContain('INSERT INTO cfdi_cancellations');
+      expect(sqls).not.toContain('pac_providers');
+    });
+
     test('records cancellation request before attempting PAC call', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 102 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -203,8 +219,8 @@ describe('CFDI Cancellation Flow', () => {
 
       await cfdiService.cancel(1, '03');
 
-      // Third call should be INSERT into cfdi_cancellations
-      const insertCall = db.query.mock.calls[2];
+      // Fourth call should be INSERT into cfdi_cancellations
+      const insertCall = db.query.mock.calls[3];
       expect(insertCall[0]).toContain('INSERT INTO cfdi_cancellations');
       expect(insertCall[1]).toContain(1);   // cfdi_document_id
       expect(insertCall[1]).toContain(42);  // organization_id
@@ -215,6 +231,7 @@ describe('CFDI Cancellation Flow', () => {
     test('updates document to cancel_pending before PAC call', async () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 103 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -223,8 +240,8 @@ describe('CFDI Cancellation Flow', () => {
 
       await cfdiService.cancel(1, '04');
 
-      // Fourth call should be UPDATE cfdi_documents SET sat_status
-      const updateCall = db.query.mock.calls[3];
+      // Fifth call should be UPDATE cfdi_documents SET sat_status
+      const updateCall = db.query.mock.calls[4];
       expect(updateCall[0]).toContain('UPDATE cfdi_documents');
       expect(updateCall[1]).toContain('cancel_pending');
     });
@@ -234,6 +251,7 @@ describe('CFDI Cancellation Flow', () => {
         jest.resetAllMocks();
         db.query
           .mockResolvedValueOnce([[vigentDoc]])
+          .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
           .mockResolvedValueOnce([[activePac]])
           .mockResolvedValueOnce([{ insertId: 200 }])
           .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -543,6 +561,7 @@ describe('CFDI Cancellation Flow', () => {
 
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[pac]])
         .mockResolvedValueOnce([{ insertId: 200 }])     // INSERT cancellation
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE → cancel_pending
@@ -552,7 +571,7 @@ describe('CFDI Cancellation Flow', () => {
       await expect(cfdiService.cancel(1, '02')).rejects.toThrow('PAC cancellation failed');
 
       // Verify error was recorded
-      const errorUpdateCall = db.query.mock.calls[4];
+      const errorUpdateCall = db.query.mock.calls[5];
       expect(errorUpdateCall[0]).toContain('UPDATE cfdi_cancellations SET error_message');
     }, 30000);
   });
@@ -589,6 +608,7 @@ describe('CFDI Cancellation Flow', () => {
 
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[pac]])
         .mockResolvedValueOnce([{ insertId: 300 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -611,6 +631,7 @@ describe('CFDI Cancellation Flow', () => {
 
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
+        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
         .mockResolvedValueOnce([[pac]])
         .mockResolvedValueOnce([{ insertId: 301 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -619,7 +640,7 @@ describe('CFDI Cancellation Flow', () => {
 
       await cfdiService.cancel(1, '02');
 
-      const insertCall = db.query.mock.calls[2];
+      const insertCall = db.query.mock.calls[3];
       expect(insertCall[1]).toContain(null);  // replacementUuid default
     });
 

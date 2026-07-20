@@ -705,10 +705,15 @@ async function restorePaymentAllocations(paymentId) {
  *
  * Business rules (single source of truth — called by both the single PATCH/PUT
  * endpoint and the bulk void endpoint):
+ *   - Refuses (422 INVOICE_STAMPED) while a live CFDI exists — use the SAT
+ *     cancellation flow instead.
+ *   - Refuses (422 INVOICE_HAS_PAYMENTS) while payments are allocated — the
+ *     operator must deallocate first (POST /payments/:id/unapply), which turns
+ *     each payment into unallocated client credit ready to reallocate.
+ *   - Refuses (422 INVOICE_CANCELLED) a SAT-cancelled invoice — that terminal
+ *     state must not be re-labelled 'void'.
  *   - Idempotent: re-voiding an already-void invoice returns the record unchanged
  *     without touching allocations or the ledger.
- *   - PAID invoice: soft-deletes its payment_allocations (releasing them as
- *     unallocated credits) WITHOUT removing the payment ledger credit rows.
  *   - Ledger: removes any prior void-reversal credit for this invoice, then
  *     zeroes the invoice's debit entries so it contributes $0 to the balance.
  *   - Writes an audit-log entry regardless of the starting status.
@@ -740,6 +745,28 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
       'This invoice has a stamped CFDI that is still valid at SAT. Cancel the CFDI at SAT (with a motivo) instead of voiding it.',
       422,
       'INVOICE_STAMPED',
+    );
+  }
+
+  // Payments must be explicitly deallocated BEFORE a void — deallocating
+  // (POST /payments/:id/unapply) turns each payment into unallocated client
+  // credit, visible and ready to reallocate. Voiding must never silently strip
+  // a payment off an invoice as a side effect. (The SAT-cancel path is the
+  // exception: once SAT accepts a cancellation it cannot be refused, so
+  // cancelInvoiceForSat releases allocations itself.) Org-scoped via the JOIN
+  // so probing a foreign invoice id still falls through to the 404.
+  const [liveAllocs] = await db.query(
+    `SELECT pa.id FROM payment_allocations pa
+       JOIN invoices i ON i.id = pa.invoice_id
+      WHERE pa.invoice_id = ? AND i.organization_id = ? AND pa.deleted_at IS NULL
+      LIMIT 1`,
+    [invoiceId, orgId],
+  );
+  if (liveAllocs.length > 0) {
+    throw new AppError(
+      'This invoice has payment(s) allocated to it. Deallocate the payment(s) first (each becomes unallocated client credit, ready to reallocate), then void the invoice.',
+      422,
+      'INVOICE_HAS_PAYMENTS',
     );
   }
 

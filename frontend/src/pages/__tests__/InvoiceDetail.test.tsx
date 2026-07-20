@@ -316,6 +316,28 @@ describe('InvoiceDetail void vs. SAT cancel', () => {
     expect(screen.queryByRole('button', { name: '✕ Cancel CFDI (SAT)' })).not.toBeInTheDocument();
   });
 
+  it('clicking Void with applied payments explains deallocate-first instead of voiding', async () => {
+    // Deallocation is a deliberate separate step (payment → Unapply → client
+    // credit); Void must never strip payments as a side effect.
+    currentStatus = 'paid';
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/invoices/{id}') return Promise.resolve({ data: { data: makeInvoice('paid') }, error: undefined });
+      if (path === '/invoices/{id}/items') return Promise.resolve({ data: { data: [item1] }, error: undefined });
+      if (path === '/invoices/{id}/payments') {
+        return Promise.resolve({ data: { data: [{ id: 1, payment_id: 9, invoice_id: 42, amount: '116.00', payment_amount: '116.00', payment_method: 'cash', payment_date: '2026-07-01' }] }, error: undefined });
+      }
+      if (path === '/clients/{id}') return Promise.resolve({ data: { data: client1 }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderDetail();
+    const voidBtn = await screen.findByRole('button', { name: '🚫 Void' });
+    await waitFor(() => expect(screen.getByText('#9')).toBeInTheDocument()); // applied payment rendered
+    fireEvent.click(voidBtn);
+
+    expect(await screen.findByText(/Unapply them first/)).toBeInTheDocument();
+    expect(mockApiPut).not.toHaveBeenCalled(); // no void request went out
+  });
+
   it('replaces Void with Cancel CFDI (SAT) and shows the Vigente badge when a vigente CFDI exists', async () => {
     wireAuthedFetch([vigenteDoc]);
     renderDetail();

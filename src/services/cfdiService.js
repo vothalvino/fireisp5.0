@@ -8,7 +8,7 @@
 const crypto = require('crypto');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'cfdi' });
-const { CfdiStampingError, CfdiCancellationError } = require('../utils/errors');
+const { CfdiStampingError, CfdiCancellationError, AppError } = require('../utils/errors');
 
 // ---------------------------------------------------------------------------
 // Simple circuit breaker for PAC stamping calls
@@ -385,6 +385,28 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   }
   if (reason === '01' && !replacementUuid) {
     throw new CfdiCancellationError('Motivo 01 requires a replacement UUID (folio_sustitucion)', { cfdiDocumentId });
+  }
+
+  // SAT rule: a CFDI cannot be cancelled while a vigente payment complement
+  // (REP / Complemento de Pago) still references it as a DoctoRelacionado —
+  // SAT would reject the request. The correct order for a paid+stamped invoice
+  // is: cancel the REP first, then cancel the invoice CFDI. Enforcing it here
+  // gives the operator a clear instruction instead of an opaque PAC rejection.
+  const [liveReps] = await db.query(
+    `SELECT d.id, d.uuid
+       FROM cfdi_payment_complement_items pci
+       JOIN cfdi_payment_complements pc ON pc.id = pci.complement_id
+       JOIN cfdi_documents d ON d.id = pc.cfdi_document_id
+      WHERE pci.related_cfdi_uuid = ?
+        AND d.sat_status IN ('vigente', 'cancel_pending')
+      LIMIT 1`,
+    [doc.uuid],
+  );
+  if (liveReps.length > 0) {
+    throw new AppError(
+      `This CFDI has a payment complement (REP ${liveReps[0].uuid || '#' + liveReps[0].id}) that is still valid at SAT — cancel the REP first, then cancel this CFDI.`,
+      422, 'CFDI_HAS_LIVE_REP',
+    );
   }
 
   // Get PAC provider

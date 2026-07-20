@@ -69,3 +69,24 @@ test('a sync failure does not fail the (already-succeeded) SAT cancellation', as
   // The CFDI is cancelado at SAT regardless — the sync is best-effort.
   expect(res.status).toBe('cancelado');
 });
+
+test('refuses to cancel a CFDI while a vigente payment complement (REP) references it', async () => {
+  // SAT requires the REP to be cancelled first; the guard must fire BEFORE any
+  // state change (no cfdi_cancellations insert, no cancel_pending flip, no PAC).
+  db.query.mockImplementation((sql) => {
+    if (/FROM cfdi_payment_complement_items/.test(sql)) {
+      return Promise.resolve([[{ id: 30, uuid: 'REP-UUID-0001' }]]);
+    }
+    if (/SELECT \* FROM cfdi_documents WHERE id = \?/.test(sql)) return Promise.resolve([[DOC]]);
+    if (/FROM pac_providers/.test(sql)) return Promise.resolve([[PAC]]);
+    return Promise.resolve([[]]);
+  });
+
+  await expect(cfdiService.cancel(7, '02', null))
+    .rejects.toMatchObject({ statusCode: 422, code: 'CFDI_HAS_LIVE_REP' });
+
+  const sqls = db.query.mock.calls.map((c) => c[0]).join('\n');
+  expect(sqls).not.toMatch(/INSERT INTO cfdi_cancellations/);
+  expect(sqls).not.toMatch(/SET sat_status/);
+  expect(billingService.cancelInvoiceForSat).not.toHaveBeenCalled();
+});

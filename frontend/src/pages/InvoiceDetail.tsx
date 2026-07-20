@@ -675,11 +675,15 @@ export function InvoiceDetail() {
   });
 
   function handleVoid() {
-    const isPaid = invoice?.status === 'paid';
-    const msg = isPaid
-      ? 'Void this paid invoice? Its payment(s) will be released to the client as unallocated credit. This cannot be undone.'
-      : 'Void this invoice? This marks it as void and cannot be undone.';
-    if (window.confirm(msg)) {
+    // Voiding never strips payments as a side effect: the backend refuses
+    // (422 INVOICE_HAS_PAYMENTS) while allocations exist. Deallocating is a
+    // deliberate separate step (payment page → Unapply), which turns each
+    // payment into unallocated client credit ready to reallocate.
+    if ((paymentsQ.data ?? []).length > 0) {
+      showToast('This invoice has payment(s) applied. Unapply them first (open the payment and use Unapply) — each becomes client credit — then void.');
+      return;
+    }
+    if (window.confirm('Void this invoice? This marks it as void and cannot be undone.')) {
       voidMutation.mutate();
     }
   }
@@ -795,7 +799,7 @@ export function InvoiceDetail() {
                   onClick={handleVoid}
                   disabled={['void', 'cancelled'].includes(invoice.status) || voidMutation.isPending}
                   style={actionBtn('#b91c1c')}
-                  title={invoice.status === 'paid' ? 'Voiding a paid invoice releases its payment(s) as unallocated client credit' : undefined}
+                  title={(paymentsQ.data ?? []).length > 0 ? 'Unapply the applied payment(s) first — each becomes client credit — then void' : undefined}
                 >
                   {voidMutation.isPending ? 'Voiding…' : '🚫 Void'}
                 </button>
