@@ -135,3 +135,12 @@ describe('cancelInvoiceForSat — SAT-cancellation sync', () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 });
+
+describe('void guard — draft CFDIs count (stamp-later)', () => {
+  test('refuses to void while a DRAFT CFDI exists (it could be stamped after the void)', async () => {
+    db.query.mockResolvedValueOnce([[{ id: 88, sat_status: 'draft' }]]);
+    await expect(billingService.voidInvoiceById(30, 1, 5))
+      .rejects.toMatchObject({ statusCode: 422, code: 'INVOICE_STAMPED' });
+    expect(Invoice.update).not.toHaveBeenCalled();
+  });
+});

@@ -6314,8 +6314,8 @@ CREATE TABLE IF NOT EXISTS csd_certificates (
 CREATE TABLE IF NOT EXISTS pac_providers (
     id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id       BIGINT UNSIGNED  NOT NULL                     COMMENT 'Tenant organization that owns this PAC config',
-    provider_name         ENUM('finkok','sw_sapien','digicel','comercio_digital','facturapi','other')
-                                           NOT NULL                     COMMENT 'PAC vendor identifier',
+    provider_name         ENUM('finkok','sw_sapien','digicel','comercio_digital','facturapi','other','simulator')
+                                           NOT NULL                     COMMENT 'PAC vendor identifier; simulator = demo/dev stamping (sandbox only, SIM- UUIDs) (migration 409)',
     label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok Producción"',
     environment           ENUM('sandbox','production')
                                            NOT NULL DEFAULT 'sandbox'   COMMENT 'PAC environment',

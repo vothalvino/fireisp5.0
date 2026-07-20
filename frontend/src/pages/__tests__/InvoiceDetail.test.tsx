@@ -524,4 +524,31 @@ describe('InvoiceDetail stamp-later', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '✕ Cancel CFDI (SAT)' })).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: '📜 Stamp (SAT)' })).not.toBeInTheDocument();
   });
+
+  it('a leftover draft CFDI shows Retry stamp (SAT) and resubmits the existing doc', async () => {
+    authState.locale = 'MX';
+    mockAuthedFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      if (url.includes('/cfdi-documents')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: [{ id: 77, uuid: null, sat_status: 'draft' }] }) });
+      }
+      if (url.includes('/cfdi/stamp') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ data: { uuid: 'SIM-RETRY-1', status: 'vigente' } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+    });
+    renderDetail();
+    const retryBtn = await screen.findByRole('button', { name: '🔁 Retry stamp (SAT)' });
+    // The convert button must NOT coexist with the draft (no duplicates).
+    expect(screen.queryByRole('button', { name: '📜 Stamp (SAT)' })).not.toBeInTheDocument();
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      const call = mockAuthedFetch.mock.calls.find(([url, init]) =>
+        (url as string).includes('/cfdi/stamp') && (init as { method?: string })?.method === 'POST');
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body)).toEqual({ cfdi_document_id: 77 });
+    });
+    expect(await screen.findByText(/CFDI stamped — UUID SIM-RETRY-1/)).toBeInTheDocument();
+  });
+
 });

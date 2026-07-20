@@ -8,7 +8,7 @@
 //   • Applied payments list
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -551,8 +551,14 @@ function StampCfdiModal({ invoice, onClose, onStamped }: StampCfdiModalProps) {
     queryFn: () => fetchClientMxProfile(invoice.client_id),
   });
 
+  // Apply the client's default uso CFDI exactly once — a later refetch must
+  // never silently overwrite a manual selection.
+  const appliedDefault = useRef(false);
   useEffect(() => {
-    if (profileQ.data?.uso_cfdi_default) setUsoCfdi(profileQ.data.uso_cfdi_default);
+    if (!appliedDefault.current && profileQ.data?.uso_cfdi_default) {
+      setUsoCfdi(profileQ.data.uso_cfdi_default);
+      appliedDefault.current = true;
+    }
   }, [profileQ.data]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -578,7 +584,7 @@ function StampCfdiModal({ invoice, onClose, onStamped }: StampCfdiModalProps) {
       <div style={modalBox}>
         <h3 style={{ margin: '0 0 0.25rem' }}>Stamp invoice (SAT)</h3>
         <p style={{ margin: '0 0 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>
-          {invoice.invoice_number || `#${invoice.id}`} — {invoice.total} {invoice.currency}
+          {invoice.invoice_number || `#${invoice.id}`} — {fmtAmount(invoice.total, invoice.currency)}
         </p>
         <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
           This converts the invoice into a formal CFDI 4.0 and submits it to SAT
@@ -622,7 +628,7 @@ function StampCfdiModal({ invoice, onClose, onStamped }: StampCfdiModalProps) {
 
           <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Cancel</button>
-            <button type="submit" style={actionBtn('#047857')} disabled={submitting || (!profileQ.isLoading && !profile?.rfc)}>
+            <button type="submit" style={actionBtn('#047857')} disabled={submitting || profileQ.isLoading || !profile?.rfc}>
               {submitting ? 'Stamping…' : 'Stamp now'}
             </button>
           </div>
@@ -777,6 +783,9 @@ export function InvoiceDetail() {
   // The CFDI that still binds this invoice at SAT (vigente, or with a SAT
   // cancellation in flight). While one exists, Void is replaced by Cancel-at-SAT.
   const liveCfdi = (cfdiQ.data ?? []).find(d => d.sat_status === 'vigente' || d.sat_status === 'cancel_pending') ?? null;
+  // A draft = a stamp-later conversion whose PAC call failed — recoverable via
+  // retry (POST /cfdi/stamp on the existing doc), never re-converted.
+  const draftCfdi = (cfdiQ.data ?? []).find(d => d.sat_status === 'draft') ?? null;
   // For the metadata card: prefer the live CFDI, else show a cancelled one so a
   // SAT-cancelled invoice still displays its fiscal history.
   const displayCfdi = liveCfdi ?? (cfdiQ.data ?? []).find(d => d.sat_status === 'cancelado') ?? null;
@@ -819,6 +828,26 @@ export function InvoiceDetail() {
       showToast(t('invoiceDetail.toasts.itemAdded'));
     },
     onError: (err: Error) => setAddItemError(err.message),
+  });
+
+  // Retry a failed stamp-later PAC submission on the existing draft CFDI.
+  const retryStampMutation = useMutation({
+    mutationFn: async (cfdiDocumentId: number) => {
+      const res = await authedFetch(`${API_BASE}/cfdi/stamp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cfdi_document_id: cfdiDocumentId }),
+      });
+      const body = await res.json().catch(() => ({})) as { data?: { uuid?: string }; error?: { message?: string } };
+      if (!res.ok) throw new Error(body.error?.message ?? 'Failed to stamp CFDI');
+      return body.data;
+    },
+    onSuccess: (d) => {
+      showToast(`CFDI stamped — UUID ${d?.uuid ?? ''}`);
+      qc.invalidateQueries({ queryKey: ['invoice-cfdi', id] });
+      qc.invalidateQueries({ queryKey: ['invoice', id] });
+    },
+    onError: (err: Error) => showToast(`Error: ${err.message}`),
   });
 
   const voidMutation = useMutation({
@@ -936,13 +965,23 @@ export function InvoiceDetail() {
               >
                 💳 Record Payment
               </button>
-              {isMxOrg && (cfdiQ.data ?? []).length === 0 && ['issued', 'sent', 'overdue', 'paid'].includes(invoice.status) && (
+              {isMxOrg && cfdiQ.isSuccess && (cfdiQ.data ?? []).length === 0 && ['issued', 'sent', 'overdue', 'paid'].includes(invoice.status) && (
                 <button
                   onClick={() => setShowStamp(true)}
                   style={actionBtn('#047857')}
                   title="Convert this invoice into a formal CFDI 4.0 and stamp it with SAT via your PAC"
                 >
                   📜 Stamp (SAT)
+                </button>
+              )}
+              {isMxOrg && draftCfdi && !liveCfdi && (
+                <button
+                  onClick={() => retryStampMutation.mutate(draftCfdi.id)}
+                  disabled={retryStampMutation.isPending}
+                  style={actionBtn('#b45309')}
+                  title="A CFDI was created but PAC stamping failed — retry submitting it"
+                >
+                  {retryStampMutation.isPending ? 'Stamping…' : '🔁 Retry stamp (SAT)'}
                 </button>
               )}
               {liveCfdi ? (

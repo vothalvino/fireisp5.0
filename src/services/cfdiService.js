@@ -242,6 +242,23 @@ async function stamp(cfdiDocumentId) {
   if (!doc) throw new CfdiStampingError('CFDI document not found', { cfdiDocumentId });
   if (!doc.xml_content) throw new CfdiStampingError('XML not generated yet — call generateXml first', { cfdiDocumentId });
 
+  // Backstop: never register a CFDI at SAT for an invoice that was voided or
+  // cancelled after this draft was created (the void guard blocks the common
+  // path; this closes the race and any direct /cfdi/stamp call).
+  if (doc.invoice_id) {
+    const [invRows] = await db.query(
+      'SELECT status FROM invoices WHERE id = ?',
+      [doc.invoice_id],
+    );
+    const invStatus = invRows[0]?.status;
+    if (invStatus === 'void' || invStatus === 'cancelled') {
+      throw new AppError(
+        `The linked invoice is ${invStatus} — a terminal invoice must not be stamped. Delete this draft CFDI instead.`,
+        422, 'INVOICE_TERMINAL',
+      );
+    }
+  }
+
   // Get PAC provider for the organization
   const [pacs] = await db.query(
     'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',

@@ -161,7 +161,9 @@ function assertAmountMatchesLine(body) {
 // system disagree with the legal document. Cancel/substitute the CFDI first.
 async function assertNoLiveCfdi(exec, invoiceId) {
   const [rows] = await exec(
-    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    // 'draft' freezes amounts too: its conceptos were derived from the current
+    // line items, and it may be stamped at any moment.
+    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [invoiceId],
   );
   if (rows && rows[0]) {

@@ -200,3 +200,55 @@ describe('stampInvoice — conversion', () => {
     expect(cfdiService.generateXml).not.toHaveBeenCalled();
   });
 });
+
+describe('stampInvoice — review-hardened fiscal fixes', () => {
+  test('percent-style tax_rate (8 = 8%) is normalized: catalog tasa 0.080000, no negative importes', async () => {
+    // Manually-created invoices can store tax_rate as a whole percent; the
+    // per-line IVA math must use the fraction like every other totals path.
+    Invoice.findByIdOrFail.mockResolvedValue({
+      ...INVOICE, tax_rate: '8', subtotal: '1000.00', tax_amount: '80.00', total: '1080.00',
+    });
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM invoice_items/.test(sql)) {
+        return [[
+          { id: 1, description: 'A', quantity: '1', unit_price: '600.00', amount: '600.00', clave_prod_serv: null, clave_unidad: null },
+          { id: 2, description: 'B', quantity: '1', unit_price: '400.00', amount: '400.00', clave_prod_serv: null, clave_unidad: null },
+        ]];
+      }
+      return [[]];
+    });
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    await invoiceCfdiService.stampInvoice(60, 1);
+    const taxInserts = conn.executed.filter(([sql]) => sql.includes('cfdi_concepto_impuestos'));
+    const importes = taxInserts.map(([, p]) => Number(p[p.length - 1]));
+    expect(importes).toEqual([48, 32]); // 600*0.08, 400*0.08 — never 4800/-4720
+    expect(importes.every(i => i >= 0)).toBe(true);
+    expect(taxInserts[0][1]).toContain('0.080000'); // fraction, a valid SAT catalog rate
+  });
+
+  test('non-MXN invoice is refused (422 CFDI_UNSUPPORTED_CURRENCY) — TipoCambio has no source', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ ...INVOICE, currency: 'USD' });
+    await expect(invoiceCfdiService.stampInvoice(60, 1))
+      .rejects.toMatchObject({ statusCode: 422, code: 'CFDI_UNSUPPORTED_CURRENCY' });
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  test('concurrent stamp race: the in-transaction row-locked guard 409s the loser', async () => {
+    // The fast-path check sees nothing (both requests pass it); the loser's
+    // in-transaction re-check finds the winner's committed CFDI.
+    const conn = makeConn();
+    conn.execute = async (sql) => {
+      if (/SELECT id FROM invoices WHERE id = \? AND organization_id = \? FOR UPDATE/.test(sql)) return [[{ id: 60 }]];
+      if (/FROM cfdi_documents/.test(sql)) return [[{ id: 950 }]]; // winner's CFDI, visible under the lock
+      return [{ affectedRows: 1 }];
+    };
+    db.getConnection.mockResolvedValue(conn);
+    await expect(invoiceCfdiService.stampInvoice(60, 1))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CFDI_EXISTS' });
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.executed.filter(([sql]) => sql.includes('INSERT'))).toHaveLength(0);
+  });
+});

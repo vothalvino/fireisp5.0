@@ -62368,7 +62368,8 @@
               "digicel",
               "comercio_digital",
               "facturapi",
-              "other"
+              "other",
+              "simulator"
             ]
           },
           "label": {
@@ -62417,7 +62418,8 @@
               "digicel",
               "comercio_digital",
               "facturapi",
-              "other"
+              "other",
+              "simulator"
             ]
           },
           "label": {

@@ -26,6 +26,7 @@
 
 const db = require('../config/database');
 const Invoice = require('../models/Invoice');
+const { invoiceTaxFraction } = require('./billingService');
 const { AppError } = require('../utils/errors');
 const cfdiService = require('./cfdiService');
 const auditLog = require('./auditLog');
@@ -71,8 +72,19 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     );
   }
 
-  // One CFDI per invoice: a live one blocks outright; a leftover draft from a
-  // failed earlier attempt should be retried via /cfdi/stamp, not duplicated.
+  // A CFDI with Moneda != MXN requires TipoCambio (SAT CFDI40113) and this
+  // system has no exchange-rate source — refuse rather than emit invalid XML.
+  // (Currency is one-per-org and MX orgs bill MXN; this guards legacy data.)
+  if (invoice.currency && invoice.currency !== 'MXN') {
+    throw new AppError(
+      `Only MXN invoices can be stamped (this one is ${invoice.currency}) — a non-MXN CFDI requires a TipoCambio exchange rate, which is not configured.`,
+      422, 'CFDI_UNSUPPORTED_CURRENCY',
+    );
+  }
+
+  // One CFDI per invoice — fast-path check with the actionable draft-vs-live
+  // message. NOT authoritative: the same guard re-runs inside the transaction
+  // under a row lock (below) to close the concurrent-stamp race.
   const [existing] = await db.query(
     "SELECT id, sat_status FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [invoiceId, orgId],
@@ -133,7 +145,11 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   const metodoPago = isPaid ? 'PUE' : 'PPD';
 
   const usoCfdi = opts.uso_cfdi || receptor.uso_cfdi_default || 'G03';
-  const taxRate = Number(invoice.tax_rate || 0);
+  // invoices.tax_rate can carry percent-style values on manually-created
+  // invoices (a stored '8' means 8%) — normalize to a fraction exactly like
+  // every other totals path (billingService.invoiceTaxFraction), otherwise the
+  // per-line IVA math explodes and tasa_o_cuota stores a non-catalog rate.
+  const taxRate = invoiceTaxFraction(Number(invoice.tax_rate || 0));
   const subtotal = Number(invoice.subtotal || 0);
   const taxAmount = Number(invoice.tax_amount || 0);
   const total = Number(invoice.total || 0);
@@ -142,6 +158,22 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   let docId;
   try {
     await conn.beginTransaction();
+
+    // Serialize concurrent stampers of the same invoice: the row lock makes
+    // the second request wait, and its re-checked guard then sees the first
+    // request's committed CFDI (the pre-transaction check above is only a
+    // fast-path for the common case — this one is authoritative).
+    await conn.execute(
+      'SELECT id FROM invoices WHERE id = ? AND organization_id = ? FOR UPDATE',
+      [invoiceId, orgId],
+    );
+    const [locked] = await conn.execute(
+      "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
+      [invoiceId, orgId],
+    );
+    if (locked[0]) {
+      throw new AppError(`This invoice already has a CFDI (#${locked[0].id}).`, 409, 'CFDI_EXISTS');
+    }
 
     const folio = await nextCfdiFolio(conn, orgId);
     const serie = emisor.cfdi_serie_ingreso || 'A';
