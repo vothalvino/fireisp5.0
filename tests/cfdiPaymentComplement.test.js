@@ -64,7 +64,8 @@ const baseParams = {
 function mockSuccessfulInserts({ original = null } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (/INSERT INTO cfdi_documents/.test(sql)) return [{ insertId: 10 }];
-    if (/INSERT INTO cfdi_payment_complement_items/.test(sql)) return [{ affectedRows: 1 }];
+    if (/INSERT INTO cfdi_payment_complement_item_taxes/.test(sql)) return [{ affectedRows: 1 }];
+    if (/INSERT INTO cfdi_payment_complement_items/.test(sql)) return [{ insertId: 30, affectedRows: 1 }];
     if (/INSERT INTO cfdi_payment_complements/.test(sql)) return [{ insertId: 20 }];
     if (/SELECT subtotal, total_impuestos, total FROM cfdi_documents/.test(sql)) {
       return [original ? [{ ...original }] : []];
@@ -422,7 +423,7 @@ describe('generatePaymentComplement()', () => {
 
     await cfdiService.generatePaymentComplement(paramsNoEq);
 
-    const insertItemCall = db.query.mock.calls[2];
+    const insertItemCall = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_items\b/.test(c[0]));
     // equivalencia_dr is the 6th param (index 5): complement_id, uuid, serie, folio, moneda_dr, equivalencia_dr
     expect(insertItemCall[1][5]).toBe(1.0);
   });
@@ -690,5 +691,72 @@ describe('buildPaymentComplementXml — hardening (review findings)', () => {
     expect(d1).toContain('Fecha="2026-07-20T00:00:00"');
     const d2 = cfdiService.buildPaymentComplementXml({ ...doc, fecha_emision: '2026-07-20 14:51:13' }, complement, [item]);
     expect(d2).toContain('Fecha="2026-07-20T14:51:13"');
+  });
+});
+
+// ===========================================================================
+// Desglose persistence — item objeto_imp_dr + cfdi_payment_complement_item_taxes
+// ===========================================================================
+describe('generatePaymentComplement — persists the enriched desglose', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  test('stores objeto_imp_dr=02 on the item and the traslado in item_taxes (IVA original)', async () => {
+    mockSuccessfulInserts({ original: { subtotal: '100.00', total_impuestos: '16.00', total: '116.00' } });
+
+    await cfdiService.generatePaymentComplement(baseParams);
+
+    const itemInsert = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_items\b/.test(c[0]));
+    expect(itemInsert[0]).toContain('objeto_imp_dr');
+    expect(itemInsert[1][itemInsert[1].length - 1]).toBe('02');
+    const taxInsert = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_item_taxes/.test(c[0]));
+    expect(taxInsert).toBeDefined();
+    // linked to the item's insertId, IVA 16 on the full 580 payment
+    expect(taxInsert[1][0]).toBe(30);
+    expect(taxInsert[1][1]).toBe('0.160000');
+    expect(taxInsert[1][2]).toBeCloseTo(500, 2);   // 580 / 1.16
+    expect(taxInsert[1][3]).toBeCloseTo(80, 2);
+  });
+
+  test('untaxed original: stores objeto_imp_dr=01 and writes NO tax row', async () => {
+    mockSuccessfulInserts(); // no original on file → 01
+
+    await cfdiService.generatePaymentComplement(baseParams);
+
+    const itemInsert = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_items\b/.test(c[0]));
+    expect(itemInsert[1][itemInsert[1].length - 1]).toBe('01');
+    expect(db.query.mock.calls.some(c => /item_taxes/.test(c[0]))).toBe(false);
+  });
+});
+
+describe('enrichRelatedDocumentsWithTaxes — default-02 healing', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  const rd = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    num_parcialidad: 1, imp_saldo_ant: 116, imp_pagado: 116, imp_saldo_insoluto: 0,
+  };
+
+  test("an '02' claim WITHOUT a desglose is re-derived (the items-table column default)", async () => {
+    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]]);
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, objeto_imp_dr: '02' }], 5);
+    expect(db.query).toHaveBeenCalled();
+    expect(out.objeto_imp_dr).toBe('02');
+    expect(out.traslado_dr).toEqual({ base: 100, tasa: '0.160000', importe: 16 });
+  });
+
+  test("an '02' WITH a desglose passes through untouched — no lookup", async () => {
+    const preset = { ...rd, objeto_imp_dr: '02', traslado_dr: { base: 100, tasa: '0.160000', importe: 16 } };
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([preset], 5);
+    expect(out).toEqual(preset);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test("explicit '01' and '03' still win without lookup", async () => {
+    for (const objeto of ['01', '03']) {
+      db.query.mockReset();
+      const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, objeto_imp_dr: objeto }], 5);
+      expect(out.objeto_imp_dr).toBe(objeto);
+      expect(db.query).not.toHaveBeenCalled();
+    }
   });
 });

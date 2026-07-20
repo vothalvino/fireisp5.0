@@ -148,12 +148,30 @@ async function generateXml(cfdiDocumentId) {
         422, 'COMPLEMENT_MISSING',
       );
     }
+    // Attach the persisted desglose (cfdi_payment_complement_item_taxes).
+    // Items with a stored traslado pass through enrichment untouched; legacy
+    // items whose objeto_imp_dr is only the column default '02' (no tax rows)
+    // get their desglose re-derived from the original CFDI.
+    const itemIds = items.map(it => it.id);
+    const [taxRows] = await db.query(
+      `SELECT * FROM cfdi_payment_complement_item_taxes
+        WHERE complement_item_id IN (${itemIds.map(() => '?').join(',')})
+          AND tax_type = 'traslado'`,
+      itemIds,
+    );
+    const taxByItem = new Map(taxRows.map(t => [t.complement_item_id, t]));
+    const itemsWithTaxes = items.map(it => {
+      const t = taxByItem.get(it.id);
+      return t
+        ? { ...it, traslado_dr: { base: Number(t.base), tasa: t.tasa_o_cuota, importe: Number(t.importe) } }
+        : it;
+    });
     // payment_date is a DATE column (mysql2 → Date object); the builder wants
     // the plain day string.
     const paymentDate = complement.payment_date instanceof Date
       ? complement.payment_date.toISOString().slice(0, 10)
       : complement.payment_date;
-    const enriched = await enrichRelatedDocumentsWithTaxes(items, doc.organization_id);
+    const enriched = await enrichRelatedDocumentsWithTaxes(itemsWithTaxes, doc.organization_id);
     const xml = buildPaymentComplementXml(
       {
         serie: doc.serie, folio: doc.folio,
@@ -1141,13 +1159,19 @@ async function generatePaymentComplement(params) {
   );
   const complementId = insertCompResult.insertId;
 
-  // 3. Create cfdi_payment_complement_items records
-  for (const rd of related_documents) {
-    await db.query(
+  // 3. Create cfdi_payment_complement_items records — enriched FIRST so the
+  // stored objeto_imp_dr matches what the XML will say (the column default is
+  // '02', which silently contradicted an XML that said 01/03), and so the
+  // desglose lands in cfdi_payment_complement_item_taxes (the schema's
+  // per-DoctoRelacionado ImpuestosP table, designed for this and never
+  // written before) where the rebuild path can read it back.
+  const enriched = await enrichRelatedDocumentsWithTaxes(related_documents, organization_id);
+  for (const rd of enriched) {
+    const [itemResult] = await db.query(
       `INSERT INTO cfdi_payment_complement_items
          (complement_id, related_cfdi_uuid, serie, folio, moneda_dr, equivalencia_dr,
-          num_parcialidad, imp_saldo_ant, imp_pagado, imp_saldo_insoluto)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          num_parcialidad, imp_saldo_ant, imp_pagado, imp_saldo_insoluto, objeto_imp_dr)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         complementId,
         rd.related_cfdi_uuid,
@@ -1159,8 +1183,17 @@ async function generatePaymentComplement(params) {
         rd.imp_saldo_ant,
         rd.imp_pagado,
         rd.imp_saldo_insoluto,
+        rd.objeto_imp_dr || '01',
       ],
     );
+    if (rd.traslado_dr) {
+      await db.query(
+        `INSERT INTO cfdi_payment_complement_item_taxes
+           (complement_item_id, tax_type, impuesto, tipo_factor, tasa_o_cuota, base, importe)
+         VALUES (?, 'traslado', '002', 'Tasa', ?, ?, ?)`,
+        [itemResult.insertId, rd.traslado_dr.tasa, rd.traslado_dr.base, rd.traslado_dr.importe],
+      );
+    }
   }
 
   // 4. Build the Complemento de Pago 2.0 XML
@@ -1173,7 +1206,6 @@ async function generatePaymentComplement(params) {
     payment_date, forma_pago, moneda, tipo_cambio, amount, operation_number,
     payer_rfc, payer_bank_name, payer_account, beneficiary_rfc, beneficiary_account,
   };
-  const enriched = await enrichRelatedDocumentsWithTaxes(related_documents, organization_id);
   const xml = buildPaymentComplementXml(doc, complement, enriched);
 
   // 5. Store the generated XML
@@ -1198,8 +1230,12 @@ const CATALOG_IVA_RATES = [0.16, 0.08, 0];
 async function enrichRelatedDocumentsWithTaxes(relatedDocuments, organizationId) {
   const out = [];
   for (const rd of relatedDocuments) {
-    // A caller that already decided the tax treatment wins.
-    if (rd.objeto_imp_dr) { out.push(rd); continue; }
+    // A caller that already decided the tax treatment wins — but an '02'
+    // claim WITHOUT a desglose is re-derived: that is exactly the shape of a
+    // stored item row where objeto_imp_dr is only the column DEFAULT '02'
+    // (cfdi_payment_complement_items), and the builder would otherwise have
+    // to degrade it to '03', losing the desglose the data supports.
+    if (rd.objeto_imp_dr && (rd.objeto_imp_dr !== '02' || rd.traslado_dr)) { out.push(rd); continue; }
     const [origRows] = await db.query(
       'SELECT subtotal, total_impuestos, total FROM cfdi_documents WHERE uuid = ? AND organization_id = ? LIMIT 1',
       [rd.related_cfdi_uuid, organizationId],
