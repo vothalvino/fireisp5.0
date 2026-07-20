@@ -102,8 +102,12 @@ describe('cfdiService', () => {
       expect(xml).toContain('<cfdi:Concepto');
       expect(xml).toContain('Descripcion="Internet"');
       expect(xml).toContain('<cfdi:Traslado');
-      // Comprobante-level summary is emitted when any traslado exists
+      // Comprobante-level summary is emitted when any traslado exists — and
+      // per Anexo 20 it must carry the nested grouped Traslados detail, not a
+      // bare total attribute (PACs reject the childless form).
       expect(xml).toContain('TotalImpuestosTrasladados="80.00"');
+      const comprobanteImpuestos = xml.slice(xml.indexOf('</cfdi:Conceptos>'));
+      expect(comprobanteImpuestos).toMatch(/<cfdi:Impuestos TotalImpuestosTrasladados="80.00">[\s\S]*<cfdi:Traslados>[\s\S]*<cfdi:Traslado Base="500.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.16" Importe="80.00"/);
     });
 
     test('handles concepto without taxes', () => {
@@ -197,10 +201,26 @@ describe('cfdiService', () => {
         .rejects.toMatchObject({ statusCode: 422, code: 'ORG_MX_PROFILE_MISSING' });
     });
 
+    test('422s (RECEPTOR_INCOMPLETE) when the doc lacks receptor fiscal data', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 7, organization_id: 42, receptor_rfc: 'XBXX020202000', receptor_nombre: 'Client' }]]) // no regimen/cp
+        .mockResolvedValueOnce([[{ rfc: 'XAXX010101000', razon_social: 'Test SA', regimen_fiscal: '601', codigo_postal_fiscal: '64000' }]]);
+      await expect(cfdiService.generateXml(7))
+        .rejects.toMatchObject({ statusCode: 422, code: 'RECEPTOR_INCOMPLETE' });
+    });
+
+    test('Fecha is Mexico local time (UTC-6), not server UTC', () => {
+      // 2026-07-20T23:30:00Z UTC == 17:30 same day in America/Mexico_City.
+      const xmlTime = cfdiService.cfdiExpeditionTime(new Date('2026-07-20T23:30:00Z'));
+      expect(xmlTime).toBe('2026-07-20T17:30:00');
+      // And 03:00Z rolls BACK to the previous local day.
+      expect(cfdiService.cfdiExpeditionTime(new Date('2026-07-21T03:00:00Z'))).toBe('2026-07-20T21:00:00');
+    });
+
     test('generates XML with no conceptos', async () => {
       const doc = {
         id: 2, organization_id: 42, serie: 'B', folio: '002', moneda: 'MXN', subtotal: '0', total: '0',
-        receptor_rfc: 'Y', receptor_nombre: 'R',
+        receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000',
       };
       db.query
         .mockResolvedValueOnce([[doc]])
@@ -214,7 +234,7 @@ describe('cfdiService', () => {
 
     test('stores generated XML in database with draft status', async () => {
       const doc = { id: 3, organization_id: 42, serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
-        receptor_rfc: 'Y', receptor_nombre: 'R' };
+        receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000' };
 
       db.query
         .mockResolvedValueOnce([[doc]])
@@ -232,7 +252,7 @@ describe('cfdiService', () => {
 
     test('generates XML with multiple conceptos', async () => {
       const doc = { id: 4, organization_id: 42, serie: 'D', moneda: 'MXN', subtotal: '800', total: '928',
-        receptor_rfc: 'Y', receptor_nombre: 'R' };
+        receptor_rfc: 'Y', receptor_nombre: 'R', receptor_regimen: '616', receptor_cp: '01000' };
       const c1 = { id: 10, clave_prod_serv: '81161700', cantidad: 1, clave_unidad: 'E48',
         descripcion: 'Internet', valor_unitario: '500', importe: '500', objeto_imp: '02' };
       const c2 = { id: 11, clave_prod_serv: '43231500', cantidad: 1, clave_unidad: 'E48',
@@ -252,8 +272,13 @@ describe('cfdiService', () => {
       const result = await cfdiService.generateXml(4);
       expect(result.xml).toContain('Internet');
       expect(result.xml).toContain('Installation');
-      // Comprobante-level summary sums both traslados (80 + 48)
+      // Comprobante-level summary sums both traslados (80 + 48) and groups the
+      // same-rate rows into ONE detail line (Base 800, Importe 128)
       expect(result.xml).toContain('TotalImpuestosTrasladados="128.00"');
+      const tail = result.xml.slice(result.xml.indexOf('</cfdi:Conceptos>'));
+      expect(tail).toContain('Base="800.00"');
+      expect(tail).toContain('Importe="128.00"');
+      expect((tail.match(/<cfdi:Traslado /g) || [])).toHaveLength(1);
       // Two Concepto elements
       const conceptoMatches = result.xml.match(/<cfdi:Concepto /g);
       expect(conceptoMatches).toHaveLength(2);

@@ -17,8 +17,10 @@ jest.mock('../src/config/database', () => ({
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
+// Mutable so individual tests can drop the legacy-admin bypass.
+const AUTH_STATE = { role: 'admin' };
 jest.mock('../src/middleware/auth', () => ({
-  authenticate: (req, _res, next) => { req.user = { id: 1, role: 'admin' }; next(); },
+  authenticate: (req, _res, next) => { req.user = { id: 1, role: AUTH_STATE.role }; next(); },
 }));
 jest.mock('../src/middleware/orgScope', () => ({
   orgScope: (req, _res, next) => { req.orgId = 1; next(); },
@@ -50,7 +52,9 @@ const VALID_BODY = {
   regimen_fiscal: '601', codigo_postal_fiscal: '26015',
 };
 
-beforeEach(() => { jest.clearAllMocks(); });
+// resetAllMocks (not clearAllMocks): a test that 403s before consuming its
+// queued once-values must not leak them into the next test.
+beforeEach(() => { jest.resetAllMocks(); AUTH_STATE.role = 'admin'; });
 
 describe('GET /organizations/:id/mx-profile', () => {
   test('returns the profile for an MX-locale org', async () => {
@@ -149,5 +153,86 @@ describe('client mx-profile org-ownership (cross-tenant fix)', () => {
     const res = await request(app).get('/api/v1/clients/10/mx-profile');
     expect(res.status).toBe(200);
     expect(res.body.data.rfc).toBe('XAXX010101000');
+  });
+});
+
+describe('cross-tenant + partial-update semantics', () => {
+  test('403s a non-platform-admin touching a DIFFERENT org fiscal identity', async () => {
+    AUTH_STATE.role = 'billing'; // no legacy-admin bypass; caller org is 1
+    const res = await request(app).get('/api/v1/organizations/5/mx-profile');
+    expect(res.status).toBe(403);
+    expect(db.query).not.toHaveBeenCalled(); // refused before any lookup
+  });
+
+  test('a non-admin CAN manage their own org (id matches req.orgId)', async () => {
+    AUTH_STATE.role = 'billing';
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[PROFILE_ROW]]);
+    const res = await request(app).get('/api/v1/organizations/1/mx-profile');
+    expect(res.status).toBe(200);
+  });
+
+  test('omitted address keys leave stored values UNCHANGED (not nulled)', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[{ id: 3 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[PROFILE_ROW]]);
+    const res = await request(app).put('/api/v1/organizations/5/mx-profile').send(VALID_BODY); // no address keys
+    expect(res.status).toBe(200);
+    const update = db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/.test(c[0]));
+    expect(update[0]).not.toMatch(/colonia|municipio|exterior_number|interior_number/);
+  });
+
+  test('an explicitly-sent empty address field clears to NULL', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[{ id: 3 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[PROFILE_ROW]]);
+    const res = await request(app).put('/api/v1/organizations/5/mx-profile').send({ ...VALID_BODY, colonia: '' });
+    expect(res.status).toBe(200);
+    const update = db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/.test(c[0]));
+    expect(update[0]).toContain('colonia = ?');
+    // The colonia param (right after the 4 identity params) is NULL
+    expect(update[1][4]).toBeNull();
+  });
+
+  test('an empty serie value is ignored (NOT NULL column keeps its stored value)', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[{ id: 3 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([[PROFILE_ROW]]);
+    const res = await request(app).put('/api/v1/organizations/5/mx-profile').send({ ...VALID_BODY, cfdi_serie_ingreso: '' });
+    expect(res.status).toBe(200);
+    const update = db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/.test(c[0]));
+    expect(update[0]).not.toContain('cfdi_serie_ingreso');
+  });
+});
+
+describe('POST /cfdi-documents — linked-record org ownership', () => {
+  const CFDI_BODY = { client_id: 55, uso_cfdi: 'G03', tipo_comprobante: 'I', total: 116 };
+
+  test('404s when client_id belongs to another org — nothing inserted', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]]) // requireMxLocale → getLocale
+      .mockResolvedValueOnce([[]]);                // ownership SELECT: not found in caller org
+    const res = await request(app).post('/api/v1/cfdi-documents').send(CFDI_BODY);
+    expect(res.status).toBe(404);
+    const sqls = db.query.mock.calls.map(c => c[0]).join('\n');
+    expect(sqls).not.toMatch(/INSERT INTO cfdi_documents/);
+  });
+
+  test('404s a foreign invoice_id even when the client is owned', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[{ id: 55 }]])  // client owned
+      .mockResolvedValueOnce([[]]);           // invoice NOT owned
+    const res = await request(app).post('/api/v1/cfdi-documents').send({ ...CFDI_BODY, invoice_id: 999 });
+    expect(res.status).toBe(404);
+    const sqls = db.query.mock.calls.map(c => c[0]).join('\n');
+    expect(sqls).not.toMatch(/INSERT INTO cfdi_documents/);
   });
 });

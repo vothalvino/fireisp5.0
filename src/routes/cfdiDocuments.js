@@ -22,9 +22,37 @@ router.use(authenticate);
 router.use(orgScope);
 router.use(requireMxLocale);
 
+// The polymorphic source links (client_id required; invoice_id / payment_id /
+// credit_note_id optional) are caller-supplied ids — without an org-ownership
+// check a caller could attach a CFDI to ANOTHER org's client/invoice (422s
+// as not-found instead). Runs after validate() so ids are known-numeric.
+async function assertLinkedRecordsOwned(req, _res, next) {
+  try {
+    const checks = [
+      ['clients', req.body.client_id],
+      ['invoices', req.body.invoice_id],
+      ['payments', req.body.payment_id],
+      ['credit_notes', req.body.credit_note_id],
+    ];
+    for (const [table, id] of checks) {
+      if (id === undefined || id === null) continue;
+      const [rows] = await db.query(
+        `SELECT id FROM \`${table}\` WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
+        [id, req.orgId],
+      );
+      if (!rows[0]) {
+        throw new NotFoundError(`${table.slice(0, -1)} ${id}`);
+      }
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 router.get('/', requirePermission('cfdi_documents.view'), ctrl.list);
 router.get('/:id', requirePermission('cfdi_documents.view'), ctrl.get);
-router.post('/', requirePermission('cfdi_documents.create'), validate(createCfdiDocument), ctrl.create);
+router.post('/', requirePermission('cfdi_documents.create'), validate(createCfdiDocument), assertLinkedRecordsOwned, ctrl.create);
 router.put('/:id', requirePermission('cfdi_documents.update'), validate(updateCfdiDocument), ctrl.update);
 
 // Get CFDI conceptos

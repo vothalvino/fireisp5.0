@@ -184,4 +184,59 @@ describe('OrganizationDetail page', () => {
     expect(await screen.findByText(/RFC must be 12/)).toBeInTheDocument();
     expect(mockPut).not.toHaveBeenCalled();
   });
+
+  it('re-syncs the Fiscal form from the server after save (no false blank-serie state)', async () => {
+    const savedProfile = {
+      rfc: 'EKU9003173C9', razon_social: 'Escuela Kemper Urgate SA de CV', regimen_fiscal: '601',
+      codigo_postal_fiscal: '26015', colonia: null, municipio: null, exterior_number: null,
+      interior_number: null, cfdi_serie_ingreso: 'FAC', cfdi_serie_egreso: 'E', cfdi_serie_pago: 'P', cfdi_folio_next: 1,
+    };
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/organizations/{id}') return Promise.resolve({ data: { data: { ...ORG, locale: 'MX' } }, error: undefined });
+      if (path === '/organizations/{id}/mx-profile') return Promise.resolve({ data: { data: savedProfile }, error: undefined });
+      if (path === '/sat-catalogs/regimen-fiscal') return Promise.resolve({ data: { data: [{ code: '601', description: 'General de Ley PM' }] }, error: undefined });
+      return Promise.resolve({ data: { data: {} }, error: undefined });
+    });
+    mockPut.mockResolvedValue({ data: { data: savedProfile }, error: undefined });
+
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(await screen.findByRole('button', { name: 'Fiscal (SAT)' }));
+
+    // Stored serie loads; user blanks it (a no-op server-side) and saves.
+    const serieInput = await screen.findByDisplayValue('FAC');
+    fireEvent.change(serieInput, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mockPut).toHaveBeenCalled());
+    // Blank serie is NOT sent (NOT NULL column server-side).
+    const body = (mockPut.mock.calls[0][1] as { body: Record<string, unknown> }).body;
+    expect(body).not.toHaveProperty('cfdi_serie_ingreso');
+    // Form re-syncs from the persisted row — 'FAC' returns instead of a
+    // false-confirmed blank.
+    expect(await screen.findByDisplayValue('FAC')).toBeInTheDocument();
+  });
+
+  it('keeps a stored régimen visible when it is missing from the SAT catalog', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/organizations/{id}') return Promise.resolve({ data: { data: { ...ORG, locale: 'MX' } }, error: undefined });
+      if (path === '/organizations/{id}/mx-profile') {
+        return Promise.resolve({ data: { data: {
+          rfc: 'EKU9003173C9', razon_social: 'X', regimen_fiscal: '999', codigo_postal_fiscal: '26015',
+          colonia: null, municipio: null, exterior_number: null, interior_number: null,
+          cfdi_serie_ingreso: 'A', cfdi_serie_egreso: 'E', cfdi_serie_pago: 'P', cfdi_folio_next: 1,
+        } }, error: undefined });
+      }
+      if (path === '/sat-catalogs/regimen-fiscal') return Promise.resolve({ data: { data: [{ code: '601', description: 'General de Ley PM' }] }, error: undefined });
+      return Promise.resolve({ data: { data: {} }, error: undefined });
+    });
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(await screen.findByRole('button', { name: 'Fiscal (SAT)' }));
+
+    const select = await screen.findByLabelText(/Régimen fiscal/);
+    // The synthetic option keeps the stored value selected and visible.
+    expect((select as HTMLSelectElement).value).toBe('999');
+    expect(screen.getByText('999 — ?')).toBeInTheDocument();
+  });
+
 });

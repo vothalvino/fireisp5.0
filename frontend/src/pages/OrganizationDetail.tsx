@@ -512,14 +512,28 @@ function FiscalTab({ id }: { id: number }) {
         regimen_fiscal: form.regimen_fiscal.trim(),
         codigo_postal_fiscal: form.codigo_postal_fiscal.trim(),
       };
-      for (const k of ['colonia', 'municipio', 'exterior_number', 'interior_number', 'cfdi_serie_ingreso', 'cfdi_serie_egreso', 'cfdi_serie_pago']) {
+      // Address fields are ALWAYS sent: the backend treats a present-but-empty
+      // value as "clear to NULL" and an omitted key as "leave unchanged" — so
+      // clearing an input genuinely clears the stored value.
+      for (const k of ['colonia', 'municipio', 'exterior_number', 'interior_number']) {
+        body[k] = (form[k] ?? '').trim();
+      }
+      // Serie columns are NOT NULL — only send a replacement value.
+      for (const k of ['cfdi_serie_ingreso', 'cfdi_serie_egreso', 'cfdi_serie_pago']) {
         const v = (form[k] ?? '').trim();
         if (v) body[k] = v;
       }
       const res = await api.PUT('/organizations/{id}/mx-profile' as never, { params: { path: { id } }, body: body as never } as never);
       if ((res as { error?: unknown }).error) throw new Error('save failed');
     },
-    onSuccess: () => { setMsg({ ok: true, text: t('orgDetail.saved') }); qc.invalidateQueries({ queryKey: ['organization-mx-profile', id] }); },
+    onSuccess: () => {
+      setMsg({ ok: true, text: t('orgDetail.saved') });
+      // Re-sync the form from the persisted row (a blank serie input is a
+      // no-op server-side — without this it would stay blank while the DB
+      // kept its value, a false confirmation).
+      setLoaded(false);
+      qc.invalidateQueries({ queryKey: ['organization-mx-profile', id] });
+    },
     onError: () => setMsg({ ok: false, text: t('orgDetail.fiscalError') }),
   });
 
@@ -551,6 +565,12 @@ function FiscalTab({ id }: { id: number }) {
         {regimenes.length > 0 ? (
           <select style={input} value={form.regimen_fiscal ?? ''} onChange={e => setForm(p => ({ ...p, regimen_fiscal: e.target.value }))}>
             <option value="">—</option>
+            {/* Keep a stored code visible even when it's absent from the
+                fetched catalog — otherwise the select silently shows blank
+                while saving the stale value. */}
+            {form.regimen_fiscal && !regimenes.some(r => r.code === form.regimen_fiscal) && (
+              <option value={form.regimen_fiscal}>{form.regimen_fiscal} — ?</option>
+            )}
             {regimenes.map(r => <option key={r.code} value={r.code}>{r.code} — {r.description}</option>)}
           </select>
         ) : (
