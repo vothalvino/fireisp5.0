@@ -63,7 +63,8 @@ function cfdiExpeditionTime(now = new Date()) {
  */
 async function getEmisorProfile(organizationId) {
   const [rows] = await db.query(
-    `SELECT rfc, razon_social, regimen_fiscal, codigo_postal_fiscal
+    `SELECT rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+            cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago
        FROM organization_mx_profiles
       WHERE organization_id = ? AND deleted_at IS NULL`,
     [organizationId],
@@ -241,6 +242,23 @@ async function stamp(cfdiDocumentId) {
   if (!doc) throw new CfdiStampingError('CFDI document not found', { cfdiDocumentId });
   if (!doc.xml_content) throw new CfdiStampingError('XML not generated yet — call generateXml first', { cfdiDocumentId });
 
+  // Backstop: never register a CFDI at SAT for an invoice that was voided or
+  // cancelled after this draft was created (the void guard blocks the common
+  // path; this closes the race and any direct /cfdi/stamp call).
+  if (doc.invoice_id) {
+    const [invRows] = await db.query(
+      'SELECT status FROM invoices WHERE id = ?',
+      [doc.invoice_id],
+    );
+    const invStatus = invRows[0]?.status;
+    if (invStatus === 'void' || invStatus === 'cancelled') {
+      throw new AppError(
+        `The linked invoice is ${invStatus} — a terminal invoice must not be stamped. Delete this draft CFDI instead.`,
+        422, 'INVOICE_TERMINAL',
+      );
+    }
+  }
+
   // Get PAC provider for the organization
   const [pacs] = await db.query(
     'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
@@ -374,6 +392,23 @@ async function callPacStamp(pac, xmlContent) {
       signedXml: stampData.data.cfdi || null,
       selloSat: stampData.data.selloSAT || null,
       cadenaOriginal: stampData.data.cadenaOriginalSAT || null,
+    };
+  }
+
+  // First-class SIMULATOR provider — for demo/dev/test installs. Unlike the
+  // dev fallback below it is ALLOWED in production, but only with
+  // environment='sandbox', and its UUIDs are unmistakably fake ('SIM-…').
+  // A 'simulator' row with environment='production' is a misconfiguration.
+  if (pac.provider_name === 'simulator') {
+    if (pac.environment !== 'sandbox') {
+      throw new Error("The 'simulator' PAC only runs with environment='sandbox' — it never produces fiscally valid CFDIs.");
+    }
+    logger.warn({ provider: 'simulator' }, 'SIMULATED stamping — NOT a fiscally valid CFDI');
+    return {
+      uuid: `SIM-${crypto.randomUUID()}`,
+      signedXml: null,
+      selloSat: null,
+      cadenaOriginal: null,
     };
   }
 
@@ -677,6 +712,19 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
     };
   }
 
+  // Simulator: accept immediately (see callPacStamp for the contract).
+  if (pac.provider_name === 'simulator') {
+    if (pac.environment !== 'sandbox') {
+      throw new Error("The 'simulator' PAC only runs with environment='sandbox'.");
+    }
+    logger.warn({ provider: 'simulator' }, 'SIMULATED cancellation — not a real SAT cancellation');
+    return {
+      status: 'accepted',
+      acuseXml: `<Acuse><UUID>${uuid}</UUID><EstatusUUID>201</EstatusUUID><Fecha>${new Date().toISOString()}</Fecha></Acuse>`,
+      acuseFecha: new Date().toISOString(),
+    };
+  }
+
   // Fallback for development / unknown providers
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
@@ -853,6 +901,15 @@ async function callPacCancelStatus(pac, uuid, _cancellation) {
       status: parseCancellationStatus(statusData.data?.estatus || statusData.data?.status),
       acuseXml: statusData.data?.acuse || null,
       acuseFecha: statusData.data?.fechaCancelacion || null,
+    };
+  }
+
+  // Simulator: a simulated cancellation is always already accepted.
+  if (pac.provider_name === 'simulator' && pac.environment === 'sandbox') {
+    return {
+      status: 'accepted',
+      acuseXml: `<Acuse><UUID>${uuid}</UUID><EstatusUUID>201</EstatusUUID></Acuse>`,
+      acuseFecha: new Date().toISOString(),
     };
   }
 
@@ -1289,7 +1346,7 @@ function lastDayOfMonth(year, month) {
 }
 
 module.exports = {
-  generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, stamp, cancel,
+  generateXml, buildCfdi40Xml, escapeXml, cfdiExpeditionTime, getEmisorProfile, stamp, cancel,
   callPacStamp, callPacCancel, callPacCancelStatus,
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, getPaymentComplement,

@@ -432,6 +432,7 @@ function generateSpec() {
       },
       '/invoices/generate': { post: { tags: ['Invoices'], summary: 'Generate invoice from contract', operationId: 'generateContractInvoice', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id (legacy) OR client_id + items[] — product/custom items take unit_price (or amount, from which unit_price is derived; one of the two is required, and both together must agree with quantity × unit_price); items[].inventory_item_id is optional on type:"product" lines and draws down stock in the same transaction as the invoice'), responses: r201('Invoice') } },
       '/invoices/{id}/payments': { get: { tags: ['Invoices'], summary: 'List invoice payments', operationId: 'listInvoicePayments', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('PaymentAllocation[]') } },
+      '/invoices/{id}/stamp': { post: { tags: ['Invoices'], summary: 'Convert an MX-org invoice into a CFDI 4.0 and stamp it via the org PAC (stamp-later); 200 with stamped:false + stamp_error on retryable PAC failure', operationId: 'stampInvoice', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('invoices_stampInvoice (optional uso_cfdi, forma_pago)'), responses: r200('{ cfdi_document_id, serie, uuid, sat_status, stamped }') } },
       '/invoices/{id}/receipt': {
         get: {
           tags: ['Invoices'],

@@ -90,3 +90,17 @@ test('refuses to cancel a CFDI while a vigente payment complement (REP) referenc
   expect(sqls).not.toMatch(/SET sat_status/);
   expect(billingService.cancelInvoiceForSat).not.toHaveBeenCalled();
 });
+
+test('stamp() refuses a draft whose linked invoice is void (backstop)', async () => {
+  db.query.mockImplementation((sql) => {
+    if (/SELECT \* FROM cfdi_documents WHERE id = \?/.test(sql)) {
+      return Promise.resolve([[{ id: 9, organization_id: 1, invoice_id: 70, xml_content: '<xml/>', sat_status: 'draft' }]]);
+    }
+    if (/SELECT status FROM invoices/.test(sql)) return Promise.resolve([[{ status: 'void' }]]);
+    return Promise.resolve([[]]);
+  });
+  await expect(cfdiService.stamp(9))
+    .rejects.toMatchObject({ statusCode: 422, code: 'INVOICE_TERMINAL' });
+  const sqls = db.query.mock.calls.map((c) => c[0]).join('\n');
+  expect(sqls).not.toMatch(/pac_providers/); // refused before any PAC work
+});

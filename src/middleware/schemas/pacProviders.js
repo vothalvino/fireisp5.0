@@ -3,7 +3,7 @@
 // =============================================================================
 
 const createPacProvider = {
-  provider_name: { type: 'string', required: true, enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other'] },
+  provider_name: { type: 'string', required: true, enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other', 'simulator'] },
   label: { type: 'string', max: 100 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
   username_encrypted: { type: 'string', max: 500 },
@@ -13,7 +13,7 @@ const createPacProvider = {
 };
 
 const updatePacProvider = {
-  provider_name: { type: 'string', enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other'] },
+  provider_name: { type: 'string', enum: ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'facturapi', 'other', 'simulator'] },
   label: { type: 'string', max: 100 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
   username_encrypted: { type: 'string', max: 500 },

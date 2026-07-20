@@ -747,13 +747,18 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
   // which runs after this guard): without it, probing another org's invoice id
   // would answer 422 INVOICE_STAMPED instead of 404 — leaking that the foreign
   // invoice exists and is stamped.
+  // 'draft' counts too: a draft CFDI (stamp-later conversion whose PAC call
+  // failed) could otherwise be stamped AFTER the void, registering a live
+  // CFDI at SAT for a void invoice. Delete the draft first, then void.
   const [live] = await db.query(
-    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    "SELECT id, sat_status FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [invoiceId, orgId],
   );
   if (live.length > 0) {
     throw new AppError(
-      'This invoice has a stamped CFDI that is still valid at SAT. Cancel the CFDI at SAT (with a motivo) instead of voiding it.',
+      live[0].sat_status === 'draft'
+        ? `This invoice has a draft CFDI (#${live[0].id}) awaiting stamping. Delete the draft on the CFDI page first, then void.`
+        : 'This invoice has a stamped CFDI that is still valid at SAT. Cancel the CFDI at SAT (with a motivo) instead of voiding it.',
       422,
       'INVOICE_STAMPED',
     );
@@ -869,7 +874,7 @@ module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
-  releaseInvoiceAllocations,
+  releaseInvoiceAllocations, invoiceTaxFraction,
   voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,

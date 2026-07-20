@@ -49,4 +49,12 @@ const patchInvoice = Object.fromEntries(
   Object.entries(updateInvoice).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice };
+// Stamp-later (invoice → CFDI 4.0). Both optional: uso_cfdi falls back to the
+// client profile's default (then G03); forma_pago only applies to PUE (paid)
+// invoices and falls back to the settling payment's sat_forma_pago.
+const stampInvoice = {
+  uso_cfdi: { type: 'string', max: 4 },
+  forma_pago: { type: 'string', max: 2 },
+};
+
+module.exports = { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, generateInvoice, stampInvoice };

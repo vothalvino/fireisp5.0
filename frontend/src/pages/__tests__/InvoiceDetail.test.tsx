@@ -16,6 +16,13 @@ import { InvoiceDetail } from '../InvoiceDetail';
 // Mocks
 // ---------------------------------------------------------------------------
 
+// Mutable org locale: default 'global' (no SAT affordances); stamp tests flip
+// it to 'MX'.
+const authState: { locale: 'global' | 'MX' } = { locale: 'global' };
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'a@b.c', organization_locale: authState.locale } }),
+}));
+
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
 const mockApiPut = vi.fn();
@@ -103,6 +110,7 @@ function renderDetail() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authState.locale = 'global';
   setupMocks();
   wireItemsGet([item1]);
 });
@@ -443,4 +451,104 @@ describe('InvoiceDetail void vs. SAT cancel', () => {
     // Editing a SAT-cancelled invoice is blocked too (backend 422s it).
     expect(screen.getByRole('button', { name: '✏️ Edit' })).toBeDisabled();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Stamp-later (MX org): Stamp (SAT) button + modal
+// ---------------------------------------------------------------------------
+
+describe('InvoiceDetail stamp-later', () => {
+  function wireStamp({ profile = { rfc: 'XAXX010101000', razon_social: 'Juana', uso_cfdi_default: 'G03' }, stampResult = { cfdi_document_id: 900, serie: 'A', uuid: 'SIM-1234', sat_status: 'vigente', stamped: true } } = {}) {
+    mockAuthedFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      if (url.includes('/cfdi-documents')) return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+      if (url.includes('/mx-profile')) return Promise.resolve({ ok: true, json: async () => ({ data: profile }) });
+      if (url.includes('/stamp') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ data: stampResult }) });
+      }
+      if (url.includes('/plans/addons/catalog')) return Promise.resolve({ ok: true, json: async () => ({ data: productCatalog }) });
+      return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+    });
+  }
+
+  it('never shows the Stamp button in a global-locale org', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '📜 Stamp (SAT)' })).not.toBeInTheDocument();
+  });
+
+  it('MX org: stamps via the modal and reports the UUID', async () => {
+    authState.locale = 'MX';
+    wireStamp();
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '📜 Stamp (SAT)' }));
+
+    // Receptor preview from the client MX profile; PPD derived (issued invoice)
+    expect(await screen.findByText(/XAXX010101000/)).toBeInTheDocument();
+    expect(screen.getByText(/PPD \(payment pending/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Stamp now' }));
+
+    await waitFor(() => {
+      const call = mockAuthedFetch.mock.calls.find(([url, init]) =>
+        (url as string).includes('/invoices/42/stamp') && (init as { method?: string })?.method === 'POST');
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body)).toEqual({ uso_cfdi: 'G03' });
+    });
+    expect(await screen.findByText(/CFDI stamped — UUID SIM-1234/)).toBeInTheDocument();
+  });
+
+  it('blocks Stamp now when the client has no MX fiscal profile', async () => {
+    authState.locale = 'MX';
+    wireStamp({ profile: null as never });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '📜 Stamp (SAT)' }));
+
+    expect(await screen.findByText(/no MX fiscal profile/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stamp now' })).toBeDisabled();
+  });
+
+  it('a retryable PAC failure surfaces as created-but-not-stamped', async () => {
+    authState.locale = 'MX';
+    wireStamp({ stampResult: { cfdi_document_id: 901, serie: 'A', uuid: null, sat_status: 'draft', stamped: false, stamp_error: 'PAC down' } as never });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '📜 Stamp (SAT)' }));
+    await screen.findByText(/XAXX010101000/);
+    fireEvent.click(screen.getByRole('button', { name: 'Stamp now' }));
+
+    expect(await screen.findByText(/CFDI created but stamping failed/)).toBeInTheDocument();
+  });
+
+  it('hides the Stamp button once a CFDI exists for the invoice', async () => {
+    authState.locale = 'MX';
+    wireAuthedFetch([vigenteDoc]); // existing helper: /cfdi-documents returns a vigente doc
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('button', { name: '✕ Cancel CFDI (SAT)' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '📜 Stamp (SAT)' })).not.toBeInTheDocument();
+  });
+
+  it('a leftover draft CFDI shows Retry stamp (SAT) and resubmits the existing doc', async () => {
+    authState.locale = 'MX';
+    mockAuthedFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      if (url.includes('/cfdi-documents')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: [{ id: 77, uuid: null, sat_status: 'draft' }] }) });
+      }
+      if (url.includes('/cfdi/stamp') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ data: { uuid: 'SIM-RETRY-1', status: 'vigente' } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+    });
+    renderDetail();
+    const retryBtn = await screen.findByRole('button', { name: '🔁 Retry stamp (SAT)' });
+    // The convert button must NOT coexist with the draft (no duplicates).
+    expect(screen.queryByRole('button', { name: '📜 Stamp (SAT)' })).not.toBeInTheDocument();
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      const call = mockAuthedFetch.mock.calls.find(([url, init]) =>
+        (url as string).includes('/cfdi/stamp') && (init as { method?: string })?.method === 'POST');
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body)).toEqual({ cfdi_document_id: 77 });
+    });
+    expect(await screen.findByText(/CFDI stamped — UUID SIM-RETRY-1/)).toBeInTheDocument();
+  });
+
 });

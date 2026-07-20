@@ -10,8 +10,10 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem } = require('../middleware/schemas/invoices');
+const { createInvoice, updateInvoice, patchInvoice, addInvoiceItem, stampInvoice } = require('../middleware/schemas/invoices');
 const billingService = require('../services/billingService');
+const invoiceCfdiService = require('../services/invoiceCfdiService');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const db = require('../config/database');
 const { resolveLineItemPricing } = require('../utils/lineItemPricing');
@@ -83,6 +85,25 @@ router.patch('/:id', requirePermission('invoices.update'), validate(patchInvoice
 router.delete('/:id', requirePermission('invoices.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('invoices.update'), ctrl.restore);
 
+// Stamp-later: convert this invoice into a CFDI 4.0 and submit it to the
+// org's PAC. MX-locale orgs only; permission mirrors direct CFDI creation.
+// The service enforces every fiscal precondition (org+client MX profiles,
+// stampable status, single-CFDI-per-invoice) with actionable 4xx errors.
+router.post('/:id/stamp', requireMxLocale, requirePermission('cfdi_documents.create'), validate(stampInvoice), async (req, res, next) => {
+  try {
+    const result = await invoiceCfdiService.stampInvoice(req.params.id, req.orgId, {
+      uso_cfdi: req.body.uso_cfdi,
+      forma_pago: req.body.forma_pago,
+      userId: req.user?.id,
+    });
+    // Always 200: the conversion itself succeeded. `stamped: false` +
+    // `stamp_error` reports a retryable PAC failure (doc stays 'draft').
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Invoice line items
 router.get('/:id/items', requirePermission('invoices.view'), async (req, res, next) => {
   try {
@@ -140,7 +161,9 @@ function assertAmountMatchesLine(body) {
 // system disagree with the legal document. Cancel/substitute the CFDI first.
 async function assertNoLiveCfdi(exec, invoiceId) {
   const [rows] = await exec(
-    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    // 'draft' freezes amounts too: its conceptos were derived from the current
+    // line items, and it may be stamped at any moment.
+    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [invoiceId],
   );
   if (rows && rows[0]) {

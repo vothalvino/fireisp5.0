@@ -522,3 +522,39 @@ describe('cfdiService', () => {
     });
   });
 });
+
+// =============================================================================
+// Simulator PAC — first-class demo/dev provider
+// =============================================================================
+// Unlike the dev_placeholder fallback (blocked in production), 'simulator'
+// runs in ANY NODE_ENV — but only with environment='sandbox', and every UUID
+// is unmistakably fake ('SIM-…'). Lets a demo install walk the entire
+// stamp → vigente → SAT-cancel flow without a PAC contract.
+describe('simulator PAC provider', () => {
+  const origEnv = process.env.NODE_ENV;
+  afterEach(() => { process.env.NODE_ENV = origEnv; });
+
+  test('stamps with a SIM- UUID even under NODE_ENV=production (sandbox env)', async () => {
+    process.env.NODE_ENV = 'production';
+    const result = await cfdiService.callPacStamp({ provider_name: 'simulator', environment: 'sandbox' }, '<xml/>');
+    expect(result.uuid).toMatch(/^SIM-/);
+  });
+
+  test('refuses environment=production outright — simulated CFDIs must never look real', async () => {
+    await expect(cfdiService.callPacStamp({ provider_name: 'simulator', environment: 'production' }, '<xml/>'))
+      .rejects.toThrow(/sandbox/);
+  });
+
+  test('cancellation is accepted immediately (sandbox)', async () => {
+    process.env.NODE_ENV = 'production';
+    const result = await cfdiService.callPacCancel({ provider_name: 'simulator', environment: 'sandbox' }, 'SIM-uuid-1', '02', null, {});
+    expect(result.status).toBe('accepted');
+    expect(result.acuseXml).toContain('SIM-uuid-1');
+  });
+
+  test('unknown providers still hard-fail in production (fallback unchanged)', async () => {
+    process.env.NODE_ENV = 'production';
+    await expect(cfdiService.callPacStamp({ provider_name: 'mystery', environment: 'sandbox' }, '<xml/>'))
+      .rejects.toThrow(/not a supported stamping service/);
+  });
+});

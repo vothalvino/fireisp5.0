@@ -6407,6 +6407,52 @@
         }
       }
     },
+    "/invoices/{id}/stamp": {
+      "post": {
+        "tags": [
+          "Invoices"
+        ],
+        "summary": "Convert an MX-org invoice into a CFDI 4.0 and stamp it via the org PAC (stamp-later); 200 with stamped:false + stamp_error on retryable PAC failure",
+        "operationId": "stampInvoice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "invoices_stampInvoice (optional uso_cfdi, forma_pago)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ cfdi_document_id, serie, uuid, sat_status, stamped }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/invoices/{id}/receipt": {
       "get": {
         "tags": [
@@ -58446,6 +58492,19 @@
           "contract_id"
         ]
       },
+      "invoices_stampInvoice": {
+        "type": "object",
+        "properties": {
+          "uso_cfdi": {
+            "type": "string",
+            "maximum": 4
+          },
+          "forma_pago": {
+            "type": "string",
+            "maximum": 2
+          }
+        }
+      },
       "ipAssignments_createIpAssignment": {
         "type": "object",
         "properties": {
@@ -62309,7 +62368,8 @@
               "digicel",
               "comercio_digital",
               "facturapi",
-              "other"
+              "other",
+              "simulator"
             ]
           },
           "label": {
@@ -62358,7 +62418,8 @@
               "digicel",
               "comercio_digital",
               "facturapi",
-              "other"
+              "other",
+              "simulator"
             ]
           },
           "label": {
