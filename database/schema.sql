@@ -1412,6 +1412,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     amount      DECIMAL(10, 2)  NOT NULL DEFAULT 0.00 COMMENT 'Line-item total amount (quantity × unit_price); populated on INSERT by billingService and Invoice.addItem',
     tax_rate_id BIGINT UNSIGNED NULL COMMENT 'Per-line-item tax rate override; NULL = inherit from parent invoice',
     inventory_item_id BIGINT UNSIGNED NULL COMMENT 'Inventory item this line sold, if any — drives automatic stock drawdown (migration 390)',
+    clave_prod_serv VARCHAR(10)    NULL COMMENT 'SAT c_ClaveProdServ for CFDI conversion; NULL = org default (81161700) (migration 408)',
+    clave_unidad    VARCHAR(5)     NULL COMMENT 'SAT c_ClaveUnidad for CFDI conversion; NULL = org default (E48) (migration 408)',
     total       DECIMAL(10, 2)  GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT 'quantity * unit_price',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

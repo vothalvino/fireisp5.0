@@ -8,11 +8,12 @@
 //   • Applied payments list
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, tokenStore, authedFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { extractApiError } from '@/components/ClientFormModal';
 import { fetchAddonCatalog, fetchSellableInventoryItems, buildProductPickerEntries } from '@/api/addonCatalog';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
@@ -140,6 +141,36 @@ async function cancelCfdiAtSat(cfdiDocumentId: number, reason: string, replaceme
     throw new Error('SAT rejected the cancellation — the CFDI remains vigente.');
   }
   return satStatus;
+}
+
+interface StampResult {
+  cfdi_document_id: number;
+  serie: string;
+  uuid: string | null;
+  sat_status: string;
+  stamped: boolean;
+  stamp_error?: string;
+}
+
+// Stamp-later: converts the invoice into a CFDI 4.0 and submits it to the
+// org's PAC. 200 with stamped:false + stamp_error = the CFDI was created
+// (draft, XML stored) but the PAC call failed — retryable from /cfdi.
+async function stampInvoiceAtSat(invoiceId: number, body: { uso_cfdi?: string; forma_pago?: string }): Promise<StampResult> {
+  const res = await authedFetch(`${API_BASE}/invoices/${invoiceId}/stamp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const resBody = await res.json().catch(() => ({})) as { data?: StampResult; error?: { message?: string } };
+  if (!res.ok) throw new Error(resBody.error?.message ?? 'Failed to stamp invoice');
+  return resBody.data as StampResult;
+}
+
+async function fetchClientMxProfile(clientId: number): Promise<{ rfc?: string; razon_social?: string; uso_cfdi_default?: string } | null> {
+  const res = await authedFetch(`${API_BASE}/clients/${clientId}/mx-profile`);
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => ({})) as { data?: { rfc?: string; razon_social?: string; uso_cfdi_default?: string } | null };
+  return body.data ?? null;
 }
 
 async function sendInvoiceEmail(invoiceId: number): Promise<{ to: string }> {
@@ -480,6 +511,127 @@ function EditInvoiceModal({ invoice, onClose, onSaved }: EditInvoiceModalProps) 
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Stamp (SAT) modal — stamp-later conversion
+// ---------------------------------------------------------------------------
+
+const USO_CFDI_OPTIONS = [
+  { code: 'G03', label: 'G03 — Gastos en general' },
+  { code: 'G01', label: 'G01 — Adquisición de mercancías' },
+  { code: 'I04', label: 'I04 — Equipo de cómputo y accesorios' },
+  { code: 'S01', label: 'S01 — Sin efectos fiscales' },
+];
+const FORMA_PAGO_OPTIONS = [
+  { code: '01', label: '01 — Efectivo' },
+  { code: '03', label: '03 — Transferencia (SPEI)' },
+  { code: '04', label: '04 — Tarjeta de crédito' },
+  { code: '28', label: '28 — Tarjeta de débito' },
+  { code: '06', label: '06 — Dinero electrónico (CoDi)' },
+];
+
+interface StampCfdiModalProps {
+  invoice: Invoice;
+  onClose: () => void;
+  onStamped: (r: StampResult) => void;
+}
+
+function StampCfdiModal({ invoice, onClose, onStamped }: StampCfdiModalProps) {
+  const [usoCfdi, setUsoCfdi] = useState('G03');
+  const [formaPago, setFormaPago] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const isPaid = invoice.status === 'paid';
+
+  // The receptor preview: shows who the CFDI will be issued to, or a clear
+  // warning + link when the client has no MX fiscal profile yet (the backend
+  // 422s the same condition — this just surfaces it before submitting).
+  const profileQ = useQuery({
+    queryKey: ['client-mx-profile', invoice.client_id],
+    queryFn: () => fetchClientMxProfile(invoice.client_id),
+  });
+
+  useEffect(() => {
+    if (profileQ.data?.uso_cfdi_default) setUsoCfdi(profileQ.data.uso_cfdi_default);
+  }, [profileQ.data]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      const body: { uso_cfdi?: string; forma_pago?: string } = { uso_cfdi: usoCfdi };
+      if (isPaid && formaPago) body.forma_pago = formaPago;
+      const result = await stampInvoiceAtSat(invoice.id, body);
+      onStamped(result);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to stamp invoice');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const profile = profileQ.data;
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Stamp invoice (SAT)">
+      <div style={modalBox}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Stamp invoice (SAT)</h3>
+        <p style={{ margin: '0 0 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>
+          {invoice.invoice_number || `#${invoice.id}`} — {invoice.total} {invoice.currency}
+        </p>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
+          This converts the invoice into a formal CFDI 4.0 and submits it to SAT
+          through your PAC. Once stamped, amounts freeze and the invoice can only
+          be cancelled through SAT (with a motivo), never voided.
+        </p>
+        {!profileQ.isLoading && (profile?.rfc ? (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#065f46' }}>
+            Receptor: <span style={{ fontFamily: 'monospace' }}>{profile.rfc}</span> — {profile.razon_social}
+          </p>
+        ) : (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#991b1b' }}>
+            ⚠ The client has no MX fiscal profile (RFC).{' '}
+            <Link to={`/clients/${invoice.client_id}`} style={{ color: 'var(--accent)' }}>Complete it on the client page</Link>{' '}
+            before stamping.
+          </p>
+        ))}
+        <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#6b7280' }}>
+          Método de pago: <strong>{isPaid ? 'PUE (paid in full)' : 'PPD (payment pending — forma 99)'}</strong>
+        </p>
+        {error && <div style={errorBox}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle} htmlFor="stamp-uso-cfdi">Uso CFDI</label>
+          <select id="stamp-uso-cfdi" style={inputStyle} value={usoCfdi} onChange={e => setUsoCfdi(e.target.value)}>
+            {/* keep a client-default code visible even if not in the short list */}
+            {usoCfdi && !USO_CFDI_OPTIONS.some(o => o.code === usoCfdi) && (
+              <option value={usoCfdi}>{usoCfdi}</option>
+            )}
+            {USO_CFDI_OPTIONS.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+          </select>
+
+          {isPaid && (
+            <>
+              <label style={labelStyle} htmlFor="stamp-forma-pago">Forma de pago</label>
+              <select id="stamp-forma-pago" style={inputStyle} value={formaPago} onChange={e => setFormaPago(e.target.value)}>
+                <option value="">— from the settling payment —</option>
+                {FORMA_PAGO_OPTIONS.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+              </select>
+            </>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={submitting}>Cancel</button>
+            <button type="submit" style={actionBtn('#047857')} disabled={submitting || (!profileQ.isLoading && !profile?.rfc)}>
+              {submitting ? 'Stamping…' : 'Stamp now'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cancel CFDI at SAT modal
 // ---------------------------------------------------------------------------
@@ -581,10 +733,15 @@ function CancelCfdiModal({ cfdi, invoiceNumber, onClose, onCancelled }: CancelCf
 export function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
+  const { user } = useAuth();
   const qc = useQueryClient();
+  // Stamp-later only exists for MX-locale orgs: in a global org an invoice is
+  // simply an invoice, and no SAT affordances render at all.
+  const isMxOrg = user?.organization_locale === 'MX';
   const [showPayment, setShowPayment] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showCancelCfdi, setShowCancelCfdi] = useState(false);
+  const [showStamp, setShowStamp] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [addItemError, setAddItemError] = useState('');
 
@@ -779,6 +936,15 @@ export function InvoiceDetail() {
               >
                 💳 Record Payment
               </button>
+              {isMxOrg && (cfdiQ.data ?? []).length === 0 && ['issued', 'sent', 'overdue', 'paid'].includes(invoice.status) && (
+                <button
+                  onClick={() => setShowStamp(true)}
+                  style={actionBtn('#047857')}
+                  title="Convert this invoice into a formal CFDI 4.0 and stamp it with SAT via your PAC"
+                >
+                  📜 Stamp (SAT)
+                </button>
+              )}
               {liveCfdi ? (
                 // Stamped invoice: the CFDI is registered at SAT, so an internal
                 // void would leave it fiscally valid. The only way out is a SAT
@@ -938,6 +1104,22 @@ export function InvoiceDetail() {
                 qc.invalidateQueries({ queryKey: ['invoice', id] });
                 qc.invalidateQueries({ queryKey: ['invoices'] });
                 showToast('Invoice updated');
+              }}
+            />
+          )}
+
+          {/* Stamp (SAT) Modal */}
+          {showStamp && (
+            <StampCfdiModal
+              invoice={invoice}
+              onClose={() => setShowStamp(false)}
+              onStamped={(r) => {
+                qc.invalidateQueries({ queryKey: ['invoice', id] });
+                qc.invalidateQueries({ queryKey: ['invoice-cfdi', id] });
+                qc.invalidateQueries({ queryKey: ['invoices'] });
+                showToast(r.stamped
+                  ? `CFDI stamped — UUID ${r.uuid}`
+                  : 'CFDI created but stamping failed — retry from the CFDI page');
               }}
             />
           )}
