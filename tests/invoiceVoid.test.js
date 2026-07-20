@@ -49,6 +49,7 @@ describe('PATCH /invoices/:id — void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'paid', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations (UPDATE payment_allocations)
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
@@ -71,6 +72,7 @@ describe('PATCH /invoices/:id — void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void', client_id: 9 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE any prior void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE — zero the debit
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
@@ -87,6 +89,7 @@ describe('PATCH /invoices/:id — void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 0 }])
       .mockResolvedValueOnce([{ affectedRows: 0 }]);
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
@@ -97,9 +100,28 @@ describe('PATCH /invoices/:id — void', () => {
   it('does nothing to the ledger when the invoice is already void', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'void', client_id: 9, invoice_number: 'INV-5', currency: 'USD' });
     Invoice.update.mockResolvedValue({ id: 5, status: 'void' });
+    db.query.mockResolvedValueOnce([[]]); // stamped-CFDI guard: no live CFDI
     const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
     expect(res.status).toBe(200);
-    expect(db.query).not.toHaveBeenCalled();
+    // Only the guard SELECT ran — the ledger was never touched
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query.mock.calls[0][0]).toMatch(/FROM cfdi_documents/);
+    expect(ledgerDeleteCredit()).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
+  });
+
+  // Mexican compliance: a stamped CFDI is registered at SAT at timbrado — an
+  // internal void would leave it fiscally valid. The route must refuse and
+  // point the caller at the SAT cancellation flow.
+  it('422s (INVOICE_STAMPED) when the invoice has a live CFDI — nothing is modified', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ id: 5, status: 'issued', client_id: 9, invoice_number: 'INV-5', currency: 'MXN' });
+    db.query.mockResolvedValueOnce([[{ id: 77 }]]); // guard finds a vigente/cancel_pending CFDI
+    const res = await request(app).patch('/api/v1/invoices/5').send({ status: 'void' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INVOICE_STAMPED');
+    expect(Invoice.update).not.toHaveBeenCalled();
+    expect(ledgerDeleteCredit()).toBeFalsy();
+    expect(ledgerZero()).toBeFalsy();
   });
 
   it('a non-void PATCH still goes through the generic update path', async () => {

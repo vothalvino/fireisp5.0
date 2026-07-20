@@ -9,7 +9,7 @@ const db = require('../config/database');
 const Invoice = require('../models/Invoice');
 const Organization = require('../models/Organization');
 const logger = require('../utils/logger').child({ service: 'billing' });
-const { InvoiceGenerationError } = require('../utils/errors');
+const { InvoiceGenerationError, AppError } = require('../utils/errors');
 const auditLog = require('./auditLog');
 const { drawdownForSale } = require('./inventoryDrawdownService');
 
@@ -714,9 +714,6 @@ async function restorePaymentAllocations(paymentId) {
  *   - Writes an audit-log entry regardless of the starting status.
  *
  * Throws NotFoundError (404) if the invoice does not exist under the given org.
- * Throws AppError (422 INVOICE_VOID) from Invoice.update if the route layer's
- * beforeUpdate hook fires (non-void edit on a void record) — that guard is not
- * exercised here because we always set status = 'void'.
  *
  * @param {number|string} invoiceId
  * @param {number}        orgId
@@ -724,23 +721,71 @@ async function restorePaymentAllocations(paymentId) {
  * @returns {Promise<object>}      updated invoice record
  */
 async function voidInvoiceById(invoiceId, orgId, userId) {
-  const existing = await Invoice.findByIdOrFail(invoiceId, orgId);
-  const record = await Invoice.update(invoiceId, { status: 'void' }, orgId);
+  // A stamped CFDI is registered at SAT the moment it is timbrado — an internal
+  // "void" does NOT withhold it from the tax authority, so it stays fiscally
+  // valid (vigente). Voiding is therefore only allowed for an invoice with no
+  // live CFDI. A stamped invoice must be CANCELLED at SAT (with a motivo) via
+  // cfdiService.cancel, which — once SAT accepts — flows back through
+  // cancelInvoiceForSat and lands the invoice in 'cancelled', not 'void'.
+  const [live] = await db.query(
+    "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND sat_status IN ('vigente', 'cancel_pending') LIMIT 1",
+    [invoiceId],
+  );
+  if (live.length > 0) {
+    throw new AppError(
+      'This invoice has a stamped CFDI that is still valid at SAT. Cancel the CFDI at SAT (with a motivo) instead of voiding it.',
+      422,
+      'INVOICE_STAMPED',
+    );
+  }
 
-  if (existing.status !== 'void') {
+  return settleInvoiceTerminal(invoiceId, orgId, userId, { status: 'void', action: 'void' });
+}
+
+/**
+ * Mark an invoice CANCELLED because its CFDI was cancelled at SAT (sat_status
+ * became 'cancelado'). Called by cfdiService once SAT accepts the cancellation.
+ * Reuses the same financial cleanup as a void — release allocations, zero the
+ * ledger — but records the invoice as 'cancelled' (SAT-cancelled) rather than
+ * 'void' (internal discard of an unstamped invoice). Both statuses are already
+ * excluded from receivables and every tax/financial report.
+ *
+ * @param {number|string} invoiceId
+ * @param {number}        orgId
+ * @param {number|null}   userId   — usually null (system-triggered by the PAC ack)
+ * @returns {Promise<object>}      updated invoice record
+ */
+async function cancelInvoiceForSat(invoiceId, orgId, userId = null) {
+  return settleInvoiceTerminal(invoiceId, orgId, userId, { status: 'cancelled', action: 'cancel_cfdi' });
+}
+
+/**
+ * Shared terminal-settlement for an invoice: set its status to the given
+ * terminal value ('void' or 'cancelled') and, the first time it enters a
+ * terminal state, release any allocations (paid invoices become unallocated
+ * client credit) and zero its balance-ledger entries so it stops contributing
+ * to the client's balance. Idempotent: re-settling an already-terminal invoice
+ * only re-stamps the status and audit log, never double-releases money.
+ */
+async function settleInvoiceTerminal(invoiceId, orgId, userId, { status, action }) {
+  const existing = await Invoice.findByIdOrFail(invoiceId, orgId);
+  const record = await Invoice.update(invoiceId, { status }, orgId);
+
+  const wasTerminal = existing.status === 'void' || existing.status === 'cancelled';
+  if (!wasTerminal) {
     if (existing.status === 'paid') {
       // Release the allocations that pointed to this invoice so each payment
       // becomes an unallocated credit on the client.
       await releaseInvoiceAllocations(existing.id);
     }
 
-    // Remove any earlier void-reversal credit for this invoice…
+    // Remove any earlier reversal credit for this invoice…
     await db.query(
       `DELETE FROM client_balance_ledger
         WHERE reference_type = 'invoice' AND reference_id = ? AND client_id = ? AND entry_type = 'credit'`,
       [existing.id, existing.client_id],
     );
-    // …then zero the invoice's remaining (debit) ledger entries so the voided
+    // …then zero the invoice's remaining (debit) ledger entries so the settled
     // invoice shows as $0 and stops contributing to the balance.
     await db.query(
       `UPDATE client_balance_ledger
@@ -751,13 +796,13 @@ async function voidInvoiceById(invoiceId, orgId, userId) {
   }
 
   await auditLog.log({
-    userId,
+    userId: userId ?? null,
     organizationId: orgId,
-    action: 'void',
+    action,
     tableName: 'invoices',
     recordId: record.id,
     oldValues: existing,
-    newValues: { status: 'void' },
+    newValues: { status },
   });
 
   return record;
@@ -768,7 +813,7 @@ module.exports = {
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
   releaseInvoiceAllocations,
-  voidInvoiceById,
+  voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,
 };

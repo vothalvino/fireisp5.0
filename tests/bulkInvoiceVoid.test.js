@@ -111,6 +111,7 @@ describe('POST /api/bulk/invoices/void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 10, status: 'issued', client_id: 3, invoice_number: 'INV-10' });
     Invoice.update.mockResolvedValue({ id: 10, status: 'void', client_id: 3 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero ledger debits
 
@@ -139,6 +140,7 @@ describe('POST /api/bulk/invoices/void', () => {
     Invoice.findByIdOrFail.mockResolvedValue({ id: 11, status: 'paid', client_id: 4, invoice_number: 'INV-11' });
     Invoice.update.mockResolvedValue({ id: 11, status: 'void', client_id: 4 });
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // releaseInvoiceAllocations (UPDATE payment_allocations)
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE void-reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero ledger debits
@@ -170,7 +172,7 @@ describe('POST /api/bulk/invoices/void', () => {
     mockAuthUser();
     Invoice.findByIdOrFail.mockResolvedValue({ id: 12, status: 'void', client_id: 5, invoice_number: 'INV-12' });
     Invoice.update.mockResolvedValue({ id: 12, status: 'void', client_id: 5 });
-    // No db.query calls expected
+    db.query.mockResolvedValueOnce([[]]); // stamped-CFDI guard: no live CFDI
 
     const res = await request(app)
       .post('/api/bulk/invoices/void')
@@ -180,7 +182,9 @@ describe('POST /api/bulk/invoices/void', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.success).toBe(1);
     expect(res.body.data.failed).toBe(0);
-    expect(db.query).not.toHaveBeenCalled();
+    // Only the stamped-CFDI guard ran — no money-moving writes
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query.mock.calls[0][0]).toMatch(/FROM cfdi_documents/);
   });
 
   test('non-existent id lands in errors[] without failing the batch', async () => {
@@ -195,8 +199,10 @@ describe('POST /api/bulk/invoices/void', () => {
     Invoice.update.mockResolvedValueOnce({ id: 20, status: 'void', client_id: 7 });
 
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for id 20
       .mockResolvedValueOnce([{ affectedRows: 0 }])  // DELETE credit for id 20
-      .mockResolvedValueOnce([{ affectedRows: 1 }]);  // zero debits for id 20
+      .mockResolvedValueOnce([{ affectedRows: 1 }])  // zero debits for id 20
+      .mockResolvedValueOnce([[]]); // stamped-CFDI guard for id 999 (runs before findByIdOrFail rejects)
 
     const res = await request(app)
       .post('/api/bulk/invoices/void')
@@ -225,8 +231,10 @@ describe('POST /api/bulk/invoices/void', () => {
       .mockResolvedValueOnce({ id: 31, status: 'void', client_id: 8 });
 
     db.query
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for 30
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE credit for 30
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // zero debits for 30
+      .mockResolvedValueOnce([[]]) // stamped-CFDI guard for 31
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // release allocations for 31
       .mockResolvedValueOnce([{ affectedRows: 0 }]) // DELETE credit for 31
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // zero debits for 31

@@ -272,4 +272,112 @@ describe('InvoiceDetail page', () => {
     await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Add Item' })).not.toBeInTheDocument();
   });
+
+  it('hides the Add Item form once the invoice is cancelled (SAT-cancelled)', async () => {
+    setupMocks('cancelled');
+    wireItemsGet([item1]);
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Add Item' })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Void vs. Cancel-at-SAT gating
+// ---------------------------------------------------------------------------
+// Mexican compliance: a stamped CFDI is registered at SAT at timbrado, so an
+// internal void would leave it fiscally valid. While a live CFDI exists
+// (vigente / cancel_pending) the Void button is replaced by Cancel CFDI (SAT).
+
+// Re-wires authedFetch with CFDI docs for this invoice on top of the default
+// catalog/items handling (mockImplementation fully replaces the previous one).
+function wireAuthedFetch(cfdiDocs: object[]) {
+  mockAuthedFetch.mockImplementation((url: string) => {
+    if (url.includes('/cfdi-documents')) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: cfdiDocs }) });
+    }
+    if (url.includes('/cfdi/cancel')) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: { status: 'cancelado' } }) });
+    }
+    if (url.includes('/plans/addons/catalog')) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: productCatalog }) });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+  });
+}
+
+const vigenteDoc = { id: 7, uuid: 'AAAA1111-BBBB-2222-CCCC-333344445555', sat_status: 'vigente' };
+
+describe('InvoiceDetail void vs. SAT cancel', () => {
+  it('shows Void (and no SAT-cancel button) when the invoice has no stamped CFDI', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '🚫 Void' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '✕ Cancel CFDI (SAT)' })).not.toBeInTheDocument();
+  });
+
+  it('replaces Void with Cancel CFDI (SAT) and shows the Vigente badge when a vigente CFDI exists', async () => {
+    wireAuthedFetch([vigenteDoc]);
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('button', { name: '✕ Cancel CFDI (SAT)' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '🚫 Void' })).not.toBeInTheDocument();
+    // Metadata card surfaces the CFDI's SAT status.
+    expect(screen.getByText('Vigente')).toBeInTheDocument();
+  });
+
+  it('submits POST /cfdi/cancel with the chosen motivo from the modal', async () => {
+    wireAuthedFetch([vigenteDoc]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '✕ Cancel CFDI (SAT)' }));
+
+    // Modal opens with the SAT reason picker; default motivo 02.
+    expect(await screen.findByRole('dialog', { name: 'Cancel CFDI at SAT' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel CFDI' }));
+
+    await waitFor(() => {
+      const call = mockAuthedFetch.mock.calls.find(([url]) => (url as string).includes('/cfdi/cancel'));
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body)).toEqual({ cfdi_document_id: 7, reason: '02' });
+    });
+    expect(await screen.findByText('CFDI cancellation submitted to SAT')).toBeInTheDocument();
+  });
+
+  it('motivo 01 requires a replacement UUID and sends it', async () => {
+    wireAuthedFetch([vigenteDoc]);
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '✕ Cancel CFDI (SAT)' }));
+    await screen.findByRole('dialog', { name: 'Cancel CFDI at SAT' });
+
+    fireEvent.change(screen.getByLabelText('Cancellation reason (SAT)'), { target: { value: '01' } });
+    const uuidInput = screen.getByLabelText('Replacement UUID (required for reason 01)');
+    fireEvent.change(uuidInput, { target: { value: 'DDDD1111-EEEE-2222-FFFF-333344445555' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel CFDI' }));
+
+    await waitFor(() => {
+      const call = mockAuthedFetch.mock.calls.find(([url]) => (url as string).includes('/cfdi/cancel'));
+      expect(call).toBeDefined();
+      expect(JSON.parse((call![1] as { body: string }).body)).toEqual({
+        cfdi_document_id: 7, reason: '01', replacement_uuid: 'DDDD1111-EEEE-2222-FFFF-333344445555',
+      });
+    });
+  });
+
+  it('shows a disabled "SAT cancel pending" button while the cancellation awaits SAT', async () => {
+    wireAuthedFetch([{ ...vigenteDoc, sat_status: 'cancel_pending' }]);
+    renderDetail();
+    const btn = await screen.findByRole('button', { name: '⏳ SAT cancel pending' });
+    expect(btn).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '🚫 Void' })).not.toBeInTheDocument();
+  });
+
+  it('a SAT-cancelled invoice shows the Cancelado badge and a plain (disabled) Void button', async () => {
+    setupMocks('cancelled');
+    wireItemsGet([item1]);
+    wireAuthedFetch([{ ...vigenteDoc, sat_status: 'cancelado' }]);
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Cancelado')).toBeInTheDocument());
+    // No live CFDI anymore → the Void button returns, but the invoice is
+    // already terminal so it stays disabled.
+    expect(screen.getByRole('button', { name: '🚫 Void' })).toBeDisabled();
+  });
 });

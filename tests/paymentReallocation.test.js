@@ -78,10 +78,12 @@ describe('Void a PAID invoice (Capability 1)', () => {
     });
 
     // db.query calls in voidInvoice:
-    //   [0] releaseInvoiceAllocations  UPDATE payment_allocations SET deleted_at...
-    //   [1] DELETE void-reversal credit FROM client_balance_ledger
-    //   [2] UPDATE ledger entries to 0
+    //   [0] stamped-CFDI guard          SELECT ... FROM cfdi_documents (must find nothing)
+    //   [1] releaseInvoiceAllocations   UPDATE payment_allocations SET deleted_at...
+    //   [2] DELETE void-reversal credit FROM client_balance_ledger
+    //   [3] UPDATE ledger entries to 0
     db.query
+      .mockResolvedValueOnce([[]])                    // guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // releaseInvoiceAllocations
       .mockResolvedValueOnce([{ affectedRows: 0 }])   // DELETE reversal credit
       .mockResolvedValueOnce([{ affectedRows: 1 }]);  // zero ledger entries
@@ -94,13 +96,13 @@ describe('Void a PAID invoice (Capability 1)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('void');
 
-    // First query must be the allocation soft-delete
-    const releaseCall = db.query.mock.calls[0];
+    // After the CFDI guard, the next query must be the allocation soft-delete
+    const releaseCall = db.query.mock.calls[1];
     expect(releaseCall[0]).toMatch(/UPDATE payment_allocations SET deleted_at/);
     expect(releaseCall[1]).toContain(10); // invoiceId = 10
 
-    // Second query removes any void-reversal credit — does NOT touch 'payment' credits
-    const deleteCall = db.query.mock.calls[1];
+    // Next query removes any void-reversal credit — does NOT touch 'payment' credits
+    const deleteCall = db.query.mock.calls[2];
     expect(deleteCall[0]).toMatch(/DELETE FROM client_balance_ledger/);
     expect(deleteCall[0]).toMatch(/entry_type = 'credit'/);
     expect(deleteCall[0]).not.toMatch(/reference_type = 'payment'/);
@@ -115,6 +117,7 @@ describe('Void a PAID invoice (Capability 1)', () => {
     });
 
     db.query
+      .mockResolvedValueOnce([[]])                    // guard: no live CFDI
       .mockResolvedValueOnce([{ affectedRows: 0 }])   // DELETE reversal credit (no allocation release)
       .mockResolvedValueOnce([{ affectedRows: 1 }]);  // zero ledger entries
 
@@ -138,6 +141,7 @@ describe('Void a PAID invoice (Capability 1)', () => {
     Invoice.update.mockResolvedValue({
       id: 12, client_id: 5, status: 'void', total: '75.00', organization_id: 1,
     });
+    db.query.mockResolvedValueOnce([[]]); // stamped-CFDI guard: no live CFDI
 
     const res = await request(app)
       .patch('/api/v1/invoices/12')
@@ -145,8 +149,10 @@ describe('Void a PAID invoice (Capability 1)', () => {
       .send({ status: 'void' });
 
     expect(res.status).toBe(200);
-    // No db.query calls because status was already 'void'
-    expect(db.query).not.toHaveBeenCalled();
+    // Only the stamped-CFDI guard ran — no money-moving queries because the
+    // status was already 'void'
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query.mock.calls[0][0]).toMatch(/FROM cfdi_documents/);
   });
 });
 
