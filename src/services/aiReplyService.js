@@ -180,9 +180,12 @@ function _renderSystemPrompt({ tone, category, phrasesByCategory, forbiddenTerms
   const suggested    = phrases.filter(p => Number(p.is_required) !== 1).map(p => `- "${p.text}"`);
   const forbidden    = forbiddenTerms.map(t => `- "${t.term}"`);
 
+  // created_at is a TIMESTAMP column → JS Date; interpolated raw it prints the
+  // verbose "Wed Aug 12 2026 00:00:00 GMT+0000 (…)" form into the LLM prompt —
+  // noise the model could echo back to the customer. Compact ISO instead.
   const historyLines = ticketHistory.length
     ? ticketHistory.map(c =>
-      `[${c.created_at}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
+      `[${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')}]${c.is_internal ? ' (internal)' : ''} ${c.body}`,
     ).join('\n---\n')
     : '(no prior messages)';
 

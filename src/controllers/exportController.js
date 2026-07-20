@@ -9,6 +9,16 @@ const db = require('../config/database');
 /**
  * Converts an array of objects to a CSV string.
  */
+// DATE/DATETIME columns arrive from mysql2 as JS Date objects; String(d) dumps
+// "Wed Aug 12 2026 00:00:00 GMT+0000 (Coordinated Universal Time)" into every
+// date cell. Format ISO instead — a DATE column is UTC midnight, so render it
+// as the bare day; anything with a time keeps "YYYY-MM-DD HH:mm:ss".
+function fmtCell(val) {
+  if (!(val instanceof Date)) return String(val);
+  const iso = val.toISOString();
+  return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
+}
+
 function toCsv(rows) {
   if (rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
@@ -18,7 +28,7 @@ function toCsv(rows) {
     const values = headers.map(h => {
       const val = row[h];
       if (val === null || val === undefined) return '';
-      const str = String(val);
+      const str = fmtCell(val);
       // Escape commas, quotes, newlines
       if (str.includes(',') || str.includes('"') || str.includes('\n')) {
         return `"${str.replace(/"/g, '""')}"`;

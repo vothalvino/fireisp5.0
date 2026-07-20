@@ -85,15 +85,13 @@ async function _balanceQuery(context, _messageContent, orgId) {
 
 async function _nextDueDate(context) {
   try {
-    const dueDate = context?.billing?.nextDueDate ?? null;
-    if (dueDate) {
-      return {
-        response: `Tu próximo pago vence el ${dueDate}.`,
-        requiresConfirmation: false,
-        actionType: 'next_due_date',
-        actionData: { nextDueDate: dueDate },
-      };
-    }
+    // NOTE: there used to be a shortcut branch here answering straight from
+    // `context.billing.nextDueDate`. It was doubly broken: the context builder
+    // sets the key `nextDue` (not `nextDueDate`), so the branch was dead — and
+    // had the naming ever been "fixed", it would have answered with an
+    // UNFORMATTED raw Date derived from billing_periods.scheduled_at, i.e. the
+    // exact invoice-GENERATION-date bug the review below removed. The invoice
+    // due_date query below is the only correct source; the shortcut is gone.
 
     // MEDIUM — item 6 of the second adversarial review: this used to answer
     // "when is my payment DUE" with billing_periods.scheduled_at — the date

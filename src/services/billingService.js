@@ -13,6 +13,14 @@ const { InvoiceGenerationError, AppError } = require('../utils/errors');
 const auditLog = require('./auditLog');
 const { drawdownForSale } = require('./inventoryDrawdownService');
 
+// Format a DATE-column value (mysql2 returns a JS Date) as YYYY-MM-DD for
+// user-visible strings — never interpolate a Date object raw (it prints the
+// full "Wed Aug 12 2026 00:00:00 GMT+0000 (...)" form).
+function fmtDateOnly(d) {
+  if (!d) return '';
+  return new Date(d).toISOString().slice(0, 10);
+}
+
 /**
  * Atomically allocate the next sequential invoice number for an organization,
  * e.g. INV-000123. Backed by `organization_invoice_sequences` (migration 381)
@@ -291,11 +299,14 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
     );
     const invoiceId = invResult.insertId;
 
-    // Add line item for the plan
+    // Add line item for the plan. period_start/period_end are DATE columns —
+    // mysql2 returns them as JS Date objects, so interpolating them raw prints
+    // "Wed Aug 12 2026 00:00:00 GMT+0000 (Coordinated Universal Time)" on the
+    // invoice; format as YYYY-MM-DD.
     await conn.execute(
       `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount)
        VALUES (?, ?, 1, ?, ?)`,
-      [invoiceId, `${plan.name} — ${billingPeriod.period_start} to ${billingPeriod.period_end}`, price, price],
+      [invoiceId, `${plan.name} — ${fmtDateOnly(billingPeriod.period_start)} to ${fmtDateOnly(billingPeriod.period_end)}`, price, price],
     );
 
     // Extra line items (overage, add-ons) accumulate here; the invoice's
