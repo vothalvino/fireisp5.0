@@ -366,8 +366,10 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
         const price = parseFloat(contract.price_override || plan.price);
         currency = plan.currency || currency;
 
-        const periodStart = String(period.period_start).slice(0, 10);
-        const periodEnd = String(period.period_end).slice(0, 10);
+        // DATE columns arrive as JS Date objects — String(d).slice(0,10) yields
+        // "Wed Aug 12" (year lost, TZ-shifted); ISO-slice gives "2026-08-12".
+        const periodStart = new Date(period.period_start).toISOString().slice(0, 10);
+        const periodEnd = new Date(period.period_end).toISOString().slice(0, 10);
         lineItems.push({
           description: `${plan.name} — ${periodStart} to ${periodEnd}`,
           quantity: 1,
@@ -590,7 +592,7 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
       invoiceNumber: invoice.invoice_number,
       total: invoice.total,
       currency: invoice.currency,
-      dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '',
+      dueDate: invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : '',
       items: itemRows,
     });
 

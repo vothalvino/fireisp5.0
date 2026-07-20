@@ -343,7 +343,7 @@ async function runAutoInvoice(organizationId) {
               invoiceNumber: invoice.invoice_number,
               total: invoice.total,
               currency: invoice.currency,
-              dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '',
+              dueDate: invoice.due_date ? new Date(invoice.due_date).toISOString().slice(0, 10) : '',
               items: itemRows,
             });
             await emailTransport.sendEmail({
@@ -427,7 +427,7 @@ async function runSuspensionWarnings(organizationId) {
             invoiceNumber: contract.invoice_number,
             total: contract.total,
             currency: contract.currency,
-            dueDate: contract.due_date ? String(contract.due_date).slice(0, 10) : '',
+            dueDate: contract.due_date ? new Date(contract.due_date).toISOString().slice(0, 10) : '',
           });
           await emailTransport.sendEmail({
             organizationId: contract.organization_id,

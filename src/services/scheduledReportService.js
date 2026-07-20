@@ -191,7 +191,7 @@ async function formatReport(data, reportName, format) {
         doc.text(headers.join(' | '));
         doc.moveDown(0.3);
         for (const row of rows.slice(0, 100)) {
-          doc.text(headers.map(h => String(row[h] ?? '')).join(' | '));
+          doc.text(headers.map(h => fmtCell(row[h] ?? '')).join(' | '));
         }
         if (rows.length > 100) doc.text(`... and ${rows.length - 100} more rows`);
       } else {
@@ -205,6 +205,16 @@ async function formatReport(data, reportName, format) {
   throw new Error(`Unsupported format: ${format}`);
 }
 
+// DATE/DATETIME columns arrive from mysql2 as JS Date objects; String(d) dumps
+// the full "Wed Aug 12 2026 00:00:00 GMT+0000 (…)" form into report cells (CSV
+// and the PDF branch above — XLSX is safe, exceljs date-types Date instances).
+// A DATE column is UTC midnight → render the bare day; else keep date+time.
+function fmtCell(v) {
+  if (!(v instanceof Date)) return String(v ?? '');
+  const iso = v.toISOString();
+  return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
+}
+
 /**
  * Convert array of objects to CSV string.
  */
@@ -212,7 +222,7 @@ function toCSV(rows) {
   if (!rows || rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
   const escape = v => {
-    const s = String(v ?? '');
+    const s = fmtCell(v);
     return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.map(escape).join(',')];

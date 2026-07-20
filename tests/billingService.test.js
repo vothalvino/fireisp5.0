@@ -380,6 +380,34 @@ describe('billingService', () => {
       expect(invoiceInsert[6]).toBe(580);   // total
     });
 
+    test('line description formats DATE-column Date objects as YYYY-MM-DD (never raw)', async () => {
+      // mysql2 returns DATE columns as JS Date objects — interpolated raw they
+      // print "Wed Aug 12 2026 00:00:00 GMT+0000 (…)" on the invoice/PDF.
+      const datePeriod = {
+        id: 10,
+        period_start: new Date('2026-08-12T00:00:00Z'),
+        period_end: new Date('2026-09-11T00:00:00Z'),
+      };
+      mockConnection.execute
+        .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])
+        .mockResolvedValueOnce([[]])  // no tax rate
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ insertId: 52 }])
+        .mockResolvedValueOnce([])  // INSERT line item
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+      mockConnection.query.mockResolvedValueOnce([[{ id: 7 }]]);
+      db.query.mockResolvedValueOnce([[{ id: 52, total: '500.00' }]]);
+
+      await billingService.generateInvoice(datePeriod, contract, plan, orgId);
+
+      const itemInsert = mockConnection.execute.mock.calls[5][1];
+      expect(itemInsert[1]).toBe('Basic 50Mbps — 2026-08-12 to 2026-09-11');
+      expect(itemInsert[1]).not.toMatch(/GMT|Coordinated/);
+    });
+
     test('rolls back transaction on error', async () => {
       // FOR UPDATE lock succeeds, then next call fails
       mockConnection.execute
