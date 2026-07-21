@@ -75,6 +75,12 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Run tests with coverage
+        # The main jest process aggregates coverage maps for all 330+ suites in
+        # memory; with the fiscal-stack heavyweights (saxon-js + compiled SAT
+        # stylesheet, pdfkit, fast-xml-parser) that crossed Node's 4GB default
+        # heap. ubuntu-latest runners have 16GB — give jest 6.
+        env:
+          NODE_OPTIONS: --disable-warning=DEP0040 --disable-warning=DEP0169 --max-old-space-size=6144
         run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
 
       - name: Check coverage threshold
