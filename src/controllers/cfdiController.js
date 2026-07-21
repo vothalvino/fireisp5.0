@@ -6,6 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const pdfService = require('../services/pdfService');
 const cfdiService = require('../services/cfdiService');
 
 /**
@@ -167,81 +168,21 @@ async function downloadXml(req, res, next) {
 async function downloadPdf(req, res, next) {
   try {
     const [docs] = await db.query(
-      'SELECT * FROM cfdi_documents WHERE id = ? AND organization_id = ?',
+      'SELECT id, uuid FROM cfdi_documents WHERE id = ? AND organization_id = ?',
       [req.params.id, req.orgId],
     );
     if (!docs[0]) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'CFDI document not found' } });
     }
 
-    const doc = docs[0];
-
-    // Emisor identity is not stored per-document — join the org's fiscal
-    // profile (may be absent on a half-configured org; render blanks then).
-    const [emisorRows] = await db.query(
-      `SELECT rfc, razon_social FROM organization_mx_profiles
-        WHERE organization_id = ? AND deleted_at IS NULL`,
-      [req.orgId],
-    );
-    const emisor = emisorRows[0] || {};
-
-    // Fetch conceptos for the PDF
-    const [conceptos] = await db.query(
-      'SELECT * FROM cfdi_conceptos WHERE cfdi_document_id = ?',
-      [doc.id],
-    );
-
-    const PDFDocument = require('pdfkit');
-    const pdfDoc = new PDFDocument({ size: 'LETTER', margin: 50 });
-
+    // One renderer for every CFDI PDF: pdfService picks the representación
+    // impresa for stamped documents and the draft summary otherwise. The
+    // hand-rolled layout that used to live here read phantom columns
+    // (sello_sat / fecha_emision) and skipped every legally required element.
+    const buffer = await pdfService.generateCfdiPdf(docs[0].id, { locale: 'es' });
     res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `attachment; filename="CFDI-${doc.uuid || doc.id}.pdf"`);
-    pdfDoc.pipe(res);
-
-    // Header
-    pdfDoc.fontSize(18).text('CFDI 4.0', { align: 'center' });
-    pdfDoc.moveDown(0.5);
-    pdfDoc.fontSize(10);
-    pdfDoc.text(`UUID: ${doc.uuid || 'N/A'}`);
-    pdfDoc.text(`Serie: ${doc.serie || ''} Folio: ${doc.folio || ''}`);
-    // Real columns: stamp_date once stamped, created_at otherwise
-    // (fecha_emision never existed on this table).
-    const fecha = doc.stamp_date || doc.created_at;
-    pdfDoc.text(`Fecha: ${fecha ? new Date(fecha).toISOString().slice(0, 19).replace('T', ' ') : ''}`);
-    pdfDoc.text(`Tipo: ${doc.tipo_comprobante || ''} | Moneda: ${doc.moneda || ''}`);
-    pdfDoc.moveDown();
-
-    // Emisor / Receptor
-    pdfDoc.fontSize(12).text('Emisor', { underline: true });
-    pdfDoc.fontSize(10);
-    pdfDoc.text(`RFC: ${emisor.rfc || ''} — ${emisor.razon_social || ''}`);
-    pdfDoc.moveDown(0.5);
-    pdfDoc.fontSize(12).text('Receptor', { underline: true });
-    pdfDoc.fontSize(10);
-    pdfDoc.text(`RFC: ${doc.receptor_rfc || ''} — ${doc.receptor_nombre || ''}`);
-    pdfDoc.moveDown();
-
-    // Conceptos table
-    pdfDoc.fontSize(12).text('Conceptos', { underline: true });
-    pdfDoc.moveDown(0.3);
-    pdfDoc.fontSize(9);
-    for (const c of conceptos) {
-      pdfDoc.text(
-        `${c.cantidad}x ${c.descripcion || ''} @ $${c.valor_unitario || 0} = $${c.importe || 0}`,
-      );
-    }
-
-    pdfDoc.moveDown();
-    pdfDoc.fontSize(11);
-    pdfDoc.text(`Subtotal: $${doc.subtotal || 0}`);
-    pdfDoc.text(`Total:    $${doc.total || 0}`, { bold: true });
-
-    if (doc.uuid) {
-      pdfDoc.moveDown();
-      pdfDoc.fontSize(8).text(`Sello SAT: ${doc.sat_seal || 'N/A'}`);
-    }
-
-    pdfDoc.end();
+    res.set('Content-Disposition', `attachment; filename="CFDI-${docs[0].uuid || docs[0].id}.pdf"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
