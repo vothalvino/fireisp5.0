@@ -62440,6 +62440,13 @@
               "production"
             ]
           },
+          "seal_mode": {
+            "type": "string",
+            "enum": [
+              "pac",
+              "local"
+            ]
+          },
           "username_encrypted": {
             "type": "string",
             "maximum": 500
@@ -62490,6 +62497,13 @@
             "enum": [
               "sandbox",
               "production"
+            ]
+          },
+          "seal_mode": {
+            "type": "string",
+            "enum": [
+              "pac",
+              "local"
             ]
           },
           "username_encrypted": {

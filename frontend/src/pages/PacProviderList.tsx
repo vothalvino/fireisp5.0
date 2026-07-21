@@ -120,6 +120,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
     provider_name: existing?.provider_name ?? 'sw_sapien',
     label: existing?.label ?? '',
     environment: existing?.environment ?? 'sandbox',
+    seal_mode: (existing as { seal_mode?: string } | null)?.seal_mode ?? 'pac',
     api_url: existing?.api_url ?? API_URL_PRESETS.sw_sapien.sandbox ?? '',
     username: '',
     password: '',
@@ -142,6 +143,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
         provider_name: form.provider_name,
         label: form.label.trim(),
         environment: form.environment,
+        seal_mode: form.seal_mode,
         api_url: form.api_url.trim(),
         status: form.status,
       };
@@ -202,6 +204,17 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
             <option value="sandbox">sandbox</option>
             <option value="production">production</option>
           </select>
+
+          <label style={label} htmlFor="pac-seal">Sealing</label>
+          <select id="pac-seal" style={input} value={form.seal_mode} onChange={e => set('seal_mode', e.target.value)}>
+            <option value="pac">PAC seals (Emisión — CSD in the PAC’s vault)</option>
+            <option value="local">Local sealing (stamp-only — CSD stays on this server)</option>
+          </select>
+          {form.seal_mode === 'local' && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 8px' }}>
+              Requires an active CSD under Facturación → Certificados CSD. Currently supported for SW Sapien.
+            </p>
+          )}
 
           <label style={label} htmlFor="pac-url">API URL <RequiredMark /></label>
           <input id="pac-url" style={{ ...input, fontFamily: 'monospace' }} maxLength={500} value={form.api_url} onChange={e => set('api_url', e.target.value)} />
