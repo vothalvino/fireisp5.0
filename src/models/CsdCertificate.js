@@ -7,12 +7,13 @@ const BaseModel = require('./BaseModel');
 class CsdCertificate extends BaseModel {
   static get tableName() { return 'csd_certificates'; }
 
+  // Lifecycle-only: certificates are immutable once uploaded. The upload
+  // route inserts with raw SQL after server-side parsing/validation, so
+  // keeping cer_pem/key material in fillable would let a generic PUT
+  // overwrite a validated certificate with arbitrary unvalidated bytes
+  // (validate() ignores-but-does-not-strip undeclared fields).
   static get fillable() {
-    return [
-      'organization_id', 'cer_pem', 'key_pem_encrypted',
-      'passphrase_encrypted', 'fingerprint_sha256', 'certificate_number',
-      'rfc', 'valid_from', 'valid_to', 'status',
-    ];
+    return ['status'];
   }
 
   static get hasOrgScope() { return true; }

@@ -118,9 +118,7 @@ describe('CSD Certificate routes — secret redaction', () => {
     expect(res.body.data.has_passphrase).toBe(false);
   });
 
-  test('POST /api/v1/csd-certificates never leaks the private key in the 201 response', async () => {
-    CsdCertificate.create.mockResolvedValue(rawCertRow);
-
+  test('the legacy client-trusted create shape is rejected (422) — server parses the files now', async () => {
     const res = await request(app)
       .post('/api/v1/csd-certificates')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -130,11 +128,161 @@ describe('CSD Certificate routes — secret redaction', () => {
         key_pem_encrypted: 'PLAINTEXT_PRIVATE_KEY_PEM',
         rfc: 'AAA010101AAA',
       });
+    expect(res.status).toBe(422);
+  });
+});
+
+// ===========================================================================
+// Real upload flow — uses the SAT public test CSD fixtures end-to-end
+// (the seal service actually parses/validates them; only the DB is mocked).
+// ===========================================================================
+describe('CSD upload (real fixture, parsed server-side)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const CER_B64 = fs.readFileSync(path.join(__dirname, 'fixtures/csd/EKU9003173C9.cer')).toString('base64');
+  const KEY_B64 = fs.readFileSync(path.join(__dirname, 'fixtures/csd/EKU9003173C9.key')).toString('base64');
+
+  function wireUploadDb({ orgRfc = 'EKU9003173C9', dup = null, actives = [] } = {}) {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
+      if (/FROM organization_mx_profiles/.test(sql)) return [orgRfc ? [{ rfc: orgRfc }] : []];
+      if (/INSERT INTO csd_certificates/.test(sql)) return [{ insertId: 11 }];
+      if (/fingerprint_sha256/.test(sql)) return [dup ? [{ id: dup }] : []];
+      if (/is_active = 1/.test(sql)) return [actives];
+      return [[]];
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAdminUser();
+  });
+
+  test('uploads the raw .cer/.key, stores encrypted, responds with public info only', async () => {
+    wireUploadDb();
+    const res = await request(app)
+      .post('/api/v1/csd-certificates')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: '12345678a' });
 
     expect(res.status).toBe(201);
-    assertRedacted(res.body.data);
-    expect(CsdCertificate.create).toHaveBeenCalledWith(
-      expect.objectContaining({ key_pem_encrypted: 'PLAINTEXT_PRIVATE_KEY_PEM' }),
-    );
+    expect(res.body.data).toMatchObject({
+      id: 11, rfc: 'EKU9003173C9', certificate_number: '30001000000500003416',
+      is_active: 1, is_test_certificate: true,
+    });
+    expect(JSON.stringify(res.body)).not.toContain('PRIVATE KEY');
+    expect(JSON.stringify(res.body)).not.toContain('12345678a');
+    const insert = db.query.mock.calls.find(c => /INSERT INTO csd_certificates/.test(c[0]));
+    // key + passphrase params must be the (possibly no-op) encrypt() output —
+    // never missing; cer_pem is public and stored plain
+    expect(insert[1]).toEqual(expect.arrayContaining(['EKU9003173C9', '30001000000500003416']));
+  });
+
+  test('422 CSD_RFC_MISMATCH when the CSD belongs to another RFC', async () => {
+    wireUploadDb({ orgRfc: 'AAA010101AAA' });
+    const res = await request(app)
+      .post('/api/v1/csd-certificates')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: '12345678a' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CSD_RFC_MISMATCH');
+  });
+
+  test('422 CSD_INVALID on a wrong passphrase', async () => {
+    wireUploadDb();
+    const res = await request(app)
+      .post('/api/v1/csd-certificates')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: 'nope' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CSD_INVALID');
+  });
+
+  test('409 CSD_DUPLICATE on the same fingerprint', async () => {
+    wireUploadDb({ dup: 7 });
+    const res = await request(app)
+      .post('/api/v1/csd-certificates')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: '12345678a' });
+    expect(res.status).toBe(409);
+  });
+
+  test('a second certificate stays inactive until explicitly activated', async () => {
+    wireUploadDb({ actives: [{ id: 5 }] });
+    const res = await request(app)
+      .post('/api/v1/csd-certificates')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: '12345678a' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.is_active).toBe(0);
+  });
+
+  test('production without ENCRYPTION_KEY: 422 ENCRYPTION_REQUIRED (never store plaintext keys)', async () => {
+    wireUploadDb();
+    const oldEnv = process.env.NODE_ENV;
+    const oldKey = process.env.ENCRYPTION_KEY;
+    process.env.NODE_ENV = 'production';
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      const res = await request(app)
+        .post('/api/v1/csd-certificates')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Org-Id', '1')
+        .send({ cer_b64: CER_B64, key_b64: KEY_B64, passphrase: '12345678a' });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('ENCRYPTION_REQUIRED');
+    } finally {
+      process.env.NODE_ENV = oldEnv;
+      if (oldKey !== undefined) process.env.ENCRYPTION_KEY = oldKey;
+    }
+  });
+});
+
+describe('CSD activation (zero-downtime renewal)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAdminUser();
+  });
+
+  function futureDate(days) { return new Date(Date.now() + days * 86400000); }
+
+  test('activates a valid cert and deactivates siblings in one transaction', async () => {
+    const conn = {
+      beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+      execute: jest.fn().mockResolvedValue([{ affectedRows: 1 }]),
+    };
+    db.getConnection.mockResolvedValue(conn);
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
+      if (/FROM csd_certificates WHERE id/.test(sql)) return [[{ id: 9, status: 'active', valid_to: futureDate(300) }]];
+      return [[]];
+    });
+    const res = await request(app)
+      .post('/api/v1/csd-certificates/9/activate')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1');
+    expect(res.status).toBe(200);
+    expect(conn.execute.mock.calls[0][0]).toContain('is_active = 0');
+    expect(conn.execute.mock.calls[1][0]).toContain('is_active = 1');
+    expect(conn.commit).toHaveBeenCalled();
+  });
+
+  test('422 CSD_NOT_ACTIVATABLE for an expired certificate', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
+      if (/FROM csd_certificates WHERE id/.test(sql)) return [[{ id: 9, status: 'active', valid_to: new Date('2020-01-01') }]];
+      return [[]];
+    });
+    const res = await request(app)
+      .post('/api/v1/csd-certificates/9/activate')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1');
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CSD_NOT_ACTIVATABLE');
   });
 });

@@ -8942,6 +8942,42 @@
         }
       }
     },
+    "/csd-certificates/{id}/activate": {
+      "post": {
+        "tags": [
+          "CSD Certificates"
+        ],
+        "summary": "Activate this certificate for signing (deactivates siblings — zero-downtime renewal)",
+        "operationId": "activateCsdCertificate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CsdCertificate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pac-providers": {
       "get": {
         "tags": [
@@ -55093,60 +55129,31 @@
           "amount"
         ]
       },
-      "csdCertificates_createCsdCertificate": {
+      "csdCertificates_uploadCsdCertificate": {
         "type": "object",
         "properties": {
-          "rfc": {
+          "cer_b64": {
             "type": "string",
-            "minimum": 12,
-            "maximum": 13
+            "maximum": 20000
           },
-          "certificate_number": {
+          "key_b64": {
             "type": "string",
-            "maximum": 20
+            "maximum": 20000
           },
-          "cer_pem": {
-            "type": "string"
-          },
-          "key_pem_encrypted": {
-            "type": "string"
-          },
-          "valid_from": {
-            "type": "string"
-          },
-          "valid_to": {
-            "type": "string"
-          },
-          "status": {
+          "passphrase": {
             "type": "string",
-            "enum": [
-              "active",
-              "expired",
-              "revoked"
-            ]
+            "maximum": 256
           }
         },
         "required": [
-          "rfc",
-          "cer_pem",
-          "key_pem_encrypted"
+          "cer_b64",
+          "key_b64",
+          "passphrase"
         ]
       },
       "csdCertificates_updateCsdCertificate": {
         "type": "object",
         "properties": {
-          "cer_pem": {
-            "type": "string"
-          },
-          "key_pem_encrypted": {
-            "type": "string"
-          },
-          "valid_from": {
-            "type": "string"
-          },
-          "valid_to": {
-            "type": "string"
-          },
           "status": {
             "type": "string",
             "enum": [

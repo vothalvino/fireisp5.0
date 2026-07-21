@@ -60,7 +60,7 @@ const schemaModules = {
   paymentGateways: { path: '../src/middleware/schemas/paymentGateways', expected: ['createPaymentGateway', 'updatePaymentGateway'] },
   recurringPaymentProfiles: { path: '../src/middleware/schemas/recurringPaymentProfiles', expected: ['createRecurringPaymentProfile', 'updateRecurringPaymentProfile'] },
   suspensionRules: { path: '../src/middleware/schemas/suspensionRules', expected: ['createSuspensionRule', 'updateSuspensionRule'] },
-  csdCertificates: { path: '../src/middleware/schemas/csdCertificates', expected: ['createCsdCertificate', 'updateCsdCertificate'] },
+  csdCertificates: { path: '../src/middleware/schemas/csdCertificates', expected: ['uploadCsdCertificate', 'updateCsdCertificate'] },
   pacProviders: { path: '../src/middleware/schemas/pacProviders', expected: ['createPacProvider', 'updatePacProvider'] },
   cfdiDocuments: { path: '../src/middleware/schemas/cfdiDocuments', expected: ['createCfdiDocument', 'updateCfdiDocument', 'cancelCfdiDocument'] },
   scheduledTasks: { path: '../src/middleware/schemas/scheduledTasks', expected: ['createScheduledTask', 'updateScheduledTask'] },
@@ -1118,40 +1118,37 @@ describe('SuspensionRule validation schemas', () => {
 
 // --- CSD Certificates ---
 describe('CsdCertificate validation schemas', () => {
-  const { createCsdCertificate, updateCsdCertificate } = require('../src/middleware/schemas/csdCertificates');
+  const { uploadCsdCertificate, updateCsdCertificate } = require('../src/middleware/schemas/csdCertificates');
 
-  test('createCsdCertificate requires rfc, cer_pem, key_pem_encrypted', () => {
-    const next = run(createCsdCertificate, {});
+  // The create shape is now a real UPLOAD: raw .cer/.key (base64) + passphrase,
+  // parsed server-side — the old client-trusted fields (rfc, cer_pem,
+  // key_pem_encrypted) are gone by design.
+  test('uploadCsdCertificate requires cer_b64, key_b64 and passphrase', () => {
+    const next = run(uploadCsdCertificate, {});
     const fields = errorFields(next);
-    expect(fields).toContain('rfc');
-    expect(fields).toContain('cer_pem');
-    expect(fields).toContain('key_pem_encrypted');
+    expect(fields).toContain('cer_b64');
+    expect(fields).toContain('key_b64');
+    expect(fields).toContain('passphrase');
   });
 
-  test('createCsdCertificate rejects rfc < 12 chars', () => {
-    const next = run(createCsdCertificate, {
-      rfc: 'SHORT', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
-    });
-    expectReject(next);
-  });
-
-  test('createCsdCertificate rejects rfc > 13 chars', () => {
-    const next = run(createCsdCertificate, {
-      rfc: 'TOOLONGSTRING14', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
-    });
-    expectReject(next);
-  });
-
-  test('createCsdCertificate accepts valid 12/13 char rfc', () => {
-    const next = run(createCsdCertificate, {
-      rfc: 'XAXX010101AA', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
+  test('uploadCsdCertificate accepts a complete upload body', () => {
+    const next = run(uploadCsdCertificate, {
+      cer_b64: 'QUJD', key_b64: 'REVG', passphrase: '12345678a',
     });
     expectPass(next);
+  });
 
-    const next13 = run(createCsdCertificate, {
-      rfc: 'XAXX0101010A0', cer_pem: 'pem-data', key_pem_encrypted: 'key-data',
+  test('uploadCsdCertificate caps oversized files', () => {
+    const next = run(uploadCsdCertificate, {
+      cer_b64: 'A'.repeat(20001), key_b64: 'REVG', passphrase: 'x',
     });
-    expectPass(next13);
+    expectReject(next);
+  });
+
+  test('updateCsdCertificate only moves the lifecycle status (certs are immutable)', () => {
+    expect(Object.keys(updateCsdCertificate)).toEqual(['status']);
+    expectPass(run(updateCsdCertificate, { status: 'revoked' }));
+    expectReject(run(updateCsdCertificate, { status: 'bogus' }));
   });
 
   test('updateCsdCertificate allows partial updates', () => {

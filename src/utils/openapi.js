@@ -572,6 +572,11 @@ function generateSpec() {
 
       // ---- CSD Certificates ----
       ...crudPaths('csd-certificates', 'CSD Certificates', 'CsdCertificate'),
+      // Upload replaces the generic create: raw .cer/.key files (base64) +
+      // passphrase, parsed and validated server-side.
+      '/csd-certificates/{id}/activate': {
+        post: { tags: ['CSD Certificates'], summary: 'Activate this certificate for signing (deactivates siblings — zero-downtime renewal)', operationId: 'activateCsdCertificate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CsdCertificate') },
+      },
 
       // ---- PAC Providers ----
       ...crudPaths('pac-providers', 'PAC Providers', 'PacProvider'),

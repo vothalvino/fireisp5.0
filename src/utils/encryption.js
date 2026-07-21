@@ -102,4 +102,14 @@ function decrypt(ciphertext) {
   }
 }
 
-module.exports = { encrypt, decrypt, getKey };
+/**
+ * True when ENCRYPTION_KEY is configured — i.e. encrypt() actually encrypts.
+ * Callers storing long-lived secrets (CSD private keys) must refuse to write
+ * in production when this is false: the "encrypted" columns would silently
+ * hold plaintext.
+ */
+function isConfigured() {
+  return getKey() !== null;
+}
+
+module.exports = { encrypt, decrypt, getKey, isConfigured };
