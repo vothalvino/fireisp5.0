@@ -6319,6 +6319,8 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     label                 VARCHAR(100)     NOT NULL                     COMMENT 'Friendly name, e.g. "Finkok Producción"',
     environment           ENUM('sandbox','production')
                                            NOT NULL DEFAULT 'sandbox'   COMMENT 'PAC environment',
+    seal_mode             ENUM('pac','local')
+                                           NOT NULL DEFAULT 'pac'       COMMENT 'pac = provider seals with vaulted CSD (Emisión); local = FireISP seals with the org''s active CSD and sends sealed XML to the stamp-only tier (migration 410)',
     api_url               VARCHAR(500)     NOT NULL                     COMMENT 'Base URL for the PAC API endpoint',
     username_encrypted    VARCHAR(500)     NULL                         COMMENT 'Encrypted PAC account username (if applicable)',
     password_encrypted    VARCHAR(500)     NULL                         COMMENT 'Encrypted PAC account password (if applicable)',

@@ -6,6 +6,8 @@
 // =============================================================================
 
 const crypto = require('crypto');
+const cfdiSealService = require('./cfdiSealService');
+const encryption = require('../utils/encryption');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'cfdi' });
 const { CfdiStampingError, CfdiCancellationError, AppError } = require('../utils/errors');
@@ -341,6 +343,36 @@ function escapeXml(str) {
  * Supports Finkok and SW Sapien via REST APIs.
  * Falls back to placeholder UUID if no PAC integration module is configured.
  */
+/**
+ * Load the organization's ACTIVE signing CSD (csd_certificates) as a seal
+ * handle. Actionable 422s: no active cert, or the active cert lapsed between
+ * expiry-monitor runs.
+ */
+async function loadActiveOrgCsd(orgId) {
+  const [rows] = await db.query(
+    `SELECT * FROM csd_certificates
+      WHERE organization_id = ? AND is_active = 1 AND status = 'active' AND deleted_at IS NULL
+      LIMIT 1`,
+    [orgId],
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new AppError(
+      'No active CSD certificate — upload the organization\'s .cer/.key under Facturación → Certificados CSD and activate it.',
+      422, 'CSD_MISSING',
+    );
+  }
+  if (new Date(row.valid_to).getTime() <= Date.now()) {
+    throw new AppError(
+      `The active CSD expired on ${new Date(row.valid_to).toISOString().slice(0, 10)} — upload and activate its replacement (CertiSAT).`,
+      422, 'CSD_EXPIRED',
+    );
+  }
+  const keyPem = encryption.decrypt(row.key_pem_encrypted);
+  const passphrase = row.passphrase_encrypted ? encryption.decrypt(row.passphrase_encrypted) : '';
+  return cfdiSealService.loadCredential(row.cer_pem, keyPem, passphrase);
+}
+
 async function stamp(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Stamping CFDI document');
 
@@ -384,6 +416,33 @@ async function stamp(cfdiDocumentId) {
   }
 
   const pac = pacs[0];
+
+  // seal_mode='local' (migration 410): FireISP seals with the org's ACTIVE
+  // CSD and sends the SEALED XML to the PAC's stamp-only tier — the private
+  // key never leaves the server. seal_mode='pac' keeps the pre-410 behavior
+  // (the PAC seals with its vaulted CSD).
+  let xmlToStamp = doc.xml_content;
+  if (pac.seal_mode === 'local') {
+    if (pac.provider_name !== 'sw_sapien') {
+      throw new AppError(
+        `seal_mode='local' is currently supported for sw_sapien only (this row is '${pac.provider_name}') — the Finkok adapter arrives with local sealing built in.`,
+        422, 'SEAL_MODE_UNSUPPORTED',
+      );
+    }
+    const csd = await loadActiveOrgCsd(doc.organization_id);
+    const info = cfdiSealService.certificateInfo(csd);
+    // A SAT test CSD chains to the "pruebas"/UAT CA — every production PAC
+    // rejects it, and an install that got this far would be shipping
+    // legally-void invoices. Refuse loudly (production-real constraint).
+    if (pac.environment === 'production' && info.is_test_certificate) {
+      throw new AppError(
+        `The active CSD (${info.certificate_number}) is a SAT TEST certificate — it cannot stamp against a production PAC. Upload the organization's real CSD.`,
+        422, 'CSD_TEST_IN_PRODUCTION',
+      );
+    }
+    xmlToStamp = cfdiSealService.sealXml(doc.xml_content, csd).xml;
+  }
+
   // NOTE: callPacStamp also returns cadenaOriginal, but cfdi_documents has no
   // column for it (database/schema.sql) — it is reproducible from signed_xml.
   let uuid, signedXml, selloSat;
@@ -393,9 +452,9 @@ async function stamp(cfdiDocumentId) {
   let lastErr;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const result = await callPacStamp(pac, doc.xml_content);
+      const result = await callPacStamp(pac, xmlToStamp);
       uuid = result.uuid;
-      signedXml = result.signedXml || doc.xml_content;
+      signedXml = result.signedXml || xmlToStamp;
       selloSat = result.selloSat || null;
       circuitBreaker.recordSuccess();
       lastErr = null;
@@ -474,12 +533,41 @@ async function callPacStamp(pac, xmlContent) {
 
   if (pac.provider_name === 'sw_sapien') {
     // SW Sapien REST API
-    const baseUrl = pac.environment === 'production'
-      ? 'https://services.sw.com.mx'
-      : 'https://services.test.sw.com.mx';
+    // Honor the configured api_url (the schema REQUIRES it, but it was
+    // silently ignored here) — fall back to SW's canonical hosts.
+    const baseUrl = (pac.api_url || '').trim().replace(/\/+$/, '')
+      || (pac.environment === 'production'
+        ? 'https://services.sw.com.mx'
+        : 'https://services.test.sw.com.mx');
 
     // Token: direct (portal infinite token) or via authenticate.
     const swToken = await swAuthToken(pac, baseUrl);
+
+    if (pac.seal_mode === 'local') {
+      // Timbrado (stamp-only): the XML arrives ALREADY SEALED by our engine.
+      // Probe-verified transport: multipart/form-data file field named "xml"
+      // — every JSON body shape is rejected with "Xml CFDI no proporcionado".
+      const boundary = crypto.randomUUID().replace(/-/g, '');
+      const body = `--${boundary}\r\n`
+        + 'Content-Disposition: form-data; name="xml"; filename="cfdi.xml"\r\n'
+        + 'Content-Type: text/xml\r\n\r\n'
+        + `${xmlContent}\r\n--${boundary}--\r\n`;
+      const stampResponse = await httpRequest(`${baseUrl}/cfdi33/stamp/v4`, 'POST', body, {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Authorization': `Bearer ${swToken}`,
+      });
+      const stampData = JSON.parse(stampResponse.body);
+      if (!stampData.data?.uuid) {
+        const detail = [stampData.message, stampData.messageDetail].filter(Boolean).join(' — ');
+        throw new Error(detail || 'SW Sapien timbrado (stamp) failed');
+      }
+      return {
+        uuid: stampData.data.uuid,
+        signedXml: stampData.data.cfdi || null,
+        selloSat: stampData.data.selloSAT || null,
+        cadenaOriginal: stampData.data.cadenaOriginalSAT || null,
+      };
+    }
 
     // Emisión Timbrado (issue): SW SEALS AND STAMPS our unsealed XML using
     // the CSD registered in the SW account. This is the correct service for
@@ -796,9 +884,12 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
   }
 
   if (pac.provider_name === 'sw_sapien') {
-    const baseUrl = pac.environment === 'production'
-      ? 'https://services.sw.com.mx'
-      : 'https://services.test.sw.com.mx';
+    // Honor the configured api_url (the schema REQUIRES it, but it was
+    // silently ignored here) — fall back to SW's canonical hosts.
+    const baseUrl = (pac.api_url || '').trim().replace(/\/+$/, '')
+      || (pac.environment === 'production'
+        ? 'https://services.sw.com.mx'
+        : 'https://services.test.sw.com.mx');
 
     const swToken = await swAuthToken(pac, baseUrl);
 
@@ -823,7 +914,17 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
     );
     const cancelData = JSON.parse(cancelResponse.body);
     if (cancelData.status === 'error') {
-      throw new Error([cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed');
+      let msg = [cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed';
+      // Local sealing keeps the CSD off the PAC for STAMPING, but SW's
+      // cancellation service signs the SAT Solicitud de Cancelación with the
+      // CSD in the SW account's vault — so cancellation still needs it
+      // registered there. Make that dependency explicit instead of surfacing
+      // SW's opaque certificate error (true local cancel-signing lands with
+      // the Finkok adapter).
+      if (pac.seal_mode === 'local') {
+        msg += ' — with local sealing, SW still signs cancellations with the CSD in your SW account; upload the same CSD in SW\'s Administración de certificados.';
+      }
+      throw new Error(msg);
     }
 
     // The acuse XML carries the SAT status: EstatusUUID 201 (cancelled) /
@@ -1004,9 +1105,12 @@ async function callPacCancelStatus(pac, uuid, _cancellation) {
   }
 
   if (pac.provider_name === 'sw_sapien') {
-    const baseUrl = pac.environment === 'production'
-      ? 'https://services.sw.com.mx'
-      : 'https://services.test.sw.com.mx';
+    // Honor the configured api_url (the schema REQUIRES it, but it was
+    // silently ignored here) — fall back to SW's canonical hosts.
+    const baseUrl = (pac.api_url || '').trim().replace(/\/+$/, '')
+      || (pac.environment === 'production'
+        ? 'https://services.sw.com.mx'
+        : 'https://services.test.sw.com.mx');
 
     const swToken = await swAuthToken(pac, baseUrl);
 
