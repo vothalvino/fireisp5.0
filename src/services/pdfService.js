@@ -261,16 +261,19 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
     doc.fontSize(9).font('Helvetica-Bold').fillColor(statusColor(invoice.status))
       .text((invoice.status || 'issued').toUpperCase(), PAGE_MARGIN, y);
 
-    // MX-only: an unstamped invoice is a remisión, not a factura — say so.
-    if (mxRemision) {
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.danger)
-        .text('REMISIÓN — SIN VALOR FISCAL', PAGE_MARGIN + 80, y);
-    }
-
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
     doc.text(`${L.issueDate}: ${fmtDate(invoice.created_at)}`, 200, y);
     doc.text(`${L.dueDate}: ${fmtDate(invoice.due_date)}`, 380, y);
     y += 20;
+
+    // MX-only: an unstamped invoice is a remisión, not a factura — say so.
+    // Own line: sharing the status row collided with the date columns
+    // (caught on the live demo walk).
+    if (mxRemision) {
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.danger)
+        .text('REMISIÓN — SIN VALOR FISCAL', PAGE_MARGIN, y);
+      y += 14;
+    }
 
     // ---- Bill To ----
     y = drawHR(doc, y);
