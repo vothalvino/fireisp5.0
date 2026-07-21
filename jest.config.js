@@ -11,6 +11,13 @@ module.exports = {
   // this was never a real UDP-socket issue) to blow the 15s timeout intermittently.
   // CI runners aren't over-subscribed and are green, so leave their default untouched.
   ...(process.env.CI ? {} : { maxWorkers: '50%' }),
+  // Recycle a worker once its idle heap crosses this limit. The module graph
+  // now includes heavyweights (saxon-js + the ~1MB compiled SAT stylesheet,
+  // pdfkit, fast-xml-parser) that long-lived workers accumulate across the
+  // 330+ suites — under --coverage this OOM'd CI's 4GB default heap
+  // ("Ineffective mark-compacts near heap limit"). Restarting fat-but-idle
+  // workers between suites keeps the run bounded with no test impact.
+  workerIdleMemoryLimit: '1GB',
   coverageThreshold: {
     'src/services/': {
       lines: 70,

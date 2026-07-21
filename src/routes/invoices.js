@@ -61,7 +61,96 @@ async function voidInvoice(req, res, next) {
 
 router.get('/', requirePermission('invoices.view'), ctrl.list);
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
-router.post('/', requirePermission('invoices.create'), validate(createInvoice), ctrl.create);
+// Composite create: an invoice and its line items land in ONE transaction.
+// The generic ctrl.create had two real bugs here (both hit live via the raw
+// API): invoice_number is NOT NULL in the DB but optional in the schema and
+// never auto-generated → raw MySQL error 500; and `items` was silently
+// dropped (validate() ignores undeclared fields, fillable strips them) — a
+// "successful" create produced an invoice with ZERO line items, which is
+// fiscally dangerous: a later CFDI conversion builds its conceptos FROM
+// those items.
+router.post('/', requirePermission('invoices.create'), validate(createInvoice), async (req, res, next) => {
+  try {
+    // Nested array fields bypass validate() (it does not recurse) — validate
+    // each item by hand against the same rules as POST /:id/items.
+    let cleanItems = [];
+    if (req.body.items !== undefined) {
+      if (!Array.isArray(req.body.items)) {
+        throw new AppError('items must be an array of line items.', 422, 'VALIDATION_ERROR');
+      }
+      cleanItems = req.body.items.map((it, i) => {
+        const description = typeof it?.description === 'string' ? it.description.trim() : '';
+        const quantity = it?.quantity === undefined ? 1 : Number(it.quantity);
+        const unitPrice = Number(it?.unit_price);
+        const amount = it?.amount === undefined
+          ? Math.round(quantity * unitPrice * 100) / 100
+          : Number(it.amount);
+        if (!description || description.length > 255) {
+          throw new AppError(`items[${i}].description is required (1–255 chars).`, 422, 'VALIDATION_ERROR');
+        }
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new AppError(`items[${i}].quantity must be a positive number.`, 422, 'VALIDATION_ERROR');
+        }
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          throw new AppError(`items[${i}].unit_price must be a non-negative number.`, 422, 'VALIDATION_ERROR');
+        }
+        if (!Number.isFinite(amount) || amount < 0) {
+          throw new AppError(`items[${i}].amount must be a non-negative number.`, 422, 'VALIDATION_ERROR');
+        }
+        return { description, quantity, unit_price: unitPrice, amount };
+      });
+      // The invoice IS its lines: a declared subtotal that contradicts the
+      // items would stamp a CFDI whose conceptos don't add up.
+      const sum = Math.round(cleanItems.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+      if (Math.abs(sum - Number(req.body.subtotal)) > 0.01) {
+        throw new AppError(
+          `The line items sum to ${sum.toFixed(2)} but subtotal is ${Number(req.body.subtotal).toFixed(2)}.`,
+          422, 'ITEMS_SUBTOTAL_MISMATCH',
+        );
+      }
+    }
+
+    const conn = await db.getConnection();
+    let invoiceId;
+    try {
+      await conn.beginTransaction();
+      // DB requires invoice_number NOT NULL — auto-number from the same
+      // org-scoped sequence the billing engine uses when the caller omits it.
+      const invoiceNumber = req.body.invoice_number
+        || await billingService.nextInvoiceNumber(conn, req.orgId);
+      const [ins] = await conn.execute(
+        `INSERT INTO invoices
+           (organization_id, client_id, contract_id, invoice_number, subtotal, tax_rate,
+            tax_amount, total, currency, tax_rate_id, due_date, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.orgId, req.body.client_id, req.body.contract_id ?? null, invoiceNumber,
+          req.body.subtotal, req.body.tax_rate ?? null, req.body.tax_amount ?? 0,
+          req.body.total, req.body.currency ?? null, req.body.tax_rate_id ?? null,
+          req.body.due_date, req.body.status ?? 'draft', req.user?.id ?? null,
+        ],
+      );
+      invoiceId = ins.insertId;
+      for (const it of cleanItems) {
+        await conn.execute(
+          'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)',
+          [invoiceId, it.description, it.quantity, it.unit_price, it.amount],
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback().catch(() => {});
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    const [rows] = await db.query('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+    res.status(201).json({ data: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
 // 'cancelled' means "the CFDI was cancelled at SAT" and is set exclusively by
 // the SAT cancellation flow (cfdiService → billingService.cancelInvoiceForSat),
 // which also releases the invoice's money. Setting it by hand would fabricate a

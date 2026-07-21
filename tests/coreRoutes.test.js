@@ -715,12 +715,27 @@ describe('Invoice Routes — /api/invoices', () => {
 
   // --- POST / ---
   describe('POST /api/invoices', () => {
-    test('creates an invoice and returns 201', async () => {
+    test('creates an invoice and returns 201 (composite-create path: transaction + auto-number)', async () => {
       mockAuthUser();
-      db.query
-        .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
-        .mockResolvedValueOnce([[{ ...mockInvoice, id: 2 }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        // nextInvoiceNumber runs its INSERT IGNORE / UPDATE / SELECT LAST_INSERT_ID
+        // sequence on this conn, then the invoice INSERT.
+        execute: jest.fn(async (sql) => {
+          if (/INSERT INTO invoices/.test(sql)) return [{ insertId: 2 }];
+          if (/LAST_INSERT_ID/.test(sql)) return [[{ id: 1 }]];
+          return [{ affectedRows: 1 }];
+        }),
+        query: jest.fn(async (sql) => {
+          if (/LAST_INSERT_ID/.test(sql)) return [[{ id: 1 }]];
+          return [{ affectedRows: 1 }];
+        }),
+      };
+      db.getConnection.mockResolvedValue(conn);
+      db.query.mockImplementation(async (sql) => {
+        if (/SELECT \* FROM invoices WHERE id/.test(sql)) return [[{ ...mockInvoice, id: 2 }]];
+        return [[]];
+      });
 
       const res = await request(app)
         .post('/api/invoices')
@@ -729,6 +744,7 @@ describe('Invoice Routes — /api/invoices', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 

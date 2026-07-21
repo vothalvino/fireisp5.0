@@ -1,0 +1,144 @@
+// =============================================================================
+// FireISP 5.0 — Invoice composite create (invoice + items, one transaction)
+// =============================================================================
+// Regression coverage for the two live-hit raw-API bugs: invoice_number is
+// NOT NULL in the DB but was never auto-generated (raw 500), and `items` was
+// silently dropped (validate() ignores undeclared fields; fillable strips
+// them) — a "successful" create yielded a hollow invoice whose later CFDI
+// conversion would have no conceptos.
+// =============================================================================
+
+const request = require('supertest');
+
+jest.mock('../src/config/database', () => ({
+  query: jest.fn(),
+  queryReplica: jest.fn(),
+  execute: jest.fn(),
+  getConnection: jest.fn(),
+  close: jest.fn(),
+  pool: { end: jest.fn() },
+}));
+jest.mock('../src/middleware/auth', () => ({
+  authenticate: (req, _res, next) => { req.user = { id: 8, role: 'admin' }; next(); },
+}));
+jest.mock('../src/middleware/orgScope', () => ({
+  orgScope: (req, _res, next) => { req.orgId = 5; next(); },
+}));
+jest.mock('../src/middleware/rbac', () => ({
+  userHasPermission: async () => true,
+  requirePermission: () => (_req, _res, next) => next(),
+  requireRole: () => (_req, _res, next) => next(),
+}));
+jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../src/services/billingService', () => ({
+  nextInvoiceNumber: jest.fn().mockResolvedValue('INV-000042'),
+}));
+
+const db = require('../src/config/database');
+const billingService = require('../src/services/billingService');
+const app = require('../src/app');
+
+let lastConn;
+function wireDb() {
+  lastConn = {
+    beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+    execute: jest.fn(async (sql) => {
+      if (/INSERT INTO invoices/.test(sql)) return [{ insertId: 900 }];
+      return [{ affectedRows: 1 }];
+    }),
+  };
+  db.getConnection.mockResolvedValue(lastConn);
+  db.query.mockImplementation(async (sql) => {
+    if (/SELECT \* FROM invoices WHERE id/.test(sql)) {
+      return [[{ id: 900, invoice_number: 'INV-000042', status: 'issued', total: '116.00' }]];
+    }
+    return [[]];
+  });
+}
+
+const BASE = {
+  client_id: 42, due_date: '2026-08-15',
+  subtotal: 100, tax_amount: 16, total: 116, status: 'issued',
+};
+
+beforeEach(() => { jest.clearAllMocks(); wireDb(); });
+
+describe('POST /api/v1/invoices (composite create)', () => {
+  test('auto-numbers when invoice_number is absent and inserts items atomically', async () => {
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .send({ ...BASE, items: [{ description: 'Internet Hogar 100 Mbps — agosto 2026', quantity: 1, unit_price: 100, amount: 100 }] });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.id).toBe(900);
+    expect(billingService.nextInvoiceNumber).toHaveBeenCalledWith(lastConn, 5);
+    const invIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+    expect(invIns[1]).toEqual(expect.arrayContaining(['INV-000042', 42]));
+    const itemIns = lastConn.execute.mock.calls.filter(c => /INSERT INTO invoice_items/.test(c[0]));
+    expect(itemIns).toHaveLength(1);
+    expect(itemIns[0][1]).toEqual([900, 'Internet Hogar 100 Mbps — agosto 2026', 1, 100, 100]);
+    expect(lastConn.commit).toHaveBeenCalled();
+  });
+
+  test('a caller-supplied invoice_number is used verbatim (no auto-number)', async () => {
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .send({ ...BASE, invoice_number: 'CUSTOM-1' });
+    expect(res.status).toBe(201);
+    expect(billingService.nextInvoiceNumber).not.toHaveBeenCalled();
+    const invIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+    expect(invIns[1]).toContain('CUSTOM-1');
+  });
+
+  test('items that contradict the subtotal are rejected (422 ITEMS_SUBTOTAL_MISMATCH)', async () => {
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .send({ ...BASE, items: [{ description: 'x', quantity: 1, unit_price: 40, amount: 40 }] });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ITEMS_SUBTOTAL_MISMATCH');
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
+  test('malformed items are rejected with field-level messages, nothing written', async () => {
+    for (const items of [
+      'not-an-array',
+      [{ quantity: 1, unit_price: 10 }],                      // missing description
+      [{ description: 'x', quantity: -1, unit_price: 10 }],   // bad quantity
+      [{ description: 'x', quantity: 1, unit_price: 'free' }], // bad price
+    ]) {
+      lastConn.commit.mockClear();
+      const res = await request(app).post('/api/v1/invoices').send({ ...BASE, items });
+      expect(res.status).toBe(422);
+      expect(lastConn.commit).not.toHaveBeenCalled();
+    }
+  });
+
+  test('amount defaults to quantity × unit_price when omitted', async () => {
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .send({ ...BASE, items: [{ description: 'x', quantity: 2, unit_price: 50 }] });
+    expect(res.status).toBe(201);
+    const itemIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoice_items/.test(c[0]));
+    expect(itemIns[1][4]).toBe(100);
+  });
+
+  test('an item insert failure rolls back the whole invoice', async () => {
+    lastConn.execute.mockImplementation(async (sql) => {
+      if (/INSERT INTO invoices/.test(sql)) return [{ insertId: 900 }];
+      if (/INSERT INTO invoice_items/.test(sql)) throw new Error('boom');
+      return [{ affectedRows: 1 }];
+    });
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .send({ ...BASE, items: [{ description: 'x', quantity: 1, unit_price: 100, amount: 100 }] });
+    expect(res.status).toBe(500);
+    expect(lastConn.rollback).toHaveBeenCalled();
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
+  test('itemless create still works (plain invoice)', async () => {
+    const res = await request(app).post('/api/v1/invoices').send(BASE);
+    expect(res.status).toBe(201);
+    expect(lastConn.execute.mock.calls.some(c => /INSERT INTO invoice_items/.test(c[0]))).toBe(false);
+  });
+});
