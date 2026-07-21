@@ -555,24 +555,30 @@ describe('CFDI Cancellation Flow', () => {
 
     test('records error message on PAC failure', async () => {
       const pac = {
-        id: 10, provider_name: 'finkok', status: 'active',
-        environment: 'sandbox', username: 'user', password_encrypted: 'pass',
+        id: 10, provider_name: 'sw_sapien', seal_mode: 'pac', token_encrypted: 'tok',
+        status: 'active', environment: 'sandbox', api_url: 'https://services.test.sw.com.mx',
       };
 
-      db.query
-        .mockResolvedValueOnce([[vigentDoc]])
-        .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
-        .mockResolvedValueOnce([[pac]])
-        .mockResolvedValueOnce([{ insertId: 200 }])     // INSERT cancellation
-        .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE → cancel_pending
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);   // UPDATE error_message
+      // SQL-dispatched (not an ordered queue): the SW cancel path now looks up
+      // the emisor profile before the PAC call, and provider adapters differ in
+      // how many reads they make — asserting on a fixed call index is brittle.
+      db.query.mockImplementation(async (sql) => {
+        if (/FROM cfdi_documents WHERE (?:cd\.)?id/i.test(sql) || /FROM cfdi_documents\s+WHERE id/i.test(sql)) return [[{ ...vigentDoc }]];
+        if (/cfdi_payment_complements|payment complement/i.test(sql)) return [[]];
+        if (/FROM pac_providers/i.test(sql)) return [[pac]];
+        if (/FROM organization_mx_profiles/i.test(sql)) return [[{ rfc: 'XAXX010101000', razon_social: 'X', regimen_fiscal: '601', codigo_postal_fiscal: '01000' }]];
+        if (/INSERT INTO cfdi_cancellations/i.test(sql)) return [{ insertId: 200 }];
+        return [{ affectedRows: 1 }];
+      });
 
-      // callPacCancel will fail because httpRequest has no network
+      // callPacCancel fails (httpRequest has no network in the test env)
       await expect(cfdiService.cancel(1, '02')).rejects.toThrow('PAC cancellation failed');
 
-      // Verify error was recorded
-      const errorUpdateCall = db.query.mock.calls[5];
-      expect(errorUpdateCall[0]).toContain('UPDATE cfdi_cancellations SET error_message');
+      // Error recorded on the cancellation row (found by content, not index)
+      const errorUpdateCall = db.query.mock.calls.find(
+        ([sql]) => /UPDATE cfdi_cancellations SET error_message/.test(sql),
+      );
+      expect(errorUpdateCall).toBeDefined();
     }, 30000);
   });
 

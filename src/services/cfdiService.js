@@ -421,11 +421,15 @@ async function stamp(cfdiDocumentId) {
   // CSD and sends the SEALED XML to the PAC's stamp-only tier — the private
   // key never leaves the server. seal_mode='pac' keeps the pre-410 behavior
   // (the PAC seals with its vaulted CSD).
+  // Finkok only stamps PRE-SEALED XML — it has no seal-for-you tier, so a
+  // finkok row is always local-sealing regardless of the stored seal_mode.
+  const LOCAL_SEAL_PROVIDERS = ['sw_sapien', 'finkok'];
+  const localSeal = pac.seal_mode === 'local' || pac.provider_name === 'finkok';
   let xmlToStamp = doc.xml_content;
-  if (pac.seal_mode === 'local') {
-    if (pac.provider_name !== 'sw_sapien') {
+  if (localSeal) {
+    if (!LOCAL_SEAL_PROVIDERS.includes(pac.provider_name)) {
       throw new AppError(
-        `seal_mode='local' is currently supported for sw_sapien only (this row is '${pac.provider_name}') — the Finkok adapter arrives with local sealing built in.`,
+        `seal_mode='local' is supported for ${LOCAL_SEAL_PROVIDERS.join('/')} only (this row is '${pac.provider_name}').`,
         422, 'SEAL_MODE_UNSUPPORTED',
       );
     }
@@ -501,33 +505,78 @@ async function stamp(cfdiDocumentId) {
  * Supported: finkok, sw_sapien.
  * Other providers fall back to a placeholder UUID (development mode).
  */
+// --- Finkok SOAP helpers -----------------------------------------------------
+// Finkok is a document/literal SOAP service; the repo hand-builds XML over
+// httpRequest rather than pulling in a SOAP client. Namespaces/SOAPAction are
+// taken verbatim from the WSDLs.
+
+function finkokBaseUrl(pac) {
+  const configured = (pac.api_url || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  return pac.environment === 'production'
+    ? 'https://facturacion.finkok.com/servicios/soap'
+    : 'https://demo-facturacion.finkok.com/servicios/soap';
+}
+
+// PAC account credentials (username/password), decrypted. Finkok stores them
+// in the username_encrypted/password_encrypted columns like every other PAC.
+async function pacUserPass(pac) {
+  const username = pac.username_encrypted ? encryption.decrypt(pac.username_encrypted) : (pac.username || '');
+  const password = pac.password_encrypted ? encryption.decrypt(pac.password_encrypted) : '';
+  return { username, password };
+}
+
+async function finkokSoapCall(url, soapAction, namespace, innerBody) {
+  const envelope = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"'
+    + ` xmlns:fin="${namespace}"><soapenv:Body>${innerBody}</soapenv:Body></soapenv:Envelope>`;
+  const response = await httpRequest(url, 'POST', envelope, {
+    'Content-Type': 'text/xml; charset=utf-8',
+    'SOAPAction': soapAction,
+  });
+  return response.body;
+}
+
+// First value of a local-name element (namespace-prefix agnostic).
+function finkokTag(xml, name) {
+  const m = xml.match(new RegExp(`<(?:[a-zA-Z0-9]+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[a-zA-Z0-9]+:)?${name}>`));
+  return m ? m[1].trim() : null;
+}
+
+// Best incidencia message from a Finkok fault/incidencia response.
+function finkokIncidencia(xml) {
+  return finkokTag(xml, 'MensajeIncidencia') || finkokTag(xml, 'faultstring') || finkokTag(xml, 'CodEstatus');
+}
+
+function decodeXmlEntities(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+}
+
 async function callPacStamp(pac, xmlContent) {
   if (pac.provider_name === 'finkok') {
-    // Finkok REST API — POST /stamp
-    const url = pac.environment === 'production'
-      ? 'https://facturacion.finkok.com/servicios/soap/stamp'
-      : 'https://demo-facturacion.finkok.com/servicios/soap/stamp';
-
-    const body = JSON.stringify({
-      username: pac.username,
-      password: pac.password_encrypted, // Decrypted at app layer in production
-      xml: Buffer.from(xmlContent).toString('base64'),
-    });
-
-    const response = await httpRequest(url, 'POST', body, {
-      'Content-Type': 'application/json',
-    });
-
-    const data = JSON.parse(response.body);
-    if (data.error || !data.uuid) {
-      throw new Error(data.error || 'Finkok stamping returned no UUID');
+    // Finkok SOAP (the old branch POSTed JSON at a SOAP URL — never worked).
+    // Contract from the WSDL (demo-facturacion.../stamp.wsdl): element
+    // {http://facturacion.finkok.com/stamp}stamp with base64Binary xml +
+    // username/password; SOAPAction "stamp"; response stampResult
+    // (AcuseRecepcionCFDI: xml, UUID, CodEstatus, SatSeal, Incidencias).
+    // Finkok stamps PRE-SEALED XML, so xmlContent is already sealed here.
+    const baseUrl = finkokBaseUrl(pac);
+    const { username, password } = await pacUserPass(pac);
+    const soapBody = '<fin:stamp>'
+      + `<fin:xml>${Buffer.from(xmlContent).toString('base64')}</fin:xml>`
+      + `<fin:username>${escapeXml(username)}</fin:username>`
+      + `<fin:password>${escapeXml(password)}</fin:password>`
+      + '</fin:stamp>';
+    const resp = await finkokSoapCall(`${baseUrl}/stamp`, 'stamp', 'http://facturacion.finkok.com/stamp', soapBody);
+    const uuid = finkokTag(resp, 'UUID');
+    if (!uuid) {
+      throw new Error(finkokIncidencia(resp) || 'Finkok stamping returned no UUID');
     }
-
     return {
-      uuid: data.uuid,
-      signedXml: data.xml ? Buffer.from(data.xml, 'base64').toString('utf8') : null,
-      selloSat: data.sello_sat || null,
-      cadenaOriginal: data.cadena_original || null,
+      uuid,
+      signedXml: finkokTag(resp, 'xml') ? decodeXmlEntities(finkokTag(resp, 'xml')) : null,
+      selloSat: finkokTag(resp, 'SatSeal') || null,
+      cadenaOriginal: null,
     };
   }
 
@@ -854,32 +903,40 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
  */
 async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
   if (pac.provider_name === 'finkok') {
-    const url = pac.environment === 'production'
-      ? 'https://facturacion.finkok.com/servicios/soap/cancel'
-      : 'https://demo-facturacion.finkok.com/servicios/soap/cancel';
+    // Finkok SOAP cancel (cancel.wsdl): the request carries the emisor's CSD
+    // cer/key (base64 DER) — the SAT Solicitud de Cancelación is signed with
+    // OUR certificate, so cancellation is fully local (no CSD in a PAC vault).
+    // This is the key-isolation that seal_mode='local' promises end-to-end.
+    // Per-UUID <UUID> element with UUID/Motivo/FolioSustitucion attributes;
+    // response cancelResult (Folios[].EstatusUUID + Acuse + Fecha).
+    const baseUrl = finkokBaseUrl(pac);
+    const { username, password } = await pacUserPass(pac);
+    const emisor = await getEmisorProfile(doc.organization_id);
+    const csd = await loadActiveOrgCsd(doc.organization_id);
+    const { cerDerB64, keyDerB64 } = cfdiSealService.csdDerMaterial(csd);
 
-    const body = JSON.stringify({
-      username: pac.username,
-      password: pac.password_encrypted,
-      uuid,
-      rfc: doc.emisor_rfc,
-      motivo: reason,
-      folio_sustitucion: replacementUuid || '',
-    });
-
-    const response = await httpRequest(url, 'POST', body, {
-      'Content-Type': 'application/json',
-    });
-
-    const data = JSON.parse(response.body);
-    if (data.error) {
-      throw new Error(data.error);
+    const folioAttr = replacementUuid ? ` FolioSustitucion="${escapeXml(replacementUuid)}"` : '';
+    const soapBody = '<fin:cancel>'
+      + `<fin:UUIDS><fin:UUID UUID="${escapeXml(uuid)}" Motivo="${escapeXml(reason)}"${folioAttr}></fin:UUID></fin:UUIDS>`
+      + `<fin:username>${escapeXml(username)}</fin:username>`
+      + `<fin:password>${escapeXml(password)}</fin:password>`
+      + `<fin:taxpayer_id>${escapeXml(emisor.rfc)}</fin:taxpayer_id>`
+      + `<fin:cer>${cerDerB64}</fin:cer>`
+      + `<fin:key>${keyDerB64}</fin:key>`
+      + '<fin:store_pending>false</fin:store_pending>'
+      + '</fin:cancel>';
+    const resp = await finkokSoapCall(`${baseUrl}/cancel`, 'cancel', 'http://facturacion.finkok.com/cancel', soapBody);
+    const estatusUuid = finkokTag(resp, 'EstatusUUID');
+    const codEstatus = finkokTag(resp, 'CodEstatus');
+    if (!estatusUuid && codEstatus && /error|inv[aá]lid/i.test(codEstatus)) {
+      throw new Error(finkokIncidencia(resp) || codEstatus);
     }
-
     return {
-      status: parseCancellationStatus(data.estatus || data.status),
-      acuseXml: data.acuse_xml || data.acuse || null,
-      acuseFecha: data.fecha_cancelacion || null,
+      // Finkok EstatusUUID mirrors SAT's (201 cancelled / 202 pending); reuse
+      // the shared parser so downstream sat_status handling is provider-neutral.
+      status: parseCancellationStatus(estatusUuid || finkokTag(resp, 'EstatusCancelacion')),
+      acuseXml: finkokTag(resp, 'Acuse') ? decodeXmlEntities(finkokTag(resp, 'Acuse')) : null,
+      acuseFecha: finkokTag(resp, 'Fecha') || null,
     };
   }
 
@@ -1081,27 +1138,27 @@ async function getCancellationStatus(cancellationId) {
  */
 async function callPacCancelStatus(pac, uuid, _cancellation) {
   if (pac.provider_name === 'finkok') {
-    const url = pac.environment === 'production'
-      ? 'https://facturacion.finkok.com/servicios/soap/cancel'
-      : 'https://demo-facturacion.finkok.com/servicios/soap/cancel';
-
-    const body = JSON.stringify({
-      username: pac.username,
-      password: pac.password_encrypted,
-      uuid,
-      type: 'query',
-    });
-
-    const response = await httpRequest(url, 'POST', body, {
-      'Content-Type': 'application/json',
-    });
-
-    const data = JSON.parse(response.body);
-    return {
-      status: parseCancellationStatus(data.estatus || data.status),
-      acuseXml: data.acuse_xml || data.acuse || null,
-      acuseFecha: data.fecha_cancelacion || null,
-    };
+    // Finkok get_sat_status (cancel.wsdl): live SAT consulta for a UUID —
+    // Estado (Vigente/Cancelado) + EstatusCancelacion. Emisor RFC comes from
+    // the org profile (cfdi_documents has no emisor_rfc column).
+    const baseUrl = finkokBaseUrl(pac);
+    const { username, password } = await pacUserPass(pac);
+    const [docRows] = await db.query('SELECT organization_id FROM cfdi_documents WHERE uuid = ? LIMIT 1', [uuid]);
+    const emisor = docRows[0] ? await getEmisorProfile(docRows[0].organization_id) : { rfc: '' };
+    const soapBody = '<fin:get_sat_status>'
+      + `<fin:username>${escapeXml(username)}</fin:username>`
+      + `<fin:password>${escapeXml(password)}</fin:password>`
+      + `<fin:taxpayer_id>${escapeXml(emisor.rfc)}</fin:taxpayer_id>`
+      + `<fin:uuid>${escapeXml(uuid)}</fin:uuid>`
+      + '</fin:get_sat_status>';
+    const resp = await finkokSoapCall(`${baseUrl}/cancel`, 'get_sat_status', 'http://facturacion.finkok.com/cancel', soapBody);
+    const estado = finkokTag(resp, 'Estado');            // Vigente | Cancelado
+    const estatusCancel = finkokTag(resp, 'EstatusCancelacion');
+    let status = 'pending';
+    if (/cancelad/i.test(estado || '')) status = 'accepted';
+    else if (/proceso|pendiente|espera/i.test(estatusCancel || '')) status = 'pending';
+    else if (/vigente/i.test(estado || '')) status = 'pending';
+    return { status, acuseXml: null, acuseFecha: null };
   }
 
   if (pac.provider_name === 'sw_sapien') {

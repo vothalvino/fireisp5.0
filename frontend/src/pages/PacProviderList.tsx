@@ -105,7 +105,7 @@ const PROVIDERS = ['finkok', 'sw_sapien', 'digicel', 'comercio_digital', 'factur
 // Known endpoints per provider+environment — prefilled, still editable.
 const API_URL_PRESETS: Record<string, { sandbox?: string; production?: string }> = {
   sw_sapien: { sandbox: 'https://services.test.sw.com.mx', production: 'https://services.sw.com.mx' },
-  finkok: { sandbox: 'https://demo-facturacion.finkok.com', production: 'https://facturacion.finkok.com' },
+  finkok: { sandbox: 'https://demo-facturacion.finkok.com/servicios/soap', production: 'https://facturacion.finkok.com/servicios/soap' },
   simulator: { sandbox: 'https://simulator.invalid' },
 };
 
@@ -143,7 +143,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
         provider_name: form.provider_name,
         label: form.label.trim(),
         environment: form.environment,
-        seal_mode: form.seal_mode,
+        seal_mode: form.provider_name === 'finkok' ? 'local' : form.seal_mode,
         api_url: form.api_url.trim(),
         status: form.status,
       };

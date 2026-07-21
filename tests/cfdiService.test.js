@@ -397,7 +397,7 @@ describe('cfdiService', () => {
       // run here therefore threw and MASKED the real PAC failure with a DB error.
       // A document that failed to stamp simply stays 'draft'.
       const doc = { id: 1, organization_id: 42, xml_content: '<cfdi/>' };
-      const pac = { id: 1, provider_name: 'finkok', status: 'active', environment: 'sandbox' };
+      const pac = { id: 1, provider_name: 'sw_sapien', seal_mode: 'pac', token_encrypted: 'tok', status: 'active', environment: 'sandbox', api_url: 'https://services.test.sw.com.mx' };
 
       db.query
         .mockResolvedValueOnce([[doc]])   // SELECT document

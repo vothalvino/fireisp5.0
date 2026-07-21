@@ -185,7 +185,20 @@ function csdStorageMaterial(cerContents, keyContents, passphrase) {
   }
 }
 
+/**
+ * DER (base64) forms of a loaded CSD handle for PACs that take the raw
+ * certificate + key inline (Finkok cancel): cerDerB64 is the certificate DER
+ * (the Certificado attribute value already is that), keyDerB64 is the
+ * DECRYPTED private key exported as unencrypted PKCS#8 DER.
+ */
+function csdDerMaterial(csd) {
+  return {
+    cerDerB64: csd.info.certificado_b64,
+    keyDerB64: csd.signingKey.export({ type: 'pkcs8', format: 'der' }).toString('base64'),
+  };
+}
+
 module.exports = {
   loadCredential, certificateInfo, cadenaOriginal, sealXml, verifySeal, isTestCertificate,
-  csdStorageMaterial,
+  csdStorageMaterial, csdDerMaterial,
 };
