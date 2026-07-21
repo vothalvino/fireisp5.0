@@ -6327,6 +6327,7 @@ CREATE TABLE IF NOT EXISTS pac_providers (
     api_key_encrypted     VARCHAR(500)     NULL                         COMMENT 'Encrypted API key (if applicable)',
     token_encrypted       TEXT             NULL                         COMMENT 'Encrypted bearer token or JWT (if applicable)',
     is_default            TINYINT(1)       NOT NULL DEFAULT 0           COMMENT 'TRUE = default PAC for this organization',
+    priority              INT              NOT NULL DEFAULT 100         COMMENT 'Failover order — lower is tried first (migration 411)',
     status                ENUM('active','inactive')
                                            NOT NULL DEFAULT 'active'    COMMENT 'PAC config status',
     last_stamp_at         TIMESTAMP        NULL                         COMMENT 'Timestamp of the most recent successful stamp via this PAC',
