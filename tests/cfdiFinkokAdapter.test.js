@@ -137,3 +137,66 @@ describe('Finkok cancel (SOAP, locally-signed with the CSD)', () => {
     expect(result).toMatchObject({ status: 'cancelado' });
   });
 });
+
+describe('Finkok cancel — error handling (review findings)', () => {
+  beforeEach(() => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents WHERE id/.test(sql)) return [[{ id: 9, organization_id: 5, uuid: 'fedcba98-7654-4321-8000-abcdefabcdef', sat_status: 'vigente', invoice_id: null, serie: 'A', folio: 9, total: '116.00', receptor_rfc: 'MISC491214B86' }]];
+      if (/FROM pac_providers/.test(sql)) return [[finkokPac()]];
+      if (/FROM csd_certificates/.test(sql)) return [[{ ...CSD_ROW }]];
+      if (/FROM organization_mx_profiles/.test(sql)) return [[{ ...EMISOR }]];
+      if (/cfdi_cancellations/.test(sql)) return [{ insertId: 1 }];
+      return [{ affectedRows: 1 }];
+    });
+  });
+
+  test('a SOAP fault on cancel is thrown, not swallowed as pending', async () => {
+    respond = () => '<senv:Envelope xmlns:senv="http://schemas.xmlsoap.org/soap/envelope/"><senv:Body>'
+      + '<senv:Fault><faultstring>Authentication failed</faultstring></senv:Fault></senv:Body></senv:Envelope>';
+    await expect(cfdiService.cancel(9, '02')).rejects.toThrow(/Authentication failed/);
+  });
+
+  test('a global error (no EstatusUUID) on cancel is thrown with the incidencia', async () => {
+    respond = () => '<senv:Envelope xmlns:senv="http://schemas.xmlsoap.org/soap/envelope/"><senv:Body>'
+      + '<cancelResponse><cancelResult><CodEstatus>708 - El emisor no tiene certificado registrado</CodEstatus></cancelResult></cancelResponse>'
+      + '</senv:Body></senv:Envelope>';
+    await expect(cfdiService.cancel(9, '02')).rejects.toThrow(/708|certificado/);
+  });
+});
+
+describe('Finkok get_sat_status (cancel-status poll)', () => {
+  beforeEach(() => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents WHERE uuid/.test(sql)) return [[{ organization_id: 5, receptor_rfc: 'MISC491214B86', total: '116.00' }]];
+      if (/FROM organization_mx_profiles/.test(sql)) return [[{ ...EMISOR }]];
+      return [{ affectedRows: 1 }];
+    });
+  });
+
+  test('sends emisor RFC, receptor RFC, uuid and total', async () => {
+    respond = () => '<senv:Envelope xmlns:senv="http://schemas.xmlsoap.org/soap/envelope/"><senv:Body>'
+      + '<get_sat_statusResponse><get_sat_statusResult><sat><Estado>Vigente</Estado><EstatusCancelacion>En proceso</EstatusCancelacion></sat></get_sat_statusResult></get_sat_statusResponse>'
+      + '</senv:Body></senv:Envelope>';
+    const r = await cfdiService.callPacCancelStatus(finkokPac(), 'fedcba98-7654-4321-8000-abcdefabcdef', {});
+    expect(r.status).toBe('pending');
+    expect(captured.body).toContain('<fin:taxpayer_id>EKU9003173C9</fin:taxpayer_id>');
+    expect(captured.body).toContain('<fin:rtaxpayer_id>MISC491214B86</fin:rtaxpayer_id>');
+    expect(captured.body).toContain('<fin:total>116.00</fin:total>');
+  });
+
+  test('maps a SAT-rejected cancellation to rejected (so the doc can revert to vigente)', async () => {
+    respond = () => '<senv:Envelope xmlns:senv="http://schemas.xmlsoap.org/soap/envelope/"><senv:Body>'
+      + '<get_sat_statusResponse><get_sat_statusResult><sat><Estado>Vigente</Estado><EstatusCancelacion>Solicitud rechazada</EstatusCancelacion></sat></get_sat_statusResult></get_sat_statusResponse>'
+      + '</senv:Body></senv:Envelope>';
+    const r = await cfdiService.callPacCancelStatus(finkokPac(), 'fedcba98-7654-4321-8000-abcdefabcdef', {});
+    expect(r.status).toBe('rejected');
+  });
+
+  test('maps Estado Cancelado to accepted', async () => {
+    respond = () => '<senv:Envelope xmlns:senv="http://schemas.xmlsoap.org/soap/envelope/"><senv:Body>'
+      + '<get_sat_statusResponse><get_sat_statusResult><sat><Estado>Cancelado</Estado></sat></get_sat_statusResult></get_sat_statusResponse>'
+      + '</senv:Body></senv:Envelope>';
+    const r = await cfdiService.callPacCancelStatus(finkokPac(), 'fedcba98-7654-4321-8000-abcdefabcdef', {});
+    expect(r.status).toBe('accepted');
+  });
+});

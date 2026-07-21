@@ -533,6 +533,13 @@ async function finkokSoapCall(url, soapAction, namespace, innerBody) {
     'Content-Type': 'text/xml; charset=utf-8',
     'SOAPAction': soapAction,
   });
+  // A SOAP fault (HTTP 500 with a <Fault>) or any non-2xx must be an ERROR,
+  // not parsed as a normal response — otherwise a fault body silently reads as
+  // "no UUID / status pending". httpRequest never rejects on HTTP status.
+  const fault = finkokTag(response.body, 'faultstring');
+  if ((response.statusCode && response.statusCode >= 400) || fault) {
+    throw new Error(fault || `Finkok SOAP ${soapAction} returned HTTP ${response.statusCode}`);
+  }
   return response.body;
 }
 
@@ -834,6 +841,14 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
       break;
     } catch (pacErr) {
       lastErr = pacErr;
+      // Deterministic config errors (missing/expired CSD, no emisor profile —
+      // 4xx AppErrors) will fail identically on every retry; surface them
+      // immediately with their actionable status/message instead of burning
+      // ~6s of backoff and burying them under a generic "failed after 3".
+      if (pacErr instanceof AppError && pacErr.statusCode < 500) {
+        await db.query('UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?', [pacErr.message, cancellationId]);
+        throw pacErr;
+      }
       logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC cancellation attempt failed');
       if (attempt < MAX_RETRIES) {
         await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
@@ -927,9 +942,11 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
       + '</fin:cancel>';
     const resp = await finkokSoapCall(`${baseUrl}/cancel`, 'cancel', 'http://facturacion.finkok.com/cancel', soapBody);
     const estatusUuid = finkokTag(resp, 'EstatusUUID');
-    const codEstatus = finkokTag(resp, 'CodEstatus');
-    if (!estatusUuid && codEstatus && /error|inv[aá]lid/i.test(codEstatus)) {
-      throw new Error(finkokIncidencia(resp) || codEstatus);
+    // No per-UUID EstatusUUID = the request itself failed (bad creds, no CSD
+    // registered, malformed) — surface the error like the stamp branch does
+    // for a missing UUID, instead of falling through to a bogus 'pending'.
+    if (!estatusUuid) {
+      throw new Error(finkokIncidencia(resp) || finkokTag(resp, 'CodEstatus') || 'Finkok cancellation returned no EstatusUUID');
     }
     return {
       // Finkok EstatusUUID mirrors SAT's (201 cancelled / 202 pending); reuse
@@ -1143,21 +1160,31 @@ async function callPacCancelStatus(pac, uuid, _cancellation) {
     // the org profile (cfdi_documents has no emisor_rfc column).
     const baseUrl = finkokBaseUrl(pac);
     const { username, password } = await pacUserPass(pac);
-    const [docRows] = await db.query('SELECT organization_id FROM cfdi_documents WHERE uuid = ? LIMIT 1', [uuid]);
+    // get_sat_status proxies SAT's ConsultaCFDI, keyed on emisor RFC + receptor
+    // RFC (rtaxpayer_id) + Total + UUID — all four required, so pull the
+    // receptor RFC and total from the document row too.
+    const [docRows] = await db.query(
+      'SELECT organization_id, receptor_rfc, total FROM cfdi_documents WHERE uuid = ? LIMIT 1', [uuid]);
     const emisor = docRows[0] ? await getEmisorProfile(docRows[0].organization_id) : { rfc: '' };
     const soapBody = '<fin:get_sat_status>'
       + `<fin:username>${escapeXml(username)}</fin:username>`
       + `<fin:password>${escapeXml(password)}</fin:password>`
       + `<fin:taxpayer_id>${escapeXml(emisor.rfc)}</fin:taxpayer_id>`
+      + `<fin:rtaxpayer_id>${escapeXml(docRows[0]?.receptor_rfc || '')}</fin:rtaxpayer_id>`
       + `<fin:uuid>${escapeXml(uuid)}</fin:uuid>`
+      + `<fin:total>${escapeXml(String(docRows[0]?.total ?? ''))}</fin:total>`
       + '</fin:get_sat_status>';
     const resp = await finkokSoapCall(`${baseUrl}/cancel`, 'get_sat_status', 'http://facturacion.finkok.com/cancel', soapBody);
     const estado = finkokTag(resp, 'Estado');            // Vigente | Cancelado
-    const estatusCancel = finkokTag(resp, 'EstatusCancelacion');
-    let status = 'pending';
+    const estatusCancel = finkokTag(resp, 'EstatusCancelacion') || '';
+    // 'rejected' MUST be reachable — getCancellationStatus reverts a stuck
+    // cancel_pending doc back to 'vigente' only on a rejected result. A
+    // receptor declining a Motivo-01/02 request leaves Estado=Vigente with
+    // EstatusCancelacion like "Solicitud rechazada".
+    let status;
     if (/cancelad/i.test(estado || '')) status = 'accepted';
-    else if (/proceso|pendiente|espera/i.test(estatusCancel || '')) status = 'pending';
-    else if (/vigente/i.test(estado || '')) status = 'pending';
+    else if (/rechaz|no cancelable|denegad/i.test(estatusCancel)) status = 'rejected';
+    else status = 'pending';
     return { status, acuseXml: null, acuseFecha: null };
   }
 
