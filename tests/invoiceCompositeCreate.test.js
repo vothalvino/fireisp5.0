@@ -32,6 +32,8 @@ jest.mock('../src/middleware/rbac', () => ({
 jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../src/services/billingService', () => ({
   nextInvoiceNumber: jest.fn().mockResolvedValue('INV-000042'),
+  // real normalization — the route depends on it for tax handling
+  invoiceTaxFraction: (r) => { const n = parseFloat(r) || 0; return n > 1 ? n / 100 : n; },
 }));
 jest.mock('../src/models/Organization', () => ({
   getCurrency: jest.fn().mockResolvedValue('MXN'),
@@ -61,7 +63,7 @@ function wireDb() {
 
 const BASE = {
   client_id: 42, due_date: '2026-08-15',
-  subtotal: 100, tax_amount: 16, total: 116, status: 'issued',
+  subtotal: 100, tax_rate: 0.16, tax_amount: 16, total: 116, status: 'issued',
 };
 
 beforeEach(() => { jest.clearAllMocks(); wireDb(); });
@@ -80,8 +82,8 @@ describe('POST /api/v1/invoices (composite create)', () => {
     // NOT NULL DEFAULT columns must never receive an explicit NULL (live-500;
     // nullable columns like contract_id may legitimately bind NULL)
     const [, , , , , taxRate, , , currency] = invIns[1];
-    expect(taxRate).toBe(0);          // absent tax_rate → 0, never NULL
-    expect(currency).toBe('MXN');     // absent currency → org currency, never NULL/'USD' 
+    expect(taxRate).toBeCloseTo(0.16, 6);  // normalized fraction, never NULL
+    expect(currency).toBe('MXN');          // absent currency → org currency, never NULL/'USD' 
     const itemIns = lastConn.execute.mock.calls.filter(c => /INSERT INTO invoice_items/.test(c[0]));
     expect(itemIns).toHaveLength(1);
     expect(itemIns[0][1]).toEqual([900, 'Internet Hogar 100 Mbps — agosto 2026', 1, 100, 100]);
@@ -148,5 +150,49 @@ describe('POST /api/v1/invoices (composite create)', () => {
     const res = await request(app).post('/api/v1/invoices').send(BASE);
     expect(res.status).toBe(201);
     expect(lastConn.execute.mock.calls.some(c => /INSERT INTO invoice_items/.test(c[0]))).toBe(false);
+  });
+});
+
+describe('POST /api/v1/invoices — tax consistency (live-caught CFDI40119 class)', () => {
+  beforeEach(() => { jest.clearAllMocks(); wireDb(); });
+
+  test('normalizes a PERCENT tax_rate to the DECIMAL(5,4) fraction (16 → 0.16), never overflows', async () => {
+    const res = await request(app).post('/api/v1/invoices')
+      .send({ ...BASE, tax_rate: 16 });   // percent, would overflow the column raw
+    expect(res.status).toBe(201);
+    const invIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+    expect(invIns[1][5]).toBeCloseTo(0.16, 6);   // stored as a fraction
+  });
+
+  test('derives tax_rate from tax_amount when only the amount is sent', async () => {
+    const res = await request(app).post('/api/v1/invoices')
+      .send({ client_id: 42, due_date: '2026-08-15', subtotal: 100, tax_amount: 16, total: 116, status: 'issued' });
+    expect(res.status).toBe(201);
+    const invIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+    expect(invIns[1][5]).toBeCloseTo(0.16, 6);
+  });
+
+  test('422 TAX_INCONSISTENT when tax_amount contradicts subtotal × rate', async () => {
+    const res = await request(app).post('/api/v1/invoices')
+      .send({ client_id: 42, due_date: '2026-08-15', subtotal: 100, tax_rate: 0.16, tax_amount: 5, total: 105, status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('TAX_INCONSISTENT');
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
+  test('422 TOTAL_INCONSISTENT when total ≠ subtotal + tax', async () => {
+    const res = await request(app).post('/api/v1/invoices')
+      .send({ client_id: 42, due_date: '2026-08-15', subtotal: 100, tax_rate: 0.16, tax_amount: 16, total: 999, status: 'issued' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('TOTAL_INCONSISTENT');
+  });
+
+  test('a zero-tax invoice (subtotal == total) is accepted', async () => {
+    const res = await request(app).post('/api/v1/invoices')
+      .send({ client_id: 42, due_date: '2026-08-15', subtotal: 100, total: 100, status: 'issued' });
+    expect(res.status).toBe(201);
+    const invIns = lastConn.execute.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]));
+    expect(invIns[1][5]).toBe(0);
+    expect(invIns[1][6]).toBe(0);
   });
 });
