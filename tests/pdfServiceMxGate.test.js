@@ -51,16 +51,16 @@ describe('generateInvoicePdf — MX fiscal gate', () => {
   });
 
   test('MX org with a vigente CFDI: representación impresa from signed_xml', async () => {
-    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<sealed/>', sat_status: 'vigente' } });
+    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<x><tfd:TimbreFiscalDigital/></x>', sat_status: 'vigente' } });
     const buf = await pdfService.generateInvoicePdf(605);
     expect(buf.toString()).toBe('%PDF-fiscal');
     expect(repr.renderRepresentacionImpresa).toHaveBeenCalledWith(
-      expect.objectContaining({ xml: '<sealed/>', satStatus: 'vigente' }),
+      expect.objectContaining({ xml: '<x><tfd:TimbreFiscalDigital/></x>', satStatus: 'vigente' }),
     );
   });
 
   test('MX org with a cancelado CFDI: representación with the cancelado watermark state', async () => {
-    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<sealed/>', sat_status: 'cancelado' } });
+    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<x><tfd:TimbreFiscalDigital/></x>', sat_status: 'cancelado' } });
     await pdfService.generateInvoicePdf(605);
     expect(repr.renderRepresentacionImpresa).toHaveBeenCalledWith(
       expect.objectContaining({ satStatus: 'cancelado' }),
@@ -72,5 +72,24 @@ describe('generateInvoicePdf — MX fiscal gate', () => {
     const buf = await pdfService.generateInvoicePdf(605);
     expect(buf.slice(0, 5).toString()).toBe('%PDF-');
     expect(repr.renderRepresentacionImpresa).not.toHaveBeenCalled();
+  });
+
+  test('MX org with a TFD-LESS "stamped" doc (simulator/dev): remisión path, never the renderer (no 500)', async () => {
+    // Simulator/dev stamps store the pre-stamp builder XML as signed_xml —
+    // renderRepresentacionImpresa would throw on it (review-confirmed 500
+    // on every PDF route incl. invoice emails).
+    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<cfdi:Comprobante Version="4.0"/>', sat_status: 'vigente' } });
+    const buf = await pdfService.generateInvoicePdf(605);
+    expect(buf.slice(0, 5).toString()).toBe('%PDF-');
+    expect(repr.renderRepresentacionImpresa).not.toHaveBeenCalled();
+  });
+
+  test('MX org with a cancel_pending CFDI: still a valid representación (satStatus vigente), never remisión', async () => {
+    wireDb({ orgLocale: 'MX', cfdi: { signed_xml: '<x><tfd:TimbreFiscalDigital/></x>', sat_status: 'cancel_pending' } });
+    const buf = await pdfService.generateInvoicePdf(605);
+    expect(buf.toString()).toBe('%PDF-fiscal');
+    expect(repr.renderRepresentacionImpresa).toHaveBeenCalledWith(
+      expect.objectContaining({ satStatus: 'vigente' }),
+    );
   });
 });

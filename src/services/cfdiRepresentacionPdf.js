@@ -158,13 +158,27 @@ function tfdCadena(tfd) {
   return `||${tfd.version || '1.1'}|${tfd.uuid}|${tfd.fecha_timbrado}|${tfd.rfc_prov_certif}|${tfd.sello_cfd}|${tfd.no_certificado_sat}||`;
 }
 
+// Anexo 20 expresión impresa total: omit non-significant trailing zeros but
+// keep at least one decimal (116.00 → 116.0, 0 → 0.0, 349.50 → 349.5) — the
+// SAT consulta rejects the raw 2-decimal form (review-confirmed; mirrors the
+// reference FormatTotal18x6 implementations).
+function formatTotalForQr(total) {
+  const n = Number(total);
+  if (!Number.isFinite(n)) return '';
+  let s = n.toFixed(6).replace(/0+$/, '');
+  if (s.endsWith('.')) s += '0';
+  return s;
+}
+
 // SAT verification URL (the QR target): anyone can scan and confirm the CFDI
-// against SAT. fe = last 8 characters of the SelloCFD.
+// against SAT. fe = last 8 characters of the SelloCFD. Host is
+// verificacfdi.facturaelectronica.sat.gob.mx — the "facturacion" variant
+// does not exist (NXDOMAIN, review-confirmed by live DNS).
 function satVerificationUrl(model) {
   const sello = model.tfd?.sello_cfd || model.sello_cfd || '';
-  return 'https://verificacfdi.facturacion.sat.gob.mx/default.aspx'
+  return 'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx'
     + `?id=${model.tfd?.uuid || ''}&re=${model.emisor.rfc || ''}&rr=${model.receptor.rfc || ''}`
-    + `&tt=${model.total || ''}&fe=${sello.slice(-8)}`;
+    + `&tt=${formatTotalForQr(model.total)}&fe=${sello.slice(-8)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +227,8 @@ function totalConLetra(amount, moneda = 'MXN') {
   const num = Number(amount) || 0;
   const enteros = Math.floor(num);
   const centavos = Math.round((num - enteros) * 100);
-  const unit = moneda === 'MXN' ? 'PESOS' : moneda === 'USD' ? 'DÓLARES' : moneda;
+  const unit = moneda === 'MXN' ? (enteros === 1 ? 'PESO' : 'PESOS')
+    : moneda === 'USD' ? (enteros === 1 ? 'DÓLAR' : 'DÓLARES') : moneda;
   const suffix = moneda === 'MXN' ? ' M.N.' : '';
   return `${enterosALetras(enteros)} ${unit} ${String(centavos).padStart(2, '0')}/100${suffix}`;
 }
@@ -372,7 +387,7 @@ async function renderRepresentacionImpresa({ xml, satStatus = 'vigente', headerC
       doc.text('Subtotal:', totX, y, { width: totW - 90, align: 'right' });
       doc.text(money(model.subtotal, model.moneda), totX + totW - 85, y, { width: 85, align: 'right' });
       y += 12;
-      if (model.descuento) {
+      if (Number(model.descuento) > 0) {
         doc.text('Descuento:', totX, y, { width: totW - 90, align: 'right' });
         doc.text(money(model.descuento, model.moneda), totX + totW - 85, y, { width: 85, align: 'right' });
         y += 12;
@@ -411,7 +426,7 @@ async function renderRepresentacionImpresa({ xml, satStatus = 'vigente', headerC
     y = Math.max(y + qrSize, sy) + 4;
 
     doc.font('Helvetica').fontSize(6).fillColor(COLORS.muted)
-      .text('Este documento es una representación impresa de un CFDI · Verifique en https://verificacfdi.facturacion.sat.gob.mx', PAGE_MARGIN, y, { width: W, align: 'center' });
+      .text('Este documento es una representación impresa de un CFDI · Verifique en https://verificacfdi.facturaelectronica.sat.gob.mx', PAGE_MARGIN, y, { width: W, align: 'center' });
 
     // ---- CANCELADO watermark ----
     if (satStatus === 'cancelado') {
@@ -428,7 +443,7 @@ async function renderRepresentacionImpresa({ xml, satStatus = 'vigente', headerC
 }
 
 module.exports = {
-  parseCfdiXml, tfdCadena, satVerificationUrl, totalConLetra,
+  parseCfdiXml, tfdCadena, satVerificationUrl, formatTotalForQr, totalConLetra,
   renderRepresentacionImpresa,
   // exported for the remisión marker on MX drafts (pdfService)
   SAT_CATALOGS: { USO_CFDI, FORMA_PAGO, METODO_PAGO, REGIMEN_FISCAL },

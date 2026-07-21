@@ -182,11 +182,17 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
     const [cfdis] = await db.query(
       `SELECT signed_xml, sat_status FROM cfdi_documents
         WHERE invoice_id = ? AND tipo_comprobante = 'I'
-          AND sat_status IN ('vigente', 'cancelado') AND signed_xml IS NOT NULL
+          AND sat_status IN ('vigente', 'cancel_pending', 'cancelado') AND signed_xml IS NOT NULL
         ORDER BY id DESC LIMIT 1`,
       [invoiceId],
     );
-    if (cfdis[0]) {
+    // Only a TFD-bearing signed_xml is a real stamped CFDI. Simulator/dev
+    // stamps store the pre-stamp builder XML (no TimbreFiscalDigital) — those
+    // fall through to the remisión path instead of crashing the renderer
+    // (review-confirmed: this 500'd every PDF route on simulator-stamped
+    // demo docs, including invoice emails). cancel_pending stays a valid
+    // representación: the CFDI is legally vigente until SAT confirms.
+    if (cfdis[0] && cfdis[0].signed_xml.includes('TimbreFiscalDigital')) {
       const [brandRows] = await db.query(
         'SELECT header_color FROM organization_invoice_settings WHERE organization_id = ?',
         [invoice.organization_id],
@@ -194,7 +200,9 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
       const headerColor = (brandRows[0]?.header_color && /^#[0-9A-Fa-f]{6}$/.test(brandRows[0].header_color))
         ? brandRows[0].header_color : undefined;
       return cfdiRepresentacionPdf.renderRepresentacionImpresa({
-        xml: cfdis[0].signed_xml, satStatus: cfdis[0].sat_status, headerColor,
+        xml: cfdis[0].signed_xml,
+        satStatus: cfdis[0].sat_status === 'cancelado' ? 'cancelado' : 'vigente',
+        headerColor,
       });
     }
     mxRemision = true;
@@ -538,7 +546,10 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
   if (!cfdi) throw new Error('CFDI document not found');
 
   // Stamped → the legal representación impresa, rendered from the sealed XML.
-  if (cfdi.signed_xml && ['vigente', 'cancelado', 'cancel_pending'].includes(cfdi.sat_status)) {
+  // TFD check: simulator/dev stamps store TFD-less builder XML — those get
+  // the plain summary below (honest banner) instead of a renderer crash.
+  if (cfdi.signed_xml && cfdi.signed_xml.includes('TimbreFiscalDigital')
+      && ['vigente', 'cancelado', 'cancel_pending'].includes(cfdi.sat_status)) {
     return cfdiRepresentacionPdf.renderRepresentacionImpresa({
       xml: cfdi.signed_xml,
       satStatus: cfdi.sat_status === 'cancelado' ? 'cancelado' : 'vigente',
@@ -561,9 +572,10 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
     doc.fontSize(16).font('Helvetica-Bold').fillColor(COLORS.primary)
       .text(L.cfdi, PAGE_MARGIN, PAGE_MARGIN);
 
-    // Only unstamped drafts reach this layout — say so, in red.
+    // Drafts and TFD-less (simulator/dev) stamps reach this layout — say so.
     doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.danger)
-      .text('BORRADOR — SIN VALOR FISCAL', PAGE_MARGIN, PAGE_MARGIN, { width: doc.page.width - PAGE_MARGIN * 2, align: 'right' });
+      .text(cfdi.sat_status === 'draft' ? 'BORRADOR — SIN VALOR FISCAL' : 'SIN TIMBRE SAT — SIN VALOR FISCAL',
+        PAGE_MARGIN, PAGE_MARGIN, { width: doc.page.width - PAGE_MARGIN * 2, align: 'right' });
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.muted);
     doc.text(`${L.uuid}: ${cfdi.uuid || 'Pending'}`, PAGE_MARGIN, PAGE_MARGIN + 22);

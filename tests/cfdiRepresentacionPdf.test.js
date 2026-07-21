@@ -56,11 +56,12 @@ describe('fiscal strings', () => {
   test('satVerificationUrl carries id/re/rr/tt and the last 8 of the SelloCFD', () => {
     const m = repr.parseCfdiXml(INVOICE_XML);
     const url = repr.satVerificationUrl(m);
-    expect(url).toContain('https://verificacfdi.facturacion.sat.gob.mx/default.aspx?');
+    expect(url).toContain('https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?');
     expect(url).toContain(`id=${m.tfd.uuid}`);
     expect(url).toContain('re=EKU9003173C9');
     expect(url).toContain('rr=MISC491214B86');
-    expect(url).toContain(`tt=${m.total}`);
+    // Anexo 20 expresión impresa: trailing zeros stripped, ≥1 decimal kept
+    expect(url).toContain('tt=116.0&');
     expect(url).toContain(`fe=${m.tfd.sello_cfd.slice(-8)}`);
   });
 });
@@ -69,7 +70,7 @@ describe('totalConLetra', () => {
   const cases = [
     [116, 'CIENTO DIECISÉIS PESOS 00/100 M.N.'],
     [0.5, 'CERO PESOS 50/100 M.N.'],
-    [1, 'UN PESOS 01/100 M.N.'.replace(' 01/', ' 00/')], // 1.00 → UN PESOS 00/100
+    [1, 'UN PESO 00/100 M.N.'], // exactly one: singular
     [21, 'VEINTIÚN PESOS 00/100 M.N.'],
     [100, 'CIEN PESOS 00/100 M.N.'],
     [580, 'QUINIENTOS OCHENTA PESOS 00/100 M.N.'],
@@ -81,8 +82,17 @@ describe('totalConLetra', () => {
     expect(repr.totalConLetra(n)).toBe(expected);
   });
 
-  test('USD gets DÓLARES without M.N.', () => {
+  test('USD gets DÓLARES without M.N. (and DÓLAR singular)', () => {
     expect(repr.totalConLetra(20, 'USD')).toBe('VEINTE DÓLARES 00/100');
+    expect(repr.totalConLetra(1, 'USD')).toBe('UN DÓLAR 00/100');
+  });
+
+  test('formatTotalForQr: Anexo 20 normalization (strip trailing zeros, keep one decimal)', () => {
+    expect(repr.formatTotalForQr('116.00')).toBe('116.0');
+    expect(repr.formatTotalForQr('0')).toBe('0.0');
+    expect(repr.formatTotalForQr('349.50')).toBe('349.5');
+    expect(repr.formatTotalForQr('349.57')).toBe('349.57');
+    expect(repr.formatTotalForQr('1000.000000')).toBe('1000.0');
   });
 });
 
