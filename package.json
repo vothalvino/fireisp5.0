@@ -1,7 +1,7 @@
 {
   "name": "fireisp",
   "version": "5.0.0",
-  "description": "Open source ISP management software — customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0)",
+  "description": "Open source ISP management software \u2014 customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -53,7 +53,8 @@
       "minimatch@10>brace-expansion": "^5.0.6",
       "qs": "^6.15.2",
       "undici": "^7.28.0",
-      "@opentelemetry/core": "^2.8.0"
+      "@opentelemetry/core": "^2.8.0",
+      "form-data": "^4.0.6"
     },
     "onlyBuiltDependencies": [
       "esbuild",
@@ -72,12 +73,14 @@
     "@anthropic-ai/sdk": "^0.91.1",
     "@google/generative-ai": "^0.24.1",
     "@node-saml/node-saml": "^5.1.0",
+    "@nodecfdi/credentials": "^3.2.0",
     "@sentry/node": "^10.49.0",
     "bcryptjs": "^3.0.3",
-    "csrf": "^3.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "csrf": "^3.1.0",
     "dotenv": "^17.4.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "graphql": "^16.13.2",
@@ -90,11 +93,11 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^9.0.1",
     "openai": "^6.35.0",
-    "qrcode": "^1.5.4",
     "openid-client": "^5.7.1",
-    "exceljs": "^4.4.0",
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
+    "saxon-js": "^2.7.0",
     "web-push": "^3.6.7",
     "ws": "^8.21.0"
   },
