@@ -110,6 +110,49 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       }
     }
 
+    // Tax consistency — an MX invoice with mismatched tax stamps to a SAT
+    // rejection (CFDI40119: tax total ≠ subtotal × rate), caught live.
+    // invoices.tax_rate is a DECIMAL(5,4) FRACTION (max 9.9999) — a percent
+    // like 16 overflows into a raw 500, and the schema's max:100 is a lie.
+    // Precedence for the tax figures, so a stampable invoice always results:
+    //   - explicit tax_amount wins;
+    //   - else derive from an explicit tax_rate (normalized percent-or-fraction);
+    //   - else infer from the subtotal→total gap (the common "total already
+    //     includes tax" shape).
+    // Then the rate is normalized/back-derived, and both invariants checked.
+    const subtotalNum = Number(req.body.subtotal);
+    const totalNum = Number(req.body.total);
+    const rateProvided = req.body.tax_rate !== undefined && req.body.tax_rate !== null;
+    let taxRateFraction = rateProvided ? billingService.invoiceTaxFraction(req.body.tax_rate) : null;
+
+    let taxAmount;
+    if (req.body.tax_amount !== undefined && req.body.tax_amount !== null) {
+      taxAmount = Number(req.body.tax_amount);
+    } else if (taxRateFraction !== null) {
+      taxAmount = Math.round(subtotalNum * taxRateFraction * 100) / 100;
+    } else {
+      taxAmount = Math.round((totalNum - subtotalNum) * 100) / 100;
+    }
+
+    if (taxRateFraction === null) {
+      taxRateFraction = subtotalNum > 0 ? Math.round((taxAmount / subtotalNum) * 1e6) / 1e6 : 0;
+    }
+
+    const derivedTax = Math.round(subtotalNum * taxRateFraction * 100) / 100;
+    if (Math.abs(taxAmount - derivedTax) > 0.01) {
+      throw new AppError(
+        `tax_amount ${taxAmount.toFixed(2)} does not match subtotal ${subtotalNum.toFixed(2)} × ${(taxRateFraction * 100).toFixed(2)}% = ${derivedTax.toFixed(2)}.`,
+        422, 'TAX_INCONSISTENT',
+      );
+    }
+    const expectedTotal = Math.round((subtotalNum + taxAmount) * 100) / 100;
+    if (Math.abs(totalNum - expectedTotal) > 0.01) {
+      throw new AppError(
+        `total ${totalNum.toFixed(2)} does not equal subtotal + tax = ${expectedTotal.toFixed(2)}.`,
+        422, 'TOTAL_INCONSISTENT',
+      );
+    }
+
     const conn = await db.getConnection();
     let invoiceId;
     try {
@@ -132,7 +175,7 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           req.orgId, req.body.client_id, req.body.contract_id ?? null, invoiceNumber,
-          req.body.subtotal, req.body.tax_rate ?? 0, req.body.tax_amount ?? 0,
+          req.body.subtotal, taxRateFraction, taxAmount,
           req.body.total, currency, req.body.tax_rate_id ?? null,
           req.body.due_date, req.body.status ?? 'draft', req.user?.id ?? null,
         ],

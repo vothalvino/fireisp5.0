@@ -10,6 +10,8 @@ const createInvoice = {
   tax_amount: { type: 'number', min: 0 },
   total: { type: 'number', required: true, min: 0 },
   currency: { type: 'string', max: 3 },
+  // Accepts a percent (16) or a fraction (0.16); the route normalizes to the
+  // DECIMAL(5,4) FRACTION the column stores (a raw percent >= 10 would overflow).
   tax_rate: { type: 'number', min: 0, max: 100 },
   tax_rate_id: { type: 'number', min: 1 },
   due_date: { type: 'string', required: true },
