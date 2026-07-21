@@ -543,21 +543,107 @@ async function runBillingCycle(organizationId) {
 }
 
 /**
- * Check for CSD certificates expiring within 30 days and log warnings.
+ * CSD lifecycle monitor. A CSD expires after 4 years with no extension — the
+ * replacement must be requested from SAT (CertiSAT) and uploaded BEFORE the
+ * old one lapses, or stamping stops. This used to only return a count into
+ * the task log (monitoring with no alerting); it now:
+ *   - bells + emails the org's admins/managers at the 60/30/7-day thresholds
+ *     (once per certificate per threshold — deduped via the notification rows)
+ *   - flips lapsed certificates to status='expired' (and notifies once more)
  */
 async function runCsdExpiryCheck(organizationId) {
   const orgFilter = organizationId ? 'AND organization_id = ?' : '';
   const params = organizationId ? [organizationId] : [];
 
-  const [expiring] = await db.query(
+  // Lapsed first. Only the IN-USE certificate earns the "stamping stopped"
+  // error alert — a superseded (is_active=0) cert quietly lapsing is routine
+  // renewal hygiene, and alarming every admin about it was a false alarm
+  // (review-confirmed). Both flips also clear is_active so an expired cert
+  // can never keep holding the active slot.
+  const [lapsed] = await db.query(
     `SELECT * FROM csd_certificates
-     WHERE status = 'active'
-       AND valid_to <= DATE_ADD(NOW(), INTERVAL 30 DAY)
-       ${orgFilter}`,
+      WHERE status = 'active' AND valid_to <= NOW() AND deleted_at IS NULL ${orgFilter}`,
     params,
   );
+  for (const cert of lapsed) {
+    await db.query("UPDATE csd_certificates SET status = 'expired', is_active = 0 WHERE id = ?", [cert.id]);
+    if (cert.is_active) await notifyCsdExpiry(cert, 0);
+  }
 
-  return { expiring_certificates: expiring.length, certificates: expiring.map(c => ({ id: c.id, rfc: c.rfc, valid_to: c.valid_to })) };
+  const [expiring] = await db.query(
+    `SELECT * FROM csd_certificates
+      WHERE status = 'active' AND is_active = 1 AND deleted_at IS NULL
+        AND valid_to > NOW() AND valid_to <= DATE_ADD(NOW(), INTERVAL 60 DAY)
+        ${orgFilter}`,
+    params,
+  );
+  let notified = 0;
+  for (const cert of expiring) {
+    const daysLeft = Math.ceil((new Date(cert.valid_to).getTime() - Date.now()) / 86400000);
+    const threshold = [7, 30, 60].find(t => daysLeft <= t);
+    if (threshold === undefined) continue;
+    if (await notifyCsdExpiry(cert, threshold, daysLeft)) notified += 1;
+  }
+
+  return {
+    expiring_certificates: expiring.length,
+    expired_marked: lapsed.length,
+    notifications_sent: notified,
+    certificates: expiring.map(c => ({ id: c.id, rfc: c.rfc, valid_to: c.valid_to })),
+  };
+}
+
+// One bell+email per (certificate, threshold) — the threshold is baked into
+// the notification title, and an existing row with that title suppresses the
+// repeat on every later daily run inside the same window.
+async function notifyCsdExpiry(cert, threshold, daysLeft = 0) {
+  const Notification = require('../models/Notification');
+  const User = require('../models/User');
+  const emailTransport = require('./emailTransport');
+
+  const validTo = new Date(cert.valid_to).toISOString().slice(0, 10);
+  const title = threshold === 0
+    ? `CSD EXPIRADO — ${cert.rfc} (${cert.certificate_number})`
+    : `CSD expira en ≤${threshold} días — ${cert.rfc} (${cert.certificate_number})`;
+
+  const [dup] = await db.query(
+    "SELECT id FROM notifications WHERE entity_type = 'csd_certificates' AND entity_id = ? AND title = ? LIMIT 1",
+    [cert.id, title],
+  );
+  if (dup[0]) return false;
+
+  const body = threshold === 0
+    ? `El Certificado de Sello Digital venció el ${validTo}. El timbrado está detenido hasta activar su reemplazo. `
+      + 'Solicite el nuevo CSD en CertiSAT (con su e.firma), súbalo en Facturación → Certificados CSD y actívelo.'
+    : `El Certificado de Sello Digital vence el ${validTo} (${daysLeft} días). `
+      + 'Solicite el reemplazo en CertiSAT (con su e.firma) y súbalo en Facturación → Certificados CSD — el cambio es sin interrupciones: '
+      + 'el certificado anterior sigue vigente hasta su fecha de expiración.';
+
+  const recipients = await User.getStaffByEffectiveRole(cert.organization_id, ['admin', 'manager']);
+  if (recipients.length === 0) {
+    // The one-and-only alert would be silently lost (the cert is already
+    // flipped, so the lapsed query never matches it again) — make the loss
+    // loud in the logs and the task result instead.
+    logger.error({ certId: cert.id, organizationId: cert.organization_id },
+      'CSD expiry alert has NO recipients — org has no active admin/manager');
+    return false;
+  }
+  for (const r of recipients) {
+    await Notification.create({
+      user_id: r.id,
+      type: threshold === 0 ? 'error' : 'warning',
+      title, body,
+      entity_type: 'csd_certificates', entity_id: cert.id,
+    }).catch(err => logger.warn({ err: err.message, certId: cert.id }, 'CSD expiry bell failed'));
+    if (r.email) {
+      await emailTransport.sendEmail({
+        organizationId: cert.organization_id,
+        to: r.email, subject: title,
+        html: `<p>${body}</p>`,
+      }).catch(err => logger.warn({ err: err.message, certId: cert.id }, 'CSD expiry email failed'));
+    }
+  }
+  return true;
 }
 
 /**

@@ -158,6 +158,34 @@ function verifySeal(xmlString) {
   return crypto.verify('RSA-SHA256', Buffer.from(cadena, 'utf8'), publicKey, Buffer.from(selloMatch[1], 'base64'));
 }
 
+/**
+ * Storage material for a CSD upload: the PEM forms to persist plus the parsed
+ * public info. UPLOAD-HANDLER ONLY — the returned key_pem is the (still
+ * SAT-passphrase-encrypted) private key PEM and must be app-encrypted before
+ * it touches the database; it must never ride on the log-safe seal handle.
+ */
+function csdStorageMaterial(cerContents, keyContents, passphrase) {
+  const cer = Buffer.isBuffer(cerContents) ? cerContents.toString('binary') : cerContents;
+  const key = Buffer.isBuffer(keyContents) ? keyContents.toString('binary') : keyContents;
+  try {
+    const credential = Credential.create(cer, key, passphrase || '');
+    // Round-trip guard: prove the pair+passphrase can actually sign before
+    // anything is stored (a stored-but-unusable CSD is a support nightmare).
+    crypto.createPrivateKey({ key: credential.privateKey().pem(), passphrase: passphrase || '' });
+    return {
+      cer_pem: credential.certificate().pem(),
+      key_pem: credential.privateKey().pem(),
+      info: extractCertificateInfo(credential),
+    };
+  } catch (err) {
+    throw new AppError(
+      `The CSD could not be loaded — check that the .cer/.key pair matches and the passphrase is correct (${err.message}).`,
+      422, 'CSD_INVALID',
+    );
+  }
+}
+
 module.exports = {
   loadCredential, certificateInfo, cadenaOriginal, sealXml, verifySeal, isTestCertificate,
+  csdStorageMaterial,
 };
