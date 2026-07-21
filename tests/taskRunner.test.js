@@ -401,20 +401,25 @@ describe('taskRunner', () => {
       expect(result.notifications_sent).toBe(0); // both deduped
     });
 
-    test('marks lapsed certificates expired', async () => {
-      const lapsed = [{ id: 3, organization_id: 42, rfc: 'XAXX010101000', certificate_number: 'C3', valid_to: '2026-01-01' }];
+    test('marks lapsed certificates expired AND clears is_active; only the in-use cert alerts', async () => {
+      const lapsed = [
+        { id: 3, organization_id: 42, rfc: 'XAXX010101000', certificate_number: 'C3', valid_to: '2026-01-01', is_active: 1 },
+        { id: 4, organization_id: 42, rfc: 'XAXX010101000', certificate_number: 'C4', valid_to: '2026-01-01', is_active: 0 },
+      ];
       const updates = [];
+      const dupChecks = [];
       db.query.mockImplementation(async (sql, params) => {
-        if (/UPDATE csd_certificates SET status = 'expired'/.test(sql)) { updates.push(params[0]); return [{ affectedRows: 1 }]; }
+        if (/UPDATE csd_certificates SET status = 'expired', is_active = 0/.test(sql)) { updates.push(params[0]); return [{ affectedRows: 1 }]; }
         if (/valid_to <= NOW\(\)/.test(sql)) return [lapsed.map(c => ({ ...c }))];
         if (/INTERVAL 60 DAY/.test(sql)) return [[]];
-        if (/FROM notifications/.test(sql)) return [[{ id: 99 }]]; // dedupe the notify
+        if (/FROM notifications/.test(sql)) { dupChecks.push(params[0]); return [[{ id: 99 }]]; } // dedupe the notify
         return [[]];
       });
 
       const result = await taskRunner.runCsdExpiryCheck(42);
-      expect(result.expired_marked).toBe(1);
-      expect(updates).toEqual([3]);
+      expect(result.expired_marked).toBe(2);
+      expect(updates).toEqual([3, 4]); // BOTH flipped (and is_active cleared in the same UPDATE)
+      expect(dupChecks).toEqual([3]);  // but only the in-use cert even attempts the alert
     });
 
     test('returns 0 when no certificates expiring', async () => {

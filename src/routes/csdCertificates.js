@@ -120,18 +120,36 @@ router.post('/', requirePermission('csd_certificates.create'), validate(uploadCs
     );
     const isActive = actives.length === 0 ? 1 : 0;
 
+    // Insert INACTIVE always; the first-cert promotion below runs the same
+    // zero-all-then-set-one pattern as /activate, so two concurrent first
+    // uploads converge to exactly one active row (the check-then-insert
+    // alone was a TOCTOU that could mint two actives — review-confirmed).
     const [result] = await db.query(
       `INSERT INTO csd_certificates
          (organization_id, rfc, certificate_number, issuer_name, valid_from, valid_to,
           cer_pem, key_pem_encrypted, passphrase_encrypted, fingerprint_sha256, is_active, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')`,
       [
         req.orgId, info.rfc, info.certificate_number, info.issuer,
         info.valid_from, info.valid_to,
         material.cer_pem, encryption.encrypt(material.key_pem), encryption.encrypt(passphrase),
-        fingerprint, isActive,
+        fingerprint,
       ],
     );
+    if (isActive) {
+      const conn = await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.execute('UPDATE csd_certificates SET is_active = 0 WHERE organization_id = ?', [req.orgId]);
+        await conn.execute('UPDATE csd_certificates SET is_active = 1 WHERE id = ?', [result.insertId]);
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback().catch(() => {});
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
 
     await auditLog.log({
       userId: req.user?.id, organizationId: req.orgId, action: 'csd_uploaded',
@@ -195,7 +213,28 @@ router.post('/:id/activate', requirePermission('csd_certificates.update'), async
 });
 
 router.put('/:id', requirePermission('csd_certificates.update'), validate(updateCsdCertificate), ctrl.update);
-router.delete('/:id', requirePermission('csd_certificates.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('csd_certificates.update'), ctrl.restore);
+
+// Delete clears is_active (a soft-deleted ghost must not hold the active
+// slot) and restore ALWAYS comes back inactive — otherwise delete-active →
+// upload-new (auto-activates) → restore-old resurrected a second
+// is_active=1 row, breaking the single-active invariant (review-confirmed).
+router.delete('/:id', requirePermission('csd_certificates.delete'), async (req, res, next) => {
+  try {
+    await db.query(
+      'UPDATE csd_certificates SET is_active = 0 WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    return ctrl.destroy(req, res, next);
+  } catch (err) { return next(err); }
+});
+router.post('/:id/restore', requirePermission('csd_certificates.update'), async (req, res, next) => {
+  try {
+    await db.query(
+      'UPDATE csd_certificates SET is_active = 0 WHERE id = ? AND organization_id = ?',
+      [req.params.id, req.orgId],
+    );
+    return ctrl.restore(req, res, next);
+  } catch (err) { return next(err); }
+});
 
 module.exports = router;

@@ -555,15 +555,19 @@ async function runCsdExpiryCheck(organizationId) {
   const orgFilter = organizationId ? 'AND organization_id = ?' : '';
   const params = organizationId ? [organizationId] : [];
 
-  // Lapsed first: mark + notify.
+  // Lapsed first. Only the IN-USE certificate earns the "stamping stopped"
+  // error alert — a superseded (is_active=0) cert quietly lapsing is routine
+  // renewal hygiene, and alarming every admin about it was a false alarm
+  // (review-confirmed). Both flips also clear is_active so an expired cert
+  // can never keep holding the active slot.
   const [lapsed] = await db.query(
     `SELECT * FROM csd_certificates
       WHERE status = 'active' AND valid_to <= NOW() AND deleted_at IS NULL ${orgFilter}`,
     params,
   );
   for (const cert of lapsed) {
-    await db.query("UPDATE csd_certificates SET status = 'expired' WHERE id = ?", [cert.id]);
-    await notifyCsdExpiry(cert, 0);
+    await db.query("UPDATE csd_certificates SET status = 'expired', is_active = 0 WHERE id = ?", [cert.id]);
+    if (cert.is_active) await notifyCsdExpiry(cert, 0);
   }
 
   const [expiring] = await db.query(
@@ -616,6 +620,14 @@ async function notifyCsdExpiry(cert, threshold, daysLeft = 0) {
       + 'el certificado anterior sigue vigente hasta su fecha de expiración.';
 
   const recipients = await User.getStaffByEffectiveRole(cert.organization_id, ['admin', 'manager']);
+  if (recipients.length === 0) {
+    // The one-and-only alert would be silently lost (the cert is already
+    // flipped, so the lapsed query never matches it again) — make the loss
+    // loud in the logs and the task result instead.
+    logger.error({ certId: cert.id, organizationId: cert.organization_id },
+      'CSD expiry alert has NO recipients — org has no active admin/manager');
+    return false;
+  }
   for (const r of recipients) {
     await Notification.create({
       user_id: r.id,

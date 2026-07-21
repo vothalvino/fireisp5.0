@@ -142,7 +142,13 @@ describe('CSD upload (real fixture, parsed server-side)', () => {
   const CER_B64 = fs.readFileSync(path.join(__dirname, 'fixtures/csd/EKU9003173C9.cer')).toString('base64');
   const KEY_B64 = fs.readFileSync(path.join(__dirname, 'fixtures/csd/EKU9003173C9.key')).toString('base64');
 
+  let lastConn;
   function wireUploadDb({ orgRfc = 'EKU9003173C9', dup = null, actives = [] } = {}) {
+    lastConn = {
+      beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+      execute: jest.fn().mockResolvedValue([{ affectedRows: 1 }]),
+    };
+    db.getConnection.mockResolvedValue(lastConn);
     db.query.mockImplementation(async (sql) => {
       if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/FROM organization_mx_profiles/.test(sql)) return [orgRfc ? [{ rfc: orgRfc }] : []];
@@ -177,6 +183,34 @@ describe('CSD upload (real fixture, parsed server-side)', () => {
     // key + passphrase params must be the (possibly no-op) encrypt() output —
     // never missing; cer_pem is public and stored plain
     expect(insert[1]).toEqual(expect.arrayContaining(['EKU9003173C9', '30001000000500003416']));
+    // race-safe first-cert promotion: INSERT is inactive, then the same
+    // zero-all-then-set-one transaction as /activate promotes it
+    expect(insert[0]).toContain("0, 'active'");
+    expect(lastConn.execute.mock.calls[0][0]).toContain('is_active = 0');
+    expect(lastConn.execute.mock.calls[1][0]).toContain('is_active = 1');
+    expect(lastConn.commit).toHaveBeenCalled();
+  });
+
+  test('delete clears is_active and restore always comes back inactive (single-active invariant)', async () => {
+    wireUploadDb();
+    CsdCertificate.findByIdOrFail.mockResolvedValue({ id: 4, organization_id: 1 });
+    CsdCertificate.delete = jest.fn().mockResolvedValue(true);
+    CsdCertificate.restore = jest.fn().mockResolvedValue({ id: 4, organization_id: 1, is_active: 0, status: 'active' });
+
+    await request(app)
+      .delete('/api/v1/csd-certificates/4')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1');
+    const delClear = db.query.mock.calls.find(c => /SET is_active = 0 WHERE id = \?/.test(c[0]));
+    expect(delClear).toBeDefined();
+
+    db.query.mockClear();
+    await request(app)
+      .post('/api/v1/csd-certificates/4/restore')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1');
+    const resClear = db.query.mock.calls.find(c => /SET is_active = 0 WHERE id = \?/.test(c[0]));
+    expect(resClear).toBeDefined();
   });
 
   test('422 CSD_RFC_MISMATCH when the CSD belongs to another RFC', async () => {
