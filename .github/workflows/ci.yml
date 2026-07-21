@@ -81,11 +81,13 @@ jobs:
         # heap. ubuntu-latest runners have 16GB — give jest 6.
         env:
           NODE_OPTIONS: --disable-warning=DEP0040 --disable-warning=DEP0169 --max-old-space-size=6144
-        run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov
+        run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov --coverageReporters=json-summary
 
       - name: Check coverage threshold
+        # Reads the summary the main run already produced — this used to
+        # re-run the ENTIRE suite a second time (and OOM'd once the module
+        # graph grew, since this step lacked the heap bump above).
         run: |
-          pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=json-summary >/dev/null
           COVERAGE=$(node -e "const s=require('./coverage/coverage-summary.json'); console.log(s.total.lines.pct);")
           echo "Line coverage: ${COVERAGE}%"
           node -e "const pct=parseFloat(process.argv[1]); if (pct < 70) { console.error('Coverage below 70% threshold'); process.exit(1); }" "$COVERAGE"
