@@ -121,6 +121,7 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
     label: existing?.label ?? '',
     environment: existing?.environment ?? 'sandbox',
     seal_mode: (existing as { seal_mode?: string } | null)?.seal_mode ?? 'pac',
+    priority: String((existing as { priority?: number } | null)?.priority ?? 100),
     api_url: existing?.api_url ?? API_URL_PRESETS.sw_sapien.sandbox ?? '',
     username: '',
     password: '',
@@ -139,11 +140,14 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, string> = {
+      const body: Record<string, string | number> = {
         provider_name: form.provider_name,
         label: form.label.trim(),
         environment: form.environment,
         seal_mode: form.provider_name === 'finkok' ? 'local' : form.seal_mode,
+        // priority is a NUMBER column — validate() does not coerce strings, so
+        // sending form.priority verbatim 422s every save (review-confirmed).
+        priority: Number.parseInt(form.priority, 10) || 100,
         api_url: form.api_url.trim(),
         status: form.status,
       };
@@ -217,6 +221,14 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
               SW account, so keep it uploaded there too. Currently supported for SW Sapien.
             </p>
           )}
+
+          <label style={label} htmlFor="pac-priority">Failover priority</label>
+          <input id="pac-priority" style={input} type="number" min={0} max={1000} value={form.priority}
+            onChange={e => set('priority', e.target.value)} />
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '2px 0 8px' }}>
+            Lower is tried first. With two active PACs, stamping fails over to the next only when the
+            primary is unreachable.
+          </p>
 
           <label style={label} htmlFor="pac-url">API URL <RequiredMark /></label>
           <input id="pac-url" style={{ ...input, fontFamily: 'monospace' }} maxLength={500} value={form.api_url} onChange={e => set('api_url', e.target.value)} />

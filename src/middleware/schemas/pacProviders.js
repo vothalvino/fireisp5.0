@@ -10,6 +10,7 @@ const createPacProvider = {
   api_url: { type: 'string', required: true, max: 500 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
   seal_mode: { type: 'string', enum: ['pac', 'local'] },
+  priority: { type: 'number', min: 0, max: 1000 },
   username_encrypted: { type: 'string', max: 500 },
   password_encrypted: { type: 'string', max: 500 },
   // SW "infinite token" (portal ADT) — alternative to user+password.
@@ -22,6 +23,7 @@ const updatePacProvider = {
   label: { type: 'string', max: 100 },
   environment: { type: 'string', enum: ['sandbox', 'production'] },
   seal_mode: { type: 'string', enum: ['pac', 'local'] },
+  priority: { type: 'number', min: 0, max: 1000 },
   username_encrypted: { type: 'string', max: 500 },
   password_encrypted: { type: 'string', max: 500 },
   token_encrypted: { type: 'string', max: 2000 },

@@ -62447,6 +62447,11 @@
               "local"
             ]
           },
+          "priority": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
           "username_encrypted": {
             "type": "string",
             "maximum": 500
@@ -62505,6 +62510,11 @@
               "pac",
               "local"
             ]
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
           },
           "username_encrypted": {
             "type": "string",

@@ -15,25 +15,51 @@ const { CfdiStampingError, CfdiCancellationError, AppError } = require('../utils
 // ---------------------------------------------------------------------------
 // Simple circuit breaker for PAC stamping calls
 // ---------------------------------------------------------------------------
-const circuitBreaker = {
-  failures: 0,
-  lastFailure: 0,
-  threshold: 5,       // Open after 5 consecutive failures
-  resetMs: 60000,     // Try again after 60 seconds
-  isOpen() {
-    if (this.failures < this.threshold) return false;
-    // Allow a probe after resetMs
-    if (Date.now() - this.lastFailure > this.resetMs) return false;
-    return true;
-  },
-  recordSuccess() {
-    this.failures = 0;
-  },
-  recordFailure() {
-    this.failures++;
-    this.lastFailure = Date.now();
-  },
-};
+function makeBreaker() {
+  return {
+    failures: 0,
+    lastFailure: 0,
+    threshold: 5,       // Open after 5 consecutive failures
+    resetMs: 60000,     // Try again after 60 seconds
+    isOpen() {
+      if (this.failures < this.threshold) return false;
+      // Allow a probe after resetMs
+      if (Date.now() - this.lastFailure > this.resetMs) return false;
+      return true;
+    },
+    recordSuccess() {
+      this.failures = 0;
+    },
+    recordFailure() {
+      this.failures++;
+      this.lastFailure = Date.now();
+    },
+  };
+}
+
+// Global aggregate breaker (stamping health across all providers) + a
+// per-provider breaker so one down PAC is skipped fast without blocking a
+// healthy sibling in a failover setup.
+const circuitBreaker = makeBreaker();
+const providerBreakers = new Map();
+function providerBreaker(pacId) {
+  if (!providerBreakers.has(pacId)) providerBreakers.set(pacId, makeBreaker());
+  return providerBreakers.get(pacId);
+}
+
+// A provider is FAILOVER-ELIGIBLE only when the request provably never reached
+// it — connection refused / DNS failure / reset before any response. A TIMEOUT
+// or any PAC RESPONSE (even an error) is ambiguous: the document may have been
+// registered, so failing over to a different PAC could double-stamp. Those
+// stop the loop and leave a retryable draft instead.
+// ECONNRESET is deliberately EXCLUDED: a reset over a connection we already
+// wrote the full document to may arrive AFTER the PAC registered the CFDI —
+// indistinguishable from a pre-send reset — so failing over on it could
+// double-stamp. These codes all mean the connection was never established.
+const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']);
+function isUnreachable(err) {
+  return !!err && (UNREACHABLE_CODES.has(err.code) || err.pacUnreachable === true);
+}
 
 /**
  * Generate CFDI XML for an invoice.
@@ -373,6 +399,35 @@ async function loadActiveOrgCsd(orgId) {
   return cfdiSealService.loadCredential(row.cer_pem, keyPem, passphrase);
 }
 
+// Produce the XML to send to a given PAC: sealed with the org's active CSD
+// for local-sealing providers (finkok always; sw_sapien when seal_mode=local),
+// or the unsealed builder XML for a seal-for-you (seal_mode=pac) provider.
+// Throws deterministic AppErrors (config problems) that must NOT trigger
+// failover.
+const LOCAL_SEAL_PROVIDERS = ['sw_sapien', 'finkok'];
+async function sealXmlForProvider(pac, doc) {
+  const localSeal = pac.seal_mode === 'local' || pac.provider_name === 'finkok';
+  if (!localSeal) return doc.xml_content;
+  if (!LOCAL_SEAL_PROVIDERS.includes(pac.provider_name)) {
+    throw new AppError(
+      `seal_mode='local' is supported for ${LOCAL_SEAL_PROVIDERS.join('/')} only (this row is '${pac.provider_name}').`,
+      422, 'SEAL_MODE_UNSUPPORTED',
+    );
+  }
+  const csd = await loadActiveOrgCsd(doc.organization_id);
+  const info = cfdiSealService.certificateInfo(csd);
+  // A SAT test CSD chains to the "pruebas"/UAT CA — every production PAC
+  // rejects it, and an install that got this far would ship legally-void
+  // invoices. Refuse loudly (production-real constraint).
+  if (pac.environment === 'production' && info.is_test_certificate) {
+    throw new AppError(
+      `The active CSD (${info.certificate_number}) is a SAT TEST certificate — it cannot stamp against a production PAC. Upload the organization's real CSD.`,
+      422, 'CSD_TEST_IN_PRODUCTION',
+    );
+  }
+  return cfdiSealService.sealXml(doc.xml_content, csd).xml;
+}
+
 async function stamp(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Stamping CFDI document');
 
@@ -405,83 +460,88 @@ async function stamp(cfdiDocumentId) {
     }
   }
 
-  // Get PAC provider for the organization
+  // All active PACs, in failover order (lower priority first). A single-PAC
+  // org has exactly one row and behaves as before.
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
     [doc.organization_id],
   );
-
   if (pacs.length === 0) {
     throw new CfdiStampingError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
   }
 
-  const pac = pacs[0];
-
-  // seal_mode='local' (migration 410): FireISP seals with the org's ACTIVE
-  // CSD and sends the SEALED XML to the PAC's stamp-only tier — the private
-  // key never leaves the server. seal_mode='pac' keeps the pre-410 behavior
-  // (the PAC seals with its vaulted CSD).
-  // Finkok only stamps PRE-SEALED XML — it has no seal-for-you tier, so a
-  // finkok row is always local-sealing regardless of the stored seal_mode.
-  const LOCAL_SEAL_PROVIDERS = ['sw_sapien', 'finkok'];
-  const localSeal = pac.seal_mode === 'local' || pac.provider_name === 'finkok';
-  let xmlToStamp = doc.xml_content;
-  if (localSeal) {
-    if (!LOCAL_SEAL_PROVIDERS.includes(pac.provider_name)) {
-      throw new AppError(
-        `seal_mode='local' is supported for ${LOCAL_SEAL_PROVIDERS.join('/')} only (this row is '${pac.provider_name}').`,
-        422, 'SEAL_MODE_UNSUPPORTED',
-      );
-    }
-    const csd = await loadActiveOrgCsd(doc.organization_id);
-    const info = cfdiSealService.certificateInfo(csd);
-    // A SAT test CSD chains to the "pruebas"/UAT CA — every production PAC
-    // rejects it, and an install that got this far would be shipping
-    // legally-void invoices. Refuse loudly (production-real constraint).
-    if (pac.environment === 'production' && info.is_test_certificate) {
-      throw new AppError(
-        `The active CSD (${info.certificate_number}) is a SAT TEST certificate — it cannot stamp against a production PAC. Upload the organization's real CSD.`,
-        422, 'CSD_TEST_IN_PRODUCTION',
-      );
-    }
-    xmlToStamp = cfdiSealService.sealXml(doc.xml_content, csd).xml;
-  }
-
   // NOTE: callPacStamp also returns cadenaOriginal, but cfdi_documents has no
   // column for it (database/schema.sql) — it is reproducible from signed_xml.
-  let uuid, signedXml, selloSat;
-
-  // Retry with exponential backoff (up to 3 attempts)
+  let uuid, signedXml, selloSat, stampedProvider;
   const MAX_RETRIES = 3;
   let lastErr;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+
+  for (const pac of pacs) {
+    const breaker = providerBreaker(pac.id);
+    if (breaker.isOpen()) {
+      lastErr = new Error(`PAC ${pac.provider_name} (#${pac.id}) circuit is open`);
+      lastErr.pacUnreachable = true;
+      logger.warn({ cfdiDocumentId, pacId: pac.id }, 'PAC circuit open — skipping to next provider');
+      continue;
+    }
+
+    // Seal per-provider: finkok + sw_sapien(local) get the sealed XML; a
+    // seal_mode='pac' SW row gets the unsealed XML. Config errors (missing/
+    // expired CSD, test-cert-in-prod, unsupported seal_mode) are deterministic
+    // and identical for every provider — abort immediately, no failover.
+    let xmlToStamp;
     try {
-      const result = await callPacStamp(pac, xmlToStamp);
-      uuid = result.uuid;
-      signedXml = result.signedXml || xmlToStamp;
-      selloSat = result.selloSat || null;
-      circuitBreaker.recordSuccess();
-      lastErr = null;
-      break;
-    } catch (pacErr) {
-      lastErr = pacErr;
-      logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC stamping attempt failed');
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+      xmlToStamp = await sealXmlForProvider(pac, doc);
+    } catch (sealErr) {
+      if (sealErr instanceof AppError) throw sealErr;
+      throw sealErr;
+    }
+
+    // Up to MAX_RETRIES against THIS provider. Retrying the same provider with
+    // the identical sealed XML is double-stamp-safe (SW/Finkok dedupe an
+    // identical resubmission). Only after it stays UNREACHABLE do we fail over.
+    let providerErr;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const result = await callPacStamp(pac, xmlToStamp);
+        uuid = result.uuid;
+        signedXml = result.signedXml || xmlToStamp;
+        selloSat = result.selloSat || null;
+        stampedProvider = pac;
+        breaker.recordSuccess();
+        circuitBreaker.recordSuccess();
+        providerErr = null;
+        break;
+      } catch (pacErr) {
+        providerErr = pacErr;
+        logger.warn({ cfdiDocumentId, pacId: pac.id, attempt, err: pacErr.message }, 'PAC stamping attempt failed');
+        // A PAC RESPONSE-derived error or a TIMEOUT is ambiguous (the doc may
+        // be registered) — stop retrying this provider immediately.
+        if (!isUnreachable(pacErr)) break;
+        if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
       }
     }
+    if (uuid) break; // stamped
+
+    lastErr = providerErr;
+    breaker.recordFailure();
+    // Fail over to the next PAC ONLY when this one was unreachable. Any other
+    // outcome (timeout / PAC error) must not risk a second stamp elsewhere.
+    if (isUnreachable(providerErr) && pac !== pacs[pacs.length - 1]) {
+      logger.warn({ cfdiDocumentId, from: pac.provider_name }, 'Primary PAC unreachable — failing over');
+      continue;
+    }
+    break;
   }
 
-  if (lastErr) {
+  if (!uuid) {
     circuitBreaker.recordFailure();
     // sat_status is ENUM('draft','vigente','cancelado','cancel_pending') — there is
-    // no 'stamp_error' value (database/schema.sql), so the UPDATE that used to be
-    // here threw and *masked* the real PAC error with a DB error. A document that
-    // failed to stamp stays 'draft' (it is not fiscally valid) and the caller gets
-    // the actual CfdiStampingError.
+    // no 'stamp_error' value (database/schema.sql), so the doc stays 'draft'
+    // (not fiscally valid) and the caller gets the actual PAC error.
     throw new CfdiStampingError(
-      `PAC stamping failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
-      { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
+      `PAC stamping failed: ${lastErr ? lastErr.message : 'no provider succeeded'}`,
+      { cfdiDocumentId, providersTried: pacs.length, cause: lastErr && lastErr.message },
     );
   }
 
@@ -496,8 +556,11 @@ async function stamp(cfdiDocumentId) {
     [uuid, 'vigente', signedXml, selloSat, cfdiDocumentId],
   );
 
-  logger.info({ cfdiDocumentId, uuid }, 'CFDI document stamped successfully');
-  return { cfdi_document_id: cfdiDocumentId, uuid, status: 'vigente' };
+  if (stampedProvider) {
+    try { await db.query('UPDATE pac_providers SET last_stamp_at = NOW() WHERE id = ?', [stampedProvider.id]); } catch (_) { /* best-effort */ }
+  }
+  logger.info({ cfdiDocumentId, uuid, provider: stampedProvider && stampedProvider.provider_name }, 'CFDI document stamped successfully');
+  return { cfdi_document_id: cfdiDocumentId, uuid, status: 'vigente', provider: stampedProvider && stampedProvider.provider_name };
 }
 
 /**
@@ -803,70 +866,69 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     );
   }
 
-  // Get PAC provider
+  // All active PACs in priority order. Unlike stamping, SAT cancellation is
+  // IDEMPOTENT (re-cancelling a UUID is harmless — SAT reports it already
+  // cancelled), so cancel MAY fail over across providers, and any active PAC
+  // (SW with the vaulted CSD, Finkok with the cer/key inline) can cancel any
+  // of the org's CFDIs — including one a now-down backup stamped.
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
     [doc.organization_id],
   );
   if (pacs.length === 0) {
     throw new CfdiCancellationError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
   }
-  const pac = pacs[0];
 
-  // Record the cancellation request
+  // Record the request (pending). The doc is NOT flipped to cancel_pending
+  // yet — only a PAC that actually responds moves it (below), so a cancel
+  // where every provider is unreachable leaves the CFDI 'vigente' and
+  // retryable, instead of stranding it in cancel_pending forever.
   const [insertResult] = await db.query(
     `INSERT INTO cfdi_cancellations
        (cfdi_document_id, organization_id, uuid, motivo, folio_sustitucion,
         cancellation_status, requested_at, pac_provider_id)
      VALUES (?, ?, ?, ?, ?, 'pending', NOW(), ?)`,
-    [cfdiDocumentId, doc.organization_id, doc.uuid, reason, replacementUuid, pac.id],
+    [cfdiDocumentId, doc.organization_id, doc.uuid, reason, replacementUuid, pacs[0].id],
   );
   const cancellationId = insertResult.insertId;
 
-  // Update CFDI document status to cancel_pending
-  await db.query(
-    'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ? WHERE id = ?',
-    ['cancel_pending', reason, replacementUuid, cfdiDocumentId],
-  );
-
-  // Submit cancellation to PAC with retry logic
-  const MAX_RETRIES = 3;
   let lastErr;
   let pacResult;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  let usedPac;
+  for (const pac of pacs) {
     try {
       pacResult = await callPacCancel(pac, doc.uuid, reason, replacementUuid, doc);
+      usedPac = pac;
       lastErr = null;
       break;
     } catch (pacErr) {
-      lastErr = pacErr;
       // Deterministic config errors (missing/expired CSD, no emisor profile —
-      // 4xx AppErrors) will fail identically on every retry; surface them
-      // immediately with their actionable status/message instead of burning
-      // ~6s of backoff and burying them under a generic "failed after 3".
+      // 4xx AppErrors) are identical for every provider — surface immediately
+      // with the actionable message, no failover.
       if (pacErr instanceof AppError && pacErr.statusCode < 500) {
         await db.query('UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?', [pacErr.message, cancellationId]);
         throw pacErr;
       }
-      logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC cancellation attempt failed');
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-      }
+      lastErr = pacErr;
+      logger.warn({ cfdiDocumentId, pacId: pac.id, err: pacErr.message }, 'PAC cancellation attempt failed — trying next provider');
     }
   }
 
   if (lastErr) {
-    // Record the failure in the cancellation record
     await db.query(
       'UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?',
       [lastErr.message, cancellationId],
     );
-    logger.error({ cfdiDocumentId, err: lastErr.message }, 'PAC cancellation failed after retries');
+    logger.error({ cfdiDocumentId, err: lastErr.message }, 'PAC cancellation failed across all providers');
+    // The doc was never moved off 'vigente' — nothing to revert.
     throw new CfdiCancellationError(
-      `PAC cancellation failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
-      { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
+      `PAC cancellation failed: ${lastErr.message}`,
+      { cfdiDocumentId, providersTried: pacs.length, cause: lastErr.message },
     );
+  }
+  // Attribute the cancellation to the provider that actually handled it.
+  if (usedPac && usedPac.id !== pacs[0].id) {
+    await db.query('UPDATE cfdi_cancellations SET pac_provider_id = ? WHERE id = ?', [usedPac.id, cancellationId]);
   }
 
   // Process PAC response
@@ -886,21 +948,24 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     [finalStatus, acuseXml, acuseFecha, cancellationId],
   );
 
-  // Update CFDI document status based on PAC response
+  // Move the CFDI per the PAC response. The doc is still 'vigente' at this
+  // point (it is flipped only now that a PAC has actually answered).
   if (finalStatus === 'accepted') {
     await db.query(
-      'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
-      ['cancelado', cfdiDocumentId],
+      'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ?, cancelled_at = NOW() WHERE id = ?',
+      ['cancelado', reason, replacementUuid, cfdiDocumentId],
     );
     await syncInvoiceCancelled(cfdiDocumentId);
   } else if (finalStatus === 'rejected') {
-    // Revert to vigente since SAT rejected the cancellation
+    // SAT rejected — the doc stays vigente (never moved). Nothing to do.
+  } else {
+    // pending (202 — awaiting receptor acceptance): now flip to cancel_pending;
+    // getCancellationStatus resolves it later.
     await db.query(
-      'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
-      ['vigente', cfdiDocumentId],
+      'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ? WHERE id = ?',
+      ['cancel_pending', reason, replacementUuid, cfdiDocumentId],
     );
   }
-  // If status is 'pending', it stays cancel_pending — will be resolved via getCancellationStatus
 
   logger.info({ cfdiDocumentId, cancellationId, finalStatus }, 'CFDI cancellation processed');
   return {
@@ -1828,5 +1893,5 @@ module.exports = {
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, enrichRelatedDocumentsWithTaxes, getPaymentComplement,
   getReconciliationReport,
-  httpRequest, circuitBreaker,
+  httpRequest, circuitBreaker, providerBreaker,
 };

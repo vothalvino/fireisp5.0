@@ -228,22 +228,28 @@ describe('CFDI Cancellation Flow', () => {
       expect(insertCall[1]).toContain('03'); // motivo
     });
 
-    test('updates document to cancel_pending before PAC call', async () => {
-      db.query
-        .mockResolvedValueOnce([[vigentDoc]])
-        .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
-        .mockResolvedValueOnce([[activePac]])
-        .mockResolvedValueOnce([{ insertId: 103 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    test('flips the document only AFTER the PAC responds (no pre-flip that could strand it)', async () => {
+      // The dev_placeholder cancel returns 'accepted', so the doc moves
+      // straight to 'cancelado'. Crucially, there is NO UPDATE cfdi_documents
+      // BEFORE the cancellation record is inserted — the old pre-flip left a
+      // doc stuck in cancel_pending when every PAC failed (review-confirmed).
+      db.query.mockImplementation(async (sql) => {
+        if (/FROM cfdi_documents WHERE (?:cd\.)?id/i.test(sql)) return [[{ ...vigentDoc }]];
+        if (/cfdi_payment_complements/i.test(sql)) return [[]];
+        if (/FROM pac_providers/i.test(sql)) return [[{ ...activePac }]];
+        if (/INSERT INTO cfdi_cancellations/i.test(sql)) return [{ insertId: 103 }];
+        return [{ affectedRows: 1 }];
+      });
 
       await cfdiService.cancel(1, '04');
 
-      // Fifth call should be UPDATE cfdi_documents SET sat_status
-      const updateCall = db.query.mock.calls[4];
-      expect(updateCall[0]).toContain('UPDATE cfdi_documents');
-      expect(updateCall[1]).toContain('cancel_pending');
+      const calls = db.query.mock.calls.map(([sql]) => sql);
+      const insertIdx = calls.findIndex(s => /INSERT INTO cfdi_cancellations/i.test(s));
+      const docUpdateIdx = calls.findIndex(s => /UPDATE cfdi_documents/i.test(s));
+      // the doc is moved (accepted → cancelado) and only after the request row exists
+      expect(docUpdateIdx).toBeGreaterThan(insertIdx);
+      const docUpdate = db.query.mock.calls.find(([sql]) => /UPDATE cfdi_documents/i.test(sql));
+      expect(docUpdate[1]).toContain('cancelado');
     });
 
     test('handles all valid motivo codes (02, 03, 04)', async () => {
