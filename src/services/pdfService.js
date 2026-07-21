@@ -7,6 +7,7 @@
 
 const PDFDocument = require('pdfkit');
 const db = require('../config/database');
+const cfdiRepresentacionPdf = require('./cfdiRepresentacionPdf');
 const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 
 // ---------------------------------------------------------------------------
@@ -159,7 +160,8 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
   const [invoices] = await db.query(
     `SELECT i.*, cl.name, cl.email, cl.phone, cl.address, cl.city, cl.state, cl.country,
             o.name AS org_name, o.email AS org_email, o.phone AS org_phone,
-            o.address AS org_address, o.city AS org_city, o.state AS org_state, o.country AS org_country
+            o.address AS org_address, o.city AS org_city, o.state AS org_state, o.country AS org_country,
+            o.locale AS org_locale
      FROM invoices i
      LEFT JOIN clients cl ON cl.id = i.client_id
      LEFT JOIN organizations o ON o.id = i.organization_id
@@ -168,6 +170,43 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
   );
   const invoice = invoices[0];
   if (!invoice) throw new Error('Invoice not found');
+
+  // MX orgs: a STAMPED invoice's PDF is the legal representación impresa,
+  // rendered from the sealed XML (the fiscal truth). An unstamped MX invoice
+  // keeps the plain layout below but is marked as a remisión — a plain
+  // invoice has no fiscal validity in Mexico and must not look like one.
+  // Non-MX orgs never enter this branch: their PDFs are byte-identical to
+  // before (user constraint, pinned by tests).
+  let mxRemision = false;
+  if (invoice.org_locale === 'MX') {
+    const [cfdis] = await db.query(
+      `SELECT signed_xml, sat_status FROM cfdi_documents
+        WHERE invoice_id = ? AND tipo_comprobante = 'I'
+          AND sat_status IN ('vigente', 'cancel_pending', 'cancelado') AND signed_xml IS NOT NULL
+        ORDER BY id DESC LIMIT 1`,
+      [invoiceId],
+    );
+    // Only a TFD-bearing signed_xml is a real stamped CFDI. Simulator/dev
+    // stamps store the pre-stamp builder XML (no TimbreFiscalDigital) — those
+    // fall through to the remisión path instead of crashing the renderer
+    // (review-confirmed: this 500'd every PDF route on simulator-stamped
+    // demo docs, including invoice emails). cancel_pending stays a valid
+    // representación: the CFDI is legally vigente until SAT confirms.
+    if (cfdis[0] && cfdis[0].signed_xml.includes('TimbreFiscalDigital')) {
+      const [brandRows] = await db.query(
+        'SELECT header_color FROM organization_invoice_settings WHERE organization_id = ?',
+        [invoice.organization_id],
+      ).catch(() => [[]]);
+      const headerColor = (brandRows[0]?.header_color && /^#[0-9A-Fa-f]{6}$/.test(brandRows[0].header_color))
+        ? brandRows[0].header_color : undefined;
+      return cfdiRepresentacionPdf.renderRepresentacionImpresa({
+        xml: cfdis[0].signed_xml,
+        satStatus: cfdis[0].sat_status === 'cancelado' ? 'cancelado' : 'vigente',
+        headerColor,
+      });
+    }
+    mxRemision = true;
+  }
 
   const [items] = await db.query(
     'SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id',
@@ -221,6 +260,12 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
     // Status badge
     doc.fontSize(9).font('Helvetica-Bold').fillColor(statusColor(invoice.status))
       .text((invoice.status || 'issued').toUpperCase(), PAGE_MARGIN, y);
+
+    // MX-only: an unstamped invoice is a remisión, not a factura — say so.
+    if (mxRemision) {
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.danger)
+        .text('REMISIÓN — SIN VALOR FISCAL', PAGE_MARGIN + 80, y);
+    }
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.text);
     doc.text(`${L.issueDate}: ${fmtDate(invoice.created_at)}`, 200, y);
@@ -500,6 +545,17 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
   const cfdi = docs[0];
   if (!cfdi) throw new Error('CFDI document not found');
 
+  // Stamped → the legal representación impresa, rendered from the sealed XML.
+  // TFD check: simulator/dev stamps store TFD-less builder XML — those get
+  // the plain summary below (honest banner) instead of a renderer crash.
+  if (cfdi.signed_xml && cfdi.signed_xml.includes('TimbreFiscalDigital')
+      && ['vigente', 'cancelado', 'cancel_pending'].includes(cfdi.sat_status)) {
+    return cfdiRepresentacionPdf.renderRepresentacionImpresa({
+      xml: cfdi.signed_xml,
+      satStatus: cfdi.sat_status === 'cancelado' ? 'cancelado' : 'vigente',
+    });
+  }
+
   const [conceptos] = await db.query(
     'SELECT * FROM cfdi_conceptos WHERE cfdi_document_id = ?',
     [cfdiDocumentId],
@@ -515,6 +571,11 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
     // Header
     doc.fontSize(16).font('Helvetica-Bold').fillColor(COLORS.primary)
       .text(L.cfdi, PAGE_MARGIN, PAGE_MARGIN);
+
+    // Drafts and TFD-less (simulator/dev) stamps reach this layout — say so.
+    doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.danger)
+      .text(cfdi.sat_status === 'draft' ? 'BORRADOR — SIN VALOR FISCAL' : 'SIN TIMBRE SAT — SIN VALOR FISCAL',
+        PAGE_MARGIN, PAGE_MARGIN, { width: doc.page.width - PAGE_MARGIN * 2, align: 'right' });
 
     doc.fontSize(9).font('Helvetica').fillColor(COLORS.muted);
     doc.text(`${L.uuid}: ${cfdi.uuid || 'Pending'}`, PAGE_MARGIN, PAGE_MARGIN + 22);
@@ -554,7 +615,7 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
     doc.text(`${L.paymentForm}: ${cfdi.forma_pago || ''}`, 280, y);
     doc.text(`Moneda: ${cfdi.moneda || 'MXN'}`, 410, y);
     y += 14;
-    doc.text(`Fecha: ${fmtDate(cfdi.fecha_emision)}`, PAGE_MARGIN, y);
+    doc.text(`Fecha: ${fmtDate(cfdi.created_at)}`, PAGE_MARGIN, y);
     doc.text(`Lugar Expedición: ${cfdi.lugar_expedicion || ''}`, 200, y);
     doc.text(`Exportación: ${cfdi.exportacion || '01'}`, 410, y);
     y += 20;
@@ -592,18 +653,9 @@ async function generateCfdiPdf(cfdiDocumentId, { locale = 'en' } = {}) {
     doc.text(`${L.total}:`, 365, y, { width: 80, align: 'right' });
     doc.text(`${cfdi.moneda || 'MXN'} ${parseFloat(cfdi.total || 0).toFixed(2)}`, 450, y, { width: 80, align: 'right' });
 
-    // Sello / Cadena
+    // (No seal block: a draft has none — stamped documents render the full
+    // representación impresa above and never reach this layout.)
     y += 30;
-    if (cfdi.sello_sat) {
-      doc.fontSize(6).font('Helvetica').fillColor(COLORS.muted);
-      doc.text(`${L.satSeal}:`, PAGE_MARGIN, y);
-      y += 8;
-      doc.text(cfdi.sello_sat.slice(0, 120) + '…', PAGE_MARGIN, y, { width: 500 });
-      y += 10;
-    }
-
-    // SAT Status
-    y += 5;
     doc.fontSize(9).font('Helvetica-Bold').fillColor(statusColor(cfdi.sat_status))
       .text(`Estado SAT: ${(cfdi.sat_status || 'draft').toUpperCase()}`, PAGE_MARGIN, y);
 
