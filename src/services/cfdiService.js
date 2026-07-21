@@ -914,7 +914,17 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
     );
     const cancelData = JSON.parse(cancelResponse.body);
     if (cancelData.status === 'error') {
-      throw new Error([cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed');
+      let msg = [cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed';
+      // Local sealing keeps the CSD off the PAC for STAMPING, but SW's
+      // cancellation service signs the SAT Solicitud de Cancelación with the
+      // CSD in the SW account's vault — so cancellation still needs it
+      // registered there. Make that dependency explicit instead of surfacing
+      // SW's opaque certificate error (true local cancel-signing lands with
+      // the Finkok adapter).
+      if (pac.seal_mode === 'local') {
+        msg += ' — with local sealing, SW still signs cancellations with the CSD in your SW account; upload the same CSD in SW\'s Administración de certificados.';
+      }
+      throw new Error(msg);
     }
 
     // The acuse XML carries the SAT status: EstatusUUID 201 (cancelled) /

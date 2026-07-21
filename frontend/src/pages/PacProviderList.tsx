@@ -208,11 +208,13 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
           <label style={label} htmlFor="pac-seal">Sealing</label>
           <select id="pac-seal" style={input} value={form.seal_mode} onChange={e => set('seal_mode', e.target.value)}>
             <option value="pac">PAC seals (Emisión — CSD in the PAC’s vault)</option>
-            <option value="local">Local sealing (stamp-only — CSD stays on this server)</option>
+            <option value="local">Local sealing (we seal, stamp-only tier)</option>
           </select>
           {form.seal_mode === 'local' && (
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 8px' }}>
-              Requires an active CSD under Facturación → Certificados CSD. Currently supported for SW Sapien.
+              FireISP signs the invoice with the org’s active CSD (Facturación → Certificados CSD) and sends the
+              sealed XML to SW’s stamp-only tier. Note: SW still signs <em>cancellations</em> with the CSD in your
+              SW account, so keep it uploaded there too. Currently supported for SW Sapien.
             </p>
           )}
 

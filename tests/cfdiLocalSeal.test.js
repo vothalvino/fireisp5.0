@@ -136,6 +136,26 @@ describe("stamp() with seal_mode='local'", () => {
     await expect(cfdiService.stamp(7)).rejects.toMatchObject({ statusCode: 422, code: 'SEAL_MODE_UNSUPPORTED' });
   });
 
+  test('cancel error for a local-sealed doc points at the SW-vault requirement', async () => {
+    // The stand-in returns an error status for cancel; the message must gain
+    // the local-seal context (SW signs cancellations with its vaulted CSD).
+    const errServer = http.createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: 'error', message: 'No fue posible obtener el Certificado' }));
+    });
+    await new Promise(r => errServer.listen(0, '127.0.0.1', r));
+    const port = errServer.address().port;
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents WHERE id/.test(sql)) return [[{ id: 7, organization_id: 5, uuid: 'aaaa1111-2222-4333-8444-555566667777', sat_status: 'vigente', invoice_id: null }]];
+      if (/FROM pac_providers/.test(sql)) return [[localPac({ api_url: `http://127.0.0.1:${port}` })]];
+      if (/FROM organization_mx_profiles/.test(sql)) return [[{ rfc: 'EKU9003173C9', razon_social: 'E', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]];
+      if (/cfdi_cancellations/.test(sql)) return [{ insertId: 1 }];
+      return [{ affectedRows: 1 }];
+    });
+    await expect(cfdiService.cancel(7, '02')).rejects.toThrow(/SW still signs cancellations with the CSD/);
+    await new Promise(r => errServer.close(r));
+  });
+
   test("seal_mode='pac' still uses the Emisión (issue) endpoint with plain-XML JSON", async () => {
     wireDb({ pac: localPac({ seal_mode: 'pac' }) });
     await cfdiService.stamp(7);
