@@ -118,6 +118,13 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       // org-scoped sequence the billing engine uses when the caller omits it.
       const invoiceNumber = req.body.invoice_number
         || await billingService.nextInvoiceNumber(conn, req.orgId);
+      // tax_rate and currency are NOT NULL DEFAULT columns — binding an
+      // explicit NULL bypasses the default and 500s (live-caught; mocks and
+      // sql:check are both blind to bind nullability). Currency comes from
+      // the ORG (one currency per org), never the table's legacy 'USD'
+      // default.
+      const currency = req.body.currency
+        || await Organization.getCurrency(req.orgId);
       const [ins] = await conn.execute(
         `INSERT INTO invoices
            (organization_id, client_id, contract_id, invoice_number, subtotal, tax_rate,
@@ -125,8 +132,8 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           req.orgId, req.body.client_id, req.body.contract_id ?? null, invoiceNumber,
-          req.body.subtotal, req.body.tax_rate ?? null, req.body.tax_amount ?? 0,
-          req.body.total, req.body.currency ?? null, req.body.tax_rate_id ?? null,
+          req.body.subtotal, req.body.tax_rate ?? 0, req.body.tax_amount ?? 0,
+          req.body.total, currency, req.body.tax_rate_id ?? null,
           req.body.due_date, req.body.status ?? 'draft', req.user?.id ?? null,
         ],
       );
