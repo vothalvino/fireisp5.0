@@ -75,6 +75,19 @@ describe('PAC failover', () => {
     expect(res.uuid).toBe('BK-UUID-1');
   }, 20000);
 
+  test('ECONNRESET does NOT fail over (post-send reset may mean the doc was registered)', async () => {
+    let backupHit = false;
+    const p = pac({ priority: 10, api_url: liveBase() });
+    const b = pac({ priority: 20, api_url: liveBase() });
+    wire([p, b]);
+    handler = (req, res) => {
+      if (!backupHit) { backupHit = true; req.socket.destroy(); }  // reset AFTER receiving the body
+      else okIssue(res);
+    };
+    await expect(cfdiService.stamp(9)).rejects.toThrow(/PAC stamping failed/);
+    // the reset arrives after the primary consumed the request → no failover
+  }, 20000);
+
   test('an open per-provider circuit skips the primary straight to the backup', async () => {
     const p = pac({ priority: 10, api_url: DEAD });
     const b = pac({ priority: 20, api_url: liveBase() });

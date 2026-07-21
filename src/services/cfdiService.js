@@ -52,7 +52,11 @@ function providerBreaker(pacId) {
 // or any PAC RESPONSE (even an error) is ambiguous: the document may have been
 // registered, so failing over to a different PAC could double-stamp. Those
 // stop the loop and leave a retryable draft instead.
-const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH']);
+// ECONNRESET is deliberately EXCLUDED: a reset over a connection we already
+// wrote the full document to may arrive AFTER the PAC registered the CFDI —
+// indistinguishable from a pre-send reset — so failing over on it could
+// double-stamp. These codes all mean the connection was never established.
+const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']);
 function isUnreachable(err) {
   return !!err && (UNREACHABLE_CODES.has(err.code) || err.pacUnreachable === true);
 }
@@ -862,70 +866,69 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     );
   }
 
-  // Get PAC provider
+  // All active PACs in priority order. Unlike stamping, SAT cancellation is
+  // IDEMPOTENT (re-cancelling a UUID is harmless — SAT reports it already
+  // cancelled), so cancel MAY fail over across providers, and any active PAC
+  // (SW with the vaulted CSD, Finkok with the cer/key inline) can cancel any
+  // of the org's CFDIs — including one a now-down backup stamped.
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC LIMIT 1',
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
     [doc.organization_id],
   );
   if (pacs.length === 0) {
     throw new CfdiCancellationError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
   }
-  const pac = pacs[0];
 
-  // Record the cancellation request
+  // Record the request (pending). The doc is NOT flipped to cancel_pending
+  // yet — only a PAC that actually responds moves it (below), so a cancel
+  // where every provider is unreachable leaves the CFDI 'vigente' and
+  // retryable, instead of stranding it in cancel_pending forever.
   const [insertResult] = await db.query(
     `INSERT INTO cfdi_cancellations
        (cfdi_document_id, organization_id, uuid, motivo, folio_sustitucion,
         cancellation_status, requested_at, pac_provider_id)
      VALUES (?, ?, ?, ?, ?, 'pending', NOW(), ?)`,
-    [cfdiDocumentId, doc.organization_id, doc.uuid, reason, replacementUuid, pac.id],
+    [cfdiDocumentId, doc.organization_id, doc.uuid, reason, replacementUuid, pacs[0].id],
   );
   const cancellationId = insertResult.insertId;
 
-  // Update CFDI document status to cancel_pending
-  await db.query(
-    'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ? WHERE id = ?',
-    ['cancel_pending', reason, replacementUuid, cfdiDocumentId],
-  );
-
-  // Submit cancellation to PAC with retry logic
-  const MAX_RETRIES = 3;
   let lastErr;
   let pacResult;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  let usedPac;
+  for (const pac of pacs) {
     try {
       pacResult = await callPacCancel(pac, doc.uuid, reason, replacementUuid, doc);
+      usedPac = pac;
       lastErr = null;
       break;
     } catch (pacErr) {
-      lastErr = pacErr;
       // Deterministic config errors (missing/expired CSD, no emisor profile —
-      // 4xx AppErrors) will fail identically on every retry; surface them
-      // immediately with their actionable status/message instead of burning
-      // ~6s of backoff and burying them under a generic "failed after 3".
+      // 4xx AppErrors) are identical for every provider — surface immediately
+      // with the actionable message, no failover.
       if (pacErr instanceof AppError && pacErr.statusCode < 500) {
         await db.query('UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?', [pacErr.message, cancellationId]);
         throw pacErr;
       }
-      logger.warn({ cfdiDocumentId, attempt, err: pacErr.message }, 'PAC cancellation attempt failed');
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-      }
+      lastErr = pacErr;
+      logger.warn({ cfdiDocumentId, pacId: pac.id, err: pacErr.message }, 'PAC cancellation attempt failed — trying next provider');
     }
   }
 
   if (lastErr) {
-    // Record the failure in the cancellation record
     await db.query(
       'UPDATE cfdi_cancellations SET error_message = ? WHERE id = ?',
       [lastErr.message, cancellationId],
     );
-    logger.error({ cfdiDocumentId, err: lastErr.message }, 'PAC cancellation failed after retries');
+    logger.error({ cfdiDocumentId, err: lastErr.message }, 'PAC cancellation failed across all providers');
+    // The doc was never moved off 'vigente' — nothing to revert.
     throw new CfdiCancellationError(
-      `PAC cancellation failed after ${MAX_RETRIES} attempts: ${lastErr.message}`,
-      { cfdiDocumentId, provider: pac.provider_name, cause: lastErr.message },
+      `PAC cancellation failed: ${lastErr.message}`,
+      { cfdiDocumentId, providersTried: pacs.length, cause: lastErr.message },
     );
+  }
+  // Attribute the cancellation to the provider that actually handled it.
+  if (usedPac && usedPac.id !== pacs[0].id) {
+    await db.query('UPDATE cfdi_cancellations SET pac_provider_id = ? WHERE id = ?', [usedPac.id, cancellationId]);
   }
 
   // Process PAC response
@@ -945,21 +948,24 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     [finalStatus, acuseXml, acuseFecha, cancellationId],
   );
 
-  // Update CFDI document status based on PAC response
+  // Move the CFDI per the PAC response. The doc is still 'vigente' at this
+  // point (it is flipped only now that a PAC has actually answered).
   if (finalStatus === 'accepted') {
     await db.query(
-      'UPDATE cfdi_documents SET sat_status = ?, cancelled_at = NOW() WHERE id = ?',
-      ['cancelado', cfdiDocumentId],
+      'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ?, cancelled_at = NOW() WHERE id = ?',
+      ['cancelado', reason, replacementUuid, cfdiDocumentId],
     );
     await syncInvoiceCancelled(cfdiDocumentId);
   } else if (finalStatus === 'rejected') {
-    // Revert to vigente since SAT rejected the cancellation
+    // SAT rejected — the doc stays vigente (never moved). Nothing to do.
+  } else {
+    // pending (202 — awaiting receptor acceptance): now flip to cancel_pending;
+    // getCancellationStatus resolves it later.
     await db.query(
-      'UPDATE cfdi_documents SET sat_status = ? WHERE id = ?',
-      ['vigente', cfdiDocumentId],
+      'UPDATE cfdi_documents SET sat_status = ?, cancellation_reason = ?, cancellation_uuid = ? WHERE id = ?',
+      ['cancel_pending', reason, replacementUuid, cfdiDocumentId],
     );
   }
-  // If status is 'pending', it stays cancel_pending — will be resolved via getCancellationStatus
 
   logger.info({ cfdiDocumentId, cancellationId, finalStatus }, 'CFDI cancellation processed');
   return {

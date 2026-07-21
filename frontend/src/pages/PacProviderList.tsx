@@ -140,12 +140,14 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, string> = {
+      const body: Record<string, string | number> = {
         provider_name: form.provider_name,
         label: form.label.trim(),
         environment: form.environment,
         seal_mode: form.provider_name === 'finkok' ? 'local' : form.seal_mode,
-        priority: form.priority,
+        // priority is a NUMBER column — validate() does not coerce strings, so
+        // sending form.priority verbatim 422s every save (review-confirmed).
+        priority: Number.parseInt(form.priority, 10) || 100,
         api_url: form.api_url.trim(),
         status: form.status,
       };
