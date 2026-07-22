@@ -32,7 +32,18 @@ interface CfdiDocument {
   moneda: string | null;
   status: string;
   cancelled_at: string | null;
+  pac_provider: string | null;
   created_at: string;
+}
+
+// Friendly label for the PAC that stamped a document (cfdi_documents.pac_provider).
+// Null for documents stamped before provider recording existed, or not yet stamped.
+const PAC_LABELS: Record<string, string> = {
+  finkok: 'Finkok', sw_sapien: 'SW Sapien', simulator: 'Simulator', dev_placeholder: 'Dev',
+};
+function pacLabel(p: string | null): string {
+  if (!p) return '—';
+  return PAC_LABELS[p] ?? p;
 }
 
 interface CfdiListResponse {
@@ -384,7 +395,7 @@ export function CfdiList() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.855rem' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {['UUID / ID', 'Type', 'Receptor', 'Total', 'Date', 'Status', 'Actions'].map(h => (
+                  {['UUID / ID', 'Type', 'Receptor', 'Total', 'Date', 'Status', 'PAC', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -392,7 +403,7 @@ export function CfdiList() {
               <tbody>
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
                       No CFDI documents found.
                     </td>
                   </tr>
@@ -440,6 +451,11 @@ export function CfdiList() {
                     {/* Status */}
                     <td style={{ padding: '9px 12px' }}>
                       <StatusBadge status={doc.status} />
+                    </td>
+
+                    {/* PAC that stamped it */}
+                    <td style={{ padding: '9px 12px', color: doc.pac_provider ? '#374151' : '#9ca3af', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+                      {pacLabel(doc.pac_provider)}
                     </td>
 
                     {/* Actions */}
