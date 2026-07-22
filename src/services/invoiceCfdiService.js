@@ -253,6 +253,7 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     return {
       cfdi_document_id: docId, serie: emisor.cfdi_serie_ingreso || 'A',
       uuid: stampResult.uuid, sat_status: stampResult.status || 'vigente', stamped: true,
+      pac_provider: stampResult.provider || null,
     };
   } catch (err) {
     logger.warn({ invoiceId, docId, err: err.message }, 'CFDI created but PAC stamping failed — retry from the CFDI page');

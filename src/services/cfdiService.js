@@ -610,13 +610,15 @@ async function stamp(cfdiDocumentId) {
 
   // Real columns: stamp_date (not stamped_at) and sat_seal (not sello_sat). There
   // is no cadena_original column — the original chain is reproducible from
-  // signed_xml, which is stored (database/schema.sql).
+  // signed_xml, which is stored (database/schema.sql). pac_provider records WHICH
+  // PAC actually stamped (the one that won failover) so "stamped by Finkok/SW" is
+  // answerable without parsing RfcProvCertif out of the signed XML.
   await db.query(
     `UPDATE cfdi_documents
      SET uuid = ?, sat_status = ?, stamp_date = NOW(),
-         signed_xml = ?, sat_seal = ?
+         signed_xml = ?, sat_seal = ?, pac_provider = ?
      WHERE id = ?`,
-    [uuid, 'vigente', signedXml, selloSat, cfdiDocumentId],
+    [uuid, 'vigente', signedXml, selloSat, stampedProvider && stampedProvider.provider_name, cfdiDocumentId],
   );
 
   if (stampedProvider) {

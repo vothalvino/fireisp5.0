@@ -371,6 +371,12 @@ describe('cfdiService', () => {
       expect(result.status).toBe('vigente');
       expect(result.uuid).toBeDefined();
       expect(result.cfdi_document_id).toBe(1);
+      expect(result.provider).toBe('dev_placeholder');
+      // The stamp UPDATE records WHICH PAC stamped it (pac_provider column) so the
+      // provider is answerable without parsing RfcProvCertif out of the signed XML.
+      const upd = db.query.mock.calls.find(c => /UPDATE cfdi_documents\s+SET uuid/.test(c[0]));
+      expect(upd[0]).toContain('pac_provider = ?');
+      expect(upd[1]).toContain('dev_placeholder');
     });
 
     test('throws when document not found', async () => {
