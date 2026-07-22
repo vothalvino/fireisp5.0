@@ -204,8 +204,23 @@ function csdCancelMaterial(csd) {
   };
 }
 
+/**
+ * Inline cer/key material for SW Sapien's /cfdi33/cancel/csd endpoint, which
+ * cancels WITHOUT a vaulted CSD. SW wants base64 of the raw DER files plus the
+ * passphrase (it decrypts server-side) — live-verified against SW's sandbox
+ * (EstatusUUID 201). base64(DER) is exactly the PEM body with the -----BEGIN/END-----
+ * armor and newlines stripped, so this takes the stored PEMs directly:
+ *   - cerPem: the certificate PEM
+ *   - keyPem: the STILL-ENCRYPTED private key PEM (as stored); passphrase decrypts it
+ * Returns { b64Cer, b64Key, password } for the request body verbatim.
+ */
+function swCancelMaterial(cerPem, keyPem, passphrase) {
+  const pemBody = (pem) => String(pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  return { b64Cer: pemBody(cerPem), b64Key: pemBody(keyPem), password: passphrase || '' };
+}
+
 
 module.exports = {
   loadCredential, certificateInfo, cadenaOriginal, sealXml, verifySeal, isTestCertificate,
-  csdStorageMaterial, csdCancelMaterial,
+  csdStorageMaterial, csdCancelMaterial, swCancelMaterial,
 };

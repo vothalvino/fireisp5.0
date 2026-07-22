@@ -217,8 +217,9 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
           {form.seal_mode === 'local' && (
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 8px' }}>
               FireISP signs the invoice with the org’s active CSD (Facturación → Certificados CSD) and sends the
-              sealed XML to SW’s stamp-only tier. Note: SW still signs <em>cancellations</em> with the CSD in your
-              SW account, so keep it uploaded there too. Currently supported for SW Sapien.
+              sealed XML to the PAC’s stamp-only tier. Cancellations are signed with the same CSD sent inline
+              per request (SW <code>cancel/csd</code>, Finkok cer/key), so the CSD never needs uploading to the
+              PAC — it stays on your server. Supported for SW Sapien and Finkok.
             </p>
           )}
 

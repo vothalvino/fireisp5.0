@@ -580,6 +580,8 @@ describe('CFDI Cancellation Flow', () => {
         if (/cfdi_payment_complements|payment complement/i.test(sql)) return [[]];
         if (/FROM pac_providers/i.test(sql)) return [[pac]];
         if (/FROM organization_mx_profiles/i.test(sql)) return [[{ rfc: 'XAXX010101000', razon_social: 'X', regimen_fiscal: '601', codigo_postal_fiscal: '01000' }]];
+        // SW cancel loads the active CSD (sent inline to /cfdi33/cancel/csd) before the PAC call.
+        if (/FROM csd_certificates/i.test(sql)) return [[{ cer_pem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----', key_pem_encrypted: '-----BEGIN ENCRYPTED PRIVATE KEY-----\nBBBB\n-----END ENCRYPTED PRIVATE KEY-----', passphrase_encrypted: 'x', is_active: 1, status: 'active', valid_to: new Date(Date.now() + 200 * 86400000) }]];
         if (/INSERT INTO cfdi_cancellations/i.test(sql)) return [{ insertId: 200 }];
         return [{ affectedRows: 1 }];
       });
