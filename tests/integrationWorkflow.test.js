@@ -116,6 +116,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       // Step 2: Stamp (will use fallback UUID since no real PAC)
       db.query
         .mockResolvedValueOnce([[{ id: 1, organization_id: 42, xml_content: xmlResult.xml }]])
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]])  // org fiscal environment
         .mockResolvedValueOnce([[{ id: 1, provider_name: 'test', status: 'active' }]])  // PAC provider
         .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE uuid
 
@@ -127,6 +128,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, sat_status: 'vigente', organization_id: 42, uuid: stampResult.uuid, emisor_rfc: 'ABC123' }]])
         .mockResolvedValueOnce([[]])  // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]])  // org fiscal environment
         .mockResolvedValueOnce([[{ id: 1, provider_name: 'test', status: 'active', environment: 'sandbox' }]])  // PAC provider
         .mockResolvedValueOnce([{ insertId: 1 }])  // INSERT cancellation
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE → cancel_pending

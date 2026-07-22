@@ -12,6 +12,9 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createPacProvider, updatePacProvider } = require('../middleware/schemas/pacProviders');
 const { assertSafeOutboundUrl } = require('../utils/safeOutboundUrl');
+const db = require('../config/database');
+const auditLog = require('../services/auditLog');
+const { AppError } = require('../utils/errors');
 
 const router = Router();
 
@@ -61,6 +64,76 @@ async function guardApiUrl(req, _res, next) {
     return next(err);
   }
 }
+
+// -----------------------------------------------------------------------------
+// Active fiscal environment (sandbox | production) for the caller's org.
+// This single switch decides which PAC rows stamp/cancel: sandbox and
+// production PACs are separate rows with different credentials/endpoints, so
+// cfdiService only uses the rows whose `environment` matches this value. It
+// lives on organization_mx_profiles.pac_environment and is read by
+// cfdiService.orgPacEnvironment(). Declared BEFORE '/:id' so 'environment' is
+// not captured as an :id.
+router.get('/environment', requirePermission('pac_providers.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT pac_environment FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL',
+      [req.orgId],
+    );
+    // No fiscal profile yet → the effective environment is the column default.
+    res.json({ data: { pac_environment: rows[0]?.pac_environment || 'sandbox' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/environment', requirePermission('pac_providers.update'), async (req, res, next) => {
+  try {
+    const value = req.body?.pac_environment;
+    if (value !== 'sandbox' && value !== 'production') {
+      throw new AppError("pac_environment must be 'sandbox' or 'production'.", 422, 'VALIDATION_ERROR');
+    }
+    // The switch lives on the fiscal profile, which requires the emisor identity
+    // (RFC, razón social, …) to exist first. Refuse clearly rather than silently
+    // creating a half-built profile — you cannot stamp without one anyway.
+    const [existing] = await db.query(
+      'SELECT id FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL',
+      [req.orgId],
+    );
+    if (!existing[0]) {
+      throw new AppError(
+        'Configure the organization fiscal profile (Organization → Fiscal) before choosing a PAC environment.',
+        422, 'ORG_MX_PROFILE_MISSING',
+      );
+    }
+    // Going live must not leave the org unable to stamp: refuse 'production'
+    // unless at least one active production PAC exists (otherwise every stamp
+    // would fail "no active PAC in production mode"). Sandbox has no such gate.
+    if (value === 'production') {
+      const [prodPacs] = await db.query(
+        "SELECT id FROM pac_providers WHERE organization_id = ? AND status = 'active' AND environment = 'production' AND deleted_at IS NULL LIMIT 1",
+        [req.orgId],
+      );
+      if (!prodPacs[0]) {
+        throw new AppError(
+          'Add and activate at least one PAC with Environment = production before switching to production.',
+          422, 'NO_PRODUCTION_PAC',
+        );
+      }
+    }
+    await db.query(
+      'UPDATE organization_mx_profiles SET pac_environment = ? WHERE organization_id = ? AND deleted_at IS NULL',
+      [value, req.orgId],
+    );
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'update',
+      tableName: 'organization_mx_profiles', recordId: existing[0].id,
+      summary: `Set PAC fiscal environment to ${value}`,
+    });
+    res.json({ data: { pac_environment: value } });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/', requirePermission('pac_providers.view'), ctrl.list);
 router.get('/:id', requirePermission('pac_providers.view'), ctrl.get);

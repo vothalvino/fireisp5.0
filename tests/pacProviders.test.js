@@ -150,3 +150,93 @@ describe('PAC Provider routes — secret redaction', () => {
     );
   });
 });
+
+// ===========================================================================
+// Active fiscal environment switch (GET/PUT /pac-providers/environment)
+// ===========================================================================
+describe('PAC Provider fiscal-environment switch', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    User.findById.mockResolvedValue({ id: 1, email: 'admin@test.com', status: 'active', role: 'admin', organization_id: 1 });
+  });
+
+  // Route the queries the endpoint makes (requireMxLocale's locale lookup, the
+  // org_mx_profiles read/existence/update, and the production-PAC readiness
+  // check). `profileRow` = the org's stored pac_environment row (or null for
+  // none); `hasProdPac` = whether an active production PAC exists.
+  function wireEnv({ profileRow, hasProdPac = true }) {
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT locale FROM organizations/i.test(sql)) return [[{ locale: 'MX' }]];
+      if (/SELECT pac_environment FROM organization_mx_profiles/i.test(sql)) return [profileRow ? [profileRow] : []];
+      if (/SELECT id FROM organization_mx_profiles/i.test(sql)) return [profileRow ? [{ id: 3 }] : []];
+      if (/FROM pac_providers.*environment = 'production'/is.test(sql)) return [hasProdPac ? [{ id: 9 }] : []];
+      if (/UPDATE organization_mx_profiles/i.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+  }
+
+  test('GET returns the stored environment', async () => {
+    wireEnv({ profileRow: { pac_environment: 'production' } });
+    const res = await request(app).get('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.pac_environment).toBe('production');
+  });
+
+  test('GET defaults to sandbox when the org has no fiscal profile yet', async () => {
+    wireEnv({ profileRow: null });
+    const res = await request(app).get('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.pac_environment).toBe('sandbox');
+  });
+
+  test('PUT updates the environment when a profile exists', async () => {
+    wireEnv({ profileRow: { pac_environment: 'sandbox' } });
+    const res = await request(app).put('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1')
+      .send({ pac_environment: 'production' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.pac_environment).toBe('production');
+    const update = db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/i.test(c[0]));
+    expect(update[1]).toEqual(['production', 1]);
+  });
+
+  test('PUT rejects an invalid value (422) without writing', async () => {
+    wireEnv({ profileRow: { pac_environment: 'sandbox' } });
+    const res = await request(app).put('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1')
+      .send({ pac_environment: 'staging' });
+    expect(res.status).toBe(422);
+    expect(db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/i.test(c[0]))).toBeFalsy();
+  });
+
+  test('PUT 422s with an actionable code when there is no fiscal profile yet', async () => {
+    wireEnv({ profileRow: null });
+    const res = await request(app).put('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1')
+      .send({ pac_environment: 'production' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ORG_MX_PROFILE_MISSING');
+    expect(db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/i.test(c[0]))).toBeFalsy();
+  });
+
+  test('PUT to production is refused (422 NO_PRODUCTION_PAC) when no active production PAC exists', async () => {
+    wireEnv({ profileRow: { pac_environment: 'sandbox' }, hasProdPac: false });
+    const res = await request(app).put('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1')
+      .send({ pac_environment: 'production' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('NO_PRODUCTION_PAC');
+    expect(db.query.mock.calls.find(c => /UPDATE organization_mx_profiles/i.test(c[0]))).toBeFalsy();
+  });
+
+  test('PUT back to sandbox needs no production PAC (no readiness gate)', async () => {
+    wireEnv({ profileRow: { pac_environment: 'production' }, hasProdPac: false });
+    const res = await request(app).put('/api/v1/pac-providers/environment')
+      .set('Authorization', `Bearer ${adminToken}`).set('X-Org-Id', '1')
+      .send({ pac_environment: 'sandbox' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.pac_environment).toBe('sandbox');
+  });
+});

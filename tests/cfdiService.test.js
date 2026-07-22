@@ -363,6 +363,7 @@ describe('cfdiService', () => {
 
       db.query
         .mockResolvedValueOnce([[doc]])   // SELECT document
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[pac]])   // SELECT pac_providers
         .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE uuid
 
@@ -387,6 +388,7 @@ describe('cfdiService', () => {
       const doc = { id: 1, organization_id: 42, xml_content: '<cfdi/>' };
       db.query
         .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[]]);
       await expect(cfdiService.stamp(1)).rejects.toThrow('No active PAC provider');
     });
@@ -401,6 +403,7 @@ describe('cfdiService', () => {
 
       db.query
         .mockResolvedValueOnce([[doc]])   // SELECT document
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[pac]]);  // SELECT pac_providers
 
       // callPacStamp → httpRequest fails (no network); exercises the retry path.
@@ -474,6 +477,7 @@ describe('cfdiService', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 1 }])   // INSERT cancellation
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE → cancel_pending
@@ -500,6 +504,7 @@ describe('cfdiService', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 2 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -508,7 +513,7 @@ describe('cfdiService', () => {
 
       await cfdiService.cancel(1, '01', 'REPLACE-UUID-123');
 
-      const insertCall = db.query.mock.calls[3];
+      const insertCall = db.query.mock.calls[4]; // pac_environment lookup shifts INSERT to index 4
       expect(insertCall[1]).toContain('REPLACE-UUID-123');
     });
 
@@ -516,6 +521,7 @@ describe('cfdiService', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 3 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -524,7 +530,7 @@ describe('cfdiService', () => {
 
       await cfdiService.cancel(1, '02');
 
-      const insertCall = db.query.mock.calls[3];
+      const insertCall = db.query.mock.calls[4]; // pac_environment lookup shifts INSERT to index 4
       expect(insertCall[1]).toContain(null); // replacementUuid default
     });
 
@@ -533,6 +539,7 @@ describe('cfdiService', () => {
       db.query
         .mockResolvedValueOnce([[doc77]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 4 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -618,11 +625,19 @@ describe('simulator PAC provider', () => {
       .rejects.toThrow(/sandbox/);
   });
 
-  test('cancellation is accepted immediately (sandbox)', async () => {
+  test('cancellation is accepted immediately for a simulator-stamped UUID (sandbox)', async () => {
     process.env.NODE_ENV = 'production';
-    const result = await cfdiService.callPacCancel({ provider_name: 'simulator', environment: 'sandbox' }, 'SIM-uuid-1', '02', null, {});
+    const simUuid = 'SIMULADO-1111-2222-3333-444455556666';
+    const result = await cfdiService.callPacCancel({ provider_name: 'simulator', environment: 'sandbox' }, simUuid, '02', null, {});
     expect(result.status).toBe('accepted');
-    expect(result.acuseXml).toContain('SIM-uuid-1');
+    expect(result.acuseXml).toContain(simUuid);
+  });
+
+  test('simulator REFUSES to cancel a real (non-SIMULADO) UUID — never fabricates acceptance for a genuine CFDI', async () => {
+    const realUuid = 'e29c1ddd-0000-4000-8000-abcdefabcdef';
+    await expect(
+      cfdiService.callPacCancel({ provider_name: 'simulator', environment: 'sandbox' }, realUuid, '02', null, {}),
+    ).rejects.toThrow(/simulator can only cancel/i);
   });
 
   test('unknown providers still hard-fail in production (fallback unchanged)', async () => {

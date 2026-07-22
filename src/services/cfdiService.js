@@ -129,6 +129,23 @@ async function getEmisorProfile(organizationId) {
   return emisor;
 }
 
+/**
+ * The org's active fiscal environment (organization_mx_profiles.pac_environment:
+ * 'sandbox' | 'production'). This is the SINGLE switch that decides which PAC
+ * rows are eligible for stamping/cancellation: sandbox and production
+ * credentials/endpoints differ per PAC, so each lives on its own pac_providers
+ * row (unique key is org+provider+environment) and only the rows matching this
+ * value are used. Defaults to 'sandbox' when no profile exists yet — a brand-new
+ * org must never accidentally stamp against a production account.
+ */
+async function orgPacEnvironment(organizationId) {
+  const [rows] = await db.query(
+    'SELECT pac_environment FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL',
+    [organizationId],
+  );
+  return rows[0]?.pac_environment || 'sandbox';
+}
+
 async function generateXml(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Generating CFDI XML');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
@@ -473,14 +490,21 @@ async function stamp(cfdiDocumentId) {
     }
   }
 
-  // All active PACs, in failover order (lower priority first). A single-PAC
-  // org has exactly one row and behaves as before.
+  // All active PACs FOR THE ORG'S CURRENT FISCAL ENVIRONMENT, in failover order
+  // (lower priority first). Scoping by environment keeps sandbox rows (test
+  // credentials/endpoints) from ever stamping a live invoice and vice versa —
+  // the org's pac_environment switch selects the correct set, credentials and
+  // all. A single-PAC org has exactly one matching row and behaves as before.
+  const pacEnv = await orgPacEnvironment(doc.organization_id);
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
-    [doc.organization_id],
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND environment = ? AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
+    [doc.organization_id, pacEnv],
   );
   if (pacs.length === 0) {
-    throw new CfdiStampingError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
+    throw new CfdiStampingError(
+      `No active PAC provider configured for this organization in ${pacEnv} mode — add or activate a ${pacEnv} PAC, or change the fiscal environment under Organization → Fiscal (SAT).`,
+      { cfdiDocumentId, orgId: doc.organization_id },
+    );
   }
 
   // NOTE: callPacStamp also returns cadenaOriginal, but cfdi_documents has no
@@ -883,17 +907,23 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     );
   }
 
-  // All active PACs in priority order. Unlike stamping, SAT cancellation is
-  // IDEMPOTENT (re-cancelling a UUID is harmless — SAT reports it already
-  // cancelled), so cancel MAY fail over across providers, and any active PAC
-  // (SW with the vaulted CSD, Finkok with the cer/key inline) can cancel any
-  // of the org's CFDIs — including one a now-down backup stamped.
+  // All active PACs FOR THE ORG'S CURRENT FISCAL ENVIRONMENT, in priority order.
+  // Unlike stamping, SAT cancellation is IDEMPOTENT (re-cancelling a UUID is
+  // harmless — SAT reports it already cancelled), so cancel MAY fail over across
+  // providers, and any active PAC in this environment (SW with the vaulted CSD,
+  // Finkok with the cer/key inline) can cancel any of the org's CFDIs — including
+  // one a now-down backup stamped. Environment-scoped for the same reason as
+  // stamping: a production CFDI is cancelled by a production PAC, never a sandbox.
+  const pacEnv = await orgPacEnvironment(doc.organization_id);
   const [pacs] = await db.query(
-    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
-    [doc.organization_id],
+    'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND environment = ? AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
+    [doc.organization_id, pacEnv],
   );
   if (pacs.length === 0) {
-    throw new CfdiCancellationError('No active PAC provider configured for this organization', { cfdiDocumentId, orgId: doc.organization_id });
+    throw new CfdiCancellationError(
+      `No active PAC provider configured for this organization in ${pacEnv} mode — activate a ${pacEnv} PAC, or change the fiscal environment under Organization → Fiscal (SAT).`,
+      { cfdiDocumentId, orgId: doc.organization_id },
+    );
   }
 
   // Record the request (pending). The doc is NOT flipped to cancel_pending
@@ -1101,6 +1131,19 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
   if (pac.provider_name === 'simulator') {
     if (pac.environment !== 'sandbox') {
       throw new Error("The 'simulator' PAC only runs with environment='sandbox'.");
+    }
+    // The simulator may ONLY "cancel" what it itself stamped — a SIMULADO- UUID
+    // (see callPacStamp). Refuse a real SAT-issued UUID outright: otherwise a
+    // cancel misrouted to a sandbox simulator (e.g. an org that stamped in
+    // production then switched back to sandbox) would fabricate acceptance and
+    // mark a genuine, still-vigente CFDI 'cancelado' locally — the books would
+    // silently diverge from the SAT. A real sandbox PAC would reject the
+    // unknown UUID anyway; this makes the simulator just as safe.
+    if (!String(uuid).startsWith('SIMULADO-')) {
+      throw new Error(
+        'The simulator can only cancel simulator-stamped CFDIs (SIMULADO- UUIDs). '
+        + 'This UUID was stamped by a real PAC — switch the fiscal environment to the one that stamped it and cancel through that PAC.',
+      );
     }
     logger.warn({ provider: 'simulator' }, 'SIMULATED cancellation — not a real SAT cancellation');
     return {

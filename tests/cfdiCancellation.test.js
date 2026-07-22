@@ -112,6 +112,7 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])              // SELECT cfdi_documents
         .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])               // SELECT pac_providers
         .mockResolvedValueOnce([{ insertId: 100 }])        // INSERT cfdi_cancellations
         .mockResolvedValueOnce([{ affectedRows: 1 }])      // UPDATE cfdi_documents → cancel_pending
@@ -171,6 +172,7 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 101 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -181,8 +183,9 @@ describe('CFDI Cancellation Flow', () => {
       expect(result.status).toBe('cancelado');
       expect(result.reason).toBe('01');
 
-      // Verify replacement UUID was passed to INSERT
-      const insertCall = db.query.mock.calls[3];
+      // Verify replacement UUID was passed to INSERT (4th query is now the
+      // pac_environment lookup, pushing INSERT to index 4).
+      const insertCall = db.query.mock.calls[4];
       expect(insertCall[1]).toContain('REPLACEMENT-UUID-789');
     });
 
@@ -190,7 +193,8 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])   // REP guard: no live payment complement
-        .mockResolvedValueOnce([[]]);  // No PAC providers
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
+        .mockResolvedValueOnce([[]]);  // No PAC providers in this environment
       await expect(cfdiService.cancel(1, '02'))
         .rejects.toThrow('No active PAC provider');
     });
@@ -211,6 +215,7 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                       // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[activePac]])
         .mockResolvedValueOnce([{ insertId: 102 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -219,8 +224,9 @@ describe('CFDI Cancellation Flow', () => {
 
       await cfdiService.cancel(1, '03');
 
-      // Fourth call should be INSERT into cfdi_cancellations
-      const insertCall = db.query.mock.calls[3];
+      // INSERT into cfdi_cancellations is now the 5th call (index 4): doc, REP
+      // guard, pac_environment, pac_providers, INSERT.
+      const insertCall = db.query.mock.calls[4];
       expect(insertCall[0]).toContain('INSERT INTO cfdi_cancellations');
       expect(insertCall[1]).toContain(1);   // cfdi_document_id
       expect(insertCall[1]).toContain(42);  // organization_id
@@ -258,6 +264,7 @@ describe('CFDI Cancellation Flow', () => {
         db.query
           .mockResolvedValueOnce([[vigentDoc]])
           .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+          .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
           .mockResolvedValueOnce([[activePac]])
           .mockResolvedValueOnce([{ insertId: 200 }])
           .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -621,6 +628,7 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[pac]])
         .mockResolvedValueOnce([{ insertId: 300 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -644,6 +652,7 @@ describe('CFDI Cancellation Flow', () => {
       db.query
         .mockResolvedValueOnce([[vigentDoc]])
         .mockResolvedValueOnce([[]])                    // REP guard: no live payment complement
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]]) // SELECT pac_environment
         .mockResolvedValueOnce([[pac]])
         .mockResolvedValueOnce([{ insertId: 301 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -652,7 +661,7 @@ describe('CFDI Cancellation Flow', () => {
 
       await cfdiService.cancel(1, '02');
 
-      const insertCall = db.query.mock.calls[3];
+      const insertCall = db.query.mock.calls[4]; // pac_environment lookup shifts INSERT to index 4
       expect(insertCall[1]).toContain(null);  // replacementUuid default
     });
 
