@@ -146,6 +146,31 @@ async function orgPacEnvironment(organizationId) {
   return rows[0]?.pac_environment || 'sandbox';
 }
 
+/**
+ * Append test-data guidance to receptor-data stamping errors IN A SANDBOX.
+ *
+ * The receptor-data family of SAT validations — CFDI40143–40149 (receptor RFC
+ * not in the SAT taxpayer list "LCO"; or Nombre / DomicilioFiscalReceptor /
+ * RegimenFiscalReceptor / UsoCFDI not matching that RFC) — is almost always a
+ * TEST-DATA problem in a sandbox: each PAC seeds its own set of valid test
+ * receptor RFCs, and UsoCFDI must match the receptor's régimen (c_UsoCFDI). The
+ * raw SAT string ("...debe estar en la lista de RFC inscritos...") is cryptic
+ * about that, so point testers at the sandbox guide.
+ *
+ * Sandbox-only by design: in production the same errors mean the receptor's real
+ * fiscal data is genuinely wrong, and the operator needs the raw SAT message —
+ * not a testing pointer — so we leave it untouched.
+ */
+function receptorDataHint(message, environment) {
+  if (environment !== 'sandbox' || !message) return message;
+  const isReceptorData = /CFDI4014[3-9]\b/i.test(message)
+    || /lista de RFC|RFC inscritos|\bLCO\b|UsoCFDI debe corresponder|r[eé]gimen(?:\s+fiscal)?\b.*receptor|receptor\b.*r[eé]gimen/i.test(message);
+  if (!isReceptorData) return message;
+  return `${message} — In a sandbox this is almost always test data: the receptor RFC (with its exact Nombre, `
+    + 'DomicilioFiscalReceptor and RegimenFiscalReceptor) must be one the PAC seeds in its test taxpayer list, and '
+    + 'UsoCFDI must match that receptor\'s régimen. See docs/cfdi-sandbox-testing.md.';
+}
+
 async function generateXml(cfdiDocumentId) {
   logger.info({ cfdiDocumentId }, 'Generating CFDI XML');
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
@@ -576,8 +601,9 @@ async function stamp(cfdiDocumentId) {
     // sat_status is ENUM('draft','vigente','cancelado','cancel_pending') — there is
     // no 'stamp_error' value (database/schema.sql), so the doc stays 'draft'
     // (not fiscally valid) and the caller gets the actual PAC error.
+    const failMsg = lastErr ? lastErr.message : 'no provider succeeded';
     throw new CfdiStampingError(
-      `PAC stamping failed: ${lastErr ? lastErr.message : 'no provider succeeded'}`,
+      `PAC stamping failed: ${receptorDataHint(failMsg, pacEnv)}`,
       { cfdiDocumentId, providersTried: pacs.length, cause: lastErr && lastErr.message },
     );
   }
@@ -1956,5 +1982,5 @@ module.exports = {
   parseCancellationStatus, getCancellationStatus, listCancellations,
   generatePaymentComplement, buildPaymentComplementXml, enrichRelatedDocumentsWithTaxes, getPaymentComplement,
   getReconciliationReport,
-  httpRequest, circuitBreaker, providerBreaker,
+  httpRequest, circuitBreaker, providerBreaker, receptorDataHint,
 };
