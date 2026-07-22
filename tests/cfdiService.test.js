@@ -721,3 +721,33 @@ describe('buildCfdi40Xml — público en general (InformacionGlobal)', () => {
     expect(xml).not.toContain('InformacionGlobal');
   });
 });
+
+describe('receptorDataHint (sandbox test-data guidance)', () => {
+  const { receptorDataHint } = cfdiService;
+  const LCO = 'CFDI40147 - El RFC del receptor debe estar en la lista de RFC inscritos no cancelados del SAT';
+  const USO = 'La clave del campo UsoCFDI debe corresponder con el tipo de persona y el régimen correspondiente';
+
+  test('appends the doc pointer for a receptor-LCO error in sandbox', () => {
+    const out = receptorDataHint(LCO, 'sandbox');
+    expect(out).toContain(LCO);
+    expect(out).toContain('docs/cfdi-sandbox-testing.md');
+  });
+
+  test('appends for the UsoCFDI/régimen mismatch in sandbox', () => {
+    expect(receptorDataHint(USO, 'sandbox')).toContain('docs/cfdi-sandbox-testing.md');
+  });
+
+  test('is suppressed in production (raw SAT message preserved)', () => {
+    expect(receptorDataHint(LCO, 'production')).toBe(LCO);
+  });
+
+  test('does not touch unrelated errors even in sandbox', () => {
+    const other = 'CFDI40119 - La forma de pago no es válida';
+    expect(receptorDataHint(other, 'sandbox')).toBe(other);
+  });
+
+  test('is null/empty safe', () => {
+    expect(receptorDataHint('', 'sandbox')).toBe('');
+    expect(receptorDataHint(undefined, 'sandbox')).toBe(undefined);
+  });
+});
