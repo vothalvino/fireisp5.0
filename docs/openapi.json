@@ -8978,6 +8978,66 @@
         }
       }
     },
+    "/pac-providers/environment": {
+      "get": {
+        "tags": [
+          "PAC Providers"
+        ],
+        "summary": "Get the org's active fiscal environment (sandbox|production) — selects which PAC rows stamp/cancel",
+        "operationId": "getPacEnvironment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ pac_environment }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "PAC Providers"
+        ],
+        "summary": "Set the org's active fiscal environment (sandbox|production)",
+        "operationId": "setPacEnvironment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "pac_environment: sandbox|production",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ pac_environment }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pac-providers": {
       "get": {
         "tags": [

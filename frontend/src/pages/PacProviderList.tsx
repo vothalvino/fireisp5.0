@@ -277,6 +277,77 @@ function PacModal({ existing, onClose, onSaved }: PacModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Fiscal environment switch — the single control that decides which PAC rows
+// (sandbox vs production, each with its own credentials) actually stamp and
+// cancel. Backed by /pac-providers/environment (org-scoped).
+// ---------------------------------------------------------------------------
+
+function FiscalEnvironmentBar() {
+  const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
+
+  const envQ = useQuery({
+    queryKey: ['pac-environment'],
+    queryFn: async () => {
+      const res = await api.GET('/pac-providers/environment' as never);
+      if ((res as { error?: unknown }).error) throw new Error('load failed');
+      return ((res as { data: { data: { pac_environment: string } } }).data?.data?.pac_environment) ?? 'sandbox';
+    },
+  });
+
+  const setEnv = useMutation({
+    mutationFn: async (value: string) => {
+      const res = await api.PUT('/pac-providers/environment' as never, { body: { pac_environment: value } as never } as never);
+      const e = (res as { error?: { error?: { message?: string } } }).error;
+      if (e) throw new Error(e.error?.message || 'Could not change the fiscal environment.');
+    },
+    onSuccess: () => { setErr(null); qc.invalidateQueries({ queryKey: ['pac-environment'] }); },
+    onError: (e: unknown) => setErr(e instanceof Error ? e.message : 'Could not change the fiscal environment.'),
+  });
+
+  const env = envQ.data ?? 'sandbox';
+  const isProd = env === 'production';
+
+  function onSelect(value: string) {
+    if (value === env) return;
+    // Guard the jump to live SAT stamping behind an explicit confirmation.
+    if (value === 'production' && !window.confirm(
+      'Switch to PRODUCTION? CFDIs will be stamped against the real SAT with legal validity. '
+      + 'Make sure your production PAC entries have real credentials and your active CSD is a real (non-test) certificate.',
+    )) return;
+    setEnv.mutate(value);
+  }
+
+  return (
+    <div style={{ background: isProd ? '#fffbeb' : 'var(--bg-secondary, #f8fafc)', border: `1px solid ${isProd ? '#fde68a' : 'var(--border-color, #e2e8f0)'}`, borderRadius: 8, padding: '10px 14px', margin: '4px 0 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Fiscal environment</span>
+        <select
+          value={env}
+          disabled={envQ.isLoading || setEnv.isPending}
+          onChange={e => onSelect(e.target.value)}
+          style={{ padding: '6px 10px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit', fontSize: '0.85rem', fontWeight: 600 }}
+        >
+          <option value="sandbox">Sandbox (testing)</option>
+          <option value="production">Production (live SAT)</option>
+        </select>
+        <span style={{ fontSize: '0.8rem', color: isProd ? '#92400e' : 'var(--text-muted)' }}>
+          {setEnv.isPending ? 'Saving…' : isProd
+            ? 'Live: stamping real, legally-valid CFDIs against the SAT.'
+            : 'Testing: CFDIs are not fiscally valid.'}
+        </span>
+      </div>
+      <p style={{ margin: '8px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        Only providers whose <strong>Environment</strong> matches this setting stamp and cancel — lowest{' '}
+        <strong>failover priority</strong> first, the rest as backups. Sandbox and production are separate entries
+        with their own credentials, so a row in the other environment stays dormant until you switch here.
+      </p>
+      {err && <p style={{ margin: '6px 0 0', fontSize: '0.8rem', color: '#991b1b' }}>{err}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PacProviderList component
 // ---------------------------------------------------------------------------
 
@@ -306,6 +377,8 @@ export function PacProviderList() {
           + New provider
         </button>
       </div>
+
+      <FiscalEnvironmentBar />
 
       <div style={styles.tableCard}>
         {providersQ.isLoading ? (
