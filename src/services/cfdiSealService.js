@@ -187,20 +187,25 @@ function csdStorageMaterial(cerContents, keyContents, passphrase) {
 }
 
 /**
- * DER (base64) forms of a loaded CSD handle for PACs that take the raw
- * certificate + key inline (Finkok cancel): cerDerB64 is the certificate DER
- * (the Certificado attribute value already is that), keyDerB64 is the
- * DECRYPTED private key exported as unencrypted PKCS#8 DER.
+ * PEM material (base64) for PACs that take the raw certificate + key inline
+ * (Finkok cancel). Format is EXACTLY what Finkok's cancel WS expects,
+ * live-verified against their demo (their docs say "PEM… DES3-encrypted" but
+ * the demo accepts an UNENCRYPTED PEM key — DER or an encrypted key both fail
+ * with "wrong signature length"/"Invalid Passphrase"):
+ *   - cerPemB64: base64 of the certificate in PEM
+ *   - keyPemB64: base64 of the DECRYPTED private key in unencrypted PKCS#8 PEM
  */
-function csdDerMaterial(csd) {
+function csdCancelMaterial(csd) {
+  const cerPem = `-----BEGIN CERTIFICATE-----\n${csd.info.certificado_b64.replace(/(.{64})/g, '$1\n').trim()}\n-----END CERTIFICATE-----\n`;
+  const keyPem = csd.signingKey.export({ type: 'pkcs8', format: 'pem' });
   return {
-    cerDerB64: csd.info.certificado_b64,
-    keyDerB64: csd.signingKey.export({ type: 'pkcs8', format: 'der' }).toString('base64'),
+    cerPemB64: Buffer.from(cerPem, 'utf8').toString('base64'),
+    keyPemB64: Buffer.from(keyPem, 'utf8').toString('base64'),
   };
 }
 
 
 module.exports = {
   loadCredential, certificateInfo, cadenaOriginal, sealXml, verifySeal, isTestCertificate,
-  csdStorageMaterial, csdDerMaterial,
+  csdStorageMaterial, csdCancelMaterial,
 };

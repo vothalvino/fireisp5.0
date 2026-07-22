@@ -130,9 +130,20 @@ describe('Finkok cancel (SOAP, locally-signed with the CSD)', () => {
     const result = await cfdiService.cancel(9, '02');
     expect(captured.url).toBe('/cancel');
     expect(captured.soapAction).toBe('cancel');
-    expect(captured.body).toContain('<fin:UUID UUID="fedcba98-7654-4321-8000-abcdefabcdef" Motivo="02">');
-    expect(captured.body).toMatch(/<fin:cer>[A-Za-z0-9+/=]+<\/fin:cer>/);
-    expect(captured.body).toMatch(/<fin:key>[A-Za-z0-9+/=]+<\/fin:key>/);
+    // The UUID element is <apps:UUID> in the apps.services.soap.core.views
+    // namespace (Finkok's own cancel example), self-closing — live-verified
+    // format (EstatusUUID 201). The envelope must declare that namespace.
+    expect(captured.body).toContain('xmlns:apps="apps.services.soap.core.views"');
+    expect(captured.body).toContain('<apps:UUID UUID="fedcba98-7654-4321-8000-abcdefabcdef" Motivo="02"/>');
+    // cer/key are base64(PEM): certificate PEM + DECRYPTED (unencrypted PKCS#8)
+    // key PEM — the exact pairing Finkok's demo accepts (DER or an encrypted key
+    // both fail). Decode and assert the PEM headers, not just base64-ness.
+    const cerB64 = captured.body.match(/<fin:cer>([^<]+)<\/fin:cer>/)[1];
+    const keyB64 = captured.body.match(/<fin:key>([^<]+)<\/fin:key>/)[1];
+    expect(Buffer.from(cerB64, 'base64').toString('utf8')).toContain('-----BEGIN CERTIFICATE-----');
+    const keyPem = Buffer.from(keyB64, 'base64').toString('utf8');
+    expect(keyPem).toContain('-----BEGIN PRIVATE KEY-----');
+    expect(keyPem).not.toContain('ENCRYPTED'); // must be the decrypted key
     expect(captured.body).toContain('<fin:taxpayer_id>EKU9003173C9</fin:taxpayer_id>');
     expect(result).toMatchObject({ status: 'cancelado' });
   });
