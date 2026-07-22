@@ -110,6 +110,8 @@ describe('PAC environment scoping — cancellation', () => {
       if (/FROM cfdi_documents WHERE id/.test(sql)) return [[stampedDoc]];
       if (/FROM organization_mx_profiles WHERE organization_id = \? AND deleted_at/.test(sql) && /pac_environment/.test(sql)) return [[{ pac_environment: 'production' }]];
       if (/FROM organization_mx_profiles/.test(sql)) return [[{ rfc: 'EKU9003173C9', razon_social: 'X', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]];
+      // SW cancel now loads the active CSD (sent inline to /cfdi33/cancel/csd).
+      if (/FROM csd_certificates/.test(sql)) return [[{ cer_pem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----', key_pem_encrypted: '-----BEGIN ENCRYPTED PRIVATE KEY-----\nBBBB\n-----END ENCRYPTED PRIVATE KEY-----', passphrase_encrypted: '12345678a', is_active: 1, status: 'active', valid_to: new Date(Date.now() + 200 * 86400000) }]];
       if (/FROM pac_providers/.test(sql)) return [[sand, prod].filter(p => p.environment === params[1]).map(p => ({ ...p }))];
       if (/cfdi_cancellations/.test(sql)) return [{ insertId: 1 }];
       return [{ affectedRows: 1 }];

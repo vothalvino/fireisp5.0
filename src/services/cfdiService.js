@@ -429,7 +429,7 @@ function escapeXml(str) {
  * handle. Actionable 422s: no active cert, or the active cert lapsed between
  * expiry-monitor runs.
  */
-async function loadActiveOrgCsd(orgId) {
+async function activeOrgCsdRow(orgId) {
   const [rows] = await db.query(
     `SELECT * FROM csd_certificates
       WHERE organization_id = ? AND is_active = 1 AND status = 'active' AND deleted_at IS NULL
@@ -449,9 +449,30 @@ async function loadActiveOrgCsd(orgId) {
       422, 'CSD_EXPIRED',
     );
   }
+  return row;
+}
+
+async function loadActiveOrgCsd(orgId) {
+  const row = await activeOrgCsdRow(orgId);
   const keyPem = encryption.decrypt(row.key_pem_encrypted);
   const passphrase = row.passphrase_encrypted ? encryption.decrypt(row.passphrase_encrypted) : '';
   return cfdiSealService.loadCredential(row.cer_pem, keyPem, passphrase);
+}
+
+/**
+ * Raw CSD material for PACs that take the cer/key INLINE per request (SW's
+ * /cfdi33/cancel/csd, which decrypts server-side with the passphrase). Returns
+ * the certificate PEM, the still-encrypted key PEM (as stored), and the
+ * passphrase — same active/expiry guards as loadActiveOrgCsd. This never rides
+ * the log-safe seal handle; it is fetched transiently for the cancel request.
+ */
+async function loadActiveOrgCsdMaterial(orgId) {
+  const row = await activeOrgCsdRow(orgId);
+  return {
+    cer_pem: row.cer_pem,
+    key_pem: encryption.decrypt(row.key_pem_encrypted),
+    passphrase: row.passphrase_encrypted ? encryption.decrypt(row.passphrase_encrypted) : '',
+  };
 }
 
 // Produce the XML to send to a given PAC: sealed with the org's active CSD
@@ -938,10 +959,10 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   // All active PACs FOR THE ORG'S CURRENT FISCAL ENVIRONMENT, in priority order.
   // Unlike stamping, SAT cancellation is IDEMPOTENT (re-cancelling a UUID is
   // harmless — SAT reports it already cancelled), so cancel MAY fail over across
-  // providers, and any active PAC in this environment (SW with the vaulted CSD,
-  // Finkok with the cer/key inline) can cancel any of the org's CFDIs — including
-  // one a now-down backup stamped. Environment-scoped for the same reason as
-  // stamping: a production CFDI is cancelled by a production PAC, never a sandbox.
+  // providers, and any active PAC in this environment (both SW and Finkok cancel
+  // with the cer/key sent inline — no vaulted CSD) can cancel any of the org's
+  // CFDIs — including one a now-down backup stamped. Environment-scoped for the
+  // same reason as stamping: a production CFDI is cancelled by a production PAC.
   const pacEnv = await orgPacEnvironment(doc.organization_id);
   const [pacs] = await db.query(
     'SELECT * FROM pac_providers WHERE organization_id = ? AND status = \'active\' AND environment = ? AND deleted_at IS NULL ORDER BY priority ASC, id DESC',
@@ -1110,46 +1131,42 @@ async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
 
     const swToken = await swAuthToken(pac, baseUrl);
 
-    // Submit cancellation — probe-verified shape: PATH parameters
-    // /cfdi33/cancel/{rfc}/{uuid}/{motivo}[/{folioSustitucion}] using the CSD
-    // in the SW vault (the old JSON-body POST to /cfdi33/cancel was never a
-    // real SW endpoint). RFC comes from the org's emisor profile, not the
-    // document (cfdi_documents has no emisor_rfc column).
+    // Inline-CSD cancellation (/cfdi33/cancel/csd): SW signs the SAT Solicitud
+    // de Cancelación with the cer/key sent in the request body — base64 of the
+    // DER .cer/.key plus the passphrase, which SW decrypts server-side. The CSD
+    // therefore NEVER lives in an SW vault; local sealing keeps it off the PAC
+    // for stamping AND cancellation. Probe-verified against SW's sandbox
+    // (EstatusUUID 201). RFC comes from the org's emisor profile (cfdi_documents
+    // has no emisor_rfc column).
     const emisor = await getEmisorProfile(doc.organization_id);
-    const cancelPath = [
-      `${baseUrl}/cfdi33/cancel`,
-      encodeURIComponent(emisor.rfc),
-      encodeURIComponent(uuid),
-      encodeURIComponent(reason),
-      ...(replacementUuid ? [encodeURIComponent(replacementUuid)] : []),
-    ].join('/');
-    const cancelResponse = await httpRequest(cancelPath, 'POST', '',
-      {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${swToken}`,
-      },
+    const material = await loadActiveOrgCsdMaterial(doc.organization_id);
+    const { b64Cer, b64Key, password } = cfdiSealService.swCancelMaterial(
+      material.cer_pem, material.key_pem, material.passphrase,
     );
+    const payload = {
+      uuid, rfc: emisor.rfc, motivo: reason, password, b64Cer, b64Key,
+      ...(replacementUuid ? { folioSustitucion: replacementUuid } : {}),
+    };
+    const cancelResponse = await httpRequest(`${baseUrl}/cfdi33/cancel/csd`, 'POST', JSON.stringify(payload), {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${swToken}`,
+    });
     const cancelData = JSON.parse(cancelResponse.body);
     if (cancelData.status === 'error') {
-      let msg = [cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed';
-      // Local sealing keeps the CSD off the PAC for STAMPING, but SW's
-      // cancellation service signs the SAT Solicitud de Cancelación with the
-      // CSD in the SW account's vault — so cancellation still needs it
-      // registered there. Make that dependency explicit instead of surfacing
-      // SW's opaque certificate error (true local cancel-signing lands with
-      // the Finkok adapter).
-      if (pac.seal_mode === 'local') {
-        msg += ' — with local sealing, SW still signs cancellations with the CSD in your SW account; upload the same CSD in SW\'s Administración de certificados.';
-      }
-      throw new Error(msg);
+      throw new Error(
+        [cancelData.message, cancelData.messageDetail].filter(Boolean).join(' — ') || 'SW Sapien cancellation failed',
+      );
     }
 
-    // The acuse XML carries the SAT status: EstatusUUID 201 (cancelled) /
-    // 202 (pending receptor acceptance).
+    // Success shape: { data: { acuse, uuid: { <UUID>: "201" } }, status: "success" }.
+    // SW keys the per-UUID status map by the UPPERCASE UUID; fall back to the
+    // acuse's EstatusUUID. 201 = cancelled, 202 = pending receptor acceptance.
+    const map = cancelData.data?.uuid || {};
+    const perUuid = map[uuid] || map[String(uuid).toUpperCase()] || Object.values(map)[0];
     const acuse = cancelData.data?.acuse || null;
     const estatusMatch = acuse ? acuse.match(/<EstatusUUID>(\d+)<\/EstatusUUID>/) : null;
     return {
-      status: parseCancellationStatus(estatusMatch?.[1] || cancelData.data?.estatus || cancelData.data?.status),
+      status: parseCancellationStatus(perUuid || estatusMatch?.[1]),
       acuseXml: acuse,
       acuseFecha: cancelData.data?.fechaCancelacion || null,
     };

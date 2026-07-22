@@ -136,24 +136,37 @@ describe("stamp() with seal_mode='local'", () => {
     await expect(cfdiService.stamp(7)).rejects.toMatchObject({ statusCode: 422, code: 'SEAL_MODE_UNSUPPORTED' });
   });
 
-  test('cancel error for a local-sealed doc points at the SW-vault requirement', async () => {
-    // The stand-in returns an error status for cancel; the message must gain
-    // the local-seal context (SW signs cancellations with its vaulted CSD).
-    const errServer = http.createServer((req, res) => {
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ status: 'error', message: 'No fue posible obtener el Certificado' }));
+  test('cancel for a local-sealed doc sends the CSD inline to /cfdi33/cancel/csd (no SW vault)', async () => {
+    // SW's inline-CSD cancel: the CSD is sent in the request body (b64Cer/b64Key
+    // + passphrase), never registered in an SW vault. Capture the request and
+    // assert the endpoint + inline material; success maps to cancelado.
+    let cap;
+    const swServer = http.createServer((req, res) => {
+      let b = ''; req.on('data', c => { b += c; });
+      req.on('end', () => {
+        cap = { url: req.url, body: b };
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ status: 'success', data: { acuse: '<Acuse><EstatusUUID>201</EstatusUUID></Acuse>', uuid: { 'AAAA1111-2222-4333-8444-555566667777': '201' } } }));
+      });
     });
-    await new Promise(r => errServer.listen(0, '127.0.0.1', r));
-    const port = errServer.address().port;
+    await new Promise(r => swServer.listen(0, '127.0.0.1', r));
+    const port = swServer.address().port;
     db.query.mockImplementation(async (sql) => {
       if (/FROM cfdi_documents WHERE id/.test(sql)) return [[{ id: 7, organization_id: 5, uuid: 'aaaa1111-2222-4333-8444-555566667777', sat_status: 'vigente', invoice_id: null }]];
       if (/FROM pac_providers/.test(sql)) return [[localPac({ api_url: `http://127.0.0.1:${port}` })]];
+      if (/FROM csd_certificates/.test(sql)) return [[{ ...CSD_ROW }]];
       if (/FROM organization_mx_profiles/.test(sql)) return [[{ rfc: 'EKU9003173C9', razon_social: 'E', regimen_fiscal: '601', codigo_postal_fiscal: '42501' }]];
       if (/cfdi_cancellations/.test(sql)) return [{ insertId: 1 }];
       return [{ affectedRows: 1 }];
     });
-    await expect(cfdiService.cancel(7, '02')).rejects.toThrow(/SW still signs cancellations with the CSD/);
-    await new Promise(r => errServer.close(r));
+    const result = await cfdiService.cancel(7, '02');
+    expect(cap.url).toBe('/cfdi33/cancel/csd');
+    const payload = JSON.parse(cap.body);
+    expect(payload).toMatchObject({ rfc: 'EKU9003173C9', motivo: '02', password: '12345678a' });
+    expect(payload.b64Cer).toBeTruthy();
+    expect(payload.b64Key).toBeTruthy();
+    expect(result.status).toBe('cancelado');
+    await new Promise(r => swServer.close(r));
   });
 
   test("seal_mode='pac' still uses the Emisión (issue) endpoint with plain-XML JSON", async () => {
