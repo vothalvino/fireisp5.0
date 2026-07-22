@@ -679,3 +679,30 @@ describe('buildCfdi40Xml — sandbox-verified shape', () => {
     expect(xml).toContain('MetodoPago="PPD"');
   });
 });
+
+describe('buildCfdi40Xml — público en general (InformacionGlobal)', () => {
+  const emisor = { rfc: 'EKU9003173C9', razon_social: 'ESCUELA KEMPER URGATE', regimen_fiscal: '601', codigo_postal_fiscal: '42501' };
+  const con = [{ id: 1, clave_prod_serv: '81161700', cantidad: '1.00', clave_unidad: 'E48', descripcion: 'Internet', valor_unitario: '100.00', importe: '100.00', objeto_imp: '02' }];
+  const imp = [{ cfdi_concepto_id: 1, tax_type: 'traslado', base: '100.00', impuesto: '002', tipo_factor: 'Tasa', tasa_o_cuota: '0.160000', importe: '16.00' }];
+
+  test('emits InformacionGlobal as the first Comprobante child for XAXX receptor', () => {
+    const doc = {
+      receptor_rfc: 'XAXX010101000', receptor_nombre: 'PUBLICO EN GENERAL', receptor_cp: '42501',
+      receptor_regimen: '616', uso_cfdi: 'S01', serie: 'A', folio: 1, forma_pago: '01', metodo_pago: 'PUE',
+      moneda: 'MXN', subtotal: '100.00', total: '116.00', tipo_comprobante: 'I', exportacion: '01',
+    };
+    const xml = cfdiService.buildCfdi40Xml(doc, emisor, con, imp);
+    expect(xml).toMatch(/<cfdi:InformacionGlobal Periodicidad="01" Meses="\d{2}" Año="\d{4}" \/>/);
+    expect(xml.indexOf('InformacionGlobal')).toBeLessThan(xml.indexOf('cfdi:Emisor'));
+  });
+
+  test('a normal (non-XAXX) receptor gets NO InformacionGlobal', () => {
+    const doc = {
+      receptor_rfc: 'MISC491214B86', receptor_nombre: 'CECILIA MIRANDA SANCHEZ', receptor_cp: '01010',
+      receptor_regimen: '612', uso_cfdi: 'G03', serie: 'A', folio: 2, forma_pago: '99', metodo_pago: 'PPD',
+      moneda: 'MXN', subtotal: '100.00', total: '116.00', tipo_comprobante: 'I', exportacion: '01',
+    };
+    const xml = cfdiService.buildCfdi40Xml(doc, emisor, con, imp);
+    expect(xml).not.toContain('InformacionGlobal');
+  });
+});

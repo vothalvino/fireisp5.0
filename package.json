@@ -1,7 +1,7 @@
 {
   "name": "fireisp",
   "version": "5.0.0",
-  "description": "Open source ISP management software \u2014 customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0)",
+  "description": "Open source ISP management software — customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

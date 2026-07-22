@@ -30,7 +30,7 @@ const INVOICE = {
   total: '928.00', tax_rate: '0.1600',
 };
 const EMISOR = { rfc: 'EKU9003173C9', razon_social: 'Escuela Kemper', regimen_fiscal: '601', codigo_postal_fiscal: '26015', cfdi_serie_ingreso: 'A' };
-const RECEPTOR = { rfc: 'XAXX010101000', razon_social: 'Juana Pérez', regimen_fiscal: '616', codigo_postal_fiscal: '01000', uso_cfdi_default: null };
+const RECEPTOR = { rfc: 'MISC491214B86', razon_social: 'CECILIA MIRANDA SANCHEZ', regimen_fiscal: '612', codigo_postal_fiscal: '01010', uso_cfdi_default: null };
 const ITEMS = [
   { id: 1, description: 'Internet 100M', quantity: '1.00', unit_price: '500.00', amount: '500.00', clave_prod_serv: null, clave_unidad: null },
   { id: 2, description: 'Instalación', quantity: '1.00', unit_price: '300.00', amount: '300.00', clave_prod_serv: '81161500', clave_unidad: 'E48' },
