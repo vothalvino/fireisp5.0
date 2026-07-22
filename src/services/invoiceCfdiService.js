@@ -125,11 +125,16 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     throw new AppError('The invoice has no line items to convert.', 422, 'NO_LINE_ITEMS');
   }
 
+  // Público en general (XAXX010101000) is a factura global — it must be PUE
+  // with a concrete forma de pago (SAT rejects PPD/99 for público), never a
+  // deferred-payment invoice with a REP tail.
+  const isPublico = receptor.rfc === 'XAXX010101000';
+
   // PUE (paid in full at stamp time) vs PPD (payment(s) pending → the future
   // payments get REP complements). SAT: PPD must carry forma_pago '99'.
   const isPaid = invoice.status === 'paid';
   let formaPago;
-  if (isPaid) {
+  if (isPaid || isPublico) {
     const [payRows] = await db.query(
       `SELECT p.sat_forma_pago
          FROM payment_allocations pa
@@ -138,11 +143,11 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
         ORDER BY pa.id DESC LIMIT 1`,
       [invoiceId],
     );
-    formaPago = opts.forma_pago || payRows[0]?.sat_forma_pago || '03'; // 03 = transferencia
+    formaPago = opts.forma_pago || payRows[0]?.sat_forma_pago || (isPublico ? '01' : '03'); // 01 efectivo / 03 transferencia
   } else {
     formaPago = '99';
   }
-  const metodoPago = isPaid ? 'PUE' : 'PPD';
+  const metodoPago = (isPaid || isPublico) ? 'PUE' : 'PPD';
 
   const usoCfdi = opts.uso_cfdi || receptor.uso_cfdi_default || 'G03';
   // invoices.tax_rate can carry percent-style values on manually-created

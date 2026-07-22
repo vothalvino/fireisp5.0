@@ -263,6 +263,19 @@ async function generateXml(cfdiDocumentId) {
  * on the table — fecha_emision, lugar_expedicion, emisor_*, receptor_
  * domicilio_fiscal/regimen_fiscal — silently emitting blank attributes.)
  */
+// Público en general (receptor RFC XAXX010101000) requires the
+// InformacionGlobal node as the FIRST Comprobante child (Anexo 20 / CFDI40157):
+// a factura global covering the period. Periodicidad 01 = daily; Meses/Año
+// come from the CFDI date. The receptor rules (Nombre "PUBLICO EN GENERAL",
+// RegimenFiscalReceptor 616, DomicilioFiscalReceptor = LugarExpedicion,
+// UsoCFDI S01) are supplied by the client's MX profile / stamp options.
+function informacionGlobalXml(doc, fecha) {
+  if (doc.receptor_rfc !== 'XAXX010101000') return '';
+  const anio = String(fecha || '').slice(0, 4) || String(new Date().getFullYear());
+  const mes = String(fecha || '').slice(5, 7) || '01';
+  return `\n  <cfdi:InformacionGlobal Periodicidad="01" Meses="${mes}" Año="${anio}" />`;
+}
+
 function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
   const conceptosXml = conceptos.map(c => {
     const taxes = impuestos.filter(i => i.cfdi_concepto_id === c.id);
@@ -343,7 +356,7 @@ ${optAttrs}
   LugarExpedicion="${escapeXml(emisor.codigo_postal_fiscal)}"
   Moneda="${doc.moneda || 'MXN'}"
   SubTotal="${doc.subtotal || 0}"
-  Total="${doc.total || 0}">
+  Total="${doc.total || 0}">${informacionGlobalXml(doc, fecha)}
   <cfdi:Emisor Rfc="${escapeXml(emisor.rfc)}" Nombre="${escapeXml(emisor.razon_social)}" RegimenFiscal="${escapeXml(emisor.regimen_fiscal)}" />
   <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${escapeXml(doc.receptor_cp || '')}" RegimenFiscalReceptor="${escapeXml(doc.receptor_regimen || '')}" UsoCFDI="${doc.uso_cfdi || ''}" />
   <cfdi:Conceptos>
