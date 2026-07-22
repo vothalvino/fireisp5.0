@@ -603,8 +603,12 @@ async function pacUserPass(pac) {
 }
 
 async function finkokSoapCall(url, soapAction, namespace, innerBody) {
+  // xmlns:apps is only consumed by the cancel op's <apps:UUID> element (Finkok's
+  // own example puts UUID in apps.services.soap.core.views, NOT the cancel op
+  // namespace); it is a harmless unused declaration on stamp/get_sat_status.
   const envelope = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"'
-    + ` xmlns:fin="${namespace}"><soapenv:Body>${innerBody}</soapenv:Body></soapenv:Envelope>`;
+    + ` xmlns:fin="${namespace}" xmlns:apps="apps.services.soap.core.views">`
+    + `<soapenv:Body>${innerBody}</soapenv:Body></soapenv:Envelope>`;
   const response = await httpRequest(url, 'POST', envelope, {
     'Content-Type': 'text/xml; charset=utf-8',
     'SOAPAction': soapAction,
@@ -997,25 +1001,28 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
 async function callPacCancel(pac, uuid, reason, replacementUuid, doc) {
   if (pac.provider_name === 'finkok') {
     // Finkok SOAP cancel (cancel.wsdl): the request carries the emisor's CSD
-    // cer/key (base64 DER) — the SAT Solicitud de Cancelación is signed with
-    // OUR certificate, so cancellation is fully local (no CSD in a PAC vault).
-    // This is the key-isolation that seal_mode='local' promises end-to-end.
-    // Per-UUID <UUID> element with UUID/Motivo/FolioSustitucion attributes;
+    // cer/key as base64(PEM) — cert PEM and DECRYPTED (unencrypted PKCS#8) key
+    // PEM, live-verified against Finkok's demo (see csdCancelMaterial). Finkok
+    // itself signs the SAT Solicitud de Cancelación with our cert, so the CSD
+    // never lives in a PAC vault — the key-isolation seal_mode='local' promises.
+    // Per-UUID <apps:UUID> element with UUID/Motivo/FolioSustitucion attributes;
     // response cancelResult (Folios[].EstatusUUID + Acuse + Fecha).
     const baseUrl = finkokBaseUrl(pac);
     const { username, password } = await pacUserPass(pac);
     const emisor = await getEmisorProfile(doc.organization_id);
     const csd = await loadActiveOrgCsd(doc.organization_id);
-    const { cerDerB64, keyDerB64 } = cfdiSealService.csdDerMaterial(csd);
+    const { cerPemB64, keyPemB64 } = cfdiSealService.csdCancelMaterial(csd);
 
+    // The <UUID> element lives in the apps.services.soap.core.views namespace
+    // (Finkok's own example), NOT the cancel operation namespace.
     const folioAttr = replacementUuid ? ` FolioSustitucion="${escapeXml(replacementUuid)}"` : '';
     const soapBody = '<fin:cancel>'
-      + `<fin:UUIDS><fin:UUID UUID="${escapeXml(uuid)}" Motivo="${escapeXml(reason)}"${folioAttr}></fin:UUID></fin:UUIDS>`
+      + `<fin:UUIDS><apps:UUID UUID="${escapeXml(uuid)}" Motivo="${escapeXml(reason)}"${folioAttr}/></fin:UUIDS>`
       + `<fin:username>${escapeXml(username)}</fin:username>`
       + `<fin:password>${escapeXml(password)}</fin:password>`
       + `<fin:taxpayer_id>${escapeXml(emisor.rfc)}</fin:taxpayer_id>`
-      + `<fin:cer>${cerDerB64}</fin:cer>`
-      + `<fin:key>${keyDerB64}</fin:key>`
+      + `<fin:cer>${cerPemB64}</fin:cer>`
+      + `<fin:key>${keyPemB64}</fin:key>`
       + '<fin:store_pending>false</fin:store_pending>'
       + '</fin:cancel>';
     const resp = await finkokSoapCall(`${baseUrl}/cancel`, 'cancel', 'http://facturacion.finkok.com/cancel', soapBody);
