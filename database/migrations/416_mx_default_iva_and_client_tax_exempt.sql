@@ -34,7 +34,7 @@ BEGIN
   ) THEN
     ALTER TABLE clients
       ADD COLUMN tax_exempt TINYINT(1) NOT NULL DEFAULT 0
-          COMMENT 'When 1, this client is IVA-exempt: invoices carry 0 %% / Exento regardless of the org default rate (migration 416)'
+          COMMENT 'When 1, this client is IVA-exempt: invoices carry 0% / Exento regardless of the org default rate (migration 416)'
           AFTER suspension_exempt_reason,
       ADD COLUMN tax_exempt_reason VARCHAR(255) NULL
           COMMENT 'Optional explanation / legal basis for the IVA exemption (migration 416)'
