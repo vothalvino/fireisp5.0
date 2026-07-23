@@ -644,7 +644,8 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
                 </select>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)', margin: '4px 0 0' }}>
                   The profile is the OID→metric list the poller records (traffic, errors, signal, CCQ, CPU…).
-                  Model templates exist for LiteBeam 5AC Gen2, PowerBeam M5-400, airCube ISP and RG-EW1300G.
+                  Model templates exist for LiteBeam 5AC Gen2, PowerBeam M5-400 and airCube ISP.
+                  (The RG-EW1300G has no SNMP agent — it is cloud-managed and cannot be SNMP-monitored.)
                 </p>
               </div>
             )}
