@@ -95,6 +95,18 @@ then redeploy any time, from any directory:
 sudo redeploy
 ```
 
+> **Release note — payment webhooks now fail closed.** If you receive Stripe or
+> Conekta webhooks, you **must** set `STRIPE_WEBHOOK_SECRET` / `CONEKTA_WEBHOOK_KEY`
+> in your env before upgrading past this release. Previously an unset secret
+> silently skipped signature verification (a forgery hole); now the receiver
+> returns **503 `WEBHOOK_NOT_CONFIGURED`** instead of trusting the request. If you
+> miss this, `/payment-webhooks/*` will 503 and invoices will stop auto-reconciling
+> from payment callbacks — with no in-app alert, so check the provider's webhook
+> dashboard or the app logs. Note the receiver reads the **env var**, not the
+> per-gateway "Webhook Secret" field in Settings (that field is not yet wired to the
+> receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior for
+> local testing only — never set it in production.
+
 For a non-standard install path, set `FIREISP_DIR=/your/path redeploy`. The
 manual steps below are the same flow broken out — reach for them when a
 **frontend** change isn't showing (the image caches the compiled bundle; see the

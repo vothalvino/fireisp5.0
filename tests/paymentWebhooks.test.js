@@ -882,5 +882,66 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(res.body.error.code).toBe('WEBHOOK_INVALID_PAYLOAD');
       expect(db.query).not.toHaveBeenCalled();
     });
+
+    // Symmetry with the Stripe signed test: prove Conekta's real digest path
+    // through the Express route (not just the verifyConektaSignature unit), so a
+    // Conekta-specific wiring break (wrong header/key/verify) is caught.
+    test('Conekta accepts a validly SIGNED event (no opt-in needed)', async () => {
+      delete process.env.ALLOW_UNSIGNED_WEBHOOKS;
+      const key = 'conekta_route_ok';
+      const orig = process.env.CONEKTA_WEBHOOK_KEY;
+      process.env.CONEKTA_WEBHOOK_KEY = key;
+      try {
+        db.query
+          .mockResolvedValueOnce([[]])                 // No duplicate
+          .mockResolvedValueOnce([{ insertId: 3 }])    // INSERT webhook_events
+          .mockResolvedValueOnce([[]])                  // No matching transaction
+          .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE event
+
+        const payload = { id: 'evt_conekta_signed_1', type: 'order.paid', data: { object: { id: 'ord_signed_1' } } };
+        const body = JSON.stringify(payload);
+        const digest = crypto.createHmac('sha256', key).update(body, 'utf8').digest('hex');
+
+        const res = await request(app)
+          .post('/api/payment-webhooks/conekta')
+          .set('Content-Type', 'application/json')
+          .set('Digest', digest)     // real HMAC over the exact rawBody
+          .send(body);
+
+        expect(res.status).toBe(200);
+        expect(res.body.received).toBe(true);
+      } finally {
+        if (orig === undefined) delete process.env.CONEKTA_WEBHOOK_KEY;
+        else process.env.CONEKTA_WEBHOOK_KEY = orig;
+      }
+    });
+
+    // A validly-SIGNED but malformed body must still 400 (shape check is
+    // auth-path-agnostic) — guards a refactor that special-cases the shape
+    // check inside the unsigned-only branch and re-introduces the 500.
+    test('a validly signed but malformed event still returns 400 (not 500)', async () => {
+      delete process.env.ALLOW_UNSIGNED_WEBHOOKS;
+      const secret = 'whsec_signed_malformed';
+      const orig = process.env.STRIPE_WEBHOOK_SECRET;
+      process.env.STRIPE_WEBHOOK_SECRET = secret;
+      try {
+        const body = JSON.stringify({ notAnEvent: true });   // no id/type
+        const ts = Math.floor(Date.now() / 1000);
+        const sig = crypto.createHmac('sha256', secret).update(`${ts}.${body}`, 'utf8').digest('hex');
+
+        const res = await request(app)
+          .post('/api/payment-webhooks/stripe')
+          .set('Content-Type', 'application/json')
+          .set('Stripe-Signature', `t=${ts},v1=${sig}`)
+          .send(body);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('WEBHOOK_INVALID_PAYLOAD');
+        expect(db.query).not.toHaveBeenCalled();   // rejected before any processing
+      } finally {
+        if (orig === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+        else process.env.STRIPE_WEBHOOK_SECRET = orig;
+      }
+    });
   });
 });
