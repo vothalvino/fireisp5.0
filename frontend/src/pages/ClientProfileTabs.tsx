@@ -38,6 +38,8 @@ interface ClientRaw {
   client_group_id: number | null;
   suspension_exempt: boolean | number | null;
   suspension_exempt_reason: string | null;
+  tax_exempt: boolean | number | null;
+  tax_exempt_reason: string | null;
 }
 interface GroupRow { id: number; name: string; }
 
@@ -103,13 +105,27 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update suspension exemption'),
   });
 
+  const updateTaxExemption = useMutation({
+    mutationFn: async (body: { tax_exempt: boolean; tax_exempt_reason?: string }) => {
+      const { error: e } = await api.PUT('/clients/{id}', {
+        params: { path: { id: clientId } },
+        body: body as never,
+      });
+      if (e) throw new Error(extractApiError(e, 'Failed to update IVA exemption'));
+    },
+    onSuccess: () => { setError(''); refresh(); },
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update IVA exemption'),
+  });
+
   const [exemptReason, setExemptReason] = useState<string | null>(null);
+  const [taxExemptReason, setTaxExemptReason] = useState<string | null>(null);
 
   if (isLoading) return <p style={msg}>Loading…</p>;
   if (!client) return <p style={msg}>No profile data.</p>;
 
-  // Initialise exemptReason from client data on first render
+  // Initialise exemption reasons from client data on first render
   const currentExemptReason = exemptReason ?? (client.suspension_exempt_reason || '');
+  const currentTaxExemptReason = taxExemptReason ?? (client.tax_exempt_reason || '');
 
   const lat = client.latitude != null ? Number(client.latitude) : null;
   const lng = client.longitude != null ? Number(client.longitude) : null;
@@ -210,6 +226,49 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
                       })}
                     >
                       {updateExemption.isPending ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>IVA exempt (0% tax on invoices)</td>
+                <td style={cell}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(client.tax_exempt)}
+                      disabled={updateTaxExemption.isPending}
+                      onChange={e => updateTaxExemption.mutate({
+                        tax_exempt: e.target.checked,
+                        tax_exempt_reason: currentTaxExemptReason || undefined,
+                      })}
+                    />
+                    {Boolean(client.tax_exempt) ? 'Exempt — invoices carry 0% / Exento' : 'Taxed at the org default IVA'}
+                  </label>
+                </td>
+              </tr>
+              <tr>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>IVA exemption reason</td>
+                <td style={cell}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      style={{ ...inputStyle, maxWidth: 320 }}
+                      type="text"
+                      value={currentTaxExemptReason}
+                      placeholder="Legal basis for the IVA exemption"
+                      onChange={e => setTaxExemptReason(e.target.value)}
+                      disabled={updateTaxExemption.isPending}
+                    />
+                    <button
+                      type="button"
+                      style={submitBtn}
+                      disabled={updateTaxExemption.isPending}
+                      onClick={() => updateTaxExemption.mutate({
+                        tax_exempt: Boolean(client.tax_exempt),
+                        tax_exempt_reason: currentTaxExemptReason || undefined,
+                      })}
+                    >
+                      {updateTaxExemption.isPending ? 'Saving…' : 'Save'}
                     </button>
                   </div>
                 </td>

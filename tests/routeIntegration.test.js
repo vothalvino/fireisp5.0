@@ -505,8 +505,11 @@ describe('Billing Routes — /api/billing', () => {
       conn.execute
         // FOR UPDATE lock on billing period
         .mockResolvedValueOnce([[{ id: 101, status: 'pending' }]])
-        // tax_rates query
-        .mockResolvedValueOnce([[]])
+        // resolveTaxContext: client exemption lookup
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])
+        // tax_rates query — a 0% default rate (resolver finds it, so the
+        // Organization.getLocale fallback is never reached)
+        .mockResolvedValueOnce([[{ id: 1, rate: '0.0000', is_default: true }]])
         // nextInvoiceNumber: INSERT IGNORE + UPDATE next_number
         .mockResolvedValueOnce([{ affectedRows: 0 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])

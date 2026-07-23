@@ -94,6 +94,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     // masked a 100x tax-amount bug.
     mockConnection.execute
       .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
+      .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
       .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
       .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -116,7 +117,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
     // INSERT INTO invoices params (not just the separately-mocked findById
     // return above) so this fails if the tax formula regresses.
-    const invoiceInsert = mockConnection.execute.mock.calls[4][1];
+    const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql))[1];
     expect(invoiceInsert[4]).toBe(500);   // subtotal
     expect(invoiceInsert[5]).toBe(80);    // tax_amount
     expect(invoiceInsert[6]).toBe(580);   // total
@@ -167,6 +168,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     // rate = 0.1600 (16%), a FRACTION — see comment in Step 2 test above.
     mockConnection.execute
       .mockResolvedValueOnce([[{ id: 100, status: 'pending' }]])  // FOR UPDATE lock
+      .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
       .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])
       .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
       .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -184,7 +186,7 @@ describe('E2E Workflow: Billing → Invoice → Payment', () => {
     expect(invoice.id).toBe(200);
 
     // 500 subtotal @ 16% -> 80.00 tax, 580.00 total.
-    const invoiceInsert = mockConnection.execute.mock.calls[4][1];
+    const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql))[1];
     expect(invoiceInsert[4]).toBe(500);   // subtotal
     expect(invoiceInsert[5]).toBe(80);    // tax_amount
     expect(invoiceInsert[6]).toBe(580);   // total

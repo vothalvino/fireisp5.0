@@ -14,6 +14,7 @@ class Client extends BaseModel {
       'country', 'latitude', 'longitude', 'geocoded_at', 'credit_score',
       'risk_rating', 'notes', 'status',
       'suspension_exempt', 'suspension_exempt_reason',
+      'tax_exempt', 'tax_exempt_reason',
     ];
   }
 

@@ -47,6 +47,8 @@ const updateClient = {
   status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
   suspension_exempt: { type: 'boolean' },
   suspension_exempt_reason: { type: 'string', max: 500 },
+  tax_exempt: { type: 'boolean' },
+  tax_exempt_reason: { type: 'string', max: 255 },
 };
 
 const createContact = {

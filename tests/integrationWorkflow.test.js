@@ -61,6 +61,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
       // a 100x tax-amount bug).
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -79,7 +80,7 @@ describe('Integration Workflow: Billing → CFDI → Suspension', () => {
 
       // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
       // INSERT INTO invoices params so this fails if the tax formula regresses.
-      const invoiceInsert = mockConnection.execute.mock.calls[4][1];
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql))[1];
       expect(invoiceInsert[4]).toBe(500);   // subtotal
       expect(invoiceInsert[5]).toBe(80);    // tax_amount
       expect(invoiceInsert[6]).toBe(580);   // total

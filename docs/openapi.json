@@ -53442,6 +53442,13 @@
           "suspension_exempt_reason": {
             "type": "string",
             "maximum": 500
+          },
+          "tax_exempt": {
+            "type": "boolean"
+          },
+          "tax_exempt_reason": {
+            "type": "string",
+            "maximum": 255
           }
         }
       },
@@ -53551,6 +53558,13 @@
           "suspension_exempt_reason": {
             "type": "string",
             "maximum": 500
+          },
+          "tax_exempt": {
+            "type": "boolean"
+          },
+          "tax_exempt_reason": {
+            "type": "string",
+            "maximum": 255
           }
         }
       },
