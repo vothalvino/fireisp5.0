@@ -6,8 +6,11 @@
 
 const logger = require('../utils/logger');
 
-// Query parameters that are masked in log output to prevent leaking secrets.
-const SENSITIVE_PARAMS = /[?&](password|token|api_key|secret|access_token|refresh_token)=[^&]*/gi;
+// Query parameters that are masked in log output to prevent leaking secrets
+// and personal data (PII) into access logs. The `[?&]NAME=` anchoring means
+// each name matches only a whole parameter (never a substring), so listing
+// `token` cannot partial-match `access_token` — add exact names as needed.
+const SENSITIVE_PARAMS = /[?&](password|token|api_key|secret|access_token|refresh_token|username|email|phone)=[^&]*/gi;
 
 /**
  * Mask sensitive query parameters in a URL.
