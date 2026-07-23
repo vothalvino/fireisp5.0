@@ -1,0 +1,20 @@
+-- =============================================================================
+-- Migration 415 — remove the RG-EW1300G SNMP template
+-- =============================================================================
+-- Migration 413 seeded a 'Ruijie RG-EW1300G' profile with an IF-MIB OID set and
+-- a description hedging that stock Reyee firmware "may not expose SNMP".
+-- Field-verified by the operator: the RG-EW1300G has NO SNMP agent at all
+-- (cloud-managed via Ruijie Cloud). A template for a device that cannot answer
+-- SNMP is misleading — a tech picking it just gets a permanently-unreachable
+-- device and debugs community strings that can never work. Remove it.
+--
+-- (The subscriber link itself stays monitored: the outdoor CPE in front of the
+-- EW1300G — LiteBeam/PowerBeam — is SNMP-monitored via its model template, and
+-- per-subscriber session/traffic telemetry comes from the RADIUS/NAS side.)
+--
+-- snmp_profile_oids rows cascade on profile delete. Devices that had this
+-- profile assigned fall back to snmp_profile_id = NULL via the FK's ON DELETE
+-- behavior — verify below keeps this safe: the FK on devices.snmp_profile_id
+-- is ON DELETE SET NULL (schema.sql), so no device row is orphaned.
+DELETE FROM snmp_profiles WHERE name = 'Ruijie RG-EW1300G';
+-- END OF MIGRATION 415
