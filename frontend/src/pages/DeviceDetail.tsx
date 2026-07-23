@@ -13,6 +13,7 @@ import { api, authedFetch } from '@/api/client';
 import { ClientPicker } from '@/components/ClientPicker';
 import { extractApiError } from '@/components/ClientFormModal';
 import { fmtPct, fmtSignal, fmtLatency, fmtUptimeTicks } from './snmpMetrics/format';
+import { DeviceFormModal, type Site as DeviceSite, type Device as EditableDevice } from './DeviceMap';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -497,8 +498,19 @@ export function DeviceDetail() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [snmpAllReadingsOpen, setSnmpAllReadingsOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const qc = useQueryClient();
+
+  // Sites for the edit modal's Site picker (same modal used on the /devices map).
+  const { data: sites = [] } = useQuery({
+    queryKey: ['sites-for-device-edit'],
+    queryFn: async () => {
+      const res = await api.GET('/sites' as never, { params: { query: { limit: 200 } } } as never);
+      if ((res as { error?: unknown }).error) return [] as DeviceSite[];
+      return (((res as { data: { data: DeviceSite[] } }).data?.data) ?? []);
+    },
+  });
 
   const { data: device, isLoading, error } = useQuery({
     queryKey: ['device-detail', id],
@@ -648,7 +660,27 @@ export function DeviceDetail() {
             <span style={styles.idLabel}>ID #{device.id}</span>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          style={{ background: 'var(--accent, #ea580c)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', whiteSpace: 'nowrap' }}
+        >
+          ✏️ {t('deviceDetail.editDevice', 'Edit device')}
+        </button>
       </div>
+
+      {editing && (
+        <DeviceFormModal
+          mode="edit"
+          device={device as unknown as EditableDevice}
+          sites={sites}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            qc.invalidateQueries({ queryKey: ['device-detail', id] });
+          }}
+        />
+      )}
 
       {/* Info card */}
       <div style={styles.infoCard}>
