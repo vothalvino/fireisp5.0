@@ -19,7 +19,10 @@ permissions:
 jobs:
   dast-full:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 1062 imported URLs blew the 30-min cap (run 29975379354 canceled mid-scan,
+    # no report written — ZAP only writes reports at the end). The ascan-duration
+    # config below makes ZAP stop itself in time to still emit the report.
+    timeout-minutes: 180
     services:
       mysql:
         image: mysql:8.4.9
@@ -86,7 +89,9 @@ jobs:
           rules_file_name: '.zap/rules.tsv'
           cmd_options: >-
             -O http://localhost:3000
-            -z "-config replacer.full_list(0).description=auth
+            -z "-config scanner.maxScanDurationInMins=150
+            -config scanner.maxRuleDurationInMins=10
+            -config replacer.full_list(0).description=auth
             -config replacer.full_list(0).enabled=true
             -config replacer.full_list(0).matchtype=REQ_HEADER
             -config replacer.full_list(0).matchstr=Authorization
