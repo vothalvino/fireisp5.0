@@ -459,8 +459,23 @@ function SummaryBar({ sites, devices, links }: SummaryBarProps) {
 // Device create/edit modal
 // ---------------------------------------------------------------------------
 
-const DEVICE_TYPES = ['router', 'switch', 'olt', 'onu', 'ap', 'antenna', 'server', 'cpe', 'other'];
-const DEVICE_STATUSES = ['active', 'inactive', 'maintenance', 'decommissioned'];
+// MUST mirror the backend enums exactly (schemas/devices.js ↔ devices table).
+// The previous lists ('ap'/'antenna'/'server'/'cpe' types; 'active'/'inactive'/
+// 'decommissioned' statuses) matched NEITHER — and since the form always sends
+// status (defaulting to the invalid 'active'), EVERY create from this modal
+// failed with "Validation failed".
+const DEVICE_TYPES: { value: string; label: string }[] = [
+  { value: 'outdoor_cpe', label: 'Outdoor CPE' },
+  { value: 'indoor_cpe', label: 'Indoor CPE' },
+  { value: 'ptp', label: 'PtP link' },
+  { value: 'ptmp_ap', label: 'PtMP AP' },
+  { value: 'olt', label: 'OLT' },
+  { value: 'router', label: 'Router' },
+  { value: 'switch', label: 'Switch' },
+  { value: 'onu', label: 'ONU' },
+  { value: 'other', label: 'Other' },
+];
+const DEVICE_STATUSES = ['online', 'offline', 'maintenance'];
 
 interface DeviceFormProps {
   mode: 'create' | 'edit';
@@ -474,7 +489,7 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
   const [form, setForm] = useState({
     name: device?.name ?? '',
     type: device?.type ?? 'router',
-    status: device?.status ?? 'active',
+    status: device?.status ?? 'offline',
     site_id: device?.site_id != null ? String(device.site_id) : '',
     manufacturer: device?.manufacturer ?? '',
     model: device?.model ?? '',
@@ -552,7 +567,7 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
             <div>
               <label style={labelStyle}>Type</label>
               <select style={inputStyle} value={form.type} onChange={set('type')}>
-                {DEVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {DEVICE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <div>
