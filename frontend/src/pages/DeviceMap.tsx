@@ -57,6 +57,10 @@ interface Device {
   ip_address: string | null;
   status: string;
   snmp_enabled: boolean | number;
+  snmp_community?: string | null;
+  snmp_version?: string | null;
+  snmp_port?: number | null;
+  snmp_profile_id?: number | null;
   deleted_at?: string | null;
   serial_number?: string | null;
   mac_address?: string | null;
@@ -455,8 +459,23 @@ function SummaryBar({ sites, devices, links }: SummaryBarProps) {
 // Device create/edit modal
 // ---------------------------------------------------------------------------
 
-const DEVICE_TYPES = ['router', 'switch', 'olt', 'onu', 'ap', 'antenna', 'server', 'cpe', 'other'];
-const DEVICE_STATUSES = ['active', 'inactive', 'maintenance', 'decommissioned'];
+// MUST mirror the backend enums exactly (schemas/devices.js ↔ devices table).
+// The previous lists ('ap'/'antenna'/'server'/'cpe' types; 'active'/'inactive'/
+// 'decommissioned' statuses) matched NEITHER — and since the form always sends
+// status (defaulting to the invalid 'active'), EVERY create from this modal
+// failed with "Validation failed".
+const DEVICE_TYPES: { value: string; label: string }[] = [
+  { value: 'outdoor_cpe', label: 'Outdoor CPE' },
+  { value: 'indoor_cpe', label: 'Indoor CPE' },
+  { value: 'ptp', label: 'PtP link' },
+  { value: 'ptmp_ap', label: 'PtMP AP' },
+  { value: 'olt', label: 'OLT' },
+  { value: 'router', label: 'Router' },
+  { value: 'switch', label: 'Switch' },
+  { value: 'onu', label: 'ONU' },
+  { value: 'other', label: 'Other' },
+];
+const DEVICE_STATUSES = ['online', 'offline', 'maintenance'];
 
 interface DeviceFormProps {
   mode: 'create' | 'edit';
@@ -470,16 +489,32 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
   const [form, setForm] = useState({
     name: device?.name ?? '',
     type: device?.type ?? 'router',
-    status: device?.status ?? 'active',
+    status: device?.status ?? 'offline',
     site_id: device?.site_id != null ? String(device.site_id) : '',
     manufacturer: device?.manufacturer ?? '',
     model: device?.model ?? '',
     serial_number: device?.serial_number ?? '',
     mac_address: device?.mac_address ?? '',
     ip_address: device?.ip_address ?? '',
+    snmp_enabled: Boolean(device?.snmp_enabled),
+    snmp_community: device?.snmp_community ?? '',
+    snmp_version: device?.snmp_version ?? 'v2c',
+    snmp_port: device?.snmp_port != null ? String(device.snmp_port) : '161',
+    snmp_profile_id: device?.snmp_profile_id != null ? String(device.snmp_profile_id) : '',
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // SNMP profiles decide WHAT gets recorded (each profile is an OID→metric
+  // list, incl. the per-model CPE templates seeded by migration 413).
+  const profilesQ = useQuery({
+    queryKey: ['snmp-profiles-for-device-form'],
+    queryFn: async () => {
+      const res = await api.GET('/snmp-profiles', { params: { query: { limit: 100 } as never } });
+      if ((res as { error?: unknown }).error) return [] as { id: number; name: string }[];
+      return (((res as unknown as { data: { data: { id: number; name: string }[] } }).data?.data) ?? []);
+    },
+  });
 
   const set = (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -490,7 +525,7 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
     if (!form.name.trim()) { setError('Name is required.'); return; }
     setSaving(true);
     setError(null);
-    const body: Record<string, string | number> = {
+    const body: Record<string, string | number | boolean> = {
       name: form.name.trim(),
       type: form.type,
       status: form.status,
@@ -500,6 +535,13 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
       const v = form[k].trim();
       if (v) body[k] = v;
     });
+    body.snmp_enabled = form.snmp_enabled;
+    if (form.snmp_enabled) {
+      body.snmp_version = form.snmp_version;
+      if (form.snmp_community.trim()) body.snmp_community = form.snmp_community.trim();
+      if (form.snmp_port) body.snmp_port = Number(form.snmp_port);
+      if (form.snmp_profile_id) body.snmp_profile_id = Number(form.snmp_profile_id);
+    }
 
     const { error: apiError } = mode === 'create'
       ? await api.POST('/devices', { body: body as never })
@@ -525,7 +567,7 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
             <div>
               <label style={labelStyle}>Type</label>
               <select style={inputStyle} value={form.type} onChange={set('type')}>
-                {DEVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {DEVICE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <div>
@@ -566,6 +608,47 @@ function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormPr
 
           <label style={labelStyle}>Serial Number</label>
           <input style={inputStyle} type="text" value={form.serial_number} onChange={set('serial_number')} maxLength={100} />
+
+          {/* SNMP monitoring — the profile decides WHAT metrics get recorded */}
+          <div style={{ borderTop: '1px solid var(--border-color, #e5e7eb)', marginTop: '1rem', paddingTop: '0.75rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={form.snmp_enabled}
+                onChange={e => setForm(f => ({ ...f, snmp_enabled: e.target.checked }))}
+              />
+              SNMP monitoring
+            </label>
+            {form.snmp_enabled && (
+              <div style={{ marginTop: 8 }}>
+                <div style={twoCol}>
+                  <div>
+                    <label style={labelStyle}>Version</label>
+                    <select style={inputStyle} value={form.snmp_version} onChange={set('snmp_version')}>
+                      <option value="v1">v1</option>
+                      <option value="v2c">v2c</option>
+                      <option value="v3">v3</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Port</label>
+                    <input style={inputStyle} type="number" min={1} max={65535} value={form.snmp_port} onChange={set('snmp_port')} />
+                  </div>
+                </div>
+                <label style={labelStyle}>Community</label>
+                <input style={inputStyle} type="text" value={form.snmp_community} onChange={set('snmp_community')} maxLength={100} placeholder="public" />
+                <label style={labelStyle}>Profile (what to record)</label>
+                <select style={inputStyle} value={form.snmp_profile_id} onChange={set('snmp_profile_id')}>
+                  <option value="">— No profile (not polled) —</option>
+                  {(profilesQ.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)', margin: '4px 0 0' }}>
+                  The profile is the OID→metric list the poller records (traffic, errors, signal, CCQ, CPU…).
+                  Model templates exist for LiteBeam 5AC Gen2, PowerBeam M5-400, airCube ISP and RG-EW1300G.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: '1.25rem' }}>
             <button type="button" style={cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
