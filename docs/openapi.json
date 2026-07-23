@@ -19244,7 +19244,7 @@
         "tags": [
           "Payment Webhooks"
         ],
-        "summary": "Stripe webhook endpoint",
+        "summary": "Stripe webhook endpoint (global, env-var secret)",
         "operationId": "stripeWebhook",
         "responses": {
           "200": {
@@ -19274,7 +19274,7 @@
         "tags": [
           "Payment Webhooks"
         ],
-        "summary": "Conekta webhook endpoint",
+        "summary": "Conekta webhook endpoint (global, env-var secret)",
         "operationId": "conektaWebhook",
         "responses": {
           "200": {
@@ -19292,6 +19292,94 @@
           },
           "401": {
             "description": "Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)"
+          },
+          "503": {
+            "description": "Signature verification not configured (WEBHOOK_NOT_CONFIGURED)"
+          }
+        }
+      }
+    },
+    "/payment-webhooks/stripe/{gatewayId}": {
+      "post": {
+        "tags": [
+          "Payment Webhooks"
+        ],
+        "summary": "Stripe webhook endpoint (per-gateway secret)",
+        "operationId": "stripeWebhookForGateway",
+        "parameters": [
+          {
+            "name": "gatewayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "payment_gateways.id whose webhook secret verifies this event"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed webhook payload (WEBHOOK_INVALID_PAYLOAD)"
+          },
+          "401": {
+            "description": "Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)"
+          },
+          "404": {
+            "description": "Unknown payment gateway (WEBHOOK_GATEWAY_NOT_FOUND)"
+          },
+          "503": {
+            "description": "Signature verification not configured (WEBHOOK_NOT_CONFIGURED)"
+          }
+        }
+      }
+    },
+    "/payment-webhooks/conekta/{gatewayId}": {
+      "post": {
+        "tags": [
+          "Payment Webhooks"
+        ],
+        "summary": "Conekta webhook endpoint (per-gateway secret)",
+        "operationId": "conektaWebhookForGateway",
+        "parameters": [
+          {
+            "name": "gatewayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "payment_gateways.id whose webhook secret verifies this event"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed webhook payload (WEBHOOK_INVALID_PAYLOAD)"
+          },
+          "401": {
+            "description": "Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)"
+          },
+          "404": {
+            "description": "Unknown payment gateway (WEBHOOK_GATEWAY_NOT_FOUND)"
           },
           "503": {
             "description": "Signature verification not configured (WEBHOOK_NOT_CONFIGURED)"

@@ -46,6 +46,45 @@ The following event types are dispatched to registered webhooks:
 | `pppoe.auth_failures` | PPPoE auth failure threshold |
 | `ip_pool.threshold` | IP pool utilization threshold |
 
+### Inbound Payment-Provider Webhooks (Stripe / Conekta)
+
+These are webhooks FireISP **receives** from a payment processor to auto-reconcile
+payments (mark invoices paid, record refunds/disputes). They are **public**
+endpoints authenticated by the provider's **HMAC signature** — never by a JWT.
+The receiver **fails closed**: if it can't verify a request, it rejects it rather
+than trusting it.
+
+Two receiver shapes per provider:
+
+| Endpoint | Signing secret source | Reconciles against |
+|---|---|---|
+| `POST /api/v1/payment-webhooks/stripe` (and `/conekta`) | `STRIPE_WEBHOOK_SECRET` / `CONEKTA_WEBHOOK_KEY` env var | all transactions (global) |
+| `POST /api/v1/payment-webhooks/stripe/{gatewayId}` (and `/conekta/{gatewayId}`) | that gateway's **Webhook Secret** (Settings → Payment Gateways) | only that gateway's org (multi-tenant) |
+
+**Recommended setup (multi-tenant / per-org, e.g. Stripe):**
+
+1. Settings → Payment Gateways → add or edit your Stripe gateway; enter the
+   publishable and secret keys. Save.
+2. Re-open the gateway. Copy the **Webhook URL** shown on the form
+   (`https://<your-host>/api/v1/payment-webhooks/stripe/<gatewayId>`).
+3. In the Stripe dashboard → Developers → Webhooks → add an endpoint with that
+   URL. Subscribe to at least `payment_intent.succeeded`,
+   `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`.
+4. Stripe shows a signing secret (`whsec_…`). Paste it into the gateway's
+   **Webhook Secret** field in Settings and save.
+5. Send a test event from Stripe; it should return `200 {received:true}`.
+
+**Responses:** `200` accepted · `400 WEBHOOK_INVALID_PAYLOAD` (malformed body) ·
+`401 WEBHOOK_SIGNATURE_INVALID` (bad signature) · `404 WEBHOOK_GATEWAY_NOT_FOUND`
+(unknown `gatewayId`) · `503 WEBHOOK_NOT_CONFIGURED` (no signing secret set —
+**payments will not auto-reconcile until you set one**). For local testing only,
+`ALLOW_UNSIGNED_WEBHOOKS=true` processes unsigned bodies — never set it in
+production.
+
+> Note: the outbound charge/refund path already uses each gateway's own encrypted
+> API key (`api.stripe.com`), so once the webhook secret is set the provider is
+> fully wired end-to-end.
+
 ### 20.1 Deferred / Gap Notes
 
 - **new subscriber** webhook event: `service_order.activated` is the closest existing event and covers new subscriber activation. A dedicated `client.created` webhook event does not exist — noted as a minor gap; not added in this section to avoid unscoped changes to notificationHooks.js.
