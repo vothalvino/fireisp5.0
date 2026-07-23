@@ -31,7 +31,9 @@ const { drawdownForSale } = require('./inventoryDrawdownService');
  */
 async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null }) {
   if (clientId) {
-    const [crows] = await exec('SELECT tax_exempt FROM clients WHERE id = ? LIMIT 1', [clientId]);
+    // Org-scoped so a stray/foreign clientId reads as "not exempt" (taxed)
+    // rather than picking up another tenant's flag.
+    const [crows] = await exec('SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? LIMIT 1', [clientId, orgId]);
     const c = crows[0];
     if (c && (c.tax_exempt === 1 || c.tax_exempt === true)) {
       return { rate: 0, taxRateId: null, exempt: true };
