@@ -11,6 +11,7 @@ jest.mock('../src/config/database', () => ({
 }));
 
 const db = require('../src/config/database');
+const Organization = require('../src/models/Organization');
 const billingService = require('../src/services/billingService');
 
 describe('billingService', () => {
@@ -18,6 +19,9 @@ describe('billingService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // resolveTaxContext consults Organization.getLocale only when no rate is
+    // found; default it to 'global' so it never consumes a db.query mock.
+    jest.spyOn(Organization, 'getLocale').mockResolvedValue('global');
     mockConnection = {
       beginTransaction: jest.fn(),
       execute: jest.fn(),
@@ -351,6 +355,7 @@ describe('billingService', () => {
       // same 80.00 this test expects, masking a 100x tax-amount bug.
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600', is_default: true }]])  // tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE (row already exists)
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -371,9 +376,9 @@ describe('billingService', () => {
       expect(result).toEqual({ id: 50, total: '580.00', status: 'issued' });
 
       // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. Assert directly on the
-      // INSERT INTO invoices params (not just the separately-mocked findById
-      // return above) so this fails if the tax formula regresses.
-      const invoiceInsert = mockConnection.execute.mock.calls[4][1];
+      // INSERT INTO invoices params (found by SQL, robust to query-count changes)
+      // so this fails if the tax formula regresses.
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql))[1];
       expect(invoiceInsert[3]).toBe('INV-000006'); // invoice_number from nextInvoiceNumber()
       expect(invoiceInsert[4]).toBe(500);   // subtotal
       expect(invoiceInsert[5]).toBe(80);    // tax_amount
@@ -390,6 +395,7 @@ describe('billingService', () => {
       };
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[]])  // no tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
@@ -403,7 +409,7 @@ describe('billingService', () => {
 
       await billingService.generateInvoice(datePeriod, contract, plan, orgId);
 
-      const itemInsert = mockConnection.execute.mock.calls[5][1];
+      const itemInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoice_items/.test(sql))[1];
       expect(itemInsert[1]).toBe('Basic 50Mbps — 2026-08-12 to 2026-09-11');
       expect(itemInsert[1]).not.toMatch(/GMT|Coordinated/);
     });
@@ -427,6 +433,7 @@ describe('billingService', () => {
 
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[]])  // no tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -442,7 +449,7 @@ describe('billingService', () => {
       await billingService.generateInvoice(billingPeriod, overrideContract, plan, orgId);
 
       // Verify the invoice INSERT used the override price
-      const invoiceInsert = mockConnection.execute.mock.calls[4];
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql));
       expect(invoiceInsert[1]).toContain(450);
     });
 
@@ -451,6 +458,7 @@ describe('billingService', () => {
 
       mockConnection.execute
         .mockResolvedValueOnce([[{ id: 10, status: 'pending' }]])  // FOR UPDATE lock
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[]])  // no tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -467,7 +475,8 @@ describe('billingService', () => {
 
       await billingService.generateInvoice(billingPeriod, contract, plan, orgId);
 
-      expect(mockConnection.execute).toHaveBeenCalledTimes(11);
+      // 12 = the 11 original conn.execute calls + the new client-exemption lookup.
+      expect(mockConnection.execute).toHaveBeenCalledTimes(12);
       // Regression (DR-drill finding): addon lines used to be inserted WITHOUT
       // ever reaching the stored totals or the ledger — every contract with an
       // active addon under-billed. Plan 500 + addon 2×100 = 700, no tax rate.
@@ -483,6 +492,60 @@ describe('billingService', () => {
   });
 
   // =========================================================================
+  // resolveTaxContext — the shared IVA/exemption resolver
+  // =========================================================================
+  describe('resolveTaxContext', () => {
+    test('exempt client → 0% / Exento, and no rate lookup happens', async () => {
+      const exec = jest.fn().mockResolvedValueOnce([[{ tax_exempt: 1 }]]);
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100 });
+      expect(r).toEqual({ rate: 0, taxRateId: null, exempt: true });
+      expect(exec).toHaveBeenCalledTimes(1); // client lookup only
+    });
+
+    test('non-exempt client uses the org default rate', async () => {
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])        // client
+        .mockResolvedValueOnce([[{ id: 3, rate: '0.1600' }]]); // default rate
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100 });
+      expect(r).toEqual({ rate: 0.16, taxRateId: 3, exempt: false });
+    });
+
+    test('honors an explicit contract tax_rate_id', async () => {
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])
+        .mockResolvedValueOnce([[{ id: 9, rate: '0.0800' }]]);
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100, contractTaxRateId: 9 });
+      expect(r).toEqual({ rate: 0.08, taxRateId: 9, exempt: false });
+      expect(exec.mock.calls[1][1]).toEqual([9, 5, 9]); // id both in the OR and the ORDER BY
+    });
+
+    test('MX org with no configured rate → 16% IVA safety net (never silently 0%)', async () => {
+      jest.spyOn(Organization, 'getLocale').mockResolvedValue('MX');
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])
+        .mockResolvedValueOnce([[]]); // no rate
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100 });
+      expect(r).toEqual({ rate: 0.16, taxRateId: null, exempt: false });
+    });
+
+    test('non-MX org with no rate → 0% (unchanged behavior)', async () => {
+      jest.spyOn(Organization, 'getLocale').mockResolvedValue('global');
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])
+        .mockResolvedValueOnce([[]]);
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100 });
+      expect(r).toEqual({ rate: 0, taxRateId: null, exempt: false });
+    });
+
+    test('no clientId → skips the exemption lookup entirely', async () => {
+      const exec = jest.fn().mockResolvedValueOnce([[{ id: 3, rate: '0.1600' }]]);
+      const r = await billingService.resolveTaxContext(exec, { orgId: 5 });
+      expect(r).toEqual({ rate: 0.16, taxRateId: 3, exempt: false });
+      expect(exec).toHaveBeenCalledTimes(1); // rate lookup only
+    });
+  });
+
+  // =========================================================================
   // createOneOffInvoice
   // =========================================================================
   describe('createOneOffInvoice', () => {
@@ -492,6 +555,7 @@ describe('billingService', () => {
         .mockResolvedValueOnce([[{ id: 60, total: '580.00', status: 'issued' }]]);  // Invoice.findById
 
       mockConnection.execute
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         // rate = 0.1600 (16%) — DECIMAL(5,4) per schema/migration 121 seed; a
         // realistic rate is essential here: an old test mocking rate '16.00'
         // (an impossible 1600%, DECIMAL(5,4) tops out at 9.9999) combined with
@@ -514,13 +578,13 @@ describe('billingService', () => {
       expect(mockConnection.release).toHaveBeenCalled();
       expect(result).toEqual({ id: 60, total: '580.00', status: 'issued' });
 
-      const invoiceInsert = mockConnection.execute.mock.calls[3];
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql));
       expect(invoiceInsert[0]).toContain('INSERT INTO invoices');
       // 500 subtotal @ 16% -> 80.00 tax, 580.00 total. tax_rate column stores
       // the fraction (0.16), matching what the frontend renders as rate*100.
       expect(invoiceInsert[1]).toEqual([42, 100, 900, 'INV-000006', 500, 80, 580, 'MXN', 0.16, 1, expect.any(Date)]);
 
-      const itemInsert = mockConnection.execute.mock.calls[4];
+      const itemInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoice_items/.test(sql));
       expect(itemInsert[0]).toContain('INSERT INTO invoice_items');
       // Trailing null = inventory_item_id (Inventory Phase 3, migration 391)
       // — this call didn't pass inventoryItemId, so the line isn't product-linked.
@@ -533,6 +597,7 @@ describe('billingService', () => {
         .mockResolvedValueOnce([[{ id: 61, total: '500.00' }]]);
 
       mockConnection.execute
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[]])  // no default tax rate
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -545,7 +610,8 @@ describe('billingService', () => {
         orgId: 7, clientId: 200, description: 'Installation fee', amount: 500,
       });
 
-      const invoiceInsert = mockConnection.execute.mock.calls[3];
+      // Non-MX org (getLocale spied 'global') with no default rate → 0% tax, unchanged.
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql));
       expect(invoiceInsert[1]).toEqual([7, 200, null, 'INV-000001', 500, 0, 500, 'USD', 0, null, expect.any(Date)]);
     });
 
@@ -553,6 +619,7 @@ describe('billingService', () => {
       db.query.mockResolvedValueOnce([[{ id: 62, total: '116.00' }]]);  // Invoice.findById (no getCurrency call expected)
 
       mockConnection.execute
+        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
         .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])
         .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -566,12 +633,10 @@ describe('billingService', () => {
       });
 
       // Only ONE db.query call (Invoice.findById) — Organization.getCurrency
-      // was never invoked because a currency override was supplied.
-      // (nextInvoiceNumber's LAST_INSERT_ID() read goes through conn.query,
-      // i.e. mockConnection.query — a separate mock from the module-level
-      // db.query asserted here.)
+      // was never invoked because a currency override was supplied, and the
+      // client-exemption + tax-rate reads go through conn.execute, not db.query.
       expect(db.query).toHaveBeenCalledTimes(1);
-      const invoiceInsert = mockConnection.execute.mock.calls[3];
+      const invoiceInsert = mockConnection.execute.mock.calls.find(([sql]) => /INSERT INTO invoices/.test(sql));
       expect(invoiceInsert[1]).toEqual([7, 200, null, 'INV-000001', 100, 16, 116, 'GTQ', 0.16, 1, expect.any(Date)]);
     });
 
@@ -579,6 +644,7 @@ describe('billingService', () => {
       const externalConn = {
         beginTransaction: jest.fn(),
         execute: jest.fn()
+          .mockResolvedValueOnce([[{ tax_exempt: 0 }]])  // resolveTaxContext: client exemption
           .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])
           .mockResolvedValueOnce([{ affectedRows: 0 }])  // nextInvoiceNumber: INSERT IGNORE
           .mockResolvedValueOnce([{ affectedRows: 1 }])  // nextInvoiceNumber: UPDATE next_number
@@ -614,6 +680,7 @@ describe('billingService', () => {
       const externalConn = {
         beginTransaction: jest.fn(),
         execute: jest.fn()
+          .mockResolvedValueOnce([[{ tax_exempt: 0 }]])            // resolveTaxContext: client exemption
           .mockResolvedValueOnce([[{ id: 1, rate: '0.1600' }]])   // tax rate
           .mockResolvedValueOnce([{ affectedRows: 0 }])            // nextInvoiceNumber: INSERT IGNORE
           .mockResolvedValueOnce([{ affectedRows: 1 }])            // nextInvoiceNumber: UPDATE next_number
@@ -638,16 +705,13 @@ describe('billingService', () => {
 
       expect(result).toEqual({ id: 80, total: '150.00', status: 'issued' });
 
-      const itemInsert = externalConn.execute.mock.calls[4];
-      expect(itemInsert[0]).toContain('INSERT INTO invoice_items');
+      const itemInsert = externalConn.execute.mock.calls.find(([sql]) => /INSERT INTO invoice_items/.test(sql));
       expect(itemInsert[1]).toEqual([80, 'Equipment sale: ONU-X (SN ABC123)', 150, 150, 7]);
 
-      const drawdownUpdate = externalConn.execute.mock.calls[6];
-      expect(drawdownUpdate[0]).toContain('UPDATE inventory_stock SET quantity = quantity - ?');
+      const drawdownUpdate = externalConn.execute.mock.calls.find(([sql]) => /UPDATE inventory_stock SET quantity = quantity - \?/.test(sql));
       expect(drawdownUpdate[1]).toEqual([1, 500]);
 
-      const ledgerInsert = externalConn.execute.mock.calls[7];
-      expect(ledgerInsert[0]).toContain('INSERT INTO inventory_transactions');
+      const ledgerInsert = externalConn.execute.mock.calls.find(([sql]) => /INSERT INTO inventory_transactions/.test(sql));
       expect(ledgerInsert[0]).toContain("'sell_to_client'");
       expect(ledgerInsert[1]).toEqual([500, 1, 150, 100, 80, 5, 'INV-000001']);
 

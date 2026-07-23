@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS clients (
     version         INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT 'Optimistic locking version',
     suspension_exempt        TINYINT(1)   NOT NULL DEFAULT 0   COMMENT 'When 1, suspension rules will never be applied to this client',
     suspension_exempt_reason VARCHAR(500) NULL                 COMMENT 'Optional explanation for why this client is exempt from suspension',
+    tax_exempt               TINYINT(1)   NOT NULL DEFAULT 0   COMMENT 'When 1, this client is IVA-exempt: invoices carry 0% / Exento regardless of the org default rate (migration 416)',
+    tax_exempt_reason        VARCHAR(255) NULL                 COMMENT 'Optional explanation / legal basis for the IVA exemption (migration 416)',
     reseller_id     BIGINT UNSIGNED NULL     COMMENT 'Reseller this client belongs to; NULL = direct ISP customer (§19)',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

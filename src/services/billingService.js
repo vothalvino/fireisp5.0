@@ -13,6 +13,51 @@ const { InvoiceGenerationError, AppError } = require('../utils/errors');
 const auditLog = require('./auditLog');
 const { drawdownForSale } = require('./inventoryDrawdownService');
 
+/**
+ * Resolve the tax treatment for a newly-generated invoice/quote.
+ *
+ * Precedence:
+ *   1. An IVA-exempt client (clients.tax_exempt) forces 0 % / Exento.
+ *   2. An explicit contract/line tax_rate_id.
+ *   3. The organization's active default rate (tax_rates.is_default).
+ *   4. For MX-locale orgs ONLY, a 16 % IVA safety net so a Mexican invoice is
+ *      never silently untaxed (migration 416 seeds an editable per-org row;
+ *      this covers any org created/switched to MX afterwards). Non-MX orgs
+ *      with no default rate get 0 %, unchanged.
+ *
+ * @param {Function} exec  db.query or a connection's .execute (returns [rows,fields])
+ * @param {{orgId:number, clientId?:number, contractTaxRateId?:number|null}} p
+ * @returns {Promise<{rate:number, taxRateId:(number|null), exempt:boolean}>}
+ */
+async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null }) {
+  if (clientId) {
+    // Org-scoped so a stray/foreign clientId reads as "not exempt" (taxed)
+    // rather than picking up another tenant's flag.
+    const [crows] = await exec('SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? LIMIT 1', [clientId, orgId]);
+    const c = crows[0];
+    if (c && (c.tax_exempt === 1 || c.tax_exempt === true)) {
+      return { rate: 0, taxRateId: null, exempt: true };
+    }
+  }
+
+  const [rates] = await exec(
+    `SELECT id, rate FROM tax_rates
+      WHERE id = ?
+         OR (organization_id = ? AND is_default = TRUE AND status = 'active' AND deleted_at IS NULL)
+      ORDER BY id = ? DESC LIMIT 1`,
+    [contractTaxRateId || 0, orgId, contractTaxRateId || 0],
+  );
+  const r = rates[0];
+  if (r) return { rate: parseFloat(r.rate) || 0, taxRateId: r.id, exempt: false };
+
+  const locale = await Organization.getLocale(orgId);
+  if (locale === 'MX') {
+    logger.warn({ orgId }, 'MX org has no active default tax rate — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
+    return { rate: 0.16, taxRateId: null, exempt: false };
+  }
+  return { rate: 0, taxRateId: null, exempt: false };
+}
+
 // Format a DATE-column value (mysql2 returns a JS Date) as YYYY-MM-DD for
 // user-visible strings — never interpolate a Date object raw (it prints the
 // full "Wed Aug 12 2026 00:00:00 GMT+0000 (...)" form).
@@ -263,18 +308,14 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
     // plan itself has none set.
     const currency = plan.currency || await Organization.getCurrency(orgId);
 
-    // Get applicable tax rate
-    const [taxRates] = await conn.execute(
-      `SELECT * FROM tax_rates WHERE id = ? OR (organization_id = ? AND is_default = TRUE)
-       ORDER BY id = ? DESC LIMIT 1`,
-      [contract.tax_rate_id || 0, orgId, contract.tax_rate_id || 0],
-    );
-    const taxRate = taxRates[0];
-    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%, seeded by
-    // migration 121 and rendered as rate*100 by the frontend) — NOT a whole
-    // percent, so the tax amount needs an extra *100 to land in the right
-    // units (500 subtotal @ 0.16 -> 80.00 tax, not 0.80).
-    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    // Resolve tax: client exemption > contract rate > org default > MX 16% net.
+    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%) — the tax
+    // amount needs an extra *1 (fraction) so 500 @ 0.16 -> 80.00, not 0.80.
+    const tax = await resolveTaxContext(conn.execute.bind(conn), {
+      orgId, clientId: contract.client_id, contractTaxRateId: contract.tax_rate_id,
+    });
+    const taxPct = tax.rate;
+    const taxRateId = tax.taxRateId;
 
     const subtotal = parseFloat(price);
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
@@ -295,7 +336,7 @@ async function generateInvoice(billingPeriod, contract, plan, orgId) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
       [orgId, contract.client_id, contract.id, invoiceNumber,
         subtotal, taxAmount, total, currency, taxPct,
-        taxRate?.id || null, dueDate],
+        taxRateId, dueDate],
     );
     const invoiceId = invResult.insertId;
 
@@ -443,17 +484,10 @@ async function createOneOffInvoice({
   try {
     if (ownsTransaction) await conn.beginTransaction();
 
-    // Org default tax rate (same lookup as POST /invoices/generate's flexible format).
-    const [taxRates] = await conn.execute(
-      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
-      [orgId],
-    );
-    const taxRate = taxRates[0];
-    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%, seeded by
-    // migration 121 and rendered as rate*100 by the frontend) — NOT a whole
-    // percent, so the tax amount needs an extra *100 to land in the right
-    // units (500 subtotal @ 0.16 -> 80.00 tax, not 0.80).
-    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    // Resolve tax: client exemption > org default > MX 16% net (shared resolver).
+    const tax = await resolveTaxContext(conn.execute.bind(conn), { orgId, clientId });
+    const taxPct = tax.rate;
+    const taxRateId = tax.taxRateId;
 
     const subtotal = Math.round(parseFloat(amount) * 100) / 100;
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
@@ -471,7 +505,7 @@ async function createOneOffInvoice({
        subtotal, tax_amount, total, currency, tax_rate, tax_rate_id, due_date, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
       [orgId, clientId, contractId, invoiceNumber, subtotal, taxAmount, total,
-        currency, taxPct, taxRate?.id || null, dueDate],
+        currency, taxPct, taxRateId, dueDate],
     );
     const invoiceId = invResult.insertId;
 
@@ -874,7 +908,7 @@ module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
-  releaseInvoiceAllocations, invoiceTaxFraction,
+  releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext,
   voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,

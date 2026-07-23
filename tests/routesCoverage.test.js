@@ -72,6 +72,10 @@ const pdfService = require('../src/services/pdfService');
 const twoFactorService = require('../src/services/twoFactorService');
 const alertService = require('../src/services/alertService');
 const billingService = require('../src/services/billingService');
+// billingService is auto-mocked, but resolveTaxContext is a pure resolver the
+// generate routes depend on — restore its real implementation (it reads the
+// SQL-branching db mock via the passed exec).
+const realBillingService = jest.requireActual('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
 const app = require('../src/app');
 
@@ -113,6 +117,7 @@ function mockConnection() {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  billingService.resolveTaxContext.mockImplementation(realBillingService.resolveTaxContext);
 });
 
 // =============================================================================

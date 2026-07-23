@@ -292,15 +292,13 @@ router.post('/generate', requirePermission('quotes.create'), async (req, res, ne
     // points at the SAME single contract (mirrors invoice generation).
     const quoteContractId = contractIds.size === 1 ? [...contractIds][0] : null;
 
-    // Same default-tax-rate lookup + fraction math as POST /invoices/generate
-    // — tax_rate is a FRACTION (e.g. 0.1600 = 16%), never multiplied by an
-    // extra 100.
-    const [taxRates] = await db.query(
-      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
-      [req.orgId],
-    );
-    const taxRate = taxRates[0];
-    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    // Same tax resolution as POST /invoices/generate: client exemption > org
+    // default > MX 16% net. tax_rate is a FRACTION (e.g. 0.1600 = 16%).
+    const tax = await billingService.resolveTaxContext(db.query, {
+      orgId: req.orgId, clientId: client_id,
+    });
+    const taxPct = tax.rate;
+    const taxRate = tax.taxRateId ? { id: tax.taxRateId } : null;
     subtotal = Math.round(subtotal * 100) / 100;
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;

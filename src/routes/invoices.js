@@ -626,17 +626,12 @@ router.post('/generate', requirePermission('invoices.create'), async (req, res, 
     // mixed-contract or contract-less (product/custom only) invoice stays unlinked.
     const invoiceContractId = contractIds.size === 1 ? [...contractIds][0] : null;
 
-    // Get default tax rate
-    const [taxRates] = await db.query(
-      'SELECT * FROM tax_rates WHERE organization_id = ? AND is_default = TRUE LIMIT 1',
-      [req.orgId],
-    );
-    const taxRate = taxRates[0];
-    // tax_rates.rate is a FRACTION (DECIMAL(5,4); e.g. 0.1600 = 16%, seeded by
-    // migration 121 and rendered as rate*100 by the frontend) — NOT a whole
-    // percent, so the tax amount needs an extra *100 to land in the right
-    // units (500 subtotal @ 0.16 -> 80.00 tax, not 0.80).
-    const taxPct = taxRate ? parseFloat(taxRate.rate) : 0;
+    // Resolve tax: client exemption > org default > MX 16% net (shared resolver).
+    const tax = await billingService.resolveTaxContext(db.query, {
+      orgId: req.orgId, clientId: client_id,
+    });
+    const taxPct = tax.rate;
+    const taxRate = tax.taxRateId ? { id: tax.taxRateId } : null;
     subtotal = Math.round(subtotal * 100) / 100;
     const taxAmount = Math.round(subtotal * taxPct * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
