@@ -1,0 +1,105 @@
+# =============================================================================
+# ONE-OFF full authenticated DAST — DO NOT MERGE.
+# =============================================================================
+# Runs an OWASP ZAP *authenticated API scan* over the whole OpenAPI surface
+# (every documented endpoint, admin JWT injected on every request) instead of
+# the shallow unauthenticated baseline. Exists only on this throwaway branch;
+# the PR is closed unmerged so main's CI is unchanged. Report is uploaded as an
+# artifact.  fail_action:false — reporting only, like the real dast job.
+# =============================================================================
+name: DAST full (one-off)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dast-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4.9
+        env:
+          MYSQL_ROOT_PASSWORD: zaptest
+          MYSQL_DATABASE: fireisp_dast
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: zaptest
+      DB_NAME: fireisp_dast
+      JWT_SECRET: zap-dast-ci-jwt-secret-for-github-actions-only-not-for-production
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+      ADMIN_PASSWORD: ZapDastAdminPassw0rd!
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Migrate + seed
+        run: pnpm run migrate && pnpm run seed
+
+      - name: Start backend
+        env: { PORT: '3000', LOG_LEVEL: warn }
+        run: node src/server.js &
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/health/live >/dev/null 2>&1 && { echo ready; exit 0; }
+            sleep 2
+          done
+          echo "backend did not start"; exit 1
+
+      - name: Mint admin JWT + patch spec base URL
+        run: |
+          TOKEN=$(curl -s -X POST http://localhost:3000/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"admin@demo-isp.com\",\"password\":\"$ADMIN_PASSWORD\"}" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["accessToken"])')
+          test -n "$TOKEN" || { echo "login failed"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "ZAP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          # spec server is '/api' but real routes are '/api/v1' — patch for the scan
+          curl -s http://localhost:3000/api/docs/openapi.json \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); d["servers"]=[{"url":"/api/v1"}]; json.dump(d, open("openapi-patched.json","w"))'
+          echo "endpoints in spec: $(python3 -c 'import json;print(len(json.load(open("openapi-patched.json"))["paths"]))')"
+
+      - name: ZAP authenticated API scan
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: 'openapi-patched.json'
+          format: openapi
+          fail_action: false
+          allow_issue_writing: 'false'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: >-
+            -O http://localhost:3000
+            -z "-config replacer.full_list(0).description=auth
+            -config replacer.full_list(0).enabled=true
+            -config replacer.full_list(0).matchtype=REQ_HEADER
+            -config replacer.full_list(0).matchstr=Authorization
+            -config replacer.full_list(0).regex=false
+            -config replacer.full_list(0).replacement=Bearer ${{ env.ZAP_TOKEN }}"
+
+      - name: Upload report
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: dast-full-report
+          path: |
+            report_html.html
+            report_json.json
+            report_md.md
+          retention-days: 7
