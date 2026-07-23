@@ -526,6 +526,19 @@ function PaymentGatewaysTab() {
               <input style={sty.input} value={form.webhook_secret} placeholder="whsec_…"
                 onChange={e => setForm(f => ({ ...f, webhook_secret: e.target.value }))} />
             </label>
+            {editing && (editing.provider === 'stripe' || editing.provider === 'conekta') && (() => {
+              const webhookUrl = `${window.location.origin}/api/v1/payment-webhooks/${editing.provider}/${editing.id}`;
+              return (
+                <div style={sty.label}>
+                  <span>Webhook URL <span style={sty.hint}>(paste into your {editing.provider} dashboard)</span></span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <code style={{ ...sty.code, flex: 1, overflowX: 'auto', whiteSpace: 'nowrap' }}>{webhookUrl}</code>
+                    <button type="button" style={sty.btnGhost} onClick={() => navigator.clipboard?.writeText(webhookUrl)}>Copy</button>
+                  </div>
+                  <span style={sty.hint}>Set this as the webhook endpoint in {editing.provider}, then paste the signing secret it returns into “Webhook Secret” above. Until a secret is saved here, incoming webhooks are rejected (503) — payments won’t auto-reconcile.</span>
+                </div>
+              );
+            })()}
             {formError && <p style={sty.errorText}>{formError}</p>}
             <div style={sty.modalFooter}>
               <button type="button" style={sty.btnGhost} onClick={closeModal}>Cancel</button>

@@ -960,8 +960,11 @@ function generateSpec() {
       // ---- Payment Webhooks ----
       // Public (no bearer auth): authenticated by per-provider HMAC signature.
       // Fail closed — a request the server cannot verify is rejected, not trusted.
-      '/payment-webhooks/stripe': { post: { tags: ['Payment Webhooks'], summary: 'Stripe webhook endpoint', operationId: 'stripeWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
-      '/payment-webhooks/conekta': { post: { tags: ['Payment Webhooks'], summary: 'Conekta webhook endpoint', operationId: 'conektaWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
+      // Bare path = global (env-var secret); /:gatewayId = per-tenant (DB secret).
+      '/payment-webhooks/stripe': { post: { tags: ['Payment Webhooks'], summary: 'Stripe webhook endpoint (global, env-var secret)', operationId: 'stripeWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
+      '/payment-webhooks/conekta': { post: { tags: ['Payment Webhooks'], summary: 'Conekta webhook endpoint (global, env-var secret)', operationId: 'conektaWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
+      '/payment-webhooks/stripe/{gatewayId}': { post: { tags: ['Payment Webhooks'], summary: 'Stripe webhook endpoint (per-gateway secret)', operationId: 'stripeWebhookForGateway', parameters: [gatewayIdParam()], responses: { ...r200('OK'), ...webhookErrorResponses(), 404: { description: 'Unknown payment gateway (WEBHOOK_GATEWAY_NOT_FOUND)' } } } },
+      '/payment-webhooks/conekta/{gatewayId}': { post: { tags: ['Payment Webhooks'], summary: 'Conekta webhook endpoint (per-gateway secret)', operationId: 'conektaWebhookForGateway', parameters: [gatewayIdParam()], responses: { ...r200('OK'), ...webhookErrorResponses(), 404: { description: 'Unknown payment gateway (WEBHOOK_GATEWAY_NOT_FOUND)' } } } },
 
       // ---- Recurring Payment Profiles ----
       ...crudPaths('recurring-payment-profiles', 'Recurring Payments', 'RecurringPaymentProfile'),
@@ -2930,6 +2933,9 @@ function r204() {
 }
 function r200File(mime) {
   return { 200: { description: 'File download', content: { [mime]: { schema: { type: 'string', format: 'binary' } } } } };
+}
+function gatewayIdParam() {
+  return { name: 'gatewayId', in: 'path', required: true, schema: { type: 'integer' }, description: 'payment_gateways.id whose webhook secret verifies this event' };
 }
 // Error responses for the fail-closed payment-webhook receivers.
 function webhookErrorResponses() {

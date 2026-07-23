@@ -40,6 +40,48 @@ async function getActiveGateway(organizationId) {
   return rows[0] || null;
 }
 
+/**
+ * Resolve the per-gateway webhook context for an inbound, provider-scoped
+ * webhook (POST /payment-webhooks/:provider/:gatewayId). The gatewayId comes
+ * from the (untrusted) URL, so the row must match the provider on the path and
+ * be active. Returns:
+ *   { found:false }                                   → unknown/inactive/wrong-provider gateway (404)
+ *   { found:true, organizationId, webhookSecret:null} → gateway exists but no webhook secret set (503)
+ *   { found:true, organizationId, webhookSecret:'…' } → ready to verify
+ * A secret that cannot be decrypted (corrupt ciphertext / wrong key) is treated
+ * as not-configured rather than surfacing a 500.
+ *
+ * @param {object} params
+ * @param {string} params.provider   - 'stripe' | 'conekta'
+ * @param {number|string} params.gatewayId
+ */
+async function loadGatewayWebhookContext({ provider, gatewayId }) {
+  if (!/^\d+$/.test(String(gatewayId))) return { found: false };
+
+  const [rows] = await db.query(
+    `SELECT id, organization_id, webhook_secret_encrypted
+       FROM payment_gateways
+      WHERE id = ? AND provider = ? AND status = 'active' AND deleted_at IS NULL
+      LIMIT 1`,
+    [gatewayId, provider],
+  );
+  if (rows.length === 0) return { found: false };
+
+  const gw = rows[0];
+  if (!gw.webhook_secret_encrypted) {
+    return { found: true, organizationId: gw.organization_id, webhookSecret: null };
+  }
+
+  let webhookSecret;
+  try {
+    webhookSecret = decrypt(gw.webhook_secret_encrypted);
+  } catch (err) {
+    logger.error({ err, gatewayId: gw.id, provider }, 'Failed to decrypt gateway webhook secret');
+    return { found: true, organizationId: gw.organization_id, webhookSecret: null };
+  }
+  return { found: true, organizationId: gw.organization_id, webhookSecret };
+}
+
 // ---------------------------------------------------------------------------
 // Idempotency
 // ---------------------------------------------------------------------------
@@ -536,9 +578,12 @@ function verifyConektaSignature(rawBody, digestHeader, secret) {
  * @param {string} params.providerEventId - Unique event ID from the provider
  * @param {string} params.eventType      - Provider event type string
  * @param {object} params.payload        - Full event payload (parsed JSON)
+ * @param {number} [params.organizationId] - When the webhook arrived on a
+ *        gateway-scoped route, restrict transaction matching to that tenant so
+ *        one org's webhook can never reconcile another org's transaction.
  * @returns {object} { status, webhookEventId }
  */
-async function handleWebhookEvent({ provider, providerEventId, eventType, payload }) {
+async function handleWebhookEvent({ provider, providerEventId, eventType, payload, organizationId }) {
   // Deduplication: check if we already received this event
   const [existing] = await db.query(
     'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ?',
@@ -570,11 +615,18 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
       return { status: 'ignored', webhookEventId };
     }
 
-    // Find the matching payment transaction
-    const [txRows] = await db.query(
-      'SELECT * FROM payment_transactions WHERE gateway_reference_id = ? LIMIT 1',
-      [gatewayRef],
-    );
+    // Find the matching payment transaction. When the event arrived on a
+    // gateway-scoped route, confine the match to that tenant (cross-tenant
+    // reconciliation guard); otherwise fall back to the global lookup.
+    const [txRows] = organizationId
+      ? await db.query(
+        'SELECT * FROM payment_transactions WHERE gateway_reference_id = ? AND organization_id = ? LIMIT 1',
+        [gatewayRef, organizationId],
+      )
+      : await db.query(
+        'SELECT * FROM payment_transactions WHERE gateway_reference_id = ? LIMIT 1',
+        [gatewayRef],
+      );
 
     if (txRows.length === 0) {
       await db.query(
@@ -768,6 +820,7 @@ async function reconcilePayment(transactionId) {
 
 module.exports = {
   getActiveGateway,
+  loadGatewayWebhookContext,
   charge,
   refund,
   getClientTransactions,

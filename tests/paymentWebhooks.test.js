@@ -22,6 +22,16 @@ jest.mock('../src/utils/logger', () => {
   return mock;
 });
 
+// Deterministic encryption so the per-gateway webhook secret loader is testable
+// without ENCRYPTION_KEY: decrypt is pass-through, except a sentinel that throws
+// (to exercise the corrupt-ciphertext → treated-as-unconfigured branch).
+jest.mock('../src/utils/encryption', () => ({
+  encrypt: (v) => v,
+  decrypt: jest.fn((v) => { if (v === '__CORRUPT__') throw new Error('bad ciphertext'); return v; }),
+  getKey: () => null,
+  isConfigured: () => false,
+}));
+
 const db = require('../src/config/database');
 const paymentGatewayService = require('../src/services/paymentGatewayService');
 
@@ -942,6 +952,164 @@ describe('Payment Webhooks & Idempotency', () => {
         if (orig === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
         else process.env.STRIPE_WEBHOOK_SECRET = orig;
       }
+    });
+  });
+
+  // =========================================================================
+  // Per-gateway (multi-tenant) webhook routes — secret from the DB, event
+  // reconciled only against that tenant
+  // =========================================================================
+  describe('Gateway-scoped webhook routes', () => {
+    const request = require('supertest');
+    const app = require('../src/app');
+
+    beforeEach(() => { delete process.env.ALLOW_UNSIGNED_WEBHOOKS; });
+    afterEach(() => { delete process.env.ALLOW_UNSIGNED_WEBHOOKS; });
+
+    test('verifies with the gateway DB secret and reconciles scoped to that org', async () => {
+      db.query.mockImplementation(async (sql) => {
+        if (/FROM payment_gateways/.test(sql)) return [[{ id: 7, organization_id: 5, webhook_secret_encrypted: 'whsec_gw7' }]];
+        if (/FROM webhook_events/.test(sql)) return [[]];              // no duplicate
+        if (/INSERT INTO webhook_events/.test(sql)) return [{ insertId: 42 }];
+        if (/FROM payment_transactions/.test(sql)) return [[]];        // no tx for this org → no_match
+        if (/UPDATE webhook_events/.test(sql)) return [{ affectedRows: 1 }];
+        return [[]];
+      });
+
+      const payload = { id: 'evt_gw_1', type: 'payment_intent.succeeded', data: { object: { id: 'pi_gw_1' } } };
+      const body = JSON.stringify(payload);
+      const ts = Math.floor(Date.now() / 1000);
+      const sig = crypto.createHmac('sha256', 'whsec_gw7').update(`${ts}.${body}`, 'utf8').digest('hex');
+
+      const res = await request(app)
+        .post('/api/payment-webhooks/stripe/7')
+        .set('Content-Type', 'application/json')
+        .set('Stripe-Signature', `t=${ts},v1=${sig}`)
+        .send(body);
+
+      expect(res.status).toBe(200);
+      expect(res.body.received).toBe(true);
+      // the gateway row was loaded by (id, provider)
+      const gwCall = db.query.mock.calls.find(c => /FROM payment_gateways/.test(c[0]));
+      expect(gwCall[1]).toEqual(['7', 'stripe']);
+      // the transaction lookup was CONFINED to the gateway's org (cross-tenant guard)
+      const txCall = db.query.mock.calls.find(c => /FROM payment_transactions/.test(c[0]));
+      expect(txCall[0]).toMatch(/organization_id = \?/);
+      expect(txCall[1]).toEqual(['pi_gw_1', 5]);
+    });
+
+    test('unknown / inactive gateway → 404, nothing processed', async () => {
+      db.query.mockImplementation(async (sql) => (/FROM payment_gateways/.test(sql) ? [[]] : [[]]));
+      const res = await request(app)
+        .post('/api/payment-webhooks/stripe/999')
+        .send({ id: 'evt_x', type: 'payment_intent.succeeded', data: { object: { id: 'pi_x' } } })
+        .set('Content-Type', 'application/json');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('WEBHOOK_GATEWAY_NOT_FOUND');
+      expect(db.query.mock.calls.some(c => /webhook_events/.test(c[0]))).toBe(false);
+    });
+
+    test('non-numeric gatewayId → 404 without touching the database', async () => {
+      db.query.mockImplementation(async () => [[]]);
+      const res = await request(app)
+        .post('/api/payment-webhooks/stripe/not-a-number')
+        .send({ id: 'evt_x', type: 'payment_intent.succeeded', data: { object: { id: 'pi_x' } } })
+        .set('Content-Type', 'application/json');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('WEBHOOK_GATEWAY_NOT_FOUND');
+      expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('gateway exists but has no webhook secret → 503 (fail closed)', async () => {
+      db.query.mockImplementation(async (sql) => (/FROM payment_gateways/.test(sql)
+        ? [[{ id: 7, organization_id: 5, webhook_secret_encrypted: null }]] : [[]]));
+      const res = await request(app)
+        .post('/api/payment-webhooks/stripe/7')
+        .send({ id: 'evt_x', type: 'payment_intent.succeeded', data: { object: { id: 'pi_x' } } })
+        .set('Content-Type', 'application/json');
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('WEBHOOK_NOT_CONFIGURED');
+      expect(db.query.mock.calls.some(c => /webhook_events/.test(c[0]))).toBe(false);
+    });
+
+    test('gateway secret set but signature invalid → 401', async () => {
+      db.query.mockImplementation(async (sql) => (/FROM payment_gateways/.test(sql)
+        ? [[{ id: 7, organization_id: 5, webhook_secret_encrypted: 'whsec_gw7' }]] : [[]]));
+      const res = await request(app)
+        .post('/api/payment-webhooks/stripe/7')
+        .send({ id: 'evt_x', type: 'payment_intent.succeeded', data: { object: { id: 'pi_x' } } })
+        .set('Content-Type', 'application/json')
+        .set('Stripe-Signature', 't=1,v1=deadbeef');
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('WEBHOOK_SIGNATURE_INVALID');
+    });
+
+    test('Conekta gateway route verifies with the DB key', async () => {
+      db.query.mockImplementation(async (sql) => {
+        if (/FROM payment_gateways/.test(sql)) return [[{ id: 9, organization_id: 6, webhook_secret_encrypted: 'conekta_gw9' }]];
+        if (/FROM webhook_events/.test(sql)) return [[]];
+        if (/INSERT INTO webhook_events/.test(sql)) return [{ insertId: 50 }];
+        if (/FROM payment_transactions/.test(sql)) return [[]];
+        if (/UPDATE webhook_events/.test(sql)) return [{ affectedRows: 1 }];
+        return [[]];
+      });
+
+      const payload = { id: 'evt_conekta_gw_1', type: 'order.paid', data: { object: { id: 'ord_gw_1' } } };
+      const body = JSON.stringify(payload);
+      const digest = crypto.createHmac('sha256', 'conekta_gw9').update(body, 'utf8').digest('hex');
+
+      const res = await request(app)
+        .post('/api/payment-webhooks/conekta/9')
+        .set('Content-Type', 'application/json')
+        .set('Digest', digest)
+        .send(body);
+
+      expect(res.status).toBe(200);
+      expect(res.body.received).toBe(true);
+      const gwCall = db.query.mock.calls.find(c => /FROM payment_gateways/.test(c[0]));
+      expect(gwCall[1]).toEqual(['9', 'conekta']);
+    });
+  });
+
+  // =========================================================================
+  // loadGatewayWebhookContext() unit
+  // =========================================================================
+  describe('loadGatewayWebhookContext()', () => {
+    test('non-numeric gatewayId returns not-found without a query', async () => {
+      const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: 'abc' });
+      expect(ctx).toEqual({ found: false });
+      expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('returns the decrypted secret + org for a matching active gateway', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 7, organization_id: 5, webhook_secret_encrypted: 'whsec_plain' }]]);
+      const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: '7' });
+      expect(ctx).toEqual({ found: true, organizationId: 5, webhookSecret: 'whsec_plain' });
+      // scoped by id + provider + active + not-deleted
+      expect(db.query.mock.calls[0][0]).toMatch(/provider = \? AND status = 'active' AND deleted_at IS NULL/);
+      expect(db.query.mock.calls[0][1]).toEqual(['7', 'stripe']);
+    });
+
+    test('gateway without a webhook secret → webhookSecret null', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 7, organization_id: 5, webhook_secret_encrypted: null }]]);
+      const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: '7' });
+      expect(ctx).toEqual({ found: true, organizationId: 5, webhookSecret: null });
+    });
+
+    test('corrupt ciphertext is treated as unconfigured, not a 500', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 7, organization_id: 5, webhook_secret_encrypted: '__CORRUPT__' }]]);
+      const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: '7' });
+      expect(ctx).toEqual({ found: true, organizationId: 5, webhookSecret: null });
+    });
+
+    test('no matching row → not found', async () => {
+      db.query.mockResolvedValueOnce([[]]);
+      const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: '7' });
+      expect(ctx).toEqual({ found: false });
     });
   });
 });
