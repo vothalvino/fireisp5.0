@@ -152,6 +152,12 @@ function gatewayHandler(provider) {
     if (!ctx.found) {
       return res.status(404).json({ error: { code: 'WEBHOOK_GATEWAY_NOT_FOUND', message: 'Unknown payment gateway' } });
     }
+    // Note: the distinct 404/503/401 outcomes let an unauthenticated caller walk
+    // sequential gatewayIds to learn which are active and which lack a signing
+    // secret. Accepted as low risk: it's rate-limited (webhookLimiter), leaks no
+    // secret and moves no money (the signature still gates all action), and the
+    // informative codes are what a provider dashboard / operator needs to debug
+    // setup. Do not collapse them without a better operator signal.
     return processWebhook(req, res, {
       provider,
       secret: ctx.webhookSecret,

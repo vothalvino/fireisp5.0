@@ -10,7 +10,7 @@ const crypto = require('crypto');
 const db = require('../config/database');
 const { URLSearchParams } = require('url');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
-const { decrypt } = require('../utils/encryption');
+const { decrypt, isConfigured: isEncryptionConfigured } = require('../utils/encryption');
 const logger = require('../utils/logger');
 const { PaymentGatewayError } = require('../utils/errors');
 
@@ -68,18 +68,38 @@ async function loadGatewayWebhookContext({ provider, gatewayId }) {
   if (rows.length === 0) return { found: false };
 
   const gw = rows[0];
-  if (!gw.webhook_secret_encrypted) {
+  const stored = gw.webhook_secret_encrypted;
+  if (!stored) {
     return { found: true, organizationId: gw.organization_id, webhookSecret: null };
   }
 
   let webhookSecret;
   try {
-    webhookSecret = decrypt(gw.webhook_secret_encrypted);
+    webhookSecret = decrypt(stored);
   } catch (err) {
+    // Only getKey() (malformed ENCRYPTION_KEY) throws here; a corrupt/rotated
+    // ciphertext does NOT — see below.
     logger.error({ err, gatewayId: gw.id, provider }, 'Failed to decrypt gateway webhook secret');
     return { found: true, organizationId: gw.organization_id, webhookSecret: null };
   }
+
+  // decrypt() returns the input UNCHANGED (never throws) when it cannot decrypt
+  // a value — wrong/rotated ENCRYPTION_KEY or corrupt bytes. If the stored value
+  // is in our ciphertext shape and came back unchanged while encryption is
+  // configured, it is genuinely undecryptable: fail closed (503) rather than run
+  // signature verification against ciphertext and mislead with a 401.
+  if (isEncryptionConfigured() && looksLikeCiphertext(stored) && webhookSecret === stored) {
+    logger.error({ gatewayId: gw.id, provider }, 'Gateway webhook secret is undecryptable (wrong/rotated ENCRYPTION_KEY?) — treating as unconfigured');
+    return { found: true, organizationId: gw.organization_id, webhookSecret: null };
+  }
+
   return { found: true, organizationId: gw.organization_id, webhookSecret };
+}
+
+// Our AES-256-GCM envelope format: hex(iv=12B):hex(tag=16B):hex(ciphertext).
+const CIPHERTEXT_RE = /^[0-9a-f]{24}:[0-9a-f]{32}:[0-9a-f]+$/i;
+function looksLikeCiphertext(v) {
+  return typeof v === 'string' && CIPHERTEXT_RE.test(v);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,7 +604,16 @@ function verifyConektaSignature(rawBody, digestHeader, secret) {
  * @returns {object} { status, webhookEventId }
  */
 async function handleWebhookEvent({ provider, providerEventId, eventType, payload, organizationId }) {
-  // Deduplication: check if we already received this event
+  // Deduplication: check if we already received this event.
+  // KNOWN LIMITATION (deferred): the dedup key (and the webhook_events UNIQUE
+  // constraint) is global — (provider, provider_event_id), no organization_id.
+  // If two DIFFERENT orgs' gateways point at the SAME provider account, the
+  // provider fans one event id out to both /:gatewayId endpoints; whichever
+  // lands first claims the slot and the other is suppressed as 'duplicate',
+  // so the owning org's payment may not reconcile. Making dedup per-org needs a
+  // migration to a composite UNIQUE + setting organization_id at insert time
+  // (env-var route has no org), so it is tracked as a follow-up rather than
+  // rushed here. Normal deployments (one provider account per org) are unaffected.
   const [existing] = await db.query(
     'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ?',
     [provider, providerEventId],

@@ -407,6 +407,7 @@ function PaymentGatewaysTab() {
   const [editing, setEditing] = useState<PaymentGateway | null>(null);
   const [form, setForm] = useState({ ...EMPTY_GW });
   const [formError, setFormError] = useState('');
+  const [copied, setCopied] = useState<null | 'ok' | 'fail'>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const qc = useQueryClient();
 
@@ -490,9 +491,11 @@ function PaymentGatewaysTab() {
           <form onSubmit={handleSubmit} style={sty.form}>
             <div style={sty.row2}>
               <label style={sty.label}>Provider *
-                <select style={sty.select} value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
+                <select style={sty.select} value={form.provider} disabled={!!editing}
+                  onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
                   {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
+                {editing && <span style={sty.hint}>Provider is fixed for an existing gateway (it drives webhook/charge routing) — create a new gateway to switch.</span>}
               </label>
               <label style={sty.label}>Label
                 <input style={sty.input} value={form.label} placeholder="e.g. Stripe MX"
@@ -533,7 +536,16 @@ function PaymentGatewaysTab() {
                   <span>Webhook URL <span style={sty.hint}>(paste into your {editing.provider} dashboard)</span></span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <code style={{ ...sty.code, flex: 1, overflowX: 'auto', whiteSpace: 'nowrap' }}>{webhookUrl}</code>
-                    <button type="button" style={sty.btnGhost} onClick={() => navigator.clipboard?.writeText(webhookUrl)}>Copy</button>
+                    <button type="button" style={sty.btnGhost} onClick={async () => {
+                      try {
+                        if (!navigator.clipboard) throw new Error('clipboard unavailable');
+                        await navigator.clipboard.writeText(webhookUrl);
+                        setCopied('ok');
+                      } catch {
+                        setCopied('fail');  // e.g. plain-HTTP admin panel — the URL above is selectable
+                      }
+                      setTimeout(() => setCopied(null), 2000);
+                    }}>{copied === 'ok' ? 'Copied!' : copied === 'fail' ? 'Select it ↑' : 'Copy'}</button>
                   </div>
                   <span style={sty.hint}>Set this as the webhook endpoint in {editing.provider}, then paste the signing secret it returns into “Webhook Secret” above. Until a secret is saved here, incoming webhooks are rejected (503) — payments won’t auto-reconcile.</span>
                 </div>

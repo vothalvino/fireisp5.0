@@ -22,14 +22,16 @@ jest.mock('../src/utils/logger', () => {
   return mock;
 });
 
-// Deterministic encryption so the per-gateway webhook secret loader is testable
-// without ENCRYPTION_KEY: decrypt is pass-through, except a sentinel that throws
-// (to exercise the corrupt-ciphertext → treated-as-unconfigured branch).
+// Deterministic encryption so the per-gateway webhook secret loader is testable.
+// Mirrors the REAL decrypt(): it returns the value UNCHANGED when it cannot
+// decrypt (never throws for corrupt ciphertext). With isConfigured()=true, the
+// loader detects a ciphertext-shaped value that came back unchanged and treats
+// it as unconfigured (503) — a plaintext-shaped secret passes straight through.
 jest.mock('../src/utils/encryption', () => ({
   encrypt: (v) => v,
-  decrypt: jest.fn((v) => { if (v === '__CORRUPT__') throw new Error('bad ciphertext'); return v; }),
-  getKey: () => null,
-  isConfigured: () => false,
+  decrypt: jest.fn((v) => v),
+  getKey: () => Buffer.alloc(32),
+  isConfigured: () => true,
 }));
 
 const db = require('../src/config/database');
@@ -964,7 +966,9 @@ describe('Payment Webhooks & Idempotency', () => {
     const app = require('../src/app');
 
     beforeEach(() => { delete process.env.ALLOW_UNSIGNED_WEBHOOKS; });
-    afterEach(() => { delete process.env.ALLOW_UNSIGNED_WEBHOOKS; });
+    // db.query uses mockImplementation here; reset it so the persistent impl
+    // does not leak into later describes (clearAllMocks does not clear impls).
+    afterEach(() => { delete process.env.ALLOW_UNSIGNED_WEBHOOKS; db.query.mockReset(); });
 
     test('verifies with the gateway DB secret and reconciles scoped to that org', async () => {
       db.query.mockImplementation(async (sql) => {
@@ -1073,6 +1077,40 @@ describe('Payment Webhooks & Idempotency', () => {
       const gwCall = db.query.mock.calls.find(c => /FROM payment_gateways/.test(c[0]));
       expect(gwCall[1]).toEqual(['9', 'conekta']);
     });
+
+    test('Conekta unknown gateway → 404', async () => {
+      db.query.mockImplementation(async () => [[]]);
+      const res = await request(app)
+        .post('/api/payment-webhooks/conekta/404')
+        .send({ id: 'evt_x', type: 'order.paid', data: { object: { id: 'ord_x' } } })
+        .set('Content-Type', 'application/json');
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('WEBHOOK_GATEWAY_NOT_FOUND');
+    });
+
+    test('Conekta gateway without a webhook key → 503', async () => {
+      db.query.mockImplementation(async (sql) => (/FROM payment_gateways/.test(sql)
+        ? [[{ id: 9, organization_id: 6, webhook_secret_encrypted: null }]] : [[]]));
+      const res = await request(app)
+        .post('/api/payment-webhooks/conekta/9')
+        .send({ id: 'evt_x', type: 'order.paid', data: { object: { id: 'ord_x' } } })
+        .set('Content-Type', 'application/json');
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('WEBHOOK_NOT_CONFIGURED');
+      expect(db.query.mock.calls.some(c => /webhook_events/.test(c[0]))).toBe(false);
+    });
+
+    test('Conekta gateway key set but digest invalid → 401', async () => {
+      db.query.mockImplementation(async (sql) => (/FROM payment_gateways/.test(sql)
+        ? [[{ id: 9, organization_id: 6, webhook_secret_encrypted: 'conekta_gw9' }]] : [[]]));
+      const res = await request(app)
+        .post('/api/payment-webhooks/conekta/9')
+        .send({ id: 'evt_x', type: 'order.paid', data: { object: { id: 'ord_x' } } })
+        .set('Content-Type', 'application/json')
+        .set('Digest', 'not-a-valid-digest');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('WEBHOOK_SIGNATURE_INVALID');
+    });
   });
 
   // =========================================================================
@@ -1100,8 +1138,12 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(ctx).toEqual({ found: true, organizationId: 5, webhookSecret: null });
     });
 
-    test('corrupt ciphertext is treated as unconfigured, not a 500', async () => {
-      db.query.mockResolvedValueOnce([[{ id: 7, organization_id: 5, webhook_secret_encrypted: '__CORRUPT__' }]]);
+    test('undecryptable secret (ciphertext-shaped, returned unchanged) → unconfigured, not a 500 or a misleading 401', async () => {
+      // A real iv:tag:ct blob that no longer decrypts (rotated/lost key): the
+      // real decrypt() returns it UNCHANGED. The loader must treat that as
+      // unconfigured (503), not run verification against ciphertext (401).
+      const undecryptable = `${'0'.repeat(24)}:${'0'.repeat(32)}:deadbeefcafe`;
+      db.query.mockResolvedValueOnce([[{ id: 7, organization_id: 5, webhook_secret_encrypted: undecryptable }]]);
       const ctx = await paymentGatewayService.loadGatewayWebhookContext({ provider: 'stripe', gatewayId: '7' });
       expect(ctx).toEqual({ found: true, organizationId: 5, webhookSecret: null });
     });
