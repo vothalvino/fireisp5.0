@@ -35,7 +35,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface Site {
+export interface Site {
   id: number;
   name: string;
   site_type: string | null;
@@ -47,7 +47,7 @@ interface Site {
   longitude: number | null;
 }
 
-interface Device {
+export interface Device {
   id: number;
   site_id: number | null;
   name: string;
@@ -485,7 +485,7 @@ interface DeviceFormProps {
   onSaved: () => void;
 }
 
-function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormProps) {
+export function DeviceFormModal({ mode, device, sites, onClose, onSaved }: DeviceFormProps) {
   const [form, setForm] = useState({
     name: device?.name ?? '',
     type: device?.type ?? 'router',
