@@ -127,6 +127,17 @@ function fmtAmount(amount: string | null | undefined, currency: string): string 
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: currency || 'MXN' }).format(num);
 }
 
+// "overdue" is never persisted on invoices.status — it is derived from an
+// unpaid (issued/sent) invoice whose due_date has passed. Display it that way
+// so the badge matches reality everywhere, not only when ?status=overdue
+// (which the backend now resolves to the same derived set).
+function displayStatus(status: string, dueDate: string | null): string {
+  if ((status === 'issued' || status === 'sent') && dueDate && new Date(dueDate).getTime() < Date.now()) {
+    return 'overdue';
+  }
+  return status;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string }> = {
     draft: { bg: '#f3f4f6', color: '#6b7280' },
@@ -428,7 +439,7 @@ export function InvoiceList() {
                     </td>
                     <td style={{ padding: '10px 14px' }}>{fmt(inv.due_date)}</td>
                     <td style={{ padding: '10px 14px' }}>
-                      <StatusBadge status={inv.status} />
+                      <StatusBadge status={displayStatus(inv.status, inv.due_date)} />
                     </td>
                     <td style={{ padding: '10px 14px', color: '#9ca3af', fontSize: '0.8rem' }}>
                       {fmt(inv.created_at)}

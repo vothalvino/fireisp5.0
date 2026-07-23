@@ -59,7 +59,37 @@ async function voidInvoice(req, res, next) {
   }
 }
 
-router.get('/', requirePermission('invoices.view'), ctrl.list);
+// "overdue" is a DERIVED state, not a persisted status: nothing in the system
+// ever writes invoices.status='overdue' (analyticsService, lateFeeService,
+// clientBalanceService and the payment reminders all COMPUTE it as
+// issued/sent + past due_date). So the generic status filter — which matches
+// the literal column — always returned zero for ?status=overdue. Translate it
+// to the same derived condition everyone else uses. All other status values
+// fall through to the generic list unchanged.
+router.get('/', requirePermission('invoices.view'), async (req, res, next) => {
+  if (req.query.status !== 'overdue') return ctrl.list(req, res, next);
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
+    const WHERE = `WHERE organization_id = ? AND deleted_at IS NULL
+        AND status IN ('issued', 'sent', 'overdue') AND due_date < NOW()`;
+    const [rows] = await db.query(
+      `SELECT * FROM invoices ${WHERE} ORDER BY due_date ASC LIMIT ${limit} OFFSET ${offset}`,
+      [req.orgId],
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM invoices ${WHERE}`,
+      [req.orgId],
+    );
+    // Present the derived state honestly: a row filtered as overdue displays as
+    // overdue even if its stored column still reads 'issued'/'sent'.
+    res.json({
+      data: rows.map(r => ({ ...r, status: 'overdue' })),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) { next(err); }
+});
 router.get('/:id', requirePermission('invoices.view'), ctrl.get);
 // Composite create: an invoice and its line items land in ONE transaction.
 // The generic ctrl.create had two real bugs here (both hit live via the raw
