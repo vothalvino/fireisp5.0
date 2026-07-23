@@ -114,8 +114,29 @@ describe('maskUrl', () => {
     expect(maskUrl('/api?password=p&token=t')).toBe('/api?password=[REDACTED]&token=[REDACTED]');
   });
 
+  test('masks username (PII) query parameter', () => {
+    expect(maskUrl('/api/v1/radius/cdr?username=juan.perez&limit=10'))
+      .toBe('/api/v1/radius/cdr?username=[REDACTED]&limit=10');
+  });
+
+  test('masks email (PII) query parameter', () => {
+    expect(maskUrl('/api/v1/clients/duplicates/scan?email=ana%40example.com'))
+      .toBe('/api/v1/clients/duplicates/scan?email=[REDACTED]');
+  });
+
+  test('masks phone (PII) query parameter', () => {
+    expect(maskUrl('/api/clients?phone=5551234567')).toBe('/api/clients?phone=[REDACTED]');
+  });
+
   test('leaves non-sensitive params unchanged', () => {
     expect(maskUrl('/api/clients?page=1&limit=50')).toBe('/api/clients?page=1&limit=50');
+  });
+
+  test('only masks whole-name params (does not touch ticket_id or *_email)', () => {
+    // ticket_id is an internal identifier, not PII/secret — left visible
+    expect(maskUrl('/api/v1/ai/logs?ticket_id=42')).toBe('/api/v1/ai/logs?ticket_id=42');
+    // the anchor is `[?&]email=`, so a differently-named param is untouched
+    expect(maskUrl('/api/x?customer_email=a%40b.com')).toBe('/api/x?customer_email=a%40b.com');
   });
 
   test('handles URLs without query string', () => {
