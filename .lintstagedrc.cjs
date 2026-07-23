@@ -5,18 +5,16 @@
 //   - ESLint with --fix so trivial style issues are auto-corrected before the
 //     commit lands.  If ESLint exits non-zero the commit is aborted.
 //
-// Frontend (.ts/.tsx files under frontend/src/):
-//   - Regenerate the OpenAPI schema types (openapi-typescript) so that the
-//     type-checker always sees an up-to-date schema.d.ts even when only
-//     frontend source files were staged.
-//   - tsc --noEmit over the whole project (lint-staged passes no individual
-//     files to tsc because tsc ignores extra positional arguments in project
-//     mode; returning a function suppresses that file-appending behaviour).
+// Frontend: deliberately NOT type-checked here anymore. The old hook ran
+// gen:api + a full-project `tsc --noEmit` on every commit that touched a
+// frontend file (~15-30s each), duplicating what CI's frontend job enforces
+// anyway (`pnpm --filter fireisp-frontend run lint` = gen:api && tsc). Local
+// commits stay fast; type errors are still a hard CI failure — run
+// `pnpm --dir frontend run lint` manually before pushing if you want the
+// early signal.
 //
 'use strict';
 
 module.exports = {
   'src/**/*.js': 'eslint --fix',
-  'frontend/src/**/*.{ts,tsx}': () =>
-    'pnpm --dir frontend run gen:api && pnpm --dir frontend exec tsc --noEmit',
 };
