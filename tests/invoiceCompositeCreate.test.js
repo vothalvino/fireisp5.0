@@ -196,3 +196,32 @@ describe('POST /api/v1/invoices — tax consistency (live-caught CFDI40119 class
     expect(invIns[1][6]).toBe(0);
   });
 });
+
+describe('GET /api/v1/invoices?status=overdue (derived, not a stored status)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('resolves overdue to the derived condition and marks rows overdue', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/COUNT\(\*\)/.test(sql)) return [[{ total: 1 }]];
+      if (/SELECT \* FROM invoices/.test(sql)) return [[{ id: 9, invoice_number: 'INV-000218', status: 'issued', due_date: '2026-07-01' }]];
+      return [[]];
+    });
+    const res = await request(app).get('/api/v1/invoices?status=overdue');
+    expect(res.status).toBe(200);
+    // derived WHERE, not a literal status match
+    const selectCall = db.query.mock.calls.find(c => /SELECT \* FROM invoices/.test(c[0]));
+    expect(selectCall[0]).toMatch(/status IN \('issued', 'sent', 'overdue'\)/);
+    expect(selectCall[0]).toMatch(/due_date < NOW\(\)/);
+    // the past-due 'issued' row is presented as overdue
+    expect(res.body.data[0].status).toBe('overdue');
+    expect(res.body.meta.total).toBe(1);
+  });
+
+  test('a non-overdue status still uses the generic list (literal filter)', async () => {
+    db.query.mockImplementation(async (sql) => (/COUNT\(\*\)/.test(sql) ? [[{ total: 0 }]] : [[]]));
+    const res = await request(app).get('/api/v1/invoices?status=paid');
+    expect(res.status).toBe(200);
+    const anyDerived = db.query.mock.calls.some(c => /status IN \('issued', 'sent', 'overdue'\)/.test(c[0]));
+    expect(anyDerived).toBe(false);
+  });
+});
