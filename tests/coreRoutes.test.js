@@ -1607,6 +1607,61 @@ describe('Device Routes — /api/devices', () => {
       expect(res.body.data.client_id).toBeNull();
     });
   });
+
+  // --- contract_id FK org-scoping (fix/contract-device-assign) ---
+  // Same guard, same reason: devices.contract_id is validated+fillable, and the
+  // ContractDetail Devices tab now assigns devices via PUT /devices/:id — so a
+  // cross-tenant contract id must be refused, not linked.
+  describe('contract_id FK org-scoping', () => {
+    test('PUT persists contract_id when the contract belongs to the caller organization', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // findByIdOrFail (old)
+        .mockResolvedValueOnce([[{ id: 24, organization_id: 1 }]]) // Contract.findById -> found in this org
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE
+        .mockResolvedValueOnce([[{ ...mockDevice, contract_id: 24 }]]) // findById (updated)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // audit_log INSERT
+
+      const res = await request(app)
+        .put('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ contract_id: 24 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.contract_id).toBe(24);
+    });
+
+    test('PUT rejects a contract_id belonging to another organization with 422', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockDevice]]) // findByIdOrFail (old)
+        .mockResolvedValueOnce([[]]); // Contract.findById -> not found in this org
+
+      const res = await request(app)
+        .put('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ contract_id: 999 });
+
+      expect(res.status).toBe(422);
+    });
+
+    test('PUT with contract_id: null unassigns without an org check', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[{ ...mockDevice, contract_id: 24 }]]) // findByIdOrFail (old, linked)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE (no Contract.findById in between)
+        .mockResolvedValueOnce([[{ ...mockDevice, contract_id: null }]]) // findById (updated)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // audit_log INSERT
+
+      const res = await request(app)
+        .put('/api/devices/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ contract_id: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.contract_id).toBeNull();
+    });
+  });
 });
 
 // =============================================================================

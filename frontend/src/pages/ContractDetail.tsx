@@ -333,31 +333,127 @@ function InvoicesTab({ invoices }: { invoices: Invoice[] }) {
   );
 }
 
-function DevicesTab({ devices }: { devices: Device[] }) {
-  if (!devices.length) return <p style={styles.msg}>No devices found.</p>;
+// Devices are linked to a contract via devices.contract_id (PUT /devices/:id).
+// This tab both lists the linked devices AND lets a devices.update user assign/
+// unassign them — previously it was display-only and there was NO UI anywhere
+// that could set contract_id, so "add device to contract" was impossible.
+interface OrgDevice {
+  id: number;
+  name: string;
+  type: string | null;
+  contract_id: number | null;
+  client_id: number | null;
+}
+
+function DevicesTab({ devices, contractId, canManage, onChanged }: {
+  devices: Device[]; contractId: string; canManage: boolean; onChanged: () => void;
+}) {
+  const [pickId, setPickId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // All org devices for the picker (only loaded when the user can manage).
+  const orgDevicesQ = useQuery({
+    queryKey: ['org-devices-for-assign'],
+    queryFn: async () => {
+      const res = await api.GET('/devices' as never, { params: { query: { limit: 200 } } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('load failed');
+      return (((res as { data: { data: OrgDevice[] } }).data?.data) ?? []);
+    },
+    enabled: canManage,
+  });
+
+  async function setContract(deviceId: number, contract_id: number | null) {
+    setBusy(true); setErr('');
+    try {
+      const res = await api.PUT('/devices/{id}' as never, {
+        params: { path: { id: deviceId } }, body: { contract_id } as never,
+      } as never);
+      const e = (res as { error?: { error?: { message?: string } } }).error;
+      if (e) throw new Error(e.error?.message || 'Could not update the device');
+      setPickId('');
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not update the device');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const linkedIds = new Set(devices.map(d => Number(d.id)));
+  const candidates = (orgDevicesQ.data ?? []).filter(d => !linkedIds.has(d.id));
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={styles.table}>
-        <thead>
-          <tr>{['Name', 'Type', 'Manufacturer / Model', 'MAC', 'IP', 'Status'].map(h => (
-            <th key={h} style={styles.th}>{h}</th>
-          ))}</tr>
-        </thead>
-        <tbody>
-          {devices.map(d => (
-            <tr key={d.id} style={styles.tr}>
-              <td style={{ ...styles.td, fontWeight: 600 }}>{d.name}</td>
-              <td style={{ ...styles.td, textTransform: 'capitalize' }}>{d.type || '—'}</td>
-              <td style={styles.td}>
-                {[d.manufacturer, d.model].filter(Boolean).join(' / ') || '—'}
-              </td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.macAddress || '—'}</td>
-              <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ipAddress || '—'}</td>
-              <td style={styles.td}><StatusBadge status={d.status} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {canManage && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <select
+            value={pickId}
+            onChange={e => setPickId(e.target.value)}
+            disabled={busy || orgDevicesQ.isLoading}
+            style={{ padding: '6px 8px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit', fontSize: '0.85rem', minWidth: 260 }}
+          >
+            <option value="">{orgDevicesQ.isLoading ? 'Loading devices…' : 'Select a device to assign…'}</option>
+            {candidates.map(d => (
+              <option key={d.id} value={d.id}>
+                #{d.id} {d.name}{d.type ? ` (${d.type})` : ''}{d.contract_id ? ` — on contract #${d.contract_id}` : ''}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!pickId || busy}
+            onClick={() => setContract(Number(pickId), Number(contractId))}
+            style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: pickId && !busy ? 'pointer' : 'not-allowed', opacity: pickId && !busy ? 1 : 0.6 }}
+          >
+            {busy ? 'Saving…' : '+ Assign device'}
+          </button>
+          {err && <span style={{ color: '#991b1b', fontSize: '0.8rem' }}>{err}</span>}
+        </div>
+      )}
+
+      {!devices.length ? (
+        <p style={styles.msg}>No devices linked to this contract{canManage ? ' — assign one above.' : '.'}</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>{['Name', 'Type', 'Manufacturer / Model', 'MAC', 'IP', 'Status', ...(canManage ? [''] : [])].map((h, i) => (
+                <th key={`${h}-${i}`} style={styles.th}>{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {devices.map(d => (
+                <tr key={d.id} style={styles.tr}>
+                  <td style={{ ...styles.td, fontWeight: 600 }}>
+                    <Link to={`/devices/${d.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{d.name}</Link>
+                  </td>
+                  <td style={{ ...styles.td, textTransform: 'capitalize' }}>{d.type || '—'}</td>
+                  <td style={styles.td}>
+                    {[d.manufacturer, d.model].filter(Boolean).join(' / ') || '—'}
+                  </td>
+                  <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.macAddress || '—'}</td>
+                  <td style={{ ...styles.td, fontFamily: 'monospace' }}>{d.ipAddress || '—'}</td>
+                  <td style={styles.td}><StatusBadge status={d.status} /></td>
+                  {canManage && (
+                    <td style={styles.td}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setContract(Number(d.id), null)}
+                        style={{ padding: '3px 10px', border: '1px solid #fca5a5', borderRadius: 6, background: 'transparent', color: '#991b1b', fontSize: '0.78rem', cursor: busy ? 'not-allowed' : 'pointer' }}
+                        title="Unlink this device from the contract"
+                      >
+                        Unassign
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -626,6 +722,8 @@ export function ContractDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const canEdit = can(user, 'contracts.update');
+  // Assigning/unassigning devices writes devices.contract_id → devices.update.
+  const canManageDevices = can(user, 'devices.update');
 
   const { data: contract, isLoading, error } = useQuery({
     queryKey: ['contract-detail-gql', id],
@@ -781,7 +879,9 @@ export function ContractDetail() {
       <div style={styles.tabContent}>
         {activeTab === 'pppoe'    && isPppoe && id && <PppoeTab contractId={id} canEdit={canEdit} />}
         {activeTab === 'invoices' && <InvoicesTab invoices={contract.invoices} />}
-        {activeTab === 'devices'  && <DevicesTab  devices={contract.devices}   />}
+        {activeTab === 'devices'  && id && (
+          <DevicesTab devices={contract.devices} contractId={id} canManage={canManageDevices} onChanged={refetchContract} />
+        )}
         {activeTab === 'addons'   && <AddonsTab   addons={contract.addons}     />}
       </div>
     </div>
