@@ -19256,6 +19256,15 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed webhook payload (WEBHOOK_INVALID_PAYLOAD)"
+          },
+          "401": {
+            "description": "Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)"
+          },
+          "503": {
+            "description": "Signature verification not configured (WEBHOOK_NOT_CONFIGURED)"
           }
         }
       }
@@ -19277,6 +19286,15 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed webhook payload (WEBHOOK_INVALID_PAYLOAD)"
+          },
+          "401": {
+            "description": "Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)"
+          },
+          "503": {
+            "description": "Signature verification not configured (WEBHOOK_NOT_CONFIGURED)"
           }
         }
       }
