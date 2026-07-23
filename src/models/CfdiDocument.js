@@ -30,6 +30,10 @@ class CfdiDocument extends BaseModel {
 
   static get hasOrgScope() { return true; }
 
+  // sat_status is service-managed (never fillable) but IS a valid list filter —
+  // the CFDI list page filters by it (draft/vigente/cancelado/cancel_pending).
+  static get filterableColumns() { return ['sat_status']; }
+
   static async getConceptos(cfdiId) {
     const db = require('../config/database');
     const [rows] = await db.query(

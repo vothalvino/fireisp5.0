@@ -30,7 +30,7 @@ interface CfdiDocument {
   subtotal: string;
   total: string;
   moneda: string | null;
-  status: string;
+  sat_status: string;
   cancelled_at: string | null;
   pac_provider: string | null;
   created_at: string;
@@ -65,7 +65,7 @@ function authHeaders(): Record<string, string> {
 
 async function fetchCfdi(page: number, statusFilter: string, typeFilter: string): Promise<CfdiListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-  if (statusFilter) params.set('status', statusFilter);
+  if (statusFilter) params.set('sat_status', statusFilter);
   if (typeFilter) params.set('tipo_comprobante', typeFilter);
   const res = await fetch(`${API_BASE}/cfdi-documents?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to load CFDI documents');
@@ -139,22 +139,26 @@ function tipoLabel(tipo: string | null): string {
   return tipo ? (map[tipo] ?? tipo) : '—';
 }
 
+// cfdi_documents.sat_status is ENUM('draft','vigente','cancelado','cancel_pending')
+// — the real column. (The page previously read a non-existent `status` field
+// against an imagined 'generated'/'stamped' vocabulary, so the badge and the
+// stamp/cancel buttons never worked.)
+const STATUS_META: Record<string, { label: string; bg: string; color: string }> = {
+  draft:          { label: 'Draft', bg: '#f3f4f6', color: '#6b7280' },
+  vigente:        { label: 'Vigente', bg: '#d1fae5', color: '#065f46' },
+  cancelado:      { label: 'Cancelado', bg: '#fee2e2', color: '#991b1b' },
+  cancel_pending: { label: 'Cancel pending', bg: '#fef3c7', color: '#92400e' },
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string }> = {
-    draft:       { bg: '#f3f4f6', color: '#6b7280' },
-    generated:   { bg: '#ede9fe', color: '#5b21b6' },
-    stamped:     { bg: '#d1fae5', color: '#065f46' },
-    cancelled:   { bg: '#fee2e2', color: '#991b1b' },
-    pending:     { bg: '#fef3c7', color: '#92400e' },
-  };
-  const s = map[status] ?? { bg: '#f3f4f6', color: '#374151' };
+  const m = STATUS_META[status] ?? { label: status || '—', bg: '#f3f4f6', color: '#374151' };
   return (
     <span style={{
-      background: s.bg, color: s.color,
+      background: m.bg, color: m.color,
       padding: '2px 8px', borderRadius: 12,
-      fontSize: '0.72rem', fontWeight: 600, textTransform: 'capitalize',
+      fontSize: '0.72rem', fontWeight: 600,
     }}>
-      {status}
+      {m.label}
     </span>
   );
 }
@@ -300,7 +304,7 @@ function StampModal({ doc, onClose, onStamped }: StampModalProps) {
 // Main Component
 // ---------------------------------------------------------------------------
 
-const STATUS_OPTIONS = ['', 'draft', 'generated', 'stamped', 'cancelled', 'pending'];
+const STATUS_OPTIONS = ['', 'draft', 'vigente', 'cancelado', 'cancel_pending'];
 const TYPE_OPTIONS   = ['', 'I', 'E', 'P', 'T', 'N'];
 
 export function CfdiList() {
@@ -358,7 +362,7 @@ export function CfdiList() {
                   cursor: 'pointer', fontSize: '0.78rem', fontWeight: 500,
                 }}
               >
-                {s || 'All'}
+                {s ? (STATUS_META[s]?.label ?? s) : 'All'}
               </button>
             ))}
           </div>
@@ -450,7 +454,7 @@ export function CfdiList() {
 
                     {/* Status */}
                     <td style={{ padding: '9px 12px' }}>
-                      <StatusBadge status={doc.status} />
+                      <StatusBadge status={doc.sat_status} />
                     </td>
 
                     {/* PAC that stamped it */}
@@ -461,8 +465,8 @@ export function CfdiList() {
                     {/* Actions */}
                     <td style={{ padding: '9px 12px' }}>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap' }}>
-                        {/* Stamp — only available for draft/generated docs without UUID */}
-                        {(doc.status === 'draft' || doc.status === 'generated') && !doc.uuid && (
+                        {/* Stamp — only available for draft docs without a UUID */}
+                        {doc.sat_status === 'draft' && !doc.uuid && (
                           <button
                             onClick={() => setStampTarget(doc)}
                             style={actionBtn}
@@ -472,8 +476,8 @@ export function CfdiList() {
                           </button>
                         )}
 
-                        {/* Cancel — only for stamped docs */}
-                        {doc.status === 'stamped' && (
+                        {/* Cancel — only for stamped (vigente) docs */}
+                        {doc.sat_status === 'vigente' && (
                           <button
                             onClick={() => setCancelTarget(doc)}
                             style={{ ...actionBtn, color: '#991b1b', borderColor: '#fca5a5' }}
