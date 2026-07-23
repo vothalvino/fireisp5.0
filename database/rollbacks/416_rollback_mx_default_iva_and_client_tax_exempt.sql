@@ -19,10 +19,20 @@ DELIMITER ;
 CALL rollback_416_client_tax_exempt();
 DROP PROCEDURE IF EXISTS rollback_416_client_tax_exempt;
 
--- Remove only the rows this migration seeded (matched by the exact description),
--- and only when no invoice/quote still references them.
+-- Remove only rows this migration seeded AND left UNTOUCHED: exact name, the
+-- exact seeded rate (0.1600 — so an org that edited it, e.g. to 8% for the
+-- border region, is never deleted), and the exact seeded description prefix.
+-- The literal '%' in the description is escaped (ESCAPE '\'); the trailing '%'
+-- is the wildcard. Skip any row still referenced by ANY of the six tax_rate_id
+-- FKs (all ON DELETE SET NULL, so an unguarded delete would silently null live
+-- references rather than error).
 DELETE t FROM tax_rates t
 WHERE t.name = 'IVA 16%'
-  AND t.description LIKE 'Impuesto al Valor Agregado 16%% — default for this Mexican organization (migration 416).%'
-  AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.tax_rate_id = t.id)
-  AND NOT EXISTS (SELECT 1 FROM quotes q WHERE q.tax_rate_id = t.id);
+  AND t.rate = 0.1600
+  AND t.description LIKE 'Impuesto al Valor Agregado 16\% — default for this Mexican organization (migration 416).%' ESCAPE '\'
+  AND NOT EXISTS (SELECT 1 FROM invoices i           WHERE i.tax_rate_id  = t.id)
+  AND NOT EXISTS (SELECT 1 FROM quotes q             WHERE q.tax_rate_id  = t.id)
+  AND NOT EXISTS (SELECT 1 FROM invoice_items ii     WHERE ii.tax_rate_id = t.id)
+  AND NOT EXISTS (SELECT 1 FROM quote_items qi       WHERE qi.tax_rate_id = t.id)
+  AND NOT EXISTS (SELECT 1 FROM credit_notes cn      WHERE cn.tax_rate_id = t.id)
+  AND NOT EXISTS (SELECT 1 FROM credit_note_items ci WHERE ci.tax_rate_id = t.id);
