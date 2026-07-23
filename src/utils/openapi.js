@@ -958,8 +958,10 @@ function generateSpec() {
       '/payment-transactions': { get: { tags: ['Payment Transactions'], summary: 'List payment transactions', operationId: 'listPaymentTransactions', security: [{ bearerAuth: [] }], responses: r200('PaymentTransaction[]') } },
 
       // ---- Payment Webhooks ----
-      '/payment-webhooks/stripe': { post: { tags: ['Payment Webhooks'], summary: 'Stripe webhook endpoint', operationId: 'stripeWebhook', responses: r200('OK') } },
-      '/payment-webhooks/conekta': { post: { tags: ['Payment Webhooks'], summary: 'Conekta webhook endpoint', operationId: 'conektaWebhook', responses: r200('OK') } },
+      // Public (no bearer auth): authenticated by per-provider HMAC signature.
+      // Fail closed — a request the server cannot verify is rejected, not trusted.
+      '/payment-webhooks/stripe': { post: { tags: ['Payment Webhooks'], summary: 'Stripe webhook endpoint', operationId: 'stripeWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
+      '/payment-webhooks/conekta': { post: { tags: ['Payment Webhooks'], summary: 'Conekta webhook endpoint', operationId: 'conektaWebhook', responses: { ...r200('OK'), ...webhookErrorResponses() } } },
 
       // ---- Recurring Payment Profiles ----
       ...crudPaths('recurring-payment-profiles', 'Recurring Payments', 'RecurringPaymentProfile'),
@@ -2928,6 +2930,14 @@ function r204() {
 }
 function r200File(mime) {
   return { 200: { description: 'File download', content: { [mime]: { schema: { type: 'string', format: 'binary' } } } } };
+}
+// Error responses for the fail-closed payment-webhook receivers.
+function webhookErrorResponses() {
+  return {
+    400: { description: 'Malformed webhook payload (WEBHOOK_INVALID_PAYLOAD)' },
+    401: { description: 'Invalid webhook signature (WEBHOOK_SIGNATURE_INVALID)' },
+    503: { description: 'Signature verification not configured (WEBHOOK_NOT_CONFIGURED)' },
+  };
 }
 function idParam() {
   return { name: 'id', in: 'path', required: true, schema: { type: 'integer' } };
