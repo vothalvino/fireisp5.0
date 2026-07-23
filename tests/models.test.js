@@ -18,6 +18,8 @@ class TestModel extends BaseModel {
   static get tableName() { return 'test_table'; }
   static get fillable() { return ['name', 'email', 'status']; }
   static get hasOrgScope() { return true; }
+  // A service-managed column that must be filterable but never writable.
+  static get filterableColumns() { return ['lifecycle_state']; }
 }
 
 describe('BaseModel', () => {
@@ -52,6 +54,25 @@ describe('BaseModel', () => {
     db.query.mockResolvedValue([[]]);
     const result = await TestModel.findById(999);
     expect(result).toBeNull();
+  });
+
+  test('findAll filters by a filterableColumns value (non-fillable but whitelisted)', async () => {
+    db.query.mockResolvedValue([[]]);
+    await TestModel.findAll({ where: { lifecycle_state: 'active' } });
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain('`lifecycle_state` = ?');
+    expect(params).toContain('active');
+  });
+
+  test('findAll IGNORES a where column that is neither fillable nor filterable', async () => {
+    db.query.mockResolvedValue([[]]);
+    await TestModel.findAll({ where: { not_a_real_filter: 'x' } });
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).not.toContain('not_a_real_filter');
+  });
+
+  test('BaseModel.filterableColumns defaults to empty', () => {
+    expect(BaseModel.filterableColumns).toEqual([]);
   });
 
   test('findByIdOrFail throws NotFoundError', async () => {

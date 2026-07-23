@@ -70,6 +70,16 @@ class BaseModel {
   }
 
   /**
+   * Non-fillable columns a model additionally allows as WHERE filters on list
+   * endpoints (service-managed columns like sat_status that users must be able
+   * to filter by but never write). Empty by default; override per model.
+   * @returns {string[]}
+   */
+  static get filterableColumns() {
+    return [];
+  }
+
+  /**
    * List records with optional filters, pagination, and org scoping.
    * @param {object} [options]
    * @param {boolean} [options.withDeleted=false] Include soft-deleted records
@@ -98,7 +108,7 @@ class BaseModel {
     }
 
     for (const [col, val] of Object.entries(where)) {
-      if (this.fillable.includes(col) || col === 'id' || col === 'status' || col === 'organization_id') {
+      if (this.fillable.includes(col) || this.filterableColumns.includes(col) || col === 'id' || col === 'status' || col === 'organization_id') {
         conditions.push(`\`${col}\` = ?`);
         params.push(val);
       }
@@ -145,7 +155,7 @@ class BaseModel {
     }
 
     for (const [col, val] of Object.entries(where)) {
-      if (this.fillable.includes(col) || col === 'id' || col === 'status' || col === 'organization_id') {
+      if (this.fillable.includes(col) || this.filterableColumns.includes(col) || col === 'id' || col === 'status' || col === 'organization_id') {
         conditions.push(`\`${col}\` = ?`);
         params.push(val);
       }
