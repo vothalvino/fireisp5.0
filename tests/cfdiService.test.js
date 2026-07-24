@@ -110,6 +110,26 @@ describe('cfdiService', () => {
       expect(comprobanteImpuestos).toMatch(/<cfdi:Impuestos TotalImpuestosTrasladados="80.00">[\s\S]*<cfdi:Traslados>[\s\S]*<cfdi:Traslado Base="500.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.16" Importe="80.00"/);
     });
 
+    test('an IVA-exempt concepto: Exento traslado (no TasaOCuota/Importe), ObjetoImp=02, and NO Comprobante TotalImpuestosTrasladados', () => {
+      const doc = { serie: 'C', moneda: 'MXN', subtotal: '500', total: '500',
+        receptor_rfc: 'Y', receptor_nombre: 'R' };
+      const concepto = { id: 20, clave_prod_serv: '81161700', cantidad: 1,
+        clave_unidad: 'E48', descripcion: 'Internet exento', valor_unitario: '500', importe: '500', objeto_imp: '02' };
+      // Exento traslado: base only, no tasa/importe (mirrors what invoiceCfdiService writes for an exempt client)
+      const impuesto = { cfdi_concepto_id: 20, tax_type: 'traslado', base: '500',
+        impuesto: '002', tipo_factor: 'Exento', tasa_o_cuota: null, importe: null };
+
+      const xml = cfdiService.buildCfdi40Xml(doc, EMISOR, [concepto], [impuesto]);
+      expect(xml).toContain('ObjetoImp="02"');
+      // concepto-level Exento traslado has NO TasaOCuota/Importe
+      expect(xml).toContain('<cfdi:Traslado Base="500" Impuesto="002" TipoFactor="Exento" />');
+      // Comprobante-level Impuestos node present but WITHOUT TotalImpuestosTrasladados (SAT rejects "0.00" for all-Exento)
+      const comprobante = xml.slice(xml.indexOf('</cfdi:Conceptos>'));
+      expect(comprobante).toContain('<cfdi:Impuestos>');
+      expect(comprobante).not.toContain('TotalImpuestosTrasladados');
+      expect(comprobante).toContain('<cfdi:Traslado Base="500.00" Impuesto="002" TipoFactor="Exento" />');
+    });
+
     test('handles concepto without taxes', () => {
       const doc = { serie: 'C', moneda: 'MXN', subtotal: '100', total: '100',
         receptor_rfc: 'Y', receptor_nombre: 'R' };

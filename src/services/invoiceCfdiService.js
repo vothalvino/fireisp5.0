@@ -103,7 +103,8 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
 
   // Receptor: the client's MX fiscal profile.
   const [profiles] = await db.query(
-    `SELECT p.rfc, p.razon_social, p.regimen_fiscal, p.codigo_postal_fiscal, p.uso_cfdi_default
+    `SELECT p.rfc, p.razon_social, p.regimen_fiscal, p.codigo_postal_fiscal, p.uso_cfdi_default,
+            c.tax_exempt
        FROM client_mx_profiles p
        JOIN clients c ON c.id = p.client_id AND c.organization_id = ? AND c.deleted_at IS NULL
       WHERE p.client_id = ? AND p.deleted_at IS NULL`,
@@ -155,6 +156,11 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   // every other totals path (billingService.invoiceTaxFraction), otherwise the
   // per-line IVA math explodes and tasa_o_cuota stores a non-catalog rate.
   const taxRate = invoiceTaxFraction(Number(invoice.tax_rate || 0));
+  // An IVA-exempt client (invoice tax_rate = 0 because billingService zero-rated
+  // it) must be represented as ObjetoImp='02' + a TipoFactor='Exento' traslado —
+  // NOT ObjetoImp='01' (no object of tax). A telecom service IS an object of IVA;
+  // the client is exempt from it. '01' would misstate the concept's tax nature.
+  const clientExempt = Boolean(receptor.tax_exempt) && taxRate === 0;
   const subtotal = Number(invoice.subtotal || 0);
   const taxAmount = Number(invoice.tax_amount || 0);
   const total = Number(invoice.total || 0);
@@ -204,7 +210,9 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const importe = Number(item.amount || 0);
-      const objetoImp = taxRate > 0 ? '02' : '01';
+      // '02' = object of tax (taxed OR exempt); '01' = not an object of tax
+      // (used only for a genuinely non-taxable zero-rate that isn't an exemption).
+      const objetoImp = (taxRate > 0 || clientExempt) ? '02' : '01';
       const [cResult] = await conn.execute(
         `INSERT INTO cfdi_conceptos
            (cfdi_document_id, clave_prod_serv, clave_unidad, cantidad, descripcion, valor_unitario, importe, objeto_imp)
@@ -227,6 +235,14 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
              (cfdi_concepto_id, tax_type, impuesto, tipo_factor, base, tasa_o_cuota, importe)
            VALUES (?, 'traslado', '002', 'Tasa', ?, ?, ?)`,
           [cResult.insertId, importe, taxRate.toFixed(6), lineTax],
+        );
+      } else if (clientExempt) {
+        // Exento traslado: object of tax, exempt — no TasaOCuota/Importe.
+        await conn.execute(
+          `INSERT INTO cfdi_concepto_impuestos
+             (cfdi_concepto_id, tax_type, impuesto, tipo_factor, base, tasa_o_cuota, importe)
+           VALUES (?, 'traslado', '002', 'Exento', ?, NULL, NULL)`,
+          [cResult.insertId, importe],
         );
       }
     }

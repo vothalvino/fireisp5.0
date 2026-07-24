@@ -177,6 +177,25 @@ describe('stampInvoice — conversion', () => {
     expect(cParams).toContain('01'); // ObjetoImp = no objeto de impuesto
   });
 
+  test('IVA-exempt client (0-tax) emits ObjetoImp 02 and a per-concepto Exento traslado', async () => {
+    Invoice.findByIdOrFail.mockResolvedValue({ ...INVOICE, tax_rate: '0.0000', tax_amount: '0.00' });
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR, tax_exempt: 1 }]];
+      if (/FROM invoice_items/.test(sql)) return [ITEMS.map(i => ({ ...i }))];
+      if (/FROM payment_allocations/.test(sql)) return [[{ sat_forma_pago: '03' }]];
+      return [[]];
+    });
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    await invoiceCfdiService.stampInvoice(60, 1);
+    const [, cParams] = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_conceptos'));
+    expect(cParams).toContain('02'); // ObjetoImp = object of tax (exempt), NOT '01'
+    const taxInserts = conn.executed.filter(([sql]) => sql.includes('cfdi_concepto_impuestos'));
+    expect(taxInserts.length).toBeGreaterThanOrEqual(1);
+    expect(taxInserts.every(([sql]) => /'Exento'/.test(sql))).toBe(true); // Exento factor, not Tasa
+  });
+
   test('PAC failure returns stamped:false with the doc kept as draft (retryable)', async () => {
     cfdiService.stamp.mockRejectedValue(new Error('PAC circuit breaker is open'));
     const res = await invoiceCfdiService.stampInvoice(60, 1);
