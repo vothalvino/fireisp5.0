@@ -324,9 +324,12 @@ function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
     const taxesXml = taxes.length > 0 ? `
       <cfdi:Impuestos>
         <cfdi:Traslados>
-          ${taxes.filter(t => t.tax_type === 'traslado').map(t =>
-    `<cfdi:Traslado Base="${t.base}" Impuesto="${t.impuesto}" TipoFactor="${t.tipo_factor}" TasaOCuota="${t.tasa_o_cuota}" Importe="${t.importe}" />`,
-  ).join('\n          ')}
+          ${taxes.filter(t => t.tax_type === 'traslado').map(t => (
+    t.tipo_factor === 'Exento'
+      // An Exento traslado carries NO TasaOCuota/Importe (SAT rejects them).
+      ? `<cfdi:Traslado Base="${t.base}" Impuesto="${t.impuesto}" TipoFactor="Exento" />`
+      : `<cfdi:Traslado Base="${t.base}" Impuesto="${t.impuesto}" TipoFactor="${t.tipo_factor}" TasaOCuota="${t.tasa_o_cuota}" Importe="${t.importe}" />`
+  )).join('\n          ')}
         </cfdi:Traslados>
       </cfdi:Impuestos>` : '';
 
@@ -364,10 +367,17 @@ function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
     g.importe += Number(t.importe || 0);
     groups.set(key, g);
   }
-  const totalTraslados = [...groups.values()].filter(g => !g.exento)
-    .reduce((sum, g) => sum + g.importe, 0);
+  const taxableGroups = [...groups.values()].filter(g => !g.exento);
+  const totalTraslados = taxableGroups.reduce((sum, g) => sum + g.importe, 0);
+  // TotalImpuestosTrasladados is REQUIRED when there is at least one Tasa/Cuota
+  // traslado, but must be OMITTED when every traslado is Exento (SAT rejects a
+  // "0.00" total with only Exento rows). Same rule at the concepto level, which
+  // already emits Exento without Importe.
+  const totalAttr = taxableGroups.length > 0
+    ? ` TotalImpuestosTrasladados="${totalTraslados.toFixed(2)}"`
+    : '';
   const impuestosXml = groups.size > 0 ? `
-  <cfdi:Impuestos TotalImpuestosTrasladados="${totalTraslados.toFixed(2)}">
+  <cfdi:Impuestos${totalAttr}>
     <cfdi:Traslados>
       ${[...groups.values()].map(g => g.exento
     ? `<cfdi:Traslado Base="${g.base.toFixed(2)}" Impuesto="${g.impuesto}" TipoFactor="Exento" />`
