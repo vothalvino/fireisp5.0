@@ -531,10 +531,19 @@ describe('billingService', () => {
     test('non-MX org with no rate → 0% (unchanged behavior)', async () => {
       jest.spyOn(Organization, 'getLocale').mockResolvedValue('global');
       const exec = jest.fn()
-        .mockResolvedValueOnce([[{ tax_exempt: 0 }]])
+        .mockResolvedValueOnce([[{ tax_exempt: 0, locale: 'global' }]])
         .mockResolvedValueOnce([[]]);
       const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100 });
       expect(r).toEqual({ rate: 0, taxRateId: null, exempt: false });
+    });
+
+    test('single-tenant / MX client: client.locale=MX with no rate → 16%, even when org locale is not MX or org is NULL', async () => {
+      // getLocale is never consulted when orgId is null (short-circuited).
+      const exec = jest.fn()
+        .mockResolvedValueOnce([[{ tax_exempt: 0, locale: 'MX' }]])  // client is MX
+        .mockResolvedValueOnce([[]]);                                 // no configured rate
+      const r = await billingService.resolveTaxContext(exec, { orgId: null, clientId: 100 });
+      expect(r).toEqual({ rate: 0.16, taxRateId: null, exempt: false });
     });
 
     test('no clientId → skips the exemption lookup entirely', async () => {

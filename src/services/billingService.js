@@ -29,16 +29,24 @@ const { drawdownForSale } = require('./inventoryDrawdownService');
  * @param {{orgId:number, clientId?:number, contractTaxRateId?:number|null}} p
  * @returns {Promise<{rate:number, taxRateId:(number|null), exempt:boolean}>}
  */
-async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null }) {
-  if (clientId) {
-    // Org-scoped so a stray/foreign clientId reads as "not exempt" (taxed)
-    // rather than picking up another tenant's flag.
-    const [crows] = await exec('SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? LIMIT 1', [clientId, orgId]);
-    const c = crows[0];
-    if (c && (c.tax_exempt === 1 || c.tax_exempt === true)) {
-      return { rate: 0, taxRateId: null, exempt: true };
-    }
+async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null, client = null }) {
+  // The client row also tells us its own locale — used as an MX signal for the
+  // safety net below, but ONLY for a single-tenant / unresolved-org install
+  // (organization_id NULL). A caller that has already loaded the client row may
+  // pass it as `client` to avoid a redundant read (e.g. the CSV importer).
+  // Org-scoped so a stray/foreign clientId reads as "not exempt".
+  let clientRow = client;
+  if (clientRow === null && clientId) {
+    const [crows] = await exec(
+      'SELECT tax_exempt, locale FROM clients WHERE id = ? AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL)) LIMIT 1',
+      [clientId, orgId, orgId],
+    );
+    clientRow = crows[0] || null;
   }
+  if (clientRow && (clientRow.tax_exempt === 1 || clientRow.tax_exempt === true)) {
+    return { rate: 0, taxRateId: null, exempt: true };
+  }
+  const clientIsMx = clientRow ? clientRow.locale === 'MX' : false;
 
   const [rates] = await exec(
     `SELECT id, rate FROM tax_rates
@@ -50,9 +58,14 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   const r = rates[0];
   if (r) return { rate: parseFloat(r.rate) || 0, taxRateId: r.id, exempt: false };
 
-  const locale = await Organization.getLocale(orgId);
-  if (locale === 'MX') {
-    logger.warn({ orgId }, 'MX org has no active default tax rate — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
+  // No configured rate. Fire the 16% IVA safety net when the org is MX-locale,
+  // OR — only when the org is unresolved (single-tenant NULL org) — the client
+  // itself is MX. The client signal must NOT override a resolvable non-MX org
+  // that deliberately runs at 0% (it may legitimately have MX-locale clients).
+  const orgUnresolved = orgId === undefined || orgId === null;
+  const orgIsMx = !orgUnresolved && (await Organization.getLocale(orgId)) === 'MX';
+  if (orgIsMx || (orgUnresolved && clientIsMx)) {
+    logger.warn({ orgId, clientIsMx }, 'No active default tax rate for an MX billing context — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
     return { rate: 0.16, taxRateId: null, exempt: false };
   }
   return { rate: 0, taxRateId: null, exempt: false };

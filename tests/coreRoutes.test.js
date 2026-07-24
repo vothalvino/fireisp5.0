@@ -734,6 +734,7 @@ describe('Invoice Routes — /api/invoices', () => {
       db.getConnection.mockResolvedValue(conn);
       db.query.mockImplementation(async (sql) => {
         if (/SELECT \* FROM invoices WHERE id/.test(sql)) return [[{ ...mockInvoice, id: 2 }]];
+        if (/FROM clients/.test(sql)) return [[{ tax_exempt: 0 }]]; // client 10 belongs to the org, not exempt
         return [[]];
       });
 

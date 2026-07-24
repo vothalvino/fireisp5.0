@@ -8,6 +8,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const billingService = require('../services/billingService');
 const provisioningService = require('../services/subscriberProvisioningService');
 const Client = require('../models/Client');
 const { assertPlanSelectable } = require('../services/planAvailability');
@@ -488,7 +489,7 @@ const VALID_INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue', 'can
  * Insert one invoice row from a parsed row object.
  * Returns null on success, or an error message string.
  */
-async function insertInvoiceRow(row) {
+async function insertInvoiceRow(row, orgId) {
   if (!row.client_id) return 'client_id is required';
   if (!row.invoice_number) return 'invoice_number is required';
   if (!row.issue_date) return 'issue_date is required';
@@ -499,17 +500,53 @@ async function insertInvoiceRow(row) {
     return `status must be one of: ${[...VALID_INVOICE_STATUSES].join(', ')}`;
   }
 
+  // The client must belong to THIS org (was previously unchecked and the row
+  // was inserted with NULL organization_id — invisible to every org-scoped
+  // query). Also gives us the exemption flag and locale (passed to the resolver
+  // as a hint so it doesn't re-read the client row per no-tax line).
+  const [crows] = await db.query(
+    'SELECT tax_exempt, locale FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+    [row.client_id, orgId],
+  );
+  if (!crows[0]) return `client_id ${row.client_id} not found in this organization`;
+  const clientExempt = crows[0].tax_exempt === 1 || crows[0].tax_exempt === true;
+
   const subtotal = parseFloat(row.subtotal) || 0;
-  const taxRate = parseFloat(row.tax_rate) || 0;
-  const taxAmount = parseFloat(row.tax_amount) || parseFloat((subtotal * taxRate).toFixed(2));
-  const total = parseFloat(row.total) || parseFloat((subtotal + taxAmount).toFixed(2));
+  const provided = (v) => v !== undefined && v !== null && v !== '';
+  const rowHasTax = provided(row.tax_rate) || provided(row.tax_amount);
+
+  let taxRate;
+  let taxAmount;
+  let deriveTotal = true; // recompute total = subtotal + tax whenever WE set the tax
+  if (clientExempt) {
+    taxRate = 0;
+    taxAmount = 0;
+  } else if (rowHasTax) {
+    taxRate = parseFloat(row.tax_rate) || 0;
+    taxAmount = parseFloat(row.tax_amount) || parseFloat((subtotal * taxRate).toFixed(2));
+    deriveTotal = false; // caller supplied the tax figures → honor their total
+  } else {
+    // No tax in the CSV → apply the org's default (16% IVA for MX orgs). Pass
+    // the already-loaded client row so the resolver skips its own client read.
+    const tax = await billingService.resolveTaxContext(db.query, { orgId, clientId: row.client_id, client: crows[0] });
+    taxRate = tax.rate;
+    taxAmount = parseFloat((subtotal * taxRate).toFixed(2));
+  }
+  // When WE computed the tax (exempt → 0, or resolver default), the total is
+  // always subtotal + tax — never a caller-provided tax-inclusive total, which
+  // would leave subtotal + tax ≠ total (e.g. an exempt row that mistakenly
+  // carried a taxed total).
+  const total = deriveTotal
+    ? parseFloat((subtotal + taxAmount).toFixed(2))
+    : (parseFloat(row.total) || parseFloat((subtotal + taxAmount).toFixed(2)));
 
   await db.query(
     `INSERT INTO invoices
-       (client_id, contract_id, invoice_number,
+       (organization_id, client_id, contract_id, invoice_number,
         issue_date, due_date, subtotal, tax_rate, tax_amount, total, notes, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      orgId,
       row.client_id,
       row.contract_id || null,
       row.invoice_number,
@@ -546,7 +583,7 @@ async function importInvoices(req, res, next) {
     for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
-        const err = await insertInvoiceRow(row);
+        const err = await insertInvoiceRow(row, req.orgId);
         if (err) {
           errors.push({ row: i + 2, error: err });
         } else {
@@ -581,7 +618,7 @@ async function importInvoicesFile(req, res, next) {
     for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
-        const err = await insertInvoiceRow(row);
+        const err = await insertInvoiceRow(row, req.orgId);
         if (err) {
           errors.push({ row: i + 2, error: err });
         } else {

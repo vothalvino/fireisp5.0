@@ -57,6 +57,8 @@ function wireDb() {
     if (/SELECT \* FROM invoices WHERE id/.test(sql)) {
       return [[{ id: 900, invoice_number: 'INV-000042', status: 'issued', total: '116.00' }]];
     }
+    // client-ownership + exemption lookup (client 42 belongs to org 5, not exempt)
+    if (/FROM clients/.test(sql)) return [[{ tax_exempt: 0 }]];
     return [[]];
   });
 }
@@ -143,6 +145,30 @@ describe('POST /api/v1/invoices (composite create)', () => {
       .send({ ...BASE, items: [{ description: 'x', quantity: 1, unit_price: 100, amount: 100 }] });
     expect(res.status).toBe(500);
     expect(lastConn.rollback).toHaveBeenCalled();
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
+  test('rejects a client_id not owned by the org (422 CLIENT_NOT_FOUND, no write)', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM clients/.test(sql)) return [[]]; // client 42 is not in org 5
+      return [[]];
+    });
+    const res = await request(app).post('/api/v1/invoices').send({ ...BASE });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CLIENT_NOT_FOUND');
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
+  test('rejects a taxed invoice for an IVA-exempt client (422 CLIENT_TAX_EXEMPT)', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM clients/.test(sql)) return [[{ tax_exempt: 1 }]];
+      if (/SELECT \* FROM invoices WHERE id/.test(sql)) return [[{ id: 900 }]];
+      return [[]];
+    });
+    // BASE carries tax_amount 16 (> 0) for an exempt client → rejected before any write.
+    const res = await request(app).post('/api/v1/invoices').send({ ...BASE });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
     expect(lastConn.commit).not.toHaveBeenCalled();
   });
 

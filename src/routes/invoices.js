@@ -183,6 +183,27 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       );
     }
 
+    // Validate the client belongs to THIS org (was previously unchecked — an
+    // admin could POST an invoice referencing another tenant's client_id,
+    // creating a cross-tenant invoice and disclosing that client via the
+    // read-back). Also enforces IVA exemption: an exempt client must never be
+    // invoiced with tax (reject rather than silently rewriting the figures).
+    if (req.body.client_id !== undefined && req.body.client_id !== null) {
+      const [crows] = await db.query(
+        'SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+        [req.body.client_id, req.orgId],
+      );
+      if (!crows[0]) {
+        throw new AppError('client_id not found in this organization.', 422, 'CLIENT_NOT_FOUND');
+      }
+      if (taxAmount > 0 && (crows[0].tax_exempt === 1 || crows[0].tax_exempt === true)) {
+        throw new AppError(
+          'This client is IVA-exempt — create the invoice without tax (subtotal = total, no tax_amount/tax_rate).',
+          422, 'CLIENT_TAX_EXEMPT',
+        );
+      }
+    }
+
     const conn = await db.getConnection();
     let invoiceId;
     try {
