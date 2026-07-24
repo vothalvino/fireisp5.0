@@ -109,6 +109,37 @@ describe('lateFeeService', () => {
       }));
     });
 
+    it('recomputes subtotal + tax + total consistently — the fee is taxed at the invoice rate', async () => {
+      const rule = { id: 1, fee_type: 'flat', fee_amount: 50, grace_period_days: 0, max_applications: 1 };
+      const invoice = {
+        id: 10, invoice_number: 'INV-000010', total: 1160, subtotal: 1000, tax_amount: 160, tax_rate: 0.16,
+        currency: 'MXN', due_date: '2026-05-01', client_id: 5,
+        client_name: 'X', client_email: 'x@x.com', client_phone: null, days_overdue: 10,
+      };
+      db.query
+        .mockResolvedValueOnce([[rule]])
+        .mockResolvedValueOnce([[invoice]])
+        .mockResolvedValueOnce([[{ cnt: 0 }]])
+        .mockResolvedValueOnce([{ insertId: 99 }])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([{}]);
+      await lateFeeService.applyLateFees(1);
+      const upd = db.query.mock.calls.find(c => /UPDATE invoices/.test(c[0]));
+      // fee 50 → subtotal 1050, tax 168.00 (1050×0.16), total 1218.00 = subtotal + tax (was: only total += fee → 1210, inconsistent)
+      expect(upd[1]).toEqual([1050, 168, 1218, 10]);
+    });
+
+    it('excludes invoices that already carry a live CFDI (never mutate a stamped invoice)', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, fee_type: 'flat', fee_amount: 10, grace_period_days: 0, max_applications: 1 }]])
+        .mockResolvedValueOnce([[]]);
+      await lateFeeService.applyLateFees(1);
+      const invQuery = db.query.mock.calls.find(c => /FROM invoices i/.test(c[0]));
+      expect(invQuery[0]).toMatch(/NOT EXISTS/);
+      expect(invQuery[0]).toMatch(/cfdi_documents/);
+      expect(invQuery[0]).toMatch(/sat_status IN \('vigente', 'cancel_pending'\)/);
+    });
+
     it('skips invoice when still within grace period', async () => {
       const rule = { id: 1, fee_type: 'flat', fee_amount: 10, grace_period_days: 5, max_applications: 1 };
       const invoice = { id: 10, days_overdue: 3, total: 100, currency: 'USD', client_id: 5 };

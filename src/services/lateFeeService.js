@@ -123,7 +123,16 @@ async function applyLateFees(organizationId) {
      WHERE i.organization_id = ?
        AND i.status IN ('issued', 'overdue')
        AND i.due_date < CURDATE()
-       AND i.deleted_at IS NULL`,
+       AND i.deleted_at IS NULL
+       -- Never mutate an invoice that already carries a live CFDI: adding a
+       -- line item + changing totals would desync it from the stamped, filed
+       -- document. Such invoices need a separate charge (nota de cargo), not
+       -- an in-place edit.
+       AND NOT EXISTS (
+         SELECT 1 FROM cfdi_documents cd
+         WHERE cd.invoice_id = i.id
+           AND cd.sat_status IN ('vigente', 'cancel_pending')
+       )`,
     [organizationId],
   );
 
@@ -170,14 +179,25 @@ async function applyLateFees(organizationId) {
           [invoice.id, rule.id, organizationId, feeAmount, invoiceItemId],
         );
 
-        // Update invoice totals
+        // Update invoice totals CONSISTENTLY: the fee is a new taxable line, so
+        // it goes into the subtotal, tax is recomputed at the invoice's rate,
+        // and total = subtotal + tax. The old code bumped only `total`, which
+        // left total ≠ subtotal + tax (breaks stamping/reporting) and let the
+        // fee escape IVA on a MX invoice. Compute in JS and update the in-memory
+        // invoice too, so a second rule in this loop accumulates correctly.
+        const rate = parseFloat(invoice.tax_rate) || 0;
+        const newSubtotal = Math.round((parseFloat(invoice.subtotal) + feeAmount) * 100) / 100;
+        const newTax = Math.round(newSubtotal * rate * 100) / 100;
+        const newTotal = Math.round((newSubtotal + newTax) * 100) / 100;
         await db.query(
           `UPDATE invoices
-           SET total = total + ?,
-               updated_at = CURRENT_TIMESTAMP
+           SET subtotal = ?, tax_amount = ?, total = ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
-          [feeAmount, invoice.id],
+          [newSubtotal, newTax, newTotal, invoice.id],
         );
+        invoice.subtotal = newSubtotal;
+        invoice.tax_amount = newTax;
+        invoice.total = newTotal;
 
         feesApplied++;
 
