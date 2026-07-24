@@ -604,30 +604,26 @@ function verifyConektaSignature(rawBody, digestHeader, secret) {
  * @returns {object} { status, webhookEventId }
  */
 async function handleWebhookEvent({ provider, providerEventId, eventType, payload, organizationId }) {
-  // Deduplication: check if we already received this event.
-  // KNOWN LIMITATION (deferred): the dedup key (and the webhook_events UNIQUE
-  // constraint) is global — (provider, provider_event_id), no organization_id.
-  // If two DIFFERENT orgs' gateways point at the SAME provider account, the
-  // provider fans one event id out to both /:gatewayId endpoints; whichever
-  // lands first claims the slot and the other is suppressed as 'duplicate',
-  // so the owning org's payment may not reconcile. Making dedup per-org needs a
-  // migration to a composite UNIQUE + setting organization_id at insert time
-  // (env-var route has no org), so it is tracked as a follow-up rather than
-  // rushed here. Normal deployments (one provider account per org) are unaffected.
+  // Deduplication, scoped per-tenant (migration 417). For a gateway-scoped event
+  // organizationId is the owning org; the dedup and the webhook_events UNIQUE key
+  // are (organization_id, provider, provider_event_id), so two orgs sharing one
+  // provider account each dedup independently. Env-var (global) route events have
+  // no org (NULL) and dedup among the NULL-org rows. `<=>` is NULL-safe equals.
+  const orgKey = organizationId ?? null;
   const [existing] = await db.query(
-    'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ?',
-    [provider, providerEventId],
+    'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ? AND organization_id <=> ?',
+    [provider, providerEventId, orgKey],
   );
 
   if (existing.length > 0) {
     return { status: 'duplicate', webhookEventId: existing[0].id };
   }
 
-  // Insert the event record
+  // Insert the event record — organization_id set at insert for gateway events.
   const [insertResult] = await db.query(
-    `INSERT INTO webhook_events (provider, provider_event_id, event_type, payload, status)
-     VALUES (?, ?, ?, ?, 'processing')`,
-    [provider, providerEventId, eventType, JSON.stringify(payload)],
+    `INSERT INTO webhook_events (organization_id, provider, provider_event_id, event_type, payload, status)
+     VALUES (?, ?, ?, ?, ?, 'processing')`,
+    [orgKey, provider, providerEventId, eventType, JSON.stringify(payload)],
   );
   const webhookEventId = insertResult.insertId;
 

@@ -6474,7 +6474,7 @@ CREATE TABLE IF NOT EXISTS webhook_events (
     updated_at          TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_webhook_events_provider_event (provider, provider_event_id),
+    UNIQUE KEY uq_webhook_events_org_provider_event (organization_id, provider, provider_event_id),
     KEY idx_webhook_events_organization_id (organization_id),
     KEY idx_webhook_events_status (status),
     KEY idx_webhook_events_event_type (event_type),

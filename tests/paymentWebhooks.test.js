@@ -433,6 +433,30 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(result.webhookEventId).toBe(10);
     });
 
+    test('dedup is PER-ORG: the same provider_event_id under a different org is NOT a duplicate (migration 417)', async () => {
+      db.query
+        .mockResolvedValueOnce([[]])                 // dedup scoped to org 6 → none
+        .mockResolvedValueOnce([{ insertId: 77 }])   // INSERT webhook_events
+        .mockResolvedValueOnce([[]])                 // org-scoped tx lookup → no match (fine)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events → no_match
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe',
+        providerEventId: 'evt_shared_acct',
+        eventType: 'payment_intent.succeeded',
+        payload: { id: 'evt_shared_acct', type: 'payment_intent.succeeded', data: { object: { id: 'pi_x' } } },
+        organizationId: 6,
+      });
+
+      expect(result.status).not.toBe('duplicate'); // org 5 owning the same id would not block org 6
+      // the dedup SELECT and the INSERT are org-scoped
+      const dedup = db.query.mock.calls.find(c => /SELECT id, status FROM webhook_events/.test(c[0]));
+      expect(dedup[0]).toMatch(/organization_id <=> \?/);
+      expect(dedup[1]).toEqual(['stripe', 'evt_shared_acct', 6]);
+      const ins = db.query.mock.calls.find(c => /INSERT INTO webhook_events/.test(c[0]));
+      expect(ins[1][0]).toBe(6); // organization_id set at insert
+    });
+
     test('marks unhandled event types as ignored', async () => {
       db.query
         .mockResolvedValueOnce([[]])                 // No duplicate
