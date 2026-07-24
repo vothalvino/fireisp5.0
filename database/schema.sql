@@ -6461,7 +6461,7 @@ CREATE TABLE IF NOT EXISTS firerelay_client_routing (
 CREATE TABLE IF NOT EXISTS webhook_events (
     id                  BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED   NULL                        COMMENT 'Resolved tenant org (NULL if not yet matched)',
-    org_dedup           BIGINT UNSIGNED   AS (COALESCE(organization_id, 0)) STORED COMMENT 'Dedup partition: organization_id, or 0 for the global env-var route — migration 417',
+    org_dedup           BIGINT UNSIGNED   AS (COALESCE(organization_id, 0)) VIRTUAL COMMENT 'Dedup partition: organization_id, or 0 for the global env-var route — migration 417',
     provider            VARCHAR(50)       NOT NULL                    COMMENT 'Gateway provider name: stripe, conekta, etc.',
     provider_event_id   VARCHAR(255)      NOT NULL                    COMMENT 'Unique event ID assigned by the provider',
     event_type          VARCHAR(100)      NOT NULL                    COMMENT 'Provider event type, e.g. payment_intent.succeeded',

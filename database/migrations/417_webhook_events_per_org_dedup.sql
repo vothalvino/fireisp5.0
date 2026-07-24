@@ -14,7 +14,7 @@
 -- route (no gateway/org context at insert time) and MySQL treats NULLs as
 -- DISTINCT in a UNIQUE key — that would silently drop the DB-level backstop for
 -- the global route (concurrent duplicates could both insert). Instead we add a
--- STORED generated column `org_dedup = COALESCE(organization_id, 0)` and key the
+-- VIRTUAL generated column `org_dedup = COALESCE(organization_id, 0)` and key the
 -- UNIQUE on it: gateway events partition by their org; global (NULL-org) events
 -- all fall into partition 0, preserving a real concurrent-duplicate backstop for
 -- that route too. org_dedup is derived (not a FK), so the 0 sentinel is safe.
@@ -36,8 +36,8 @@ BEGIN
   ) THEN
     ALTER TABLE webhook_events
       ADD COLUMN org_dedup BIGINT UNSIGNED
-        AS (COALESCE(organization_id, 0)) STORED
-        COMMENT 'Dedup partition: organization_id, or 0 for the global env-var route (NULLs are distinct in a UNIQUE key, so dedup keys on this) — migration 417'
+        AS (COALESCE(organization_id, 0)) VIRTUAL
+        COMMENT 'Dedup partition: organization_id, or 0 for the global env-var route. VIRTUAL because organization_id has an FK with ON DELETE SET NULL / ON UPDATE CASCADE, which MySQL forbids on a STORED generated column base — migration 417'
         AFTER organization_id;
   END IF;
 
