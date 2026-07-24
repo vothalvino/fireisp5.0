@@ -8,6 +8,7 @@
 const db = require('../config/database');
 const eventBus = require('./eventBus');
 const logger = require('../utils/logger');
+const billingService = require('./billingService');
 
 /**
  * List active late fee rules for an organization.
@@ -123,7 +124,16 @@ async function applyLateFees(organizationId) {
      WHERE i.organization_id = ?
        AND i.status IN ('issued', 'overdue')
        AND i.due_date < CURDATE()
-       AND i.deleted_at IS NULL`,
+       AND i.deleted_at IS NULL
+       -- Never mutate an invoice that already carries a live CFDI: adding a
+       -- line item + changing totals would desync it from the stamped, filed
+       -- document. Such invoices need a separate charge (nota de cargo), not
+       -- an in-place edit.
+       AND NOT EXISTS (
+         SELECT 1 FROM cfdi_documents cd
+         WHERE cd.invoice_id = i.id
+           AND cd.sat_status IN ('vigente', 'cancel_pending')
+       )`,
     [organizationId],
   );
 
@@ -143,10 +153,13 @@ async function applyLateFees(organizationId) {
 
       if (rule.max_applications !== null && alreadyApplied >= rule.max_applications) continue;
 
-      // Calculate fee amount
+      // Calculate fee amount. A percent fee is a percentage of the NET subtotal
+      // (not the tax-inclusive total) — the fee is booked as a taxable line and
+      // taxed once below, so basing it on the gross total would tax it twice
+      // (effective surcharge p*(1+rate) instead of p).
       let feeAmount;
       if (rule.fee_type === 'percent') {
-        feeAmount = parseFloat(invoice.total) * (parseFloat(rule.fee_amount) / 100);
+        feeAmount = parseFloat(invoice.subtotal) * (parseFloat(rule.fee_amount) / 100);
       } else {
         feeAmount = parseFloat(rule.fee_amount);
       }
@@ -170,14 +183,17 @@ async function applyLateFees(organizationId) {
           [invoice.id, rule.id, organizationId, feeAmount, invoiceItemId],
         );
 
-        // Update invoice totals
-        await db.query(
-          `UPDATE invoices
-           SET total = total + ?,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [feeAmount, invoice.id],
-        );
+        // Book the fee as a taxable line via the canonical DELTA helper: it adds
+        // only the fee (subtotal += fee) and the fee's OWN tax (tax_amount +=
+        // round(fee*rate)), so total = subtotal + tax stays consistent WITHOUT
+        // recomputing (and silently rewriting) the invoice's original tax_amount.
+        const lineTax = Math.round(feeAmount * billingService.invoiceTaxFraction(invoice.tax_rate) * 100) / 100;
+        await billingService.applyLineItemToTotals(db.query, invoice.id, invoice.tax_rate, feeAmount);
+        // Keep the in-memory invoice in sync so a second rule in this loop
+        // accumulates on the updated figures.
+        invoice.subtotal = Math.round((parseFloat(invoice.subtotal) + feeAmount) * 100) / 100;
+        invoice.tax_amount = Math.round((parseFloat(invoice.tax_amount) + lineTax) * 100) / 100;
+        invoice.total = Math.round((parseFloat(invoice.total) + feeAmount + lineTax) * 100) / 100;
 
         feesApplied++;
 
