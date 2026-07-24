@@ -604,30 +604,29 @@ function verifyConektaSignature(rawBody, digestHeader, secret) {
  * @returns {object} { status, webhookEventId }
  */
 async function handleWebhookEvent({ provider, providerEventId, eventType, payload, organizationId }) {
-  // Deduplication: check if we already received this event.
-  // KNOWN LIMITATION (deferred): the dedup key (and the webhook_events UNIQUE
-  // constraint) is global — (provider, provider_event_id), no organization_id.
-  // If two DIFFERENT orgs' gateways point at the SAME provider account, the
-  // provider fans one event id out to both /:gatewayId endpoints; whichever
-  // lands first claims the slot and the other is suppressed as 'duplicate',
-  // so the owning org's payment may not reconcile. Making dedup per-org needs a
-  // migration to a composite UNIQUE + setting organization_id at insert time
-  // (env-var route has no org), so it is tracked as a follow-up rather than
-  // rushed here. Normal deployments (one provider account per org) are unaffected.
+  // Deduplication, scoped per-tenant (migration 417) via the org_dedup partition
+  // (= organization_id, or 0 for the global env-var route). A gateway-scoped
+  // event carries its owning org; two orgs sharing one provider account dedup
+  // independently. The dedup key is STABLE for the row's life — organization_id
+  // is NOT re-homed after matching a transaction (that would move a global row
+  // out of partition 0 and let provider REDELIVERIES re-process it).
+  const orgKey = organizationId ?? null;
+  const orgDedup = organizationId ?? 0;
   const [existing] = await db.query(
-    'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ?',
-    [provider, providerEventId],
+    'SELECT id, status FROM webhook_events WHERE provider = ? AND provider_event_id = ? AND org_dedup = ?',
+    [provider, providerEventId, orgDedup],
   );
 
   if (existing.length > 0) {
     return { status: 'duplicate', webhookEventId: existing[0].id };
   }
 
-  // Insert the event record
+  // Insert the event record — organization_id set at insert for gateway events
+  // (NULL for the global route → org_dedup 0). org_dedup is a generated column.
   const [insertResult] = await db.query(
-    `INSERT INTO webhook_events (provider, provider_event_id, event_type, payload, status)
-     VALUES (?, ?, ?, ?, 'processing')`,
-    [provider, providerEventId, eventType, JSON.stringify(payload)],
+    `INSERT INTO webhook_events (organization_id, provider, provider_event_id, event_type, payload, status)
+     VALUES (?, ?, ?, ?, ?, 'processing')`,
+    [orgKey, provider, providerEventId, eventType, JSON.stringify(payload)],
   );
   const webhookEventId = insertResult.insertId;
 
@@ -673,10 +672,14 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
       [newStatus, JSON.stringify(payload), tx.id],
     );
 
-    // Update the webhook event with the transaction link
+    // Update the webhook event with the transaction link. NOTE: organization_id
+    // is deliberately NOT re-homed here — it (and the derived org_dedup) is fixed
+    // at insert so the dedup key is stable for the row's life. For a global-route
+    // event that stays NULL/partition-0; the owning org is derivable via
+    // transaction_id → payment_transactions.organization_id.
     await db.query(
-      'UPDATE webhook_events SET organization_id = ?, transaction_id = ?, status = \'processed\', processed_at = NOW() WHERE id = ?',
-      [tx.organization_id, tx.id, webhookEventId],
+      'UPDATE webhook_events SET transaction_id = ?, status = \'processed\', processed_at = NOW() WHERE id = ?',
+      [tx.id, webhookEventId],
     );
 
     // Auto-reconciliation for successful payments
