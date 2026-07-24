@@ -37,7 +37,7 @@ function generateSpec() {
       license: { name: 'MIT', url: 'https://opensource.org/licenses/MIT' },
     },
     servers: [
-      { url: '/api', description: 'FireISP API' },
+      { url: '/api/v1', description: 'FireISP API (v1)' },
     ],
     tags: [
       { name: 'Auth', description: 'Authentication and user management' },
