@@ -8,6 +8,7 @@
 const db = require('../config/database');
 const eventBus = require('./eventBus');
 const logger = require('../utils/logger');
+const billingService = require('./billingService');
 
 /**
  * List active late fee rules for an organization.
@@ -152,10 +153,13 @@ async function applyLateFees(organizationId) {
 
       if (rule.max_applications !== null && alreadyApplied >= rule.max_applications) continue;
 
-      // Calculate fee amount
+      // Calculate fee amount. A percent fee is a percentage of the NET subtotal
+      // (not the tax-inclusive total) — the fee is booked as a taxable line and
+      // taxed once below, so basing it on the gross total would tax it twice
+      // (effective surcharge p*(1+rate) instead of p).
       let feeAmount;
       if (rule.fee_type === 'percent') {
-        feeAmount = parseFloat(invoice.total) * (parseFloat(rule.fee_amount) / 100);
+        feeAmount = parseFloat(invoice.subtotal) * (parseFloat(rule.fee_amount) / 100);
       } else {
         feeAmount = parseFloat(rule.fee_amount);
       }
@@ -179,25 +183,17 @@ async function applyLateFees(organizationId) {
           [invoice.id, rule.id, organizationId, feeAmount, invoiceItemId],
         );
 
-        // Update invoice totals CONSISTENTLY: the fee is a new taxable line, so
-        // it goes into the subtotal, tax is recomputed at the invoice's rate,
-        // and total = subtotal + tax. The old code bumped only `total`, which
-        // left total ≠ subtotal + tax (breaks stamping/reporting) and let the
-        // fee escape IVA on a MX invoice. Compute in JS and update the in-memory
-        // invoice too, so a second rule in this loop accumulates correctly.
-        const rate = parseFloat(invoice.tax_rate) || 0;
-        const newSubtotal = Math.round((parseFloat(invoice.subtotal) + feeAmount) * 100) / 100;
-        const newTax = Math.round(newSubtotal * rate * 100) / 100;
-        const newTotal = Math.round((newSubtotal + newTax) * 100) / 100;
-        await db.query(
-          `UPDATE invoices
-           SET subtotal = ?, tax_amount = ?, total = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [newSubtotal, newTax, newTotal, invoice.id],
-        );
-        invoice.subtotal = newSubtotal;
-        invoice.tax_amount = newTax;
-        invoice.total = newTotal;
+        // Book the fee as a taxable line via the canonical DELTA helper: it adds
+        // only the fee (subtotal += fee) and the fee's OWN tax (tax_amount +=
+        // round(fee*rate)), so total = subtotal + tax stays consistent WITHOUT
+        // recomputing (and silently rewriting) the invoice's original tax_amount.
+        const lineTax = Math.round(feeAmount * billingService.invoiceTaxFraction(invoice.tax_rate) * 100) / 100;
+        await billingService.applyLineItemToTotals(db.query, invoice.id, invoice.tax_rate, feeAmount);
+        // Keep the in-memory invoice in sync so a second rule in this loop
+        // accumulates on the updated figures.
+        invoice.subtotal = Math.round((parseFloat(invoice.subtotal) + feeAmount) * 100) / 100;
+        invoice.tax_amount = Math.round((parseFloat(invoice.tax_amount) + lineTax) * 100) / 100;
+        invoice.total = Math.round((parseFloat(invoice.total) + feeAmount + lineTax) * 100) / 100;
 
         feesApplied++;
 

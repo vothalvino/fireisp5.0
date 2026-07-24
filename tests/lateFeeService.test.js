@@ -124,9 +124,10 @@ describe('lateFeeService', () => {
         .mockResolvedValueOnce([{}])
         .mockResolvedValueOnce([{}]);
       await lateFeeService.applyLateFees(1);
-      const upd = db.query.mock.calls.find(c => /UPDATE invoices/.test(c[0]));
-      // fee 50 → subtotal 1050, tax 168.00 (1050×0.16), total 1218.00 = subtotal + tax (was: only total += fee → 1210, inconsistent)
-      expect(upd[1]).toEqual([1050, 168, 1218, 10]);
+      const upd = db.query.mock.calls.find(c => /UPDATE invoices SET subtotal = subtotal \+/.test(c[0]));
+      // DELTA (via applyLineItemToTotals): +50 subtotal, +8 tax (50×0.16), +58 total.
+      // Preserves the original tax_amount and keeps total = subtotal + tax.
+      expect(upd[1]).toEqual([50, 8, 58, 10]);
     });
 
     it('excludes invoices that already carry a live CFDI (never mutate a stamped invoice)', async () => {
@@ -168,7 +169,7 @@ describe('lateFeeService', () => {
     it('calculates percent fee correctly', async () => {
       const rule = { id: 1, fee_type: 'percent', fee_amount: 5, grace_period_days: 0, max_applications: null };
       const invoice = {
-        id: 10, days_overdue: 2, total: 200, currency: 'USD', client_id: 5,
+        id: 10, days_overdue: 2, subtotal: 200, tax_amount: 0, tax_rate: 0, total: 200, currency: 'USD', client_id: 5,
         invoice_number: 'INV-000010', client_name: 'X', client_email: 'x@x.com', client_phone: null,
       };
 
@@ -181,10 +182,32 @@ describe('lateFeeService', () => {
         .mockResolvedValueOnce([{}]);
 
       await lateFeeService.applyLateFees(1);
-      // 5% of 200 = 10
+      // 5% of the NET subtotal 200 = 10 (no longer taxed on the gross total)
       expect(eventBus.emit).toHaveBeenCalledWith('invoice.late_fee_applied', expect.objectContaining({
         fee_amount: 10,
       }));
+    });
+
+    it('percent fee is on the NET subtotal and taxed exactly once (no double-tax)', async () => {
+      const rule = { id: 1, fee_type: 'percent', fee_amount: 5, grace_period_days: 0, max_applications: 1 };
+      const invoice = {
+        id: 10, invoice_number: 'INV-000010', subtotal: 1000, tax_amount: 160, tax_rate: 0.16, total: 1160,
+        currency: 'MXN', days_overdue: 10, client_id: 5, client_name: 'X', client_email: 'x@x.com', client_phone: null,
+      };
+      db.query
+        .mockResolvedValueOnce([[rule]])
+        .mockResolvedValueOnce([[invoice]])
+        .mockResolvedValueOnce([[{ cnt: 0 }]])
+        .mockResolvedValueOnce([{ insertId: 99 }])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([{}]);
+      await lateFeeService.applyLateFees(1);
+      // fee = 5% of NET 1000 = 50 (NOT 5% of gross 1160 = 58); line amount is the fee itself
+      const item = db.query.mock.calls.find(c => /INSERT INTO invoice_items/.test(c[0]));
+      expect(item[1][3]).toBe(50);
+      // delta: +50 subtotal, +8 tax (taxed once), +58 total — original 160 tax preserved (168 total tax)
+      const upd = db.query.mock.calls.find(c => /UPDATE invoices SET subtotal = subtotal \+/.test(c[0]));
+      expect(upd[1]).toEqual([50, 8, 58, 10]);
     });
   });
 });
