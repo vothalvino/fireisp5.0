@@ -183,6 +183,22 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       );
     }
 
+    // A tax-exempt client must never be invoiced with IVA. Reject rather than
+    // silently rewriting the caller's figures (the automated billing paths
+    // already zero-rate exempt clients via billingService.resolveTaxContext).
+    if (req.body.client_id !== undefined && req.body.client_id !== null && taxAmount > 0) {
+      const [erows] = await db.query(
+        'SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? LIMIT 1',
+        [req.body.client_id, req.orgId],
+      );
+      if (erows[0] && (erows[0].tax_exempt === 1 || erows[0].tax_exempt === true)) {
+        throw new AppError(
+          'This client is IVA-exempt — create the invoice without tax (subtotal = total, no tax_amount/tax_rate).',
+          422, 'CLIENT_TAX_EXEMPT',
+        );
+      }
+    }
+
     const conn = await db.getConnection();
     let invoiceId;
     try {

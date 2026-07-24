@@ -642,12 +642,30 @@ describe('importController', () => {
       );
     });
 
+    // Client-ownership lookup (org-scoped) + optional resolver default, then INSERT.
+    const invoiceImportMock = (clientRow = { tax_exempt: 0 }) => db.query.mockImplementation((sql) => {
+      if (/FROM clients/.test(sql)) return Promise.resolve([clientRow ? [clientRow] : []]);
+      if (/FROM tax_rates/.test(sql)) return Promise.resolve([[]]); // no org default (non-MX test org)
+      return Promise.resolve([{ insertId: 1 }]);                    // INSERT
+    });
+
     test('imports valid rows and returns counts', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
+      invoiceImportMock();
       const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,total\n1,INV-001,2024-01-01,2024-01-31,100,116';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importInvoices(req, res, next);
       expect(res.json).toHaveBeenCalledWith({ data: { imported: 1, total: 1, errors: [] } });
+    });
+
+    test('rejects a client that does not belong to the org', async () => {
+      invoiceImportMock(null); // clients lookup returns no row
+      const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,total\n999,INV-X,2024-01-01,2024-01-31,100,116';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const result = res.json.mock.calls[0][0].data;
+      expect(result.imported).toBe(0);
+      expect(result.errors[0].error).toMatch(/not found in this organization/);
+      expect(db.query.mock.calls.some(c => /INSERT INTO invoices/.test(c[0]))).toBe(false);
     });
 
     test('validates required fields', async () => {
@@ -671,28 +689,39 @@ describe('importController', () => {
     });
 
     test('defaults status to draft when not provided', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
+      invoiceImportMock();
       const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-004,2024-01-01,2024-01-31';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importInvoices(req, res, next);
-      const callArgs = db.query.mock.calls[0][1];
+      const callArgs = db.query.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]))[1];
       expect(callArgs[callArgs.length - 1]).toBe('draft');
     });
 
     test('calculates tax_amount and total from subtotal and tax_rate', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
+      invoiceImportMock();
       const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,tax_rate\n1,INV-005,2024-01-01,2024-01-31,100,0.16';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importInvoices(req, res, next);
-      const args = db.query.mock.calls[0][1];
-      expect(args[5]).toBe(100);   // subtotal
-      expect(args[6]).toBe(0.16);  // tax_rate
-      expect(args[7]).toBe(16);    // tax_amount
-      expect(args[8]).toBe(116);   // total
+      // INSERT params: (organization_id, client_id, contract_id, invoice_number,
+      //                 issue_date, due_date, subtotal, tax_rate, tax_amount, total, notes, status)
+      const args = db.query.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]))[1];
+      expect(args[0]).toBe(1);     // organization_id (req.orgId) — was previously OMITTED
+      expect(args[6]).toBe(100);   // subtotal
+      expect(args[7]).toBe(0.16);  // tax_rate
+      expect(args[8]).toBe(16);    // tax_amount
+      expect(args[9]).toBe(116);   // total
     });
 
     test('tracks db errors per row', async () => {
-      db.query.mockRejectedValueOnce(new Error('duplicate key')).mockResolvedValueOnce([{ insertId: 2 }]);
+      let inserts = 0;
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ tax_exempt: 0 }]]);
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[]]);
+        inserts += 1;
+        return inserts === 1
+          ? Promise.reject(new Error('duplicate key'))
+          : Promise.resolve([{ insertId: 2 }]);
+      });
       const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-DUP,2024-01-01,2024-01-31\n2,INV-006,2024-01-01,2024-01-31';
       const { req, res, next } = mockReqRes({ body: { csv } });
       await importInvoices(req, res, next);
@@ -714,7 +743,11 @@ describe('importController', () => {
     });
 
     test('imports invoices from a CSV file buffer', async () => {
-      db.query.mockResolvedValue([{ insertId: 1 }]);
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ tax_exempt: 0 }]]);
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[]]);
+        return Promise.resolve([{ insertId: 1 }]);
+      });
       const csv = 'client_id,invoice_number,issue_date,due_date\n1,INV-007,2024-01-01,2024-01-31';
       const { req, res, next } = mockReqRes({
         file: { buffer: Buffer.from(csv), originalname: 'invoices.csv' },

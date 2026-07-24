@@ -30,14 +30,21 @@ const { drawdownForSale } = require('./inventoryDrawdownService');
  * @returns {Promise<{rate:number, taxRateId:(number|null), exempt:boolean}>}
  */
 async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null }) {
+  // The client row also tells us its own locale — used as an MX signal for the
+  // safety net below so single-tenant installs (organization_id NULL, where
+  // Organization.getLocale can't resolve an org) still charge IVA on Mexican
+  // clients. Org-scoped so a stray/foreign clientId reads as "not exempt".
+  let clientIsMx = false;
   if (clientId) {
-    // Org-scoped so a stray/foreign clientId reads as "not exempt" (taxed)
-    // rather than picking up another tenant's flag.
-    const [crows] = await exec('SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? LIMIT 1', [clientId, orgId]);
+    const [crows] = await exec(
+      'SELECT tax_exempt, locale FROM clients WHERE id = ? AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL)) LIMIT 1',
+      [clientId, orgId, orgId],
+    );
     const c = crows[0];
     if (c && (c.tax_exempt === 1 || c.tax_exempt === true)) {
       return { rate: 0, taxRateId: null, exempt: true };
     }
+    clientIsMx = c ? c.locale === 'MX' : false;
   }
 
   const [rates] = await exec(
@@ -50,9 +57,12 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   const r = rates[0];
   if (r) return { rate: parseFloat(r.rate) || 0, taxRateId: r.id, exempt: false };
 
-  const locale = await Organization.getLocale(orgId);
-  if (locale === 'MX') {
-    logger.warn({ orgId }, 'MX org has no active default tax rate — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
+  // No configured rate. Fire the 16% IVA safety net when EITHER the org is
+  // MX-locale OR (single-tenant / unresolved org) the client itself is MX —
+  // so a Mexican invoice is never silently 0%.
+  const orgIsMx = orgId !== undefined && orgId !== null && (await Organization.getLocale(orgId)) === 'MX';
+  if (orgIsMx || clientIsMx) {
+    logger.warn({ orgId, clientIsMx }, 'No active default tax rate for an MX billing context — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
     return { rate: 0.16, taxRateId: null, exempt: false };
   }
   return { rate: 0, taxRateId: null, exempt: false };

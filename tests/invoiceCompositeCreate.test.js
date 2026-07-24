@@ -146,6 +146,19 @@ describe('POST /api/v1/invoices (composite create)', () => {
     expect(lastConn.commit).not.toHaveBeenCalled();
   });
 
+  test('rejects a taxed invoice for an IVA-exempt client (422 CLIENT_TAX_EXEMPT)', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM clients/.test(sql)) return [[{ tax_exempt: 1 }]];
+      if (/SELECT \* FROM invoices WHERE id/.test(sql)) return [[{ id: 900 }]];
+      return [[]];
+    });
+    // BASE carries tax_amount 16 (> 0) for an exempt client → rejected before any write.
+    const res = await request(app).post('/api/v1/invoices').send({ ...BASE });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
+    expect(lastConn.commit).not.toHaveBeenCalled();
+  });
+
   test('itemless create still works (plain invoice)', async () => {
     const res = await request(app).post('/api/v1/invoices').send(BASE);
     expect(res.status).toBe(201);
