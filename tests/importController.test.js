@@ -712,6 +712,33 @@ describe('importController', () => {
       expect(args[9]).toBe(116);   // total
     });
 
+    test('an IVA-exempt client is forced to 0% and the total is recomputed (never a tax-inclusive total)', async () => {
+      invoiceImportMock({ tax_exempt: 1 });
+      const csv = 'client_id,invoice_number,issue_date,due_date,subtotal,tax_rate,tax_amount,total\n1,INV-EX,2024-01-01,2024-01-31,100,0.16,16,116';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const args = db.query.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]))[1];
+      expect(args[7]).toBe(0);    // tax_rate forced 0
+      expect(args[8]).toBe(0);    // tax_amount forced 0
+      expect(args[9]).toBe(100);  // total recomputed = subtotal (NOT the CSV's 116)
+    });
+
+    test('no tax in the CSV for a MX org → 16% IVA default is applied', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM clients/.test(sql)) return Promise.resolve([[{ tax_exempt: 0, locale: 'global' }]]);
+        if (/FROM tax_rates/.test(sql)) return Promise.resolve([[]]);                    // no configured default
+        if (/FROM organizations/.test(sql)) return Promise.resolve([[{ locale: 'MX' }]]); // getLocale → MX
+        return Promise.resolve([{ insertId: 1 }]);
+      });
+      const csv = 'client_id,invoice_number,issue_date,due_date,subtotal\n1,INV-MX,2024-01-01,2024-01-31,100';
+      const { req, res, next } = mockReqRes({ body: { csv } });
+      await importInvoices(req, res, next);
+      const args = db.query.mock.calls.find(c => /INSERT INTO invoices/.test(c[0]))[1];
+      expect(args[7]).toBe(0.16); // MX default rate
+      expect(args[8]).toBe(16);   // 100 × 0.16
+      expect(args[9]).toBe(116);  // subtotal + tax
+    });
+
     test('tracks db errors per row', async () => {
       let inserts = 0;
       db.query.mockImplementation((sql) => {
