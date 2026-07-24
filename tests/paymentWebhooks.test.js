@@ -333,6 +333,10 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(result.status).toBe('processed');
       expect(result.newStatus).toBe('succeeded');
       expect(result.transactionId).toBe(100);
+      // The post-match UPDATE must NOT re-home organization_id — that would move a
+      // global-route row out of its dedup partition and let redeliveries reprocess.
+      const upd = db.query.mock.calls.find(c => /UPDATE webhook_events SET transaction_id/.test(c[0]));
+      expect(upd[0]).not.toMatch(/organization_id/);
     });
 
     test('processes Stripe payment_intent.payment_failed event', async () => {
@@ -449,9 +453,9 @@ describe('Payment Webhooks & Idempotency', () => {
       });
 
       expect(result.status).not.toBe('duplicate'); // org 5 owning the same id would not block org 6
-      // the dedup SELECT and the INSERT are org-scoped
+      // the dedup SELECT is scoped to the org_dedup partition and the INSERT sets org
       const dedup = db.query.mock.calls.find(c => /SELECT id, status FROM webhook_events/.test(c[0]));
-      expect(dedup[0]).toMatch(/organization_id <=> \?/);
+      expect(dedup[0]).toMatch(/org_dedup = \?/);
       expect(dedup[1]).toEqual(['stripe', 'evt_shared_acct', 6]);
       const ins = db.query.mock.calls.find(c => /INSERT INTO webhook_events/.test(c[0]));
       expect(ins[1][0]).toBe(6); // organization_id set at insert
