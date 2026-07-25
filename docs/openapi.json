@@ -7195,6 +7195,52 @@
         }
       }
     },
+    "/credit-notes/{id}/stamp": {
+      "post": {
+        "tags": [
+          "Credit Notes"
+        ],
+        "summary": "Convert an MX-org credit note into a CFDI de Egreso (tipo E, related to the credited invoice via TipoRelacion 01) and stamp it via the org PAC; 200 with stamped:false + stamp_error on retryable PAC failure",
+        "operationId": "stampCreditNote",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "creditNotes_stampCreditNote (optional uso_cfdi, forma_pago)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ cfdi_document_id, serie, uuid, sat_status, stamped }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/quotes": {
       "get": {
         "tags": [
@@ -55474,6 +55520,19 @@
           "unit_price",
           "amount"
         ]
+      },
+      "creditNotes_stampCreditNote": {
+        "type": "object",
+        "properties": {
+          "uso_cfdi": {
+            "type": "string",
+            "maximum": 4
+          },
+          "forma_pago": {
+            "type": "string",
+            "maximum": 2
+          }
+        }
       },
       "csdCertificates_uploadCsdCertificate": {
         "type": "object",

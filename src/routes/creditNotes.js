@@ -9,8 +9,10 @@ const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { requireMxLocale } = require('../middleware/orgLocale');
 const { validate } = require('../middleware/validate');
-const { createCreditNote, updateCreditNote, createCreditNoteItem } = require('../middleware/schemas/creditNotes');
+const { createCreditNote, updateCreditNote, createCreditNoteItem, stampCreditNote } = require('../middleware/schemas/creditNotes');
+const creditNoteCfdiService = require('../services/creditNoteCfdiService');
 const db = require('../config/database');
 
 const router = Router();
@@ -60,6 +62,27 @@ router.post('/', requirePermission('credit_notes.create'), validate(createCredit
 router.put('/:id', requirePermission('credit_notes.update'), validate(updateCreditNote), ctrl.update);
 router.delete('/:id', requirePermission('credit_notes.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('credit_notes.update'), ctrl.restore);
+
+// Stamp as CFDI de Egreso: convert this credit note into a tipo-E CFDI related
+// (TipoRelacion 01) to the credited invoice's vigente CFDI and submit it to the
+// org's PAC. MX-locale orgs only; permission mirrors direct CFDI creation. The
+// service enforces every fiscal precondition (org+client MX profiles, stampable
+// status, a vigente related ingreso, single-CFDI-per-credit-note) with
+// actionable 4xx errors.
+router.post('/:id/stamp', requireMxLocale, requirePermission('cfdi_documents.create'), validate(stampCreditNote), async (req, res, next) => {
+  try {
+    const result = await creditNoteCfdiService.stampCreditNote(req.params.id, req.orgId, {
+      uso_cfdi: req.body.uso_cfdi,
+      forma_pago: req.body.forma_pago,
+      userId: req.user?.id,
+    });
+    // Always 200: the conversion itself succeeded. `stamped: false` +
+    // `stamp_error` reports a retryable PAC failure (doc stays 'draft').
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Credit note line items
 router.get('/:id/items', requirePermission('credit_notes.view'), async (req, res, next) => {

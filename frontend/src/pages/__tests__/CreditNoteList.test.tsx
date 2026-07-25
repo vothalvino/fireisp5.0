@@ -8,10 +8,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { CreditNoteList } from '../CreditNoteList';
 
 const mockApiGet = vi.fn();
+const mockAuthedFetch = vi.fn();
 vi.mock('@/auth/useOrgCurrency', () => ({ useOrgCurrency: () => 'MXN' }));
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'a@b.c', organization_locale: 'MX' } }),
+}));
 
 vi.mock('@/api/client', () => ({
   api: { GET: (...args: unknown[]) => mockApiGet(...args) },
+  authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
@@ -54,6 +59,47 @@ describe('CreditNoteList page', () => {
     renderCreditNoteList();
     await waitFor(() => expect(screen.getByText('CN-000001')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('Billing Error')).toBeInTheDocument());
+  });
+
+  it('shows Stamp CFDI only for issued/applied notes linked to an invoice (MX org)', async () => {
+    const issued = { ...note1, id: 2, credit_note_number: 'CN-000002', status: 'issued' };
+    const unlinked = { ...note1, id: 3, credit_note_number: 'CN-000003', status: 'issued', invoice_id: null };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/credit-notes')
+        return Promise.resolve({ data: { data: [note1, issued, unlinked], meta: { total: 3, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderCreditNoteList();
+    await waitFor(() => expect(screen.getByText('CN-000002')).toBeInTheDocument());
+    // note1 is draft, unlinked has no invoice → exactly ONE stamp button (the issued+linked row)
+    expect(screen.getAllByText('🧾 Stamp CFDI')).toHaveLength(1);
+  });
+
+  it('stamps via POST /credit-notes/:id/stamp after confirmation and reports the UUID', async () => {
+    const issued = { ...note1, id: 2, credit_note_number: 'CN-000002', status: 'issued' };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/credit-notes')
+        return Promise.resolve({ data: { data: [issued], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { cfdi_document_id: 950, uuid: 'AAAA-1111', sat_status: 'vigente', stamped: true } }),
+    });
+    renderCreditNoteList();
+    await waitFor(() => expect(screen.getByText('🧾 Stamp CFDI')).toBeInTheDocument());
+    screen.getByText('🧾 Stamp CFDI').click();
+    await waitFor(() => expect(screen.getByText('Yes, confirm')).toBeInTheDocument());
+    screen.getByText('Yes, confirm').click();
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/credit-notes/2/stamp',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    await waitFor(() => expect(screen.getByText(/UUID AAAA-1111/)).toBeInTheDocument());
   });
 
   it('shows empty message when no credit notes', async () => {

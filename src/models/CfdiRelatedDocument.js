@@ -6,7 +6,9 @@ const BaseModel = require('./BaseModel');
 
 class CfdiRelatedDocument extends BaseModel {
   static get tableName() { return 'cfdi_related_documents'; }
-  static get fillable() { return ['cfdi_document_id', 'related_uuid', 'tipo_relacion']; }
+  // NOTE: the real column is `relationship_type` (schema.sql / migration 071) —
+  // the old 'tipo_relacion' entry silently dropped the relation type on create.
+  static get fillable() { return ['cfdi_document_id', 'related_uuid', 'relationship_type']; }
   static get hasOrgScope() { return false; }
 }
 

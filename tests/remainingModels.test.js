@@ -85,7 +85,9 @@ describe('CfdiRelatedDocument', () => {
   test('has correct metadata', () => {
     expectModel(CfdiRelatedDocument, {
       tableName: 'cfdi_related_documents',
-      fillableIncludes: ['cfdi_document_id', 'related_uuid', 'tipo_relacion'],
+      // relationship_type is the REAL column (schema/migration 071) — the old
+      // 'tipo_relacion' fillable entry silently dropped the relation type.
+      fillableIncludes: ['cfdi_document_id', 'related_uuid', 'relationship_type'],
       hasOrgScope: false,
     });
   });
