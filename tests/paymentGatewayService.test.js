@@ -264,7 +264,7 @@ describe('paymentGatewayService', () => {
         { secret_key_encrypted: 'enc' },
         {
           amount: 500, currency: 'MXN', description: 'Invoice INV-1',
-          customerName: 'Ada', customerEmail: 'ada@x.com',
+          customerName: 'Ada', customerEmail: 'ada@x.com', customerPhone: '+525512345678',
           successUrl: 'https://app/ok', failureUrl: 'https://app/cancel',
           expiresAt: new Date(1893456000000), metadata: { transaction_id: 42 },
         },
@@ -275,6 +275,7 @@ describe('paymentGatewayService', () => {
       const body = JSON.parse(mockReq.write.mock.calls[0][0]);
       expect(body.checkout.type).toBe('HostedPayment');
       expect(body.checkout.success_url).toBe('https://app/ok');
+      expect(body.customer_info).toEqual({ name: 'Ada', email: 'ada@x.com', phone: '+525512345678' });
       expect(body.checkout.expires_at).toBe(1893456000); // unix seconds
       expect(body.line_items[0].unit_price).toBe(50000);  // cents
       expect(body.metadata.transaction_id).toBe('42');    // metadata stringified

@@ -364,7 +364,7 @@ async function createStripeCheckoutSession(gateway, { amount, currency, descript
  * sandbox-verified here (no Conekta test account on hand) — same posture as the
  * Stripe hosted flow, which also needs a real gateway to prove end-to-end.
  */
-async function createConektaCheckoutSession(gateway, { amount, currency, description, customerName, customerEmail, successUrl, failureUrl, expiresAt, metadata = {} }) {
+async function createConektaCheckoutSession(gateway, { amount, currency, description, customerName, customerEmail, customerPhone, successUrl, failureUrl, expiresAt, metadata = {} }) {
   const https = require('https');
   const secretKey = decrypt(gateway.secret_key_encrypted);
 
@@ -373,8 +373,12 @@ async function createConektaCheckoutSession(gateway, { amount, currency, descrip
     if (v !== null && v !== undefined) stringMeta[k] = String(v);
   }
 
+  // Send everything we have — some Conekta validations expect name + email +
+  // phone on customer_info at order creation; omitting a field we DO have on
+  // file risks a 422 on every checkout.
   const customerInfo = { name: customerName || 'Cliente' };
   if (customerEmail) customerInfo.email = customerEmail;
+  if (customerPhone) customerInfo.phone = customerPhone;
 
   const body = JSON.stringify({
     currency: String(currency || 'MXN').toUpperCase(),

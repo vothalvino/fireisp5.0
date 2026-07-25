@@ -136,12 +136,16 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
     const failureUrl = `${base}/portal/invoices?payment=cancelled`;
 
     // Conekta customer_info (recommended; some methods like cash/bank_transfer
-    // need a name/email).
+    // need name/email/phone — send everything we have on file).
     const [clientRows] = await db.query(
-      'SELECT name, email FROM clients WHERE id = ? AND organization_id = ?',
+      'SELECT name, email, phone FROM clients WHERE id = ? AND organization_id = ?',
       [resolvedClientId, organizationId],
     );
     const client = clientRows[0] || {};
+
+    // Cash (OXXO) vouchers need more runway than a card session — give the
+    // Conekta checkout 72h instead of the generic 24h.
+    const conektaExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
 
     // Pending tx first (provisional ref) so a payable order always has a local
     // record; the real order id replaces the reference below and also rides in
@@ -165,9 +169,10 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
         description: `Invoice ${invoice.invoice_number}`,
         customerName: client.name,
         customerEmail: client.email,
+        customerPhone: client.phone,
         successUrl,
         failureUrl,
-        expiresAt,
+        expiresAt: conektaExpiresAt,
         metadata: { invoice_id: invoiceId, client_id: resolvedClientId, transaction_id: transactionId },
       });
     } catch (err) {
@@ -186,7 +191,7 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
       invoice_number: invoice.invoice_number,
       amount: invoice.total,
       currency: invoice.currency,
-      expires_at: expiresAt.toISOString(),
+      expires_at: conektaExpiresAt.toISOString(),
       payment_url: session.url, // Conekta-hosted checkout page
       provider: 'conekta',
       return_url: returnUrl || null,

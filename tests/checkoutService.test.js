@@ -40,7 +40,7 @@ describe('checkoutService', () => {
       db.query
         .mockResolvedValueOnce([[invoice]])                                                     // SELECT invoice
         .mockResolvedValueOnce([[{ id: 5, provider: 'conekta', secret_key_encrypted: 'enc' }]]) // SELECT gateway
-        .mockResolvedValueOnce([[{ name: 'Ada Lovelace', email: 'ada@x.com' }]])                // SELECT client contact
+        .mockResolvedValueOnce([[{ name: 'Ada Lovelace', email: 'ada@x.com', phone: '+525512345678' }]]) // SELECT client contact
         .mockResolvedValueOnce([{ insertId: 300 }])                                             // INSERT tx (provisional ref)
         .mockResolvedValueOnce([{ affectedRows: 1 }]);                                          // UPDATE gateway_reference_id = ord_...
       paymentGatewayService.createConektaCheckoutSession.mockResolvedValue({
@@ -52,7 +52,7 @@ describe('checkoutService', () => {
       expect(paymentGatewayService.createConektaCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'conekta' }),
         expect.objectContaining({
-          amount: 500, currency: 'MXN', customerEmail: 'ada@x.com',
+          amount: 500, currency: 'MXN', customerEmail: 'ada@x.com', customerPhone: '+525512345678',
           metadata: expect.objectContaining({ transaction_id: 300 }),
         }),
       );
