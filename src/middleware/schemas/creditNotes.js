@@ -34,4 +34,9 @@ const createCreditNoteItem = {
   amount: { type: 'number', required: true, min: 0 },
 };
 
-module.exports = { createCreditNote, updateCreditNote, createCreditNoteItem };
+const stampCreditNote = {
+  uso_cfdi: { type: 'string', max: 4 },
+  forma_pago: { type: 'string', max: 2 },
+};
+
+module.exports = { createCreditNote, updateCreditNote, createCreditNoteItem, stampCreditNote };

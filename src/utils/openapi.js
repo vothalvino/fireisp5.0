@@ -472,6 +472,7 @@ function generateSpec() {
 
       // ---- Credit Notes ----
       ...crudPaths('credit-notes', 'Credit Notes', 'CreditNote'),
+      '/credit-notes/{id}/stamp': { post: { tags: ['Credit Notes'], summary: 'Convert an MX-org credit note into a CFDI de Egreso (tipo E, related to the credited invoice via TipoRelacion 01) and stamp it via the org PAC; 200 with stamped:false + stamp_error on retryable PAC failure', operationId: 'stampCreditNote', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('creditNotes_stampCreditNote (optional uso_cfdi, forma_pago)'), responses: r200('{ cfdi_document_id, serie, uuid, sat_status, stamped }') } },
 
       // ---- Quotes ----
       ...crudPaths('quotes', 'Quotes', 'Quote'),

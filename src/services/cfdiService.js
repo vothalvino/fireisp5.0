@@ -287,8 +287,15 @@ async function generateXml(cfdiDocumentId) {
     impuestos = rows;
   }
 
+  // Related CFDIs (e.g. an egreso relating to the ingreso it credits,
+  // TipoRelacion 01) — emitted as <cfdi:CfdiRelacionados> nodes.
+  const [relacionados] = await db.query(
+    'SELECT related_uuid, relationship_type FROM cfdi_related_documents WHERE cfdi_document_id = ?',
+    [cfdiDocumentId],
+  );
+
   // Build minimal CFDI 4.0 XML structure
-  const xml = buildCfdi40Xml(doc, emisor, conceptos, impuestos);
+  const xml = buildCfdi40Xml(doc, emisor, conceptos, impuestos, relacionados);
 
   // Store the generated XML
   await db.query(
@@ -318,7 +325,24 @@ function informacionGlobalXml(doc, fecha) {
   return `\n  <cfdi:InformacionGlobal Periodicidad="01" Meses="${mes}" Año="${anio}" />`;
 }
 
-function buildCfdi40Xml(doc, emisor, conceptos, impuestos) {
+// CfdiRelacionados: grouped by TipoRelacion (Anexo 20 allows one node per
+// relation type, each holding 1..n related UUIDs). Sequence position matters:
+// after InformacionGlobal, BEFORE Emisor — the XSD is order-strict.
+function cfdiRelacionadosXml(relacionados) {
+  if (!Array.isArray(relacionados) || relacionados.length === 0) return '';
+  const byTipo = new Map();
+  for (const r of relacionados) {
+    const tipo = r.relationship_type || '01';
+    if (!byTipo.has(tipo)) byTipo.set(tipo, []);
+    byTipo.get(tipo).push(r.related_uuid);
+  }
+  return [...byTipo.entries()].map(([tipo, uuids]) => `
+  <cfdi:CfdiRelacionados TipoRelacion="${escapeXml(tipo)}">
+    ${uuids.map(u => `<cfdi:CfdiRelacionado UUID="${escapeXml(u)}" />`).join('\n    ')}
+  </cfdi:CfdiRelacionados>`).join('');
+}
+
+function buildCfdi40Xml(doc, emisor, conceptos, impuestos, relacionados = []) {
   const conceptosXml = conceptos.map(c => {
     const taxes = impuestos.filter(i => i.cfdi_concepto_id === c.id);
     const taxesXml = taxes.length > 0 ? `
@@ -408,7 +432,7 @@ ${optAttrs}
   LugarExpedicion="${escapeXml(emisor.codigo_postal_fiscal)}"
   Moneda="${doc.moneda || 'MXN'}"
   SubTotal="${doc.subtotal || 0}"
-  Total="${doc.total || 0}">${informacionGlobalXml(doc, fecha)}
+  Total="${doc.total || 0}">${informacionGlobalXml(doc, fecha)}${cfdiRelacionadosXml(relacionados)}
   <cfdi:Emisor Rfc="${escapeXml(emisor.rfc)}" Nombre="${escapeXml(emisor.razon_social)}" RegimenFiscal="${escapeXml(emisor.regimen_fiscal)}" />
   <cfdi:Receptor Rfc="${escapeXml(doc.receptor_rfc || '')}" Nombre="${escapeXml(doc.receptor_nombre || '')}" DomicilioFiscalReceptor="${escapeXml(doc.receptor_cp || '')}" RegimenFiscalReceptor="${escapeXml(doc.receptor_regimen || '')}" UsoCFDI="${doc.uso_cfdi || ''}" />
   <cfdi:Conceptos>

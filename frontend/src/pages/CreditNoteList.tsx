@@ -11,7 +11,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { api, authedFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { useOrgCurrency } from '@/auth/useOrgCurrency';
 import {
   styles,
@@ -118,6 +119,28 @@ async function updateCreditNote(id: number, body: Partial<CreditNoteBody>): Prom
 async function deleteCreditNote(id: number): Promise<void> {
   const res = await api.DELETE('/credit-notes/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete credit note');
+}
+
+interface StampResult {
+  cfdi_document_id: number;
+  uuid: string | null;
+  sat_status: string;
+  stamped: boolean;
+  stamp_error?: string;
+}
+
+// Converts the credit note into a CFDI de Egreso and submits it to the org's
+// PAC. 200 with stamped:false + stamp_error = the CFDI was created (draft, XML
+// stored) but the PAC call failed — retryable from /cfdi.
+async function stampCreditNote(id: number): Promise<StampResult> {
+  const res = await authedFetch(`/api/v1/credit-notes/${id}/stamp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const resBody = await res.json().catch(() => ({})) as { data?: StampResult; error?: { message?: string } };
+  if (!res.ok) throw new Error(resBody.error?.message ?? 'Failed to stamp credit note');
+  return resBody.data as StampResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,11 +351,17 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 export function CreditNoteList() {
   const queryClient = useQueryClient();
   const orgCurrency = useOrgCurrency();
+  const { user } = useAuth();
+  // CFDI de Egreso stamping only exists for MX-locale orgs — in a global org a
+  // credit note is simply a credit note and no SAT affordances render.
+  const isMxOrg = user?.organization_locale === 'MX';
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [editNote, setEditNote] = useState<CreditNote | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [stampId, setStampId] = useState<number | null>(null);
+  const [stampMsg, setStampMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const notesQ = useQuery({
     queryKey: ['credit-notes', page, statusFilter],
@@ -348,6 +377,17 @@ export function CreditNoteList() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteCreditNote(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credit-notes'] }),
+  });
+
+  const stampMutation = useMutation({
+    mutationFn: (id: number) => stampCreditNote(id),
+    onSuccess: (result) => {
+      setStampMsg(result.stamped
+        ? { ok: true, text: `CFDI de Egreso stamped — UUID ${result.uuid}` }
+        : { ok: false, text: `CFDI created as draft but the PAC stamp failed: ${result.stamp_error || 'unknown error'}. Retry from the CFDI page.` });
+      queryClient.invalidateQueries({ queryKey: ['credit-notes'] });
+    },
+    onError: (err: Error) => setStampMsg({ ok: false, text: err.message }),
   });
 
   function invalidate() {
@@ -388,6 +428,13 @@ export function CreditNoteList() {
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>Action failed. Please try again.</p>
       )}
 
+      {stampMsg && (
+        <p style={{ color: stampMsg.ok ? '#065f46' : '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+          {stampMsg.text}
+          {stampMsg.ok && <> — view it on the <Link to="/cfdi" style={{ color: 'var(--link)' }}>CFDI page</Link>.</>}
+        </p>
+      )}
+
       <div style={styles.tableCard}>
         {notesQ.isLoading ? (
           <p style={styles.msg}>Loading…</p>
@@ -419,6 +466,16 @@ export function CreditNoteList() {
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditNote(n)} title="Edit this credit note">✏️ Edit</button>
+                        {isMxOrg && (n.status === 'issued' || n.status === 'applied') && n.invoice_id != null && (
+                          <button
+                            style={styles.actionBtn}
+                            onClick={() => setStampId(n.id)}
+                            disabled={stampMutation.isPending}
+                            title="Stamp this credit note as a CFDI de Egreso related to the credited invoice"
+                          >
+                            🧾 Stamp CFDI
+                          </button>
+                        )}
                         <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setDeleteId(n.id)} title="Delete this credit note">🗑 Delete</button>
                       </td>
                     </tr>
@@ -454,6 +511,18 @@ export function CreditNoteList() {
             setDeleteId(null);
           }}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+
+      {stampId !== null && (
+        <ConfirmDialog
+          message="Stamp this credit note as a CFDI de Egreso at SAT? It will be fiscally bound to the credited invoice's CFDI (TipoRelacion 01) and can only be undone via SAT cancellation."
+          onConfirm={() => {
+            setStampMsg(null);
+            stampMutation.mutate(stampId);
+            setStampId(null);
+          }}
+          onCancel={() => setStampId(null)}
         />
       )}
     </div>

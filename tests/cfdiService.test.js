@@ -260,14 +260,39 @@ describe('cfdiService', () => {
         .mockResolvedValueOnce([[doc]])
         .mockResolvedValueOnce([[{ rfc: 'XAXX010101000', razon_social: 'Test SA', regimen_fiscal: '601', codigo_postal_fiscal: '64000' }]]) // org mx profile (emisor)
         .mockResolvedValueOnce([[]])     // no conceptos
+        .mockResolvedValueOnce([[]])     // no related documents
         .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
 
       await cfdiService.generateXml(3);
 
-      const updateCall = db.query.mock.calls[3];
+      const updateCall = db.query.mock.calls[4];
       expect(updateCall[0]).toContain('UPDATE cfdi_documents SET xml_content');
       expect(updateCall[1][1]).toBe('draft');  // sat_status = draft
       expect(updateCall[1][2]).toBe(3);        // cfdiDocumentId
+    });
+
+    test('emits CfdiRelacionados (before Emisor) when the doc has related CFDIs — the egreso path', async () => {
+      const doc = {
+        id: 11, organization_id: 42, sat_status: 'draft', serie: 'NC', folio: '77',
+        forma_pago: '03', metodo_pago: 'PUE', tipo_comprobante: 'E',
+        exportacion: '01', moneda: 'MXN', subtotal: '200.00', total: '232.00', uso_cfdi: 'G02',
+        receptor_rfc: 'XBXX020202000', receptor_nombre: 'Client', receptor_cp: '64000', receptor_regimen: '616',
+      };
+      const relUuid = 'AAAA1111-2222-3333-4444-555566667777';
+      db.query
+        .mockResolvedValueOnce([[doc]])
+        .mockResolvedValueOnce([[{ rfc: 'XAXX010101000', razon_social: 'Test SA', regimen_fiscal: '601', codigo_postal_fiscal: '64000' }]]) // emisor
+        .mockResolvedValueOnce([[{ id: 20, clave_prod_serv: '81161700', cantidad: 1, clave_unidad: 'E48', descripcion: 'Crédito', valor_unitario: '200.00', importe: '200.00', objeto_imp: '02' }]]) // conceptos
+        .mockResolvedValueOnce([[{ cfdi_concepto_id: 20, tax_type: 'traslado', base: '200.00', impuesto: '002', tipo_factor: 'Tasa', tasa_o_cuota: '0.160000', importe: '32.00' }]]) // impuestos
+        .mockResolvedValueOnce([[{ related_uuid: relUuid, relationship_type: '01' }]]) // related documents
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+
+      const result = await cfdiService.generateXml(11);
+      expect(result.xml).toContain('TipoDeComprobante="E"');
+      expect(result.xml).toContain('<cfdi:CfdiRelacionados TipoRelacion="01">');
+      expect(result.xml).toContain(`<cfdi:CfdiRelacionado UUID="${relUuid}" />`);
+      // Anexo 20 sequence: CfdiRelacionados must precede Emisor.
+      expect(result.xml.indexOf('CfdiRelacionados')).toBeLessThan(result.xml.indexOf('<cfdi:Emisor'));
     });
 
     test('generates XML with multiple conceptos', async () => {
