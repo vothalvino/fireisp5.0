@@ -116,3 +116,105 @@ describe('POST /api/v1/credit-notes — currency defaulting', () => {
     expect(ledgerInsert[1]).toContain('EUR');
   });
 });
+
+// =============================================================================
+// Totals-consistency guard — subtotal + tax must equal total at CREATE/UPDATE
+// (the note's total drives the balance ledger + the CFDI de Egreso; before this
+// guard an inconsistent note polluted the books and only failed at stamp time)
+// =============================================================================
+describe('credit note totals-consistency guard', () => {
+  test('POST rejects subtotal + tax ≠ total with 422 and writes NOTHING', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/credit-notes')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({ client_id: 9, invoice_id: 7, subtotal: 100, tax_amount: 16, total: 300 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CREDIT_NOTE_TOTALS_INCONSISTENT');
+    expect(db.query.mock.calls.some((c) => c[0].includes('INSERT INTO'))).toBe(false); // no note, no ledger credit
+  });
+
+  test('POST accepts consistent amounts (100 + 16 = 116)', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (sql.includes('FROM invoices WHERE id')) return Promise.resolve([[{ currency: 'MXN' }]]);
+      if (sql.includes('INSERT INTO `credit_notes`') || sql.includes('INSERT INTO credit_notes')) return Promise.resolve([{ insertId: 8 }]);
+      if (sql.includes('FROM `credit_notes`') || sql.includes('FROM credit_notes')) {
+        return Promise.resolve([[{ id: 8, client_id: 9, invoice_id: 7, total: '116.00', currency: 'MXN', credit_note_number: 'CN-0004' }]]);
+      }
+      if (sql.includes('INSERT INTO client_balance_ledger')) return Promise.resolve([{ insertId: 4 }]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/credit-notes')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({ client_id: 9, invoice_id: 7, subtotal: 100, tax_amount: 16, total: 116 });
+
+    expect(res.status).toBe(201);
+  });
+
+  test('POST with only a total (refund-path shape) is coherent and passes', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (sql.includes('FROM organizations')) return Promise.resolve([[{ currency: 'MXN' }]]);
+      if (sql.includes('INSERT INTO `credit_notes`') || sql.includes('INSERT INTO credit_notes')) return Promise.resolve([{ insertId: 9 }]);
+      if (sql.includes('FROM `credit_notes`') || sql.includes('FROM credit_notes')) {
+        return Promise.resolve([[{ id: 9, client_id: 9, invoice_id: null, total: '75.00', currency: 'MXN', credit_note_number: 'CN-0005' }]]);
+      }
+      if (sql.includes('INSERT INTO client_balance_ledger')) return Promise.resolve([{ insertId: 5 }]);
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/credit-notes')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({ client_id: 9, total: 75 });
+
+    expect(res.status).toBe(201);
+  });
+
+  test('PUT that changes ONE amount cannot sneak the merged row inconsistent', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (sql.includes('FROM `credit_notes`') || sql.includes('FROM credit_notes')) {
+        // existing consistent row 100 + 16 = 116
+        return Promise.resolve([[{ id: 8, client_id: 9, subtotal: '100.00', tax_amount: '16.00', total: '116.00', status: 'draft' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .put('/api/v1/credit-notes/8')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({ total: 500 }); // 100 + 16 ≠ 500
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CREDIT_NOTE_TOTALS_INCONSISTENT');
+    expect(db.query.mock.calls.some((c) => c[0].includes('UPDATE `credit_notes`') || c[0].includes('UPDATE credit_notes'))).toBe(false);
+  });
+
+  test('PUT can deliberately FIX an inconsistent legacy row', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (sql.includes('UPDATE `credit_notes`') || sql.includes('UPDATE credit_notes')) return Promise.resolve([{ affectedRows: 1 }]);
+      if (sql.includes('FROM `credit_notes`') || sql.includes('FROM credit_notes')) {
+        // legacy inconsistent row 100 + 16 = 300; the PUT corrects total to 116
+        return Promise.resolve([[{ id: 10, client_id: 9, subtotal: '100.00', tax_amount: '16.00', total: '300.00', status: 'draft' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const res = await request(app)
+      .put('/api/v1/credit-notes/10')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({ total: 116 });
+
+    expect(res.status).toBe(200);
+  });
+});

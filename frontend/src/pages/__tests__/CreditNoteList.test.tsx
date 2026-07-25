@@ -2,12 +2,13 @@
 // FireISP 5.0 — CreditNoteList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { CreditNoteList } from '../CreditNoteList';
+import { CreditNoteList, CreditNoteModal } from '../CreditNoteList';
 
 const mockApiGet = vi.fn();
+const mockApiPost = vi.fn();
 const mockAuthedFetch = vi.fn();
 vi.mock('@/auth/useOrgCurrency', () => ({ useOrgCurrency: () => 'MXN' }));
 vi.mock('@/auth/AuthContext', () => ({
@@ -15,7 +16,10 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/client', () => ({
-  api: { GET: (...args: unknown[]) => mockApiGet(...args) },
+  api: {
+    GET: (...args: unknown[]) => mockApiGet(...args),
+    POST: (...args: unknown[]) => mockApiPost(...args),
+  },
   authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
@@ -100,6 +104,24 @@ describe('CreditNoteList page', () => {
       expect.objectContaining({ method: 'POST' }),
     ));
     await waitFor(() => expect(screen.getByText(/UUID AAAA-1111/)).toBeInTheDocument());
+  });
+
+  it('surfaces the backend totals-consistency 422 message in the create modal', async () => {
+    mockApiPost.mockResolvedValue({
+      data: undefined,
+      error: { error: { code: 'CREDIT_NOTE_TOTALS_INCONSISTENT', message: 'Credit note amounts are inconsistent: subtotal (100.00) + tax (16.00) must equal total (300.00).' } },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <CreditNoteModal creditNote={null} clients={[client1]} onClose={() => {}} onSaved={() => {}} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: '10' } }); // Client select
+    fireEvent.click(screen.getByText('Create Credit Note'));
+    await waitFor(() => expect(screen.getByText(/must equal total \(300\.00\)/)).toBeInTheDocument());
   });
 
   it('shows empty message when no credit notes', async () => {
