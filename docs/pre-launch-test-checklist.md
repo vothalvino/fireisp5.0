@@ -5,7 +5,7 @@ Manual / integration tests that only surface against a **real environment or ext
 **Status:** ✅ tested · 🟡 sandbox-only (needs production/real config) · ⚪ unit-only (code path tested, never run for real) · ⬜ untested.  
 **Priority:** 🔴 P0 = launch blocker · 🟠 P1 = important · 🟢 P2 = nice-to-have.
 
-> The four you named map as: **SW** + **Finkok** = 🟡 sandbox-tested (stamp proven with TEST CSDs; still need a *production* PAC contract + a *real* CSD, and Finkok's cancel format defect is open). **WhatsApp** + **Stripe checkout** = ⚪ built & unit-tested, never run against a real provider yet.
+> The four you named map as: **SW** + **Finkok** = 🟡 sandbox-tested (stamp AND cancel proven with TEST CSDs — the old Finkok cancel-format defect was resolved by PR #494; still need a *production* PAC contract + a *real* CSD). **WhatsApp** + **Stripe checkout** = ⚪ built & unit-tested, never run against a real provider yet.
 
 ## Payments & billing
 
@@ -68,10 +68,10 @@ Manual / integration tests that only surface against a **real environment or ext
   - **Run:** With ENCRYPTION_KEY set in the production env, upload the org's real CSD; inspect the DB and confirm key_pem_encrypted/passphrase_encrypted are CIPHERTEXT (not plaintext), then stamp and confirm the key decrypts and signs. Then (a) boot prod with ENCRYPTION_KEY UNSET → upload must 422 ENCRYPTION_REQUIRED; (b) rotate/lose ENCRYPTION_KEY and confirm the failure mode when an existing CSD can no longer be decrypted.
   - **Why:** encryption.encrypt() is a transparent no-op without ENCRYPTION_KEY, so a prod install missing the key would store the CSD PRIVATE KEY in plaintext — the NODE_ENV=production hard-stop is the only thing preventing that and it only triggers in production. A wrong/rotated key makes every stamp fail at decrypt with no data-loss warning. Only surfaces with a real key + real CSD in a real container.
   - **Needs:** Production deploy with ENCRYPTION_KEY (64-char hex), the org's real CSD, and DB access to inspect stored ciphertext
-- [ ] **Finkok cancellation — the open signature-format defect — end-to-end**  —  🟠 P1 · ⬜ untested
-  - **Run:** Stamp via Finkok, then cancel through Finkok for motivo 02 (no relation) and motivo 01 (with folioSustitucion). Confirm SAT returns EstatusUUID 201/202 and a real acuse is stored and the invoice syncs to cancelled.
-  - **Why:** OPEN ISSUE: Finkok cancel has NEVER succeeded even in sandbox — the cer/key path returns 'wrong signature length' and the xmldsig path 'Invalid Signature' (xml-crypto won't emit the enveloped URI="" SAT needs). Failover to SW masks it in the live walk, but an org running Finkok as its SOLE PAC cannot cancel ANY invoice — a legal requirement in MX. It looks healthy because stamping works; the break only appears on the first cancellation attempt.
-  - **Needs:** Real Finkok WS creds + CSD, and resolution of the cer/key vs xmldsig cancel format with Finkok support
+- [ ] **Finkok cancellation end-to-end (production)**  —  🟠 P1 · 🟡 sandbox-only
+  - **Run:** Stamp via Finkok production, then cancel through Finkok for motivo 02 (no relation) and motivo 01 (with folioSustitucion). Confirm SAT returns EstatusUUID 201/202 and a real acuse is stored and the invoice syncs to cancelled.
+  - **Why:** The old signature-format defect ('wrong signature length' / 'Invalid Signature') was RESOLVED by PR #494 (Finkok's cancel wants base64 of PEM cer + the DECRYPTED key as unencrypted PKCS#8 PEM, and a self-closing `apps:UUID` element) and is **sandbox-proven twice** — 2026-07-22 (#494's own walk) and re-proven 2026-07-25 (UUID 9EA26552… cancelled via Finkok, EstatusUUID 201, acuse persisted, doc → cancelado). Production host + a real CSD have never exercised it, and motivo 01 (with folioSustitucion) hasn't been walked even in sandbox.
+  - **Needs:** Real Finkok WS creds (production, API-enabled) + the org's real CSD
 - [ ] **SW production cancellation (inline-CSD) with a real acuse + bookkeeping sync**  —  🟠 P1 · 🟡 sandbox-only
   - **Run:** Stamp via SW prod, then cancel via /cfdi33/cancel/csd using the org's real CSD material (b64 DER cer/key + passphrase). Verify EstatusUUID 201/202, the acuse is stored, the invoice auto-transitions to cancelled, allocations/money are released, and a REP'd invoice cancels its complement FIRST.
   - **Why:** SW cancel is sandbox-verified (201) only. Production signs the real Solicitud de Cancelación with the real CSD; a passphrase or DER-encoding mismatch surfaces only against SAT prod. Critically, syncInvoiceCancelled → cancelInvoiceForSat is best-effort/non-fatal: a sync failure after SAT accepts leaves a SAT-cancelled invoice still sitting in receivables and every financial report, diverging the books from SAT silently.
