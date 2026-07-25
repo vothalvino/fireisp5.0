@@ -6188,6 +6188,12 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     is_default          TINYINT(1)          NOT NULL DEFAULT 0         COMMENT 'TRUE = preferred profile for autopay',
     status              ENUM('active','expired','revoked')
                                             NOT NULL DEFAULT 'active'  COMMENT 'Profile lifecycle status',
+    default_guard       VARCHAR(64)
+                        GENERATED ALWAYS AS (
+                          CASE WHEN is_default = 1 AND status = 'active'
+                               THEN CONCAT(client_id, '-', payment_gateway_id)
+                               ELSE NULL END
+                        ) STORED                                       COMMENT 'One active default per (client, gateway): unique key, NULL when not an active default (migration 423)',
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -6197,6 +6203,7 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     KEY idx_recurring_profiles_gateway_id (payment_gateway_id),
     KEY idx_recurring_profiles_status (status),
     KEY idx_recurring_payment_profiles_deleted_at (deleted_at),
+    UNIQUE KEY uq_recurring_profiles_default_guard (default_guard),
     CONSTRAINT fk_recurring_profiles_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)

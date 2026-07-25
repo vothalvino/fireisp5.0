@@ -406,15 +406,16 @@ describe('Payment Webhooks & Idempotency', () => {
       const payload = {
         id: 'evt_setup',
         type: 'checkout.session.completed',
-        data: { object: { id: 'cs_setup', mode: 'setup', metadata: { client_id: '7' } } },
+        data: { object: { id: 'cs_setup', mode: 'setup', metadata: { client_id: '7', gateway_id: '5', organization_id: '42' } } },
       };
       const spy = jest.spyOn(paymentGatewayService, 'retrieveStripeCheckoutSession')
-        .mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', metadata: { client_id: 7 } });
+        .mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', card: null, metadata: { client_id: 7 } });
 
       db.query
         .mockResolvedValueOnce([[]])                                                   // dup
         .mockResolvedValueOnce([{ insertId: 40 }])                                     // INSERT webhook_events
-        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'e' }]]) // gateway (completeEnrollment)
+        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 42, secret_key_encrypted: 'e' }]]) // gateway (loadStripeGatewayById)
+        .mockResolvedValueOnce([[{ id: 7 }]])                                          // client belongs to gateway org
         .mockResolvedValueOnce([{ affectedRows: 1 }])                                  // clear other defaults
         .mockResolvedValueOnce([{ insertId: 30 }])                                     // INSERT profile
         .mockResolvedValueOnce([{ affectedRows: 1 }]);                                 // UPDATE webhook_events processed

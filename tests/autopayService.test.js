@@ -45,22 +45,64 @@ describe('startEnrollment', () => {
 });
 
 describe('completeEnrollment', () => {
-  it('stores the saved card as the default recurring profile', async () => {
+  it('resolves the gateway from the session metadata and stores the card as the default profile', async () => {
     db.query
-      .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'e' }]]) // gateway
+      .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 1, secret_key_encrypted: 'e' }]]) // loadStripeGatewayById
+      .mockResolvedValueOnce([[{ id: 7 }]])           // client belongs to gateway org
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // clear other defaults
       .mockResolvedValueOnce([{ insertId: 30 }]);     // INSERT profile
-    pg.retrieveStripeCheckoutSession.mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', metadata: { client_id: 7 } });
+    pg.retrieveStripeCheckoutSession.mockResolvedValue({
+      mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1',
+      card: { brand: 'visa', last4: '4242', expMonth: 12, expYear: 2030 },
+      metadata: { client_id: 7 },
+    });
 
-    await autopay.completeEnrollment({ sessionId: 'cs_setup', organizationId: 1 });
+    await autopay.completeEnrollment({ sessionId: 'cs_setup', organizationId: 1, metadata: { gateway_id: '5', organization_id: '1', client_id: '7' } });
 
+    // gateway resolved by id (metadata), not org-resolve
+    expect(db.query.mock.calls[0][0]).toMatch(/WHERE id = \? AND provider = 'stripe'/);
+    expect(db.query.mock.calls[0][1]).toEqual([5]);
     const ins = db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]));
     expect(ins).toBeTruthy();
-    expect(ins[1]).toEqual([7, 5, 'pm_1', 'cus_1']); // client, gateway, pm (token_reference), customer
+    // client, gateway, pm (token_reference), customer, brand, last4, exp month/year
+    expect(ins[1]).toEqual([7, 5, 'pm_1', 'cus_1', 'visa', '4242', 12, 2030]);
+  });
+
+  it('enrolls on the global env-var webhook route (no organizationId) via the session metadata gateway', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 1, secret_key_encrypted: 'e' }]]) // loadStripeGatewayById
+      .mockResolvedValueOnce([[{ id: 7 }]])           // ownership
+      .mockResolvedValueOnce([{ affectedRows: 1 }])   // clear
+      .mockResolvedValueOnce([{ insertId: 31 }]);     // INSERT
+    pg.retrieveStripeCheckoutSession.mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', card: null, metadata: { client_id: 7 } });
+
+    await autopay.completeEnrollment({ sessionId: 'cs_setup', organizationId: undefined, metadata: { gateway_id: '5', organization_id: '1', client_id: '7' } });
+
+    expect(db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]))).toBeTruthy();
+  });
+
+  it('drops the enrollment when the client does not belong to the gateway org', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 1, secret_key_encrypted: 'e' }]]) // gateway
+      .mockResolvedValueOnce([[]]);                   // ownership → no matching client
+    pg.retrieveStripeCheckoutSession.mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', card: null, metadata: { client_id: 999 } });
+    await autopay.completeEnrollment({ sessionId: 'x', organizationId: 1, metadata: { gateway_id: '5' } });
+    expect(db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]))).toBeFalsy();
+  });
+
+  it('swallows a duplicate-key race from a concurrent completion', async () => {
+    const dup = Object.assign(new Error('dup'), { code: 'ER_DUP_ENTRY' });
+    db.query
+      .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 1, secret_key_encrypted: 'e' }]]) // gateway
+      .mockResolvedValueOnce([[{ id: 7 }]])           // ownership
+      .mockResolvedValueOnce([{ affectedRows: 1 }])   // clear
+      .mockRejectedValueOnce(dup);                    // INSERT trips the unique guard
+    pg.retrieveStripeCheckoutSession.mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', card: null, metadata: { client_id: 7 } });
+    await expect(autopay.completeEnrollment({ sessionId: 'x', organizationId: 1, metadata: { gateway_id: '5' } })).resolves.toBeUndefined();
   });
 
   it('does nothing when the setup session yielded no payment method', async () => {
-    db.query.mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'e' }]]);
+    db.query.mockResolvedValueOnce([[{ id: 5, provider: 'stripe', organization_id: 1, secret_key_encrypted: 'e' }]]); // gateway (org-resolve fallback)
     pg.retrieveStripeCheckoutSession.mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: null, metadata: { client_id: 7 } });
     await autopay.completeEnrollment({ sessionId: 'x', organizationId: 1 });
     expect(db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]))).toBeFalsy();

@@ -184,7 +184,9 @@ export function PortalAccount() {
           <div>
             <p style={styles.muted}>
               ✅ Autopay is on
-              {autopay.data.profile?.card_last_four ? ` — card ending ${autopay.data.profile.card_last_four}` : ''}. Your invoices are charged automatically.
+              {autopay.data.profile?.card_last_four
+                ? ` — ${autopay.data.profile.card_brand ? `${autopay.data.profile.card_brand} ` : ''}card ending ${autopay.data.profile.card_last_four}`
+                : ''}. Your invoices are charged automatically.
             </p>
             <button style={styles.cancelBtn} onClick={() => autopayDisableMutation.mutate()}>Turn off autopay</button>
           </div>

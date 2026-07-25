@@ -138,7 +138,7 @@ async function storeIdempotencyKey(organizationId, key, statusCode, responseBody
  * If an idempotencyKey is provided and a cached result exists, the cached
  * result is returned instead of charging again.
  */
-async function charge({ organizationId, clientId, amount, currency, description, paymentMethodToken, customer, offSession, idempotencyKey }) {
+async function charge({ organizationId, clientId, amount, currency, description, paymentMethodToken, customer, offSession, invoiceId, idempotencyKey }) {
   // --- Idempotency check ---
   if (idempotencyKey) {
     const cached = await checkIdempotencyKey(organizationId, idempotencyKey);
@@ -161,13 +161,17 @@ async function charge({ organizationId, clientId, amount, currency, description,
   // the webhook handler), so the pending row carries a provisional reference.
   // The description survives in raw_request.
   const provisionalRef = `pending:${idempotencyKey || crypto.randomUUID()}`;
+  // invoice_id links the charge to the exact invoice it settles (autopay / any
+  // caller that knows the target) so reconcilePayment credits THAT invoice via
+  // the explicit-linkage path instead of the oldest-issued-amount heuristic,
+  // which mis-attributes when a client has two equal-total issued invoices.
   const [txResult] = await db.query(
     `INSERT INTO payment_transactions
      (organization_id, payment_gateway_id, client_id, amount, currency,
-      gateway_reference_id, gateway_status, idempotency_key, raw_request)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      gateway_reference_id, gateway_status, invoice_id, idempotency_key, raw_request)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     [organizationId, gateway.id, clientId, amount, currency || 'MXN',
-      provisionalRef, idempotencyKey || null,
+      provisionalRef, invoiceId || null, idempotencyKey || null,
       JSON.stringify({ description: description || null, amount, currency: currency || 'MXN' })],
   );
 
@@ -412,11 +416,22 @@ async function createStripeSetupSession(gateway, { customerId, successUrl, cance
  */
 async function retrieveStripeCheckoutSession(gateway, sessionId) {
   const secretKey = decrypt(gateway.secret_key_encrypted);
-  const data = await stripeRequest(secretKey, 'GET', `/v1/checkout/sessions/${sessionId}?expand[]=setup_intent`, null);
+  // Expand setup_intent.payment_method so we get the card brand/last4/expiry
+  // inline (to display "Visa ending 4242" on the autopay card) alongside the pm id.
+  const data = await stripeRequest(secretKey, 'GET', `/v1/checkout/sessions/${sessionId}?expand[]=setup_intent.payment_method`, null);
+  const pm = data.setup_intent?.payment_method;
+  const pmId = typeof pm === 'string' ? pm : (pm?.id || null);
+  const card = (pm && typeof pm === 'object') ? pm.card : null;
   return {
     mode: data.mode,
     customer: typeof data.customer === 'string' ? data.customer : (data.customer?.id || null),
-    paymentMethod: data.setup_intent?.payment_method || null,
+    paymentMethod: pmId,
+    card: card ? {
+      brand: card.brand || null,
+      last4: card.last4 || null,
+      expMonth: card.exp_month || null,
+      expYear: card.exp_year || null,
+    } : null,
     metadata: data.metadata || {},
   };
 }
@@ -777,7 +792,16 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
     if (provider === 'stripe' && eventType === 'checkout.session.completed' && payload.data?.object?.mode === 'setup') {
       try {
         const autopayService = require('./autopayService');
-        await autopayService.completeEnrollment({ sessionId: payload.data.object.id, organizationId });
+        const setupObj = payload.data.object;
+        // Pass the session's OWN metadata (organization_id + gateway_id, set at
+        // enrollment) so completeEnrollment can resolve the exact gateway. The
+        // global env-var route arrives with organizationId=undefined — without
+        // the metadata the enrollment would be silently dropped.
+        await autopayService.completeEnrollment({
+          sessionId: setupObj.id,
+          organizationId,
+          metadata: setupObj.metadata || {},
+        });
       } catch (enrollErr) {
         logger.error({ enrollErr }, 'Autopay enrollment from setup session failed');
       }
