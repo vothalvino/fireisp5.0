@@ -218,3 +218,31 @@ Deltas from the design above, decided during implementation + adversarial review
   linking code instead.
 - **Bot copy is English** (in a `MESSAGES` map for easy localization later);
   Spanish/i18n is a follow-up.
+
+## 10. Implementation notes (as built — PR 2: read-only capabilities)
+
+- A bound client now gets a **numbered menu** (1 balance · 2 plan/service · 3 invoices ·
+  4 report a problem · 5 talk to a human) instead of the PR-1 placeholder. Intent is
+  parsed by number **or** keyword, EN + ES (`saldo`/`plan`/`factura`/`problema`/`agente`).
+- **`whatsapp_conversation_state`** (migration 419, one row per phone, ~15-min TTL) backs the
+  multi-turn **report-a-problem** flow: pick which service (only when the client has >1 active
+  contract — the multi-contract picker the design called for) → describe it → a **client-level
+  technical ticket** is opened (same shape as the portal). `MENU`/`cancel` escapes any flow.
+- Read answers reuse the portal's exact data sources: `computeClientBalance` (+ next due date),
+  the active-contract/plan query, and recent invoices. **Copies are never dumped in chat** — this
+  phase only summarizes; full invoice/CFDI delivery to email is a later add.
+- "Talk to a human" opens a general ticket flagged as a WhatsApp handoff (staff pick it up).
+- Still **read + report only** — no balance-changing or credential actions (those are PR 3, gated
+  behind step-up). Tier-0 public info (plans/hours for an *unbound* sender) is deferred: it needs
+  an org-resolution story (which ISP?), which the single-business-number model doesn't yet provide.
+- **Review hardening:** conversation state is validated against the current binding's `client_id`
+  (and cleared on rebind/revoke) so a recycled/re-linked number can never carry a prior client's
+  contract into a new client's ticket; the bound path has its own per-phone throttle + a per-client
+  WhatsApp-ticket cap (anti ticket-flood); the chosen contract is written to `tickets.contract_id`;
+  a batch's messages are processed sequentially so a same-sender burst can't race the ticket cap.
+  Accepted residual: the ticket cap is check-then-act (not a DB lock), so a cross-*request*
+  concurrent burst could still overshoot 5 slightly — but total creation stays bounded by the
+  40 msg/hr/phone throttle, so it's never unbounded. A DB-atomic cap is a later hardening if needed.
+- **Note:** a problem *description* the customer types is stored verbatim in `tickets.description`
+  (support staff need their actual words) — same as the portal ticket path. Only linking **codes**
+  are redacted (in the inbound audit log), never a free-text ticket body.

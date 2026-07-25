@@ -13940,4 +13940,20 @@ CREATE TABLE IF NOT EXISTS whatsapp_inbound_messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Inbound WhatsApp message audit + dedup (migration 418).';
 
+-- ---------------------------------------------------------------------------
+-- Table: whatsapp_conversation_state (migration 419 — WhatsApp bot multi-turn)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS whatsapp_conversation_state (
+    phone_e164   VARCHAR(20)     NOT NULL,
+    client_id    BIGINT UNSIGNED NULL,
+    state        VARCHAR(40)     NOT NULL COMMENT 'e.g. await_contract_pick, await_problem_desc',
+    context      JSON            NULL     COMMENT 'flow scratch data (contract list, chosen contract, ...)',
+    updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (phone_e164),
+    KEY idx_wa_convstate_client (client_id),
+    CONSTRAINT fk_wa_convstate_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='WhatsApp bot multi-turn conversation state (migration 419) — one in-flight flow per phone, short-lived.';
+
 SET FOREIGN_KEY_CHECKS = 1;
