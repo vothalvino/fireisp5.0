@@ -126,29 +126,82 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
     };
   }
 
-  // Other providers (conekta/manual/...): the existing internal token flow.
-  const token = crypto.randomBytes(32).toString('hex');
-  const gatewayReferenceId = `chk_${token.slice(0, 32)}`;
-  const [result] = await db.query(
-    `INSERT INTO payment_transactions
-     (organization_id, client_id, invoice_id, payment_gateway_id, gateway_reference_id,
-      amount, currency, gateway_status, gateway_response_message, idempotency_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    [organizationId, resolvedClientId, invoiceId, gateway.id, gatewayReferenceId,
-      invoice.total, invoice.currency, `Payment for invoice ${invoice.invoice_number}`, token],
-  );
+  // Conekta: create a REAL order with an embedded HostedPayment checkout and
+  // redirect the client to Conekta's hosted page (card + OXXO cash + SPEI bank
+  // transfer). The order id (ord_...) is stored as the transaction's gateway
+  // reference so the order.paid webhook reconciles it — same as chargeConekta.
+  if (gateway.provider === 'conekta') {
+    const base = (config.appUrl || 'http://localhost:3000').replace(/\/+$/, '');
+    const successUrl = sameOriginUrl(returnUrl, base) || `${base}/portal/invoices?payment=success`;
+    const failureUrl = `${base}/portal/invoices?payment=cancelled`;
 
-  return {
-    checkout_id: result.insertId,
-    token,
-    invoice_id: invoiceId,
-    invoice_number: invoice.invoice_number,
-    amount: invoice.total,
-    currency: invoice.currency,
-    expires_at: expiresAt.toISOString(),
-    payment_url: `${config.appUrl || 'http://localhost:3000'}/pay/${token}`,
-    return_url: returnUrl || null,
-  };
+    // Conekta customer_info (recommended; some methods like cash/bank_transfer
+    // need name/email/phone — send everything we have on file).
+    const [clientRows] = await db.query(
+      'SELECT name, email, phone FROM clients WHERE id = ? AND organization_id = ?',
+      [resolvedClientId, organizationId],
+    );
+    const client = clientRows[0] || {};
+
+    // Cash (OXXO) vouchers need more runway than a card session — give the
+    // Conekta checkout 72h instead of the generic 24h.
+    const conektaExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+
+    // Pending tx first (provisional ref) so a payable order always has a local
+    // record; the real order id replaces the reference below and also rides in
+    // the order metadata for the webhook's transaction_id fallback.
+    const provisionalRef = `pending_conekta_${crypto.randomBytes(8).toString('hex')}`;
+    const [txResult] = await db.query(
+      `INSERT INTO payment_transactions
+       (organization_id, client_id, invoice_id, payment_gateway_id, gateway_reference_id,
+        amount, currency, gateway_status, gateway_response_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [organizationId, resolvedClientId, invoiceId, gateway.id, provisionalRef,
+        invoice.total, invoice.currency, `Checkout for invoice ${invoice.invoice_number}`],
+    );
+    const transactionId = txResult.insertId;
+
+    let session;
+    try {
+      session = await paymentGatewayService.createConektaCheckoutSession(gateway, {
+        amount: parseFloat(invoice.total),
+        currency: invoice.currency,
+        description: `Invoice ${invoice.invoice_number}`,
+        customerName: client.name,
+        customerEmail: client.email,
+        customerPhone: client.phone,
+        successUrl,
+        failureUrl,
+        expiresAt: conektaExpiresAt,
+        metadata: { invoice_id: invoiceId, client_id: resolvedClientId, transaction_id: transactionId },
+      });
+    } catch (err) {
+      await db.query(
+        "UPDATE payment_transactions SET gateway_status = 'failed', gateway_response_message = ? WHERE id = ?",
+        [String(err.message || err).slice(0, 255), transactionId],
+      ).catch(() => {});
+      throw err;
+    }
+
+    await db.query('UPDATE payment_transactions SET gateway_reference_id = ? WHERE id = ?', [session.id, transactionId]);
+
+    return {
+      checkout_id: transactionId,
+      invoice_id: invoiceId,
+      invoice_number: invoice.invoice_number,
+      amount: invoice.total,
+      currency: invoice.currency,
+      expires_at: conektaExpiresAt.toISOString(),
+      payment_url: session.url, // Conekta-hosted checkout page
+      provider: 'conekta',
+      return_url: returnUrl || null,
+    };
+  }
+
+  // Any other provider (manual / not-yet-implemented): there is no hosted
+  // payment page, so online payment is not available. Fail honestly with a 422
+  // instead of returning a dead ${APP_URL}/pay/:token link that 404s.
+  throw new ValidationError(`Online payment is not available for the '${gateway.provider}' payment gateway`);
 }
 
 /**

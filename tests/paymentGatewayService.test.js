@@ -238,6 +238,81 @@ describe('paymentGatewayService', () => {
   });
 
   // =========================================================================
+  // createConektaCheckoutSession — hosted payment page (order + embedded checkout)
+  // =========================================================================
+  describe('createConektaCheckoutSession()', () => {
+    test('POSTs an order with an embedded HostedPayment checkout and returns the hosted url', async () => {
+      const https = require('https');
+      const EventEmitter = require('events');
+      const encryption = require('../src/utils/encryption');
+      const mockDecrypt = jest.spyOn(encryption, 'decrypt').mockReturnValue('key_test');
+
+      const mockReq = new EventEmitter(); mockReq.write = jest.fn(); mockReq.end = jest.fn(); mockReq.destroy = jest.fn();
+      const mockRes = new EventEmitter(); mockRes.statusCode = 200;
+      let capturedOpts;
+      const spy = jest.spyOn(https, 'request').mockImplementation((opts, cb) => {
+        capturedOpts = opts;
+        process.nextTick(() => {
+          cb(mockRes);
+          mockRes.emit('data', JSON.stringify({ id: 'ord_1', checkout: { id: 'chk_1', url: 'https://pay.conekta.com/link/ord_1' } }));
+          mockRes.emit('end');
+        });
+        return mockReq;
+      });
+
+      const result = await paymentGatewayService.createConektaCheckoutSession(
+        { secret_key_encrypted: 'enc' },
+        {
+          amount: 500, currency: 'MXN', description: 'Invoice INV-1',
+          customerName: 'Ada', customerEmail: 'ada@x.com', customerPhone: '+525512345678',
+          successUrl: 'https://app/ok', failureUrl: 'https://app/cancel',
+          expiresAt: new Date(1893456000000), metadata: { transaction_id: 42 },
+        },
+      );
+
+      expect(capturedOpts.hostname).toBe('api.conekta.io');
+      expect(capturedOpts.path).toBe('/orders');
+      const body = JSON.parse(mockReq.write.mock.calls[0][0]);
+      expect(body.checkout.type).toBe('HostedPayment');
+      expect(body.checkout.success_url).toBe('https://app/ok');
+      expect(body.customer_info).toEqual({ name: 'Ada', email: 'ada@x.com', phone: '+525512345678' });
+      expect(body.checkout.expires_at).toBe(1893456000); // unix seconds
+      expect(body.line_items[0].unit_price).toBe(50000);  // cents
+      expect(body.metadata.transaction_id).toBe('42');    // metadata stringified
+      expect(result).toEqual({ id: 'ord_1', url: 'https://pay.conekta.com/link/ord_1' });
+
+      spy.mockRestore();
+      mockDecrypt.mockRestore();
+    });
+
+    test('throws when Conekta returns an error payload', async () => {
+      const https = require('https');
+      const EventEmitter = require('events');
+      const encryption = require('../src/utils/encryption');
+      const mockDecrypt = jest.spyOn(encryption, 'decrypt').mockReturnValue('key_test');
+
+      const mockReq = new EventEmitter(); mockReq.write = jest.fn(); mockReq.end = jest.fn(); mockReq.destroy = jest.fn();
+      const mockRes = new EventEmitter(); mockRes.statusCode = 422;
+      const spy = jest.spyOn(https, 'request').mockImplementation((_opts, cb) => {
+        process.nextTick(() => {
+          cb(mockRes);
+          mockRes.emit('data', JSON.stringify({ type: 'error', details: [{ message: 'invalid currency' }] }));
+          mockRes.emit('end');
+        });
+        return mockReq;
+      });
+
+      await expect(paymentGatewayService.createConektaCheckoutSession(
+        { secret_key_encrypted: 'enc' },
+        { amount: 500, currency: 'MXN', description: 'x', successUrl: 'https://app/ok', expiresAt: new Date(1893456000000) },
+      )).rejects.toThrow('invalid currency');
+
+      spy.mockRestore();
+      mockDecrypt.mockRestore();
+    });
+  });
+
+  // =========================================================================
   // refund
   // =========================================================================
   describe('refund()', () => {
