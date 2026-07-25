@@ -6089,6 +6089,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     payment_gateway_id        BIGINT UNSIGNED  NOT NULL                    COMMENT 'Gateway used for this transaction',
     client_id                 BIGINT UNSIGNED  NOT NULL                    COMMENT 'Client being charged',
     invoice_id                BIGINT UNSIGNED  NULL                        COMMENT 'The specific invoice this payment settles (checkout/payment-link); NULL = legacy heuristic reconcile (migration 420)',
+    settled_invoice_id        BIGINT UNSIGNED  NULL                        COMMENT 'The invoice this payment transitioned to paid (set by reconcile); NULL = settled nothing. Drives refund reversal (migration 421)',
     organization_id           BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization',
     gateway_reference_id      VARCHAR(255)     NOT NULL                    COMMENT 'Provider-assigned transaction / charge ID',
     amount                    DECIMAL(12, 2)   NOT NULL                    COMMENT 'Attempted charge amount',
@@ -6110,12 +6111,15 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     KEY idx_payment_transactions_gateway_id (payment_gateway_id),
     KEY idx_payment_transactions_client_id (client_id),
     KEY idx_payment_transactions_invoice_id (invoice_id),
+    KEY idx_payment_transactions_settled_invoice_id (settled_invoice_id),
     KEY idx_payment_transactions_organization_id (organization_id),
     KEY idx_payment_transactions_gateway_reference_id (gateway_reference_id),
     KEY idx_payment_transactions_gateway_status (gateway_status),
     CONSTRAINT fk_payment_transactions_payment FOREIGN KEY (payment_id)
         REFERENCES payments (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_payment_transactions_invoice FOREIGN KEY (invoice_id)
+        REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_payment_transactions_settled_invoice FOREIGN KEY (settled_invoice_id)
         REFERENCES invoices (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_payment_transactions_gateway FOREIGN KEY (payment_gateway_id)
         REFERENCES payment_gateways (id) ON DELETE RESTRICT ON UPDATE CASCADE,
