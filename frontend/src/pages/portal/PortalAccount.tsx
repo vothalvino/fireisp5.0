@@ -124,6 +124,24 @@ export function PortalAccount() {
 
   const waLinks = waStatus?.data.links ?? [];
 
+  const { data: autopay } = useQuery({
+    queryKey: ['portal-autopay-status'],
+    queryFn: () => portalFetch<{ data: { enabled: boolean; profile: { card_brand: string | null; card_last_four: string | null } | null } }>('/autopay/status'),
+  });
+  const autopayEnrollMutation = useMutation({
+    mutationFn: () => portalFetch<{ data: { setup_url: string } }>('/autopay/enroll', {
+      method: 'POST',
+      body: JSON.stringify({ return_url: window.location.href }),
+    }),
+    onSuccess: (res) => { window.location.href = res.data.setup_url; },
+    onError: (e: Error) => { setErrMsg(e.message); },
+  });
+  const autopayDisableMutation = useMutation({
+    mutationFn: () => portalFetch('/autopay', { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-autopay-status'] }),
+    onError: (e: Error) => { setErrMsg(e.message); },
+  });
+
   function handleSubmit() {
     setMsg(''); setErrMsg('');
 
@@ -159,6 +177,28 @@ export function PortalAccount() {
   return (
     <div>
       <h1 style={styles.heading}>Account Settings</h1>
+
+      <section style={{ ...styles.card, marginBottom: '1rem' }}>
+        <h2 style={styles.sectionTitle}>Autopay</h2>
+        {autopay?.data.enabled ? (
+          <div>
+            <p style={styles.muted}>
+              ✅ Autopay is on
+              {autopay.data.profile?.card_last_four
+                ? ` — ${autopay.data.profile.card_brand ? `${autopay.data.profile.card_brand} ` : ''}card ending ${autopay.data.profile.card_last_four}`
+                : ''}. Your invoices are charged automatically.
+            </p>
+            <button style={styles.cancelBtn} onClick={() => autopayDisableMutation.mutate()}>Turn off autopay</button>
+          </div>
+        ) : (
+          <div>
+            <p style={styles.muted}>Save a card to pay your invoices automatically each month. You can turn this off anytime.</p>
+            <button style={styles.submitBtn} onClick={() => autopayEnrollMutation.mutate()} disabled={autopayEnrollMutation.isPending}>
+              {autopayEnrollMutation.isPending ? 'Redirecting…' : 'Enable autopay'}
+            </button>
+          </div>
+        )}
+      </section>
 
       <div style={styles.tabs}>
         <button

@@ -356,6 +356,53 @@ router.delete('/whatsapp/link/:id', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// AUTOPAY (Stripe off-session card capture)
+// ---------------------------------------------------------------------------
+
+// POST /portal/autopay/enroll — start Stripe setup-mode card capture; the client
+// is redirected to the returned setup_url to save a card + accept the mandate.
+router.post('/autopay/enroll', async (req, res, next) => {
+  try {
+    const autopayService = require('../services/autopayService');
+    const result = await autopayService.startEnrollment({
+      organizationId: req.client.organizationId,
+      clientId: req.client.id,
+      returnUrl: req.body.return_url || null,
+    });
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/autopay/status — is autopay enabled for this client?
+router.get('/autopay/status', async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, card_brand, card_last_four, created_at FROM recurring_payment_profiles
+        WHERE client_id = ? AND status = 'active' ORDER BY is_default DESC, id DESC LIMIT 1`,
+      [req.client.id],
+    );
+    res.json({ data: { enabled: rows.length > 0, profile: rows[0] || null } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /portal/autopay — disable autopay (revoke the active profile).
+router.delete('/autopay', async (req, res, next) => {
+  try {
+    await db.query(
+      "UPDATE recurring_payment_profiles SET status = 'revoked' WHERE client_id = ? AND status = 'active'",
+      [req.client.id],
+    );
+    res.json({ message: 'Autopay disabled' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // INVOICES
 // ---------------------------------------------------------------------------
 

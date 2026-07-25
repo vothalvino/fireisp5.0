@@ -229,12 +229,12 @@ async function chargeRecurringProfile(profileId) {
     const [txResult] = await db.query(
       `INSERT INTO payment_transactions
          (organization_id, payment_gateway_id, client_id, amount, currency,
-          gateway_reference_id, gateway_status, gateway_response_message, idempotency_key, raw_request)
-       VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?)`,
+          gateway_reference_id, gateway_status, gateway_response_message, invoice_id, idempotency_key, raw_request)
+       VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?, ?)`,
       [
         profile.organization_id, profile.gateway_id, profile.client_id, amount, invoice.currency,
         `no_token:${idempotencyKey}`, 'Recurring payment profile has no stored payment method token',
-        idempotencyKey, JSON.stringify({ description, amount, currency: invoice.currency }),
+        invoice.id, idempotencyKey, JSON.stringify({ description, amount, currency: invoice.currency }),
       ],
     );
     result = {
@@ -250,6 +250,14 @@ async function chargeRecurringProfile(profileId) {
       currency: invoice.currency,
       description,
       paymentMethodToken: token,
+      // Off-session (unattended) charge of the saved, mandate-backed card. Without
+      // the customer + off_session flag Stripe returns authentication_required.
+      customer: profile.stripe_customer_id || undefined,
+      offSession: true,
+      // Settle exactly the invoice we charged for (reconcile keys off invoice_id)
+      // instead of the oldest-issued-amount heuristic, which mis-attributes when a
+      // client has two equal-total issued invoices.
+      invoiceId: invoice.id,
       idempotencyKey,
     });
   }

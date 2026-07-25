@@ -6179,7 +6179,8 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
     client_id           BIGINT UNSIGNED     NOT NULL                   COMMENT 'Client this autopay profile belongs to',
     payment_gateway_id  BIGINT UNSIGNED     NOT NULL                   COMMENT 'Gateway that issued the stored token',
-    token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway customer ID or card token',
+    token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway payment method / card token (pm_... for Stripe)',
+    stripe_customer_id  VARCHAR(255)        NULL                       COMMENT 'Stripe customer id (cus_...) for off-session charging; paired with token_reference (migration 422)',
     card_brand          VARCHAR(20)         NULL                       COMMENT 'Card network: visa, mastercard, amex, etc.',
     card_last_four      CHAR(4)             NULL                       COMMENT 'Last four digits of the card number',
     card_exp_month      TINYINT UNSIGNED    NULL                       COMMENT 'Card expiry month (1–12)',
@@ -6187,6 +6188,12 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     is_default          TINYINT(1)          NOT NULL DEFAULT 0         COMMENT 'TRUE = preferred profile for autopay',
     status              ENUM('active','expired','revoked')
                                             NOT NULL DEFAULT 'active'  COMMENT 'Profile lifecycle status',
+    default_guard       VARCHAR(64)
+                        GENERATED ALWAYS AS (
+                          CASE WHEN is_default = 1 AND status = 'active'
+                               THEN CONCAT(client_id, '-', payment_gateway_id)
+                               ELSE NULL END
+                        ) VIRTUAL                                      COMMENT 'One active default per (client, gateway): unique key, NULL when not an active default (migration 423)',
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -6196,6 +6203,7 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     KEY idx_recurring_profiles_gateway_id (payment_gateway_id),
     KEY idx_recurring_profiles_status (status),
     KEY idx_recurring_payment_profiles_deleted_at (deleted_at),
+    UNIQUE KEY uq_recurring_profiles_default_guard (default_guard),
     CONSTRAINT fk_recurring_profiles_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)

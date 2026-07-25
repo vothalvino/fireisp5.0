@@ -138,7 +138,7 @@ async function storeIdempotencyKey(organizationId, key, statusCode, responseBody
  * If an idempotencyKey is provided and a cached result exists, the cached
  * result is returned instead of charging again.
  */
-async function charge({ organizationId, clientId, amount, currency, description, paymentMethodToken, idempotencyKey }) {
+async function charge({ organizationId, clientId, amount, currency, description, paymentMethodToken, customer, offSession, invoiceId, idempotencyKey }) {
   // --- Idempotency check ---
   if (idempotencyKey) {
     const cached = await checkIdempotencyKey(organizationId, idempotencyKey);
@@ -161,13 +161,17 @@ async function charge({ organizationId, clientId, amount, currency, description,
   // the webhook handler), so the pending row carries a provisional reference.
   // The description survives in raw_request.
   const provisionalRef = `pending:${idempotencyKey || crypto.randomUUID()}`;
+  // invoice_id links the charge to the exact invoice it settles (autopay / any
+  // caller that knows the target) so reconcilePayment credits THAT invoice via
+  // the explicit-linkage path instead of the oldest-issued-amount heuristic,
+  // which mis-attributes when a client has two equal-total issued invoices.
   const [txResult] = await db.query(
     `INSERT INTO payment_transactions
      (organization_id, payment_gateway_id, client_id, amount, currency,
-      gateway_reference_id, gateway_status, idempotency_key, raw_request)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      gateway_reference_id, gateway_status, invoice_id, idempotency_key, raw_request)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     [organizationId, gateway.id, clientId, amount, currency || 'MXN',
-      provisionalRef, idempotencyKey || null,
+      provisionalRef, invoiceId || null, idempotencyKey || null,
       JSON.stringify({ description: description || null, amount, currency: currency || 'MXN' })],
   );
 
@@ -179,7 +183,7 @@ async function charge({ organizationId, clientId, amount, currency, description,
     switch (gateway.provider) {
       case 'stripe':
         result = await paymentCircuitBreaker.call(() =>
-          chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken));
+          chargeStripe(gateway, amount, currency || 'MXN', description, paymentMethodToken, { customer, offSession }));
         break;
       case 'conekta':
         result = await paymentCircuitBreaker.call(() =>
@@ -238,16 +242,26 @@ async function charge({ organizationId, clientId, amount, currency, description,
 /**
  * Charge via Stripe REST API (no SDK — uses built-in https).
  */
-async function chargeStripe(gateway, amount, currency, description, paymentMethodToken) {
+async function chargeStripe(gateway, amount, currency, description, paymentMethodToken, options = {}) {
   const https = require('https');
 
   const secretKey = decrypt(gateway.secret_key_encrypted);
-  const body = new URLSearchParams({
+  const params = {
     amount: Math.round(amount * 100).toString(), // Stripe uses cents
     currency: currency.toLowerCase(),
     description: description || 'FireISP payment',
-    ...(paymentMethodToken && { payment_method: paymentMethodToken, confirm: 'true' }),
-  }).toString();
+  };
+  if (paymentMethodToken) {
+    params.payment_method = paymentMethodToken;
+    params.confirm = 'true';
+    // For a saved card (autopay) the PaymentIntent must name the customer and be
+    // flagged off_session, or Stripe returns authentication_required and the
+    // charge parks in requires_payment_method forever. The mandate that makes
+    // off-session legal is collected by the Checkout setup-mode capture flow.
+    if (options.customer) params.customer = options.customer;
+    if (options.offSession) params.off_session = 'true';
+  }
+  const body = new URLSearchParams(params).toString();
 
   const response = await new Promise((resolve, reject) => {
     const req = https.request({
@@ -334,6 +348,92 @@ async function createStripeCheckoutSession(gateway, { amount, currency, descript
     throw new Error(data.error?.message || `Stripe error: HTTP ${response.statusCode}`);
   }
   return { id: data.id, url: data.url };
+}
+
+// --- Stripe REST helper (shared by the autopay-enrollment calls) ---
+function stripeRequest(secretKey, method, path, body) {
+  const https = require('https');
+  return new Promise((resolve, reject) => {
+    const headers = { Authorization: `Bearer ${secretKey}` };
+    if (body) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
+    const req = https.request({ hostname: 'api.stripe.com', path, method, headers, timeout: 30000 }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        let parsed = {};
+        try { parsed = data ? JSON.parse(data) : {}; } catch (_e) { /* non-JSON */ }
+        if (res.statusCode >= 400 || parsed.error) {
+          return reject(new Error(parsed.error?.message || `Stripe HTTP ${res.statusCode}`));
+        }
+        resolve(parsed);
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('Stripe request timed out')));
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+/** Create a Stripe customer (for off-session autopay). Returns the cus_ id. */
+async function createStripeCustomer(gateway, { email, metadata = {} }) {
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+  const params = {};
+  if (email) params.email = email;
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v !== null && v !== undefined) params[`metadata[${k}]`] = String(v);
+  }
+  const data = await stripeRequest(secretKey, 'POST', '/v1/customers', new URLSearchParams(params).toString());
+  return data.id;
+}
+
+/**
+ * Create a Stripe Checkout Session in SETUP mode to capture (and get SCA/mandate
+ * consent for) a reusable card against a customer. Returns the hosted url.
+ */
+async function createStripeSetupSession(gateway, { customerId, successUrl, cancelUrl, metadata = {} }) {
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+  const params = {
+    mode: 'setup',
+    customer: customerId,
+    'payment_method_types[0]': 'card',
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  };
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v !== null && v !== undefined) params[`metadata[${k}]`] = String(v);
+  }
+  const data = await stripeRequest(secretKey, 'POST', '/v1/checkout/sessions', new URLSearchParams(params).toString());
+  return { id: data.id, url: data.url };
+}
+
+/**
+ * Read a completed Checkout Session, expanding the setup_intent so we can pull
+ * the saved payment_method + customer to persist on the autopay profile.
+ */
+async function retrieveStripeCheckoutSession(gateway, sessionId) {
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+  // Expand setup_intent.payment_method so we get the card brand/last4/expiry
+  // inline (to display "Visa ending 4242" on the autopay card) alongside the pm id.
+  const data = await stripeRequest(secretKey, 'GET', `/v1/checkout/sessions/${sessionId}?expand[]=setup_intent.payment_method`, null);
+  const pm = data.setup_intent?.payment_method;
+  const pmId = typeof pm === 'string' ? pm : (pm?.id || null);
+  const card = (pm && typeof pm === 'object') ? pm.card : null;
+  return {
+    mode: data.mode,
+    customer: typeof data.customer === 'string' ? data.customer : (data.customer?.id || null),
+    paymentMethod: pmId,
+    card: card ? {
+      brand: card.brand || null,
+      last4: card.last4 || null,
+      expMonth: card.exp_month || null,
+      expYear: card.exp_year || null,
+    } : null,
+    metadata: data.metadata || {},
+  };
 }
 
 /**
@@ -687,6 +787,31 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
   const webhookEventId = insertResult.insertId;
 
   try {
+    // Autopay card capture (Stripe Checkout in setup mode) has no payment
+    // transaction to reconcile — store the saved card as a recurring profile.
+    if (provider === 'stripe' && eventType === 'checkout.session.completed' && payload.data?.object?.mode === 'setup') {
+      try {
+        const autopayService = require('./autopayService');
+        const setupObj = payload.data.object;
+        // Pass the session's OWN metadata (organization_id + gateway_id, set at
+        // enrollment) so completeEnrollment can resolve the exact gateway. The
+        // global env-var route arrives with organizationId=undefined — without
+        // the metadata the enrollment would be silently dropped.
+        await autopayService.completeEnrollment({
+          sessionId: setupObj.id,
+          organizationId,
+          metadata: setupObj.metadata || {},
+        });
+      } catch (enrollErr) {
+        logger.error({ enrollErr }, 'Autopay enrollment from setup session failed');
+      }
+      await db.query(
+        'UPDATE webhook_events SET status = \'processed\', processed_at = NOW() WHERE id = ?',
+        [webhookEventId],
+      );
+      return { status: 'processed', webhookEventId, autopay: true };
+    }
+
     // Extract the gateway reference ID and new status from the event
     const { gatewayRef, newStatus } = mapProviderEvent(provider, eventType, payload);
 
@@ -1039,6 +1164,9 @@ module.exports = {
   getClientTransactions,
   chargeStripe,
   createStripeCheckoutSession,
+  createStripeCustomer,
+  createStripeSetupSession,
+  retrieveStripeCheckoutSession,
   chargeConekta,
   checkIdempotencyKey,
   storeIdempotencyKey,
