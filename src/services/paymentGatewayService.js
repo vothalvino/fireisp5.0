@@ -536,6 +536,9 @@ async function refund(transactionId) {
     ['refunded', gatewayRefundRef, transactionId],
   );
 
+  // Reverse the bookkeeping: re-open the settled invoice + offset the ledger.
+  await reverseRefund(transactionId);
+
   return {
     transaction_id: transactionId,
     status: 'refunded',
@@ -760,6 +763,12 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
       }
     }
 
+    // A refund fired at the provider (dashboard/API or a charge.refunded event) —
+    // reverse the settled invoice + ledger so the balance reflects the reversal.
+    if (newStatus === 'refunded') {
+      await reverseRefund(tx.id);
+    }
+
     // Auto-create a chargeback record when a dispute is received — §2.5.3
     if (newStatus === 'disputed') {
       try {
@@ -823,11 +832,19 @@ function mapProviderEvent(provider, eventType, payload) {
       return { gatewayRef: obj.id || null, newStatus: 'failed' };
     }
 
+    // charge.refunded fires for PARTIAL refunds too; only a FULL refund re-opens
+    // the invoice. A partial refund is left for manual handling (never reverses
+    // the whole invoice + a full-amount debit).
+    if (eventType === 'charge.refunded') {
+      const fully = obj.refunded === true
+        || (typeof obj.amount_refunded === 'number' && typeof obj.amount === 'number' && obj.amount_refunded >= obj.amount);
+      return { gatewayRef: obj.payment_intent || obj.id, newStatus: fully ? 'refunded' : null };
+    }
+
     const gatewayRef = obj.id || null;
     const statusMap = {
       'payment_intent.succeeded': 'succeeded',
       'payment_intent.payment_failed': 'failed',
-      'charge.refunded': 'refunded',
       'charge.dispute.created': 'disputed',
     };
 
@@ -925,6 +942,11 @@ async function reconcilePayment(transactionId) {
 
     if (invoice && markPaid) {
       await conn.execute('UPDATE invoices SET status = \'paid\' WHERE id = ?', [invoice.id]);
+      // Record which invoice this payment actually settled — refund reversal keys
+      // off this, NOT invoice_id (the merely-intended invoice). Overpayments
+      // (markPaid=false) leave it NULL so a refund never re-opens an invoice that
+      // a different payment is holding paid.
+      await conn.execute('UPDATE payment_transactions SET settled_invoice_id = ? WHERE id = ?', [invoice.id, tx.id]);
     }
 
     // Credit client balance ledger
@@ -942,6 +964,68 @@ async function reconcilePayment(transactionId) {
     await conn.rollback();
     // Reconciliation is best-effort; don't fail the webhook
     logger.error({ err, transactionId }, 'Auto-reconciliation failed');
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Reverse the bookkeeping of a REFUNDED gateway payment: revert the invoice this
+ * payment settled back to a payable state (so it is owed again) and write an
+ * offsetting debit to the ledger. Without this a refunded online payment leaves
+ * the invoice showing 'paid' and the client balance understated (the invoice
+ * status is what computeClientBalance reads).
+ *
+ * Idempotent + safe: only reverses when a reconcile CREDIT exists for this tx and
+ * no reversal DEBIT has been written yet, so a refund()+charge.refunded double
+ * fire (or a webhook redelivery) never double-reverses. Best-effort — logs, never
+ * throws (mirrors reconcilePayment).
+ */
+async function reverseRefund(transactionId) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [txRows] = await conn.execute('SELECT * FROM payment_transactions WHERE id = ? FOR UPDATE', [transactionId]);
+    const tx = txRows[0];
+    if (!tx) { await conn.rollback(); return; }
+
+    // Only reverse a payment we actually reconciled (a credit ledger entry exists)...
+    const [credits] = await conn.execute(
+      `SELECT id FROM client_balance_ledger
+        WHERE reference_type = 'payment_transaction' AND reference_id = ? AND entry_type = 'credit' LIMIT 1`,
+      [tx.id],
+    );
+    // ...and only once (no prior reversal debit for this tx).
+    const [debits] = await conn.execute(
+      `SELECT id FROM client_balance_ledger
+        WHERE reference_type = 'payment_transaction' AND reference_id = ? AND entry_type = 'debit' LIMIT 1`,
+      [tx.id],
+    );
+    if (credits.length === 0 || debits.length > 0) { await conn.commit(); return; }
+
+    // Re-open ONLY the invoice this payment actually settled (recorded by
+    // reconcile). Never a same-invoice overpayment that another payment is holding
+    // paid, and this works for legacy txs that had no intended invoice_id. When
+    // settled_invoice_id is NULL the payment settled nothing (a standing credit)
+    // so there is nothing to re-open — we still write the offsetting debit.
+    if (tx.settled_invoice_id) {
+      await conn.execute(
+        "UPDATE invoices SET status = 'issued' WHERE id = ? AND status = 'paid'",
+        [tx.settled_invoice_id],
+      );
+    }
+    await conn.execute(
+      `INSERT INTO client_balance_ledger
+         (client_id, organization_id, entry_type, amount, currency, reference_type, reference_id, description)
+       VALUES (?, ?, 'debit', ?, ?, 'payment_transaction', ?, ?)`,
+      [tx.client_id, tx.organization_id, tx.amount, tx.currency, tx.id,
+        `Refund reversal of gateway payment ${tx.gateway_reference_id}`],
+    );
+    await conn.commit();
+    logger.info({ transactionId, invoiceId: tx.settled_invoice_id ?? null }, 'Refund reversed the settled invoice + ledger');
+  } catch (err) {
+    await conn.rollback();
+    logger.error({ err, transactionId }, 'Refund reversal failed');
   } finally {
     conn.release();
   }

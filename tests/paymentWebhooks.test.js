@@ -452,32 +452,54 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(result.newStatus).toBe('failed');
     });
 
-    test('processes Stripe charge.refunded event', async () => {
+    test('a FULL Stripe charge.refunded reverses the settled invoice', async () => {
       const payload = {
         id: 'evt_stripe_3',
         type: 'charge.refunded',
-        data: { object: { id: 'ch_refund123', payment_intent: 'pi_original' } },
+        data: { object: { id: 'ch_refund123', payment_intent: 'pi_original', refunded: true, amount: 50000, amount_refunded: 50000 } },
       };
+      const tx = { id: 102, client_id: 5, organization_id: 42, settled_invoice_id: 60, amount: '500.00', currency: 'MXN', gateway_reference_id: 'pi_original' };
 
       db.query
         .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([{ insertId: 12 }])
-        .mockResolvedValueOnce([[{
-          id: 102, client_id: 5, organization_id: 42,
-          gateway_reference_id: 'pi_original',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+        .mockResolvedValueOnce([[tx]])                 // find tx by pi_original
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE tx -> refunded
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events processed
+
+      mockConnection.execute
+        .mockResolvedValueOnce([[tx]])                 // reverseRefund: SELECT tx FOR UPDATE
+        .mockResolvedValueOnce([[{ id: 1 }]])          // credit exists
+        .mockResolvedValueOnce([[]])                   // no prior debit
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE invoices -> issued
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // INSERT ledger debit
 
       const result = await paymentGatewayService.handleWebhookEvent({
-        provider: 'stripe',
-        providerEventId: 'evt_stripe_3',
-        eventType: 'charge.refunded',
-        payload,
+        provider: 'stripe', providerEventId: 'evt_stripe_3', eventType: 'charge.refunded', payload,
       });
 
       expect(result.status).toBe('processed');
       expect(result.newStatus).toBe('refunded');
+      const revert = mockConnection.execute.mock.calls.find((c) => /UPDATE invoices SET status = 'issued'/.test(c[0]));
+      expect(revert).toBeTruthy();
+      expect(revert[1]).toEqual([60]); // the invoice this tx settled
+    });
+
+    test('a PARTIAL Stripe charge.refunded is ignored (no full-invoice reversal)', async () => {
+      const payload = {
+        id: 'evt_partial',
+        type: 'charge.refunded',
+        data: { object: { id: 'ch_p', payment_intent: 'pi_p', refunded: false, amount: 50000, amount_refunded: 1000 } },
+      };
+      db.query
+        .mockResolvedValueOnce([[]])                  // dup
+        .mockResolvedValueOnce([{ insertId: 13 }])    // INSERT webhook_events
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events -> ignored
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe', providerEventId: 'evt_partial', eventType: 'charge.refunded', payload,
+      });
+      expect(result.status).toBe('ignored');
     });
 
     test('processes Stripe charge.dispute.created event', async () => {
