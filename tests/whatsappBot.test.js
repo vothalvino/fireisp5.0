@@ -45,6 +45,10 @@ beforeEach(() => {
   cap.createProblemTicket.mockResolvedValue(555);
   cap.createHumanHandoffTicket.mockResolvedValue(777);
   cap.recentWhatsappTicketCount.mockResolvedValue(0);
+  cap.resetWifiPassword.mockResolvedValue({ ok: true, applied: true, emailMasked: 'b***@x.com', requestId: 88 });
+  cap.scheduleVisit.mockResolvedValue(91);
+  cap.recentServiceRequestCount.mockResolvedValue(0);
+  cap.maskEmail.mockImplementation((e) => (e ? `${String(e)[0]}***@x` : ''));
   db.query.mockResolvedValue([[{ name: 'Ana Lopez' }]]);
 });
 
@@ -86,8 +90,8 @@ describe('bound-client capabilities', () => {
     expect(cap.invoicesText).toHaveBeenCalledWith(7);
   });
 
-  it('opens a human-handoff ticket for intent 5', async () => {
-    const { reply } = await bot.handleInbound({ phone: PHONE, body: '5' });
+  it('opens a human-handoff ticket for intent 7', async () => {
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: '7' });
     expect(cap.createHumanHandoffTicket).toHaveBeenCalledWith({ orgId: 3, clientId: 7 });
     expect(reply).toMatch(/#777/);
   });
@@ -159,7 +163,7 @@ describe('bound-client capabilities', () => {
 
   it('caps WhatsApp ticket creation (human handoff) when the client is over the hourly cap', async () => {
     cap.recentWhatsappTicketCount.mockResolvedValue(5);
-    const { reply } = await bot.handleInbound({ phone: PHONE, body: '5' });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: '7' });
     expect(cap.createHumanHandoffTicket).not.toHaveBeenCalled();
     expect(reply).toMatch(/already have open requests/i);
   });
@@ -170,6 +174,105 @@ describe('bound-client capabilities', () => {
     const { reply } = await bot.handleInbound({ phone: PHONE, body: 'it broke' });
     expect(cap.createProblemTicket).not.toHaveBeenCalled();
     expect(reply).toMatch(/already have open requests/i);
+  });
+
+  // ---- Wi-Fi reset (PR 3) ----
+  it('wifi: prompts for CONFIRM when an email + single service exist', async () => {
+    cap.getActiveContracts.mockResolvedValue([{ id: 9, label: 'Home' }]);
+    db.query.mockResolvedValueOnce([[{ email: 'bob@x.com' }]]); // clientEmailMasked lookup
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: '5' });
+    expect(wa.setConversationState).toHaveBeenCalledWith(PHONE, 7, 'await_wifi_confirm', expect.objectContaining({ contract: { id: 9, label: 'Home' } }));
+    expect(reply).toMatch(/CONFIRM/);
+  });
+
+  it('wifi: refuses when there is no email on file (cannot deliver the new PSK)', async () => {
+    cap.getActiveContracts.mockResolvedValue([{ id: 9, label: 'Home' }]);
+    db.query.mockResolvedValueOnce([[{ email: null }]]);
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'wifi' });
+    expect(reply).toMatch(/need an email/i);
+    expect(wa.setConversationState).not.toHaveBeenCalled();
+  });
+
+  it('wifi: CONFIRM applies (resetWifiPassword delivers + applies internally)', async () => {
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 }, emailMasked: 'b***@x.com' } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'CONFIRM' });
+    expect(cap.resetWifiPassword).toHaveBeenCalledWith({ orgId: 3, clientId: 7, contract: { id: 9 } });
+    expect(reply).toMatch(/emailed/i);
+  });
+
+  it('wifi: files a pending request (no CPE)', async () => {
+    cap.resetWifiPassword.mockResolvedValue({ ok: true, applied: false, requestId: 88 });
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 } } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'sí' });
+    expect(reply).toMatch(/#88/);
+  });
+
+  it('wifi: on email failure it did NOT change the password (honest reply)', async () => {
+    cap.resetWifiPassword.mockResolvedValue({ ok: false, reason: 'email_failed', requestId: 88 });
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 } } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'CONFIRM' });
+    expect(reply).toMatch(/did NOT change it/i);
+  });
+
+  it('wifi: contract reassigned mid-flow -> refuses (TOCTOU)', async () => {
+    cap.resetWifiPassword.mockResolvedValue({ ok: false, reason: 'contract_gone' });
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 } } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'CONFIRM' });
+    expect(reply).toMatch(/active service/i);
+  });
+
+  it('wifi: a non-confirm reply asks again (no action)', async () => {
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 } } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'maybe later' });
+    expect(cap.resetWifiPassword).not.toHaveBeenCalled();
+    expect(reply).toMatch(/CONFIRM/);
+  });
+
+  it('wifi: caps repeated resets (anti-abuse)', async () => {
+    cap.recentServiceRequestCount.mockResolvedValue(3);
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_wifi_confirm', context: { contract: { id: 9 } } });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'CONFIRM' });
+    expect(cap.resetWifiPassword).not.toHaveBeenCalled();
+    expect(reply).toMatch(/wait a bit/i);
+  });
+
+  // ---- Technician visit (PR 3) ----
+  it('visit: walks date -> slot -> schedules', async () => {
+    cap.getActiveContracts.mockResolvedValue([{ id: 9, label: 'Home' }]);
+    const r1 = await bot.handleInbound({ phone: PHONE, body: '6' });
+    expect(r1.reply).toMatch(/what day/i);
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_date', context: { contract: { id: 9 } } });
+    const r2 = await bot.handleInbound({ phone: PHONE, body: '2026-08-05' });
+    expect(r2.reply).toMatch(/what time/i);
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_slot', context: { contract: { id: 9 }, date: '2026-08-05' } });
+    const r3 = await bot.handleInbound({ phone: PHONE, body: '1' });
+    expect(cap.scheduleVisit).toHaveBeenCalledWith(expect.objectContaining({ preferredDate: '2026-08-05', slot: 'morning' }));
+    expect(r3.reply).toMatch(/#91/);
+  });
+
+  it('visit: rejects an unparseable date', async () => {
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_date', context: {} });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: 'next tuesday' });
+    expect(reply).toMatch(/date like/i);
+    expect(cap.scheduleVisit).not.toHaveBeenCalled();
+  });
+
+  it('visit: rejects an overflow date (Feb 30)', async () => {
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_date', context: {} });
+    const { reply } = await bot.handleInbound({ phone: PHONE, body: '2099-02-30' });
+    expect(reply).toMatch(/date like/i);
+  });
+
+  it('visit: multi-service shows the picker first', async () => {
+    const contracts = [{ id: 9, label: 'Home' }, { id: 10, label: 'Office' }];
+    cap.getActiveContracts.mockResolvedValue(contracts);
+    const r1 = await bot.handleInbound({ phone: PHONE, body: '6' });
+    expect(wa.setConversationState).toHaveBeenCalledWith(PHONE, 7, 'await_visit_pick', { contracts });
+    expect(r1.reply).toMatch(/which service/i);
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_pick', context: { contracts } });
+    const r2 = await bot.handleInbound({ phone: PHONE, body: '2' });
+    expect(wa.setConversationState).toHaveBeenLastCalledWith(PHONE, 7, 'await_visit_date', { contract: contracts[1] });
+    expect(r2.reply).toMatch(/what day/i);
   });
 });
 

@@ -383,6 +383,25 @@ function whatsappLinkCodeEmail(vars) {
   };
 }
 
+function whatsappWifiPasswordEmail(vars) {
+  const userName = escapeHtml(String(vars.userName || 'Customer'));
+  const password = escapeHtml(String(vars.password || ''));
+  const content = `
+    <div class="header">
+      <h1>Your new Wi-Fi password</h1>
+    </div>
+    <p>Hello <strong>${userName}</strong>,</p>
+    <p>As requested via WhatsApp, your Wi-Fi network password has been changed. Your new password is:</p>
+    <p style="text-align: center; margin: 24px 0; font-size: 22px; font-weight: bold; letter-spacing: 2px;">${password}</p>
+    <p>Reconnect your devices using this new password. It may take a few minutes to take effect.</p>
+    <p class="meta">If you did NOT request this change, contact support immediately — your account may have been accessed without your permission.</p>`;
+
+  return {
+    subject: 'Your new Wi-Fi password',
+    html: baseLayout(content),
+  };
+}
+
 module.exports = {
   baseLayout,
   welcomeEmail,
@@ -395,4 +414,5 @@ module.exports = {
   outageNotificationEmail,
   customMessageEmail,
   whatsappLinkCodeEmail,
+  whatsappWifiPasswordEmail,
 };

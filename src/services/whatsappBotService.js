@@ -26,6 +26,9 @@ const UNBOUND_MSG_LIMIT_PER_HOUR = 20;
 const BOUND_MSG_LIMIT_PER_HOUR = 40;
 // Hard cap on WhatsApp-originated tickets per client per hour (anti ticket-flood).
 const WHATSAPP_TICKET_CAP_PER_HOUR = 5;
+// Hard cap on WhatsApp-originated write-action requests (Wi-Fi reset, visit) per
+// client per hour — bounds a hijacked bound thread spamming password resets.
+const WHATSAPP_ACTION_CAP_PER_HOUR = 3;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -38,8 +41,9 @@ const MSG = {
     "If that email is on file, I've sent a 6-digit code to it. Reply here with the code to finish connecting.",
   bindOk: (name) => `✅ You're connected${name ? `, ${name}` : ''}! Your account features will be available here soon.`,
   menu: (name) =>
-    `Hi${name ? ` ${name}` : ''}! What can I help you with? Reply with a number:\n` +
-    '1️⃣ Account balance\n2️⃣ My plan & service\n3️⃣ My invoices\n4️⃣ Report a problem\n5️⃣ Talk to a human',
+    `Hi${name ? ` ${name}` : ''}! What can I help you with? Reply with a number:\n`
+    + '1️⃣ Account balance\n2️⃣ My plan & service\n3️⃣ My invoices\n4️⃣ Report a problem\n'
+    + '5️⃣ Reset Wi-Fi password\n6️⃣ Schedule a technician visit\n7️⃣ Talk to a human',
   askProblem: "Please describe the problem in one message and I'll open a ticket for you. (Reply MENU to go back.)",
   pickService: (contracts) =>
     'Which service is this about? Reply with the number:\n'
@@ -48,6 +52,29 @@ const MSG = {
   problemLogged: (id) => `✅ Thanks — I've opened ticket #${id} and our team will follow up. Reply MENU anytime.`,
   humanLogged: (id) => `👍 A team member will reach out. Your reference is ticket #${id}.`,
   ticketCapped: 'You already have open requests with us — our team is on it. Reply MENU for other options.',
+  // Wi-Fi reset
+  wifiConfirm: (emailMasked) =>
+    `🔐 I'll set a *new* Wi-Fi password and email it to ${emailMasked} — I never show it here in chat. `
+    + 'Your devices will need to reconnect with the new password.\n\nReply *CONFIRM* to proceed, or MENU to cancel.',
+  wifiNoEmail:
+    'To reset your Wi-Fi password securely I need an email on file to send the new one to. '
+    + 'Please add one in your customer portal, or reply 7 to talk to a human.',
+  wifiApplied: (emailMasked) =>
+    `✅ Done — your new Wi-Fi password has been emailed to ${emailMasked}. `
+    + 'Reconnect your devices with it (it may take a few minutes to take effect).',
+  wifiFiled: (id) =>
+    `✅ Request submitted (#${id}). Our team will set a new Wi-Fi password and contact you shortly.`,
+  wifiEmailFailed:
+    "I couldn't email your new Wi-Fi password just now, so I did NOT change it (to avoid locking you out). "
+    + 'Please try again in a bit, or reply 7 to talk to a human.',
+  confirmInvalid: 'Reply *CONFIRM* to proceed, or MENU to cancel.',
+  // Technician visit
+  askVisitDate: 'What day would you like a technician to visit? Reply with a date (e.g. 2026-08-05). Reply MENU to cancel.',
+  visitDateInvalid: 'Please reply with a date like 2026-08-05, or MENU to cancel.',
+  askVisitSlot: 'What time works best? Reply:\n1) Morning (8am–12pm)\n2) Afternoon (12pm–5pm)\n3) Evening (5pm–8pm)',
+  visitLogged: (id, date, slot) => `✅ Visit requested for ${date} (${slot}) — reference #${id}. We'll confirm the appointment. Reply MENU anytime.`,
+  noService: "You don't have an active service on file, so there's nothing to change. Reply 7 to talk to a human.",
+  actionCapped: "You've made several requests recently — please wait a bit before trying again, or reply 7 to talk to a human.",
   unlinked: 'Your WhatsApp number has been disconnected from your account. Reply with your email anytime to reconnect.',
   codeBad: "That code isn't valid or has expired. Reply with your email for a new one, or get a fresh code from your portal.",
   codeMismatch: "That code doesn't match. Check it and try again, or reply with your email for a new one.",
@@ -117,7 +144,14 @@ async function maybeSendEmailOtp({ phone, email }) {
       code,
       expiresIn: `${config.whatsapp.linkCodeTtlMinutes} minutes`,
     });
-    emailTransport.sendEmail({ to: client.email, subject: tpl.subject, html: tpl.html })
+    emailTransport.sendEmail({
+      to: client.email,
+      subject: tpl.subject,
+      html: tpl.html,
+      organizationId: client.organization_id,
+      clientId: client.id,
+      emailFunction: 'general',
+    })
       .then((r) => { if (!r || !r.success) logger.warn('whatsapp: link-code email failed to send'); })
       .catch((e) => logger.error({ err: e }, 'whatsapp: link-code email threw'));
   } catch (err) {
@@ -202,8 +236,48 @@ function parseIntent(text) {
   if (/^2$|\bplan\b|servicio|service|velocidad|speed/.test(t)) return 'plan';
   if (/^3$|invoice|factura|recibo|\bbill/.test(t)) return 'invoices';
   if (/^4$|report|problema|reportar|falla|issue|not working|no funciona/.test(t)) return 'report';
-  if (/^5$|human|agente|asesor|person|talk|hablar/.test(t)) return 'human';
+  if (/^5$|wi-?fi|contrase|clave|password/.test(t)) return 'wifi';
+  if (/^6$|visit|visita|t[eé]cnico|technician|schedule|agenda|cita/.test(t)) return 'visit';
+  if (/^7$|human|agente|asesor|person|talk|hablar/.test(t)) return 'human';
   return 'menu';
+}
+
+function isConfirmCommand(text) {
+  return /^\s*(confirm|confirmar|s[ií]|yes)\s*$/i.test(text || '');
+}
+
+function parseSlot(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (/^1$|morning|mañana|manana/.test(t)) return 'morning';
+  if (/^2$|afternoon|tarde/.test(t)) return 'afternoon';
+  if (/^3$|evening|noche/.test(t)) return 'evening';
+  return null;
+}
+function parseVisitDate(text) {
+  const m = String(text || '').match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (!m) return null;
+  const [iso, y, mo, d] = m;
+  const dt = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(dt.getTime())) return null;
+  // Reject overflow days that V8 silently rolls over (Feb 30 -> Mar 2): the
+  // round-trip must match the literal components.
+  if (dt.getUTCFullYear() !== Number(y) || dt.getUTCMonth() + 1 !== Number(mo) || dt.getUTCDate() !== Number(d)) return null;
+  // Reject past dates (a visit can't be scheduled in the past); today is allowed.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  if (dt < today) return null;
+  return iso;
+}
+
+/** Masked email on file, or null when none — gates the Wi-Fi reset (must deliver the new PSK). */
+async function clientEmailMasked(clientId) {
+  try {
+    const [rows] = await db.query('SELECT email FROM clients WHERE id = ? LIMIT 1', [clientId]);
+    const email = rows[0]?.email;
+    return email ? cap.maskEmail(email) : null;
+  } catch (_e) {
+    return null;
+  }
 }
 
 async function startReport(phone, clientId) {
@@ -214,6 +288,49 @@ async function startReport(phone, clientId) {
   }
   await wa.setConversationState(phone, clientId, 'await_problem_desc', { contract: contracts[0] || null });
   return { reply: MSG.askProblem };
+}
+
+async function startWifiReset(phone, clientId) {
+  const contracts = await cap.getActiveContracts(clientId);
+  if (contracts.length === 0) return { reply: MSG.noService };
+  // Must be able to deliver the new PSK out-of-band, or the client is locked out.
+  const emailMasked = await clientEmailMasked(clientId);
+  if (!emailMasked) return { reply: MSG.wifiNoEmail };
+  if (contracts.length > 1) {
+    await wa.setConversationState(phone, clientId, 'await_wifi_pick', { contracts, emailMasked });
+    return { reply: MSG.pickService(contracts) };
+  }
+  await wa.setConversationState(phone, clientId, 'await_wifi_confirm', { contract: contracts[0] || null, emailMasked });
+  return { reply: MSG.wifiConfirm(emailMasked) };
+}
+
+async function applyWifiReset(phone, clientId, orgId, contract) {
+  await wa.clearConversationState(phone);
+  if (await cap.recentServiceRequestCount(clientId, 'wifi_password_change') >= WHATSAPP_ACTION_CAP_PER_HOUR) {
+    return { reply: MSG.actionCapped, clientId };
+  }
+  // resetWifiPassword delivers the new PSK by email FIRST and only applies on
+  // confirmed delivery, so its result is authoritative — never claim "emailed"
+  // unless it actually was.
+  const r = await cap.resetWifiPassword({ orgId, clientId, contract });
+  if (!r.ok) {
+    if (r.reason === 'no_email') return { reply: MSG.wifiNoEmail, clientId };
+    if (r.reason === 'contract_gone') return { reply: MSG.noService, clientId };
+    return { reply: MSG.wifiEmailFailed, clientId }; // email_failed
+  }
+  if (r.applied) return { reply: MSG.wifiApplied(r.emailMasked), clientId };
+  return { reply: MSG.wifiFiled(r.requestId), clientId };
+}
+
+async function startVisit(phone, clientId) {
+  const contracts = await cap.getActiveContracts(clientId);
+  if (contracts.length === 0) return { reply: MSG.noService };
+  if (contracts.length > 1) {
+    await wa.setConversationState(phone, clientId, 'await_visit_pick', { contracts });
+    return { reply: MSG.pickService(contracts) };
+  }
+  await wa.setConversationState(phone, clientId, 'await_visit_date', { contract: contracts[0] || null });
+  return { reply: MSG.askVisitDate };
 }
 
 async function handleBound({ phone, body, binding }) {
@@ -266,6 +383,40 @@ async function handleBound({ phone, body, binding }) {
     const id = await cap.createProblemTicket({ orgId, clientId, description: text, contract: state.context?.contract || null });
     return { reply: MSG.problemLogged(id), clientId };
   }
+  if (state && state.state === 'await_wifi_pick') {
+    const contracts = state.context?.contracts || [];
+    const chosen = contracts[parseInt(text.replace(/\D/g, ''), 10) - 1];
+    if (!chosen) return { reply: MSG.pickInvalid, clientId };
+    await wa.setConversationState(phone, clientId, 'await_wifi_confirm', { contract: chosen, emailMasked: state.context?.emailMasked });
+    return { reply: MSG.wifiConfirm(state.context?.emailMasked || 'your email on file'), clientId };
+  }
+  if (state && state.state === 'await_wifi_confirm') {
+    if (!isConfirmCommand(text)) return { reply: MSG.confirmInvalid, clientId };
+    return applyWifiReset(phone, clientId, orgId, state.context?.contract || null);
+  }
+  if (state && state.state === 'await_visit_pick') {
+    const contracts = state.context?.contracts || [];
+    const chosen = contracts[parseInt(text.replace(/\D/g, ''), 10) - 1];
+    if (!chosen) return { reply: MSG.pickInvalid, clientId };
+    await wa.setConversationState(phone, clientId, 'await_visit_date', { contract: chosen });
+    return { reply: MSG.askVisitDate, clientId };
+  }
+  if (state && state.state === 'await_visit_date') {
+    const date = parseVisitDate(text);
+    if (!date) return { reply: MSG.visitDateInvalid, clientId };
+    await wa.setConversationState(phone, clientId, 'await_visit_slot', { contract: state.context?.contract || null, date });
+    return { reply: MSG.askVisitSlot, clientId };
+  }
+  if (state && state.state === 'await_visit_slot') {
+    const slot = parseSlot(text);
+    if (!slot) return { reply: MSG.askVisitSlot, clientId };
+    await wa.clearConversationState(phone);
+    if (await cap.recentServiceRequestCount(clientId, 'visit_schedule') >= WHATSAPP_ACTION_CAP_PER_HOUR) {
+      return { reply: MSG.actionCapped, clientId };
+    }
+    const id = await cap.scheduleVisit({ orgId, clientId, contract: state.context?.contract || null, preferredDate: state.context?.date, slot });
+    return { reply: MSG.visitLogged(id, state.context?.date, slot), clientId };
+  }
 
   // No active flow — parse an intent.
   switch (parseIntent(text)) {
@@ -273,6 +424,8 @@ async function handleBound({ phone, body, binding }) {
     case 'plan': return { reply: await cap.planText(clientId), clientId };
     case 'invoices': return { reply: await cap.invoicesText(clientId), clientId };
     case 'report': return { ...(await startReport(phone, clientId)), clientId };
+    case 'wifi': return { ...(await startWifiReset(phone, clientId)), clientId };
+    case 'visit': return { ...(await startVisit(phone, clientId)), clientId };
     case 'human': {
       await wa.clearConversationState(phone);
       if (await cap.recentWhatsappTicketCount(clientId) >= WHATSAPP_TICKET_CAP_PER_HOUR) {
