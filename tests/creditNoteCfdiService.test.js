@@ -125,6 +125,27 @@ describe('stampCreditNote — preconditions', () => {
     await expect(creditNoteCfdiService.stampCreditNote(30, 1))
       .rejects.toMatchObject({ statusCode: 422, code: 'CLIENT_MX_PROFILE_MISSING' });
   });
+
+  test('rejects inconsistent header totals (subtotal + tax ≠ total) BEFORE burning a folio', async () => {
+    mockQueries({ cn: { ...CN, subtotal: '100.00', tax_amount: '16.00', total: '999.00' } });
+    await expect(creditNoteCfdiService.stampCreditNote(30, 1))
+      .rejects.toMatchObject({ statusCode: 422, code: 'CREDIT_NOTE_TOTALS_INCONSISTENT' });
+    expect(db.getConnection).not.toHaveBeenCalled(); // no transaction, no folio consumed
+  });
+
+  test('rejects when line items do not sum to the subtotal (SAT CFDI40108)', async () => {
+    // items sum to 200.00 but the operator-entered subtotal says 500.00
+    mockQueries({ cn: { ...CN, subtotal: '500.00', tax_amount: '80.00', total: '580.00' } });
+    await expect(creditNoteCfdiService.stampCreditNote(30, 1))
+      .rejects.toMatchObject({ statusCode: 422, code: 'CREDIT_NOTE_TOTALS_INCONSISTENT' });
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  test('excludes soft-deleted line items from the conversion query', async () => {
+    await creditNoteCfdiService.stampCreditNote(30, 1);
+    const itemsCall = db.query.mock.calls.find(([sql]) => /FROM credit_note_items/.test(sql));
+    expect(itemsCall[0]).toMatch(/deleted_at IS NULL/);
+  });
 });
 
 describe('stampCreditNote — conversion', () => {

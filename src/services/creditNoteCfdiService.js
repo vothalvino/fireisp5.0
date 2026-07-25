@@ -130,7 +130,7 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
   }
 
   const [items] = await db.query(
-    'SELECT * FROM credit_note_items WHERE credit_note_id = ? ORDER BY id',
+    'SELECT * FROM credit_note_items WHERE credit_note_id = ? AND deleted_at IS NULL ORDER BY id',
     [creditNoteId],
   );
 
@@ -141,6 +141,29 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
   // Refund-created notes store subtotal = total (tax 0); a manually-entered
   // note may leave subtotal blank — derive it so SubTotal + IVA = Total.
   const subtotal = Number(cn.subtotal || 0) || Math.round((total - taxAmount) * 100) / 100;
+
+  // Internal-consistency gate: credit_notes totals are operator-entered and
+  // unvalidated. SAT enforces Total = SubTotal + traslados (CFDI40110) and
+  // SubTotal = Σ concepto Importes (CFDI40108) — an inconsistent note would
+  // only fail LATER at the PAC with an opaque error, after burning a folio on
+  // a lingering draft. Reject up front with an actionable 422 instead.
+  if (Math.abs(subtotal + taxAmount - total) > 0.01) {
+    throw new AppError(
+      `The credit note's amounts are inconsistent: subtotal (${subtotal.toFixed(2)}) + tax (${taxAmount.toFixed(2)}) must equal total (${total.toFixed(2)}). Fix the credit note before stamping.`,
+      422, 'CREDIT_NOTE_TOTALS_INCONSISTENT',
+    );
+  }
+  if (items.length > 0) {
+    const lineSum = items.reduce(
+      (sum, it) => sum + Math.round(Number(it.quantity || 1) * Number(it.unit_price || 0) * 100) / 100, 0,
+    );
+    if (Math.abs(lineSum - subtotal) > 0.01) {
+      throw new AppError(
+        `The credit note's line items sum to ${lineSum.toFixed(2)} but its subtotal is ${subtotal.toFixed(2)} — SAT requires SubTotal to equal the sum of concepto importes. Fix the items or the subtotal before stamping.`,
+        422, 'CREDIT_NOTE_TOTALS_INCONSISTENT',
+      );
+    }
+  }
 
   // Guía de llenado (nota de crédito): an egreso is settled the moment it is
   // issued → MetodoPago PUE with a CONCRETE forma. Prefer how the original
