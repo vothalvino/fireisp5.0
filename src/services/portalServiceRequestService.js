@@ -216,6 +216,40 @@ async function applyPppoePasswordChange(requestId) {
   logger.info({ requestId, contractId: req.contract_id }, 'PPPoE password updated via portal request');
 }
 
+/**
+ * Queue the TR-069 CPE task that sets a contract's Wi-Fi PreSharedKey. Shared by
+ * the admin approve path and the WhatsApp self-service reset. Returns
+ * { queued } — false when the contract has no managed CPE device (the caller
+ * then leaves the change for manual fulfillment).
+ */
+async function queueWifiPasswordCpeTask({ contractId, newPassword, createdBy = null }) {
+  if (!contractId || !newPassword) return { queued: false };
+  const [cpeRows] = await db.query(
+    'SELECT id, organization_id FROM cpe_devices WHERE contract_id = ? AND deleted_at IS NULL LIMIT 1',
+    [contractId],
+  );
+  if (!cpeRows[0]) return { queued: false };
+  const CpeTask = require('../models/CpeTask');
+  await CpeTask.create({
+    organization_id: cpeRows[0].organization_id,
+    cpe_device_id: cpeRows[0].id,
+    task_type: 'set_parameter_values',
+    parameters: JSON.stringify({
+      parameters: [
+        {
+          name: 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
+          value: newPassword,
+          type: 'xsd:string',
+        },
+      ],
+    }),
+    priority: 3,
+    status: 'queued',
+    created_by: createdBy,
+  });
+  return { queued: true };
+}
+
 // ---------------------------------------------------------------------------
 // Admin: list requests across all clients (with filters)
 // ---------------------------------------------------------------------------
@@ -330,44 +364,21 @@ async function approveRequest(requestId, organizationId, approvedByUserId, notes
     );
     logger.info({ requestId, contractId: req.contract_id, newPlanId: payload.new_plan_id }, 'Plan upgrade applied via portal request');
   } else if (req.request_type === 'wifi_password_change') {
-    // Queue a CPE set-parameter task for Wi-Fi password if we can resolve the device.
-    // If no CPE device is found, leave as approved for manual fulfillment.
-    if (req.contract_id) {
-      const [cpeRows] = await db.query(
-        'SELECT id, organization_id FROM cpe_devices WHERE contract_id = ? AND deleted_at IS NULL LIMIT 1',
-        [req.contract_id],
+    // Queue a CPE set-parameter task for the Wi-Fi password if we can resolve the
+    // device; if no CPE device is found, leave as approved for manual fulfillment.
+    const { queued } = await queueWifiPasswordCpeTask({
+      contractId: req.contract_id,
+      newPassword: payload.new_password || null,
+      createdBy: approvedByUserId,
+    });
+    if (queued) {
+      await db.query(
+        `UPDATE portal_service_requests
+         SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+         WHERE id = ?`,
+        [requestId],
       );
-      if (cpeRows[0]) {
-        const CpeTask = require('../models/CpeTask');
-        const wifiPassword = payload.new_password || null;
-        if (wifiPassword) {
-          await CpeTask.create({
-            organization_id: cpeRows[0].organization_id,
-            cpe_device_id: cpeRows[0].id,
-            task_type: 'set_parameter_values',
-            parameters: JSON.stringify({
-              parameters: [
-                {
-                  name: 'InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey',
-                  value: wifiPassword,
-                  type: 'xsd:string',
-                },
-              ],
-            }),
-            priority: 3,
-            status: 'queued',
-            created_by: approvedByUserId,
-          });
-          await db.query(
-            `UPDATE portal_service_requests
-             SET status = 'completed', completed_at = NOW(), updated_at = NOW()
-             WHERE id = ?`,
-            [requestId],
-          );
-          logger.info({ requestId, cpeDeviceId: cpeRows[0].id }, 'Wi-Fi password change queued via CPE task');
-        }
-      }
-      // If no CPE device found, leave as 'approved' for manual fulfillment
+      logger.info({ requestId }, 'Wi-Fi password change queued via CPE task');
     }
   } else {
     // static_ip_request, cancellation, visit_schedule — approved, manual fulfillment
@@ -584,6 +595,7 @@ module.exports = {
   listRequests,
   cancelRequest,
   applyPppoePasswordChange,
+  queueWifiPasswordCpeTask,
   adminListRequests,
   adminGetRequest,
   approveRequest,

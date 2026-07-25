@@ -246,3 +246,34 @@ Deltas from the design above, decided during implementation + adversarial review
 - **Note:** a problem *description* the customer types is stored verbatim in `tickets.description`
   (support staff need their actual words) — same as the portal ticket path. Only linking **codes**
   are redacted (in the inbound audit log), never a free-text ticket body.
+
+## 11. Implementation notes (as built — PR 3: write actions)
+
+The menu grows to: 1 balance · 2 plan · 3 invoices · 4 report a problem · **5 reset Wi-Fi
+password** · **6 schedule a technician visit** · 7 talk to a human. No new schema — the multi-turn
+flows reuse `whatsapp_conversation_state` (PR 2).
+
+- **Reset Wi-Fi password** — the sharp edge, done per the design's §6.2: **step-up** (`CONFIRM`),
+  the new password is **generated server-side and emailed** to the address on file (a second
+  channel) — **never typed or shown in chat**. On installs with a TR-069 CPE it is applied
+  immediately (reuses the extracted `queueWifiPasswordCpeTask`, shared with the admin approve path);
+  without a managed CPE it files a `wifi_password_change` request for staff. **Refuses if no email
+  is on file** (else the client would be locked out of their own Wi-Fi with no way to get the new
+  password). The email doubles as a security alert ("if you didn't request this…"). Per-client
+  cap of 3 resets/hr on top of the bound-path throttle.
+- **Schedule a technician visit** — multi-turn (date → time slot) → a `visit_schedule` request;
+  same 3/hr cap.
+- **Step-up model:** `CONFIRM` gates intent-confirmation and stops *accidents*; a hijacked bound
+  session is bounded instead by the throttle + per-action cap + the email notification (the design's
+  accepted trust model — binding alone is Tier-1; Tier-2 writes add step-up + notify, not stronger auth).
+- **Deferred (documented, not built):** **pay-now** (blocked on the unbuilt Stripe checkout front
+  door — see the stripe-checkout-gap note), **CFDI request on demand**, and **proof-of-payment
+  upload** (needs provider media handling). These round out the plan but each has an external
+  dependency.
+- **Review hardening (2 opus finders + opus verify workflow, 6 confirmed findings all fixed):**
+  the Wi-Fi reset now **delivers the new password by email FIRST (awaited, per-org SMTP routed) and
+  only applies the CPE change on confirmed delivery** — an email failure changes nothing and the bot
+  says so honestly (never a false "emailed"); the cached contract is **re-validated against the
+  client at apply time** (TOCTOU on contract reassignment) for both Wi-Fi and visit; the visit flow
+  got the **multi-contract picker** it was missing; and `parseVisitDate` rejects overflow (Feb 30)
+  and past dates. The binding-OTP email is likewise org-routed now.
