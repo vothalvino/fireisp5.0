@@ -350,6 +350,84 @@ async function createStripeCheckoutSession(gateway, { amount, currency, descript
   return { id: data.id, url: data.url };
 }
 
+/**
+ * Create a Conekta order with an embedded HostedPayment checkout and return the
+ * order id + hosted payment page url. The client is redirected to `url`; when the
+ * order is paid Conekta fires `order.paid`, which the webhook reconciles against
+ * the pending transaction (matched by gateway_reference_id = the order id, with
+ * the order's metadata.transaction_id as a fallback). The HostedPayment checkout
+ * lets the customer pay by card, cash (OXXO) or bank transfer (SPEI) — the three
+ * methods that matter for a Mexican launch.
+ *
+ * NOTE: built to the Conekta v2.x Orders/Checkout spec (POST /orders with an
+ * embedded `checkout`, response `checkout.url`); the live round-trip is not
+ * sandbox-verified here (no Conekta test account on hand) — same posture as the
+ * Stripe hosted flow, which also needs a real gateway to prove end-to-end.
+ */
+async function createConektaCheckoutSession(gateway, { amount, currency, description, customerName, customerEmail, successUrl, failureUrl, expiresAt, metadata = {} }) {
+  const https = require('https');
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+
+  const stringMeta = {};
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v !== null && v !== undefined) stringMeta[k] = String(v);
+  }
+
+  const customerInfo = { name: customerName || 'Cliente' };
+  if (customerEmail) customerInfo.email = customerEmail;
+
+  const body = JSON.stringify({
+    currency: String(currency || 'MXN').toUpperCase(),
+    customer_info: customerInfo,
+    line_items: [{
+      name: (description || 'FireISP payment').slice(0, 250),
+      unit_price: Math.round(amount * 100), // Conekta uses cents
+      quantity: 1,
+    }],
+    checkout: {
+      type: 'HostedPayment',
+      name: (description || 'FireISP payment').slice(0, 250),
+      allowed_payment_methods: ['card', 'cash', 'bank_transfer'],
+      success_url: successUrl,
+      failure_url: failureUrl || successUrl,
+      redirection_time: 5,
+      expires_at: Math.floor(expiresAt.getTime() / 1000),
+    },
+    metadata: stringMeta,
+  });
+
+  const response = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.conekta.io',
+      path: '/orders',
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(secretKey + ':').toString('base64')}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.conekta-v2.1.0+json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+    req.on('timeout', () => req.destroy(new Error('Conekta request timed out')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  const data = JSON.parse(response.body);
+  if (response.statusCode >= 400 || data.type === 'error') {
+    throw new Error(data.details?.[0]?.message || `Conekta error: HTTP ${response.statusCode}`);
+  }
+  const url = data.checkout?.url;
+  if (!url) throw new Error('Conekta did not return a hosted checkout url');
+  return { id: data.id, url };
+}
+
 // --- Stripe REST helper (shared by the autopay-enrollment calls) ---
 function stripeRequest(secretKey, method, path, body) {
   const https = require('https');
@@ -1164,6 +1242,7 @@ module.exports = {
   getClientTransactions,
   chargeStripe,
   createStripeCheckoutSession,
+  createConektaCheckoutSession,
   createStripeCustomer,
   createStripeSetupSession,
   retrieveStripeCheckoutSession,

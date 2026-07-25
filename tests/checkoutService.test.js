@@ -13,6 +13,7 @@ jest.mock('../src/config/database', () => ({
 jest.mock('../src/services/paymentGatewayService', () => ({
   charge: jest.fn(),
   createStripeCheckoutSession: jest.fn(),
+  createConektaCheckoutSession: jest.fn(),
 }));
 
 jest.mock('../src/services/paymentRetryService', () => ({
@@ -30,35 +31,47 @@ describe('checkoutService', () => {
   });
 
   describe('createCheckoutSession()', () => {
-    test('creates a checkout session for an invoice', async () => {
+    test('creates a real Conekta hosted checkout for a conekta gateway', async () => {
       const invoice = {
         id: 1, invoice_number: 'INV-000001', total: '500.00',
         currency: 'MXN', status: 'issued', client_id: 10,
       };
 
       db.query
-        .mockResolvedValueOnce([[invoice]])  // SELECT invoice
-        .mockResolvedValueOnce([[{ id: 5 }]])  // SELECT payment gateway
-        .mockResolvedValueOnce([{ insertId: 100 }]);  // INSERT transaction
-
-      const result = await checkoutService.createCheckoutSession({
-        organizationId: 1,
-        invoiceId: 1,
+        .mockResolvedValueOnce([[invoice]])                                                     // SELECT invoice
+        .mockResolvedValueOnce([[{ id: 5, provider: 'conekta', secret_key_encrypted: 'enc' }]]) // SELECT gateway
+        .mockResolvedValueOnce([[{ name: 'Ada Lovelace', email: 'ada@x.com' }]])                // SELECT client contact
+        .mockResolvedValueOnce([{ insertId: 300 }])                                             // INSERT tx (provisional ref)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                                          // UPDATE gateway_reference_id = ord_...
+      paymentGatewayService.createConektaCheckoutSession.mockResolvedValue({
+        id: 'ord_test_1', url: 'https://pay.conekta.com/link/ord_test_1',
       });
 
-      expect(result.checkout_id).toBe(100);
-      expect(result.token).toBeTruthy();
-      expect(result.amount).toBe('500.00');
-      expect(result.payment_url).toContain('/pay/');
+      const result = await checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 });
 
-      // The INSERT must use only real payment_transactions columns and supply
-      // the NOT NULL payment_gateway_id + gateway_reference_id.
-      const insertSql = db.query.mock.calls[2][0];
-      const insertParams = db.query.mock.calls[2][1];
-      expect(insertSql).not.toMatch(/description/);
-      expect(insertSql).toMatch(/payment_gateway_id/);
-      expect(insertSql).toMatch(/gateway_reference_id/);
-      expect(insertParams).toContain(5); // resolved payment_gateway_id
+      expect(paymentGatewayService.createConektaCheckoutSession).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'conekta' }),
+        expect.objectContaining({
+          amount: 500, currency: 'MXN', customerEmail: 'ada@x.com',
+          metadata: expect.objectContaining({ transaction_id: 300 }),
+        }),
+      );
+      expect(result.provider).toBe('conekta');
+      expect(result.checkout_id).toBe(300);
+      expect(result.payment_url).toBe('https://pay.conekta.com/link/ord_test_1');
+      // pending tx created first (provisional ref), then updated to the ord_ id.
+      expect(db.query.mock.calls[3][0]).toMatch(/INSERT INTO payment_transactions/);
+      expect(db.query.mock.calls[4][0]).toMatch(/UPDATE payment_transactions SET gateway_reference_id/);
+      expect(db.query.mock.calls[4][1]).toContain('ord_test_1');
+    });
+
+    test('rejects online payment for a non-hosted provider (manual) instead of a dead /pay link', async () => {
+      const invoice = { id: 1, invoice_number: 'INV-1', total: '500.00', currency: 'MXN', status: 'issued', client_id: 10 };
+      db.query
+        .mockResolvedValueOnce([[invoice]])                                                    // SELECT invoice
+        .mockResolvedValueOnce([[{ id: 5, provider: 'manual', secret_key_encrypted: 'e' }]]);  // SELECT gateway
+      await expect(checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 }))
+        .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     });
 
     test('creates a real Stripe hosted Checkout Session for a stripe gateway', async () => {
@@ -155,10 +168,15 @@ describe('checkoutService', () => {
       };
 
       db.query
-        .mockResolvedValueOnce([[invoice]])  // generatePaymentLink SELECT
-        .mockResolvedValueOnce([[invoice]])  // createCheckoutSession SELECT
-        .mockResolvedValueOnce([[{ id: 5 }]])  // SELECT payment gateway
-        .mockResolvedValueOnce([{ insertId: 100 }]);  // INSERT transaction
+        .mockResolvedValueOnce([[invoice]])                                                     // generatePaymentLink SELECT
+        .mockResolvedValueOnce([[invoice]])                                                     // createCheckoutSession SELECT invoice
+        .mockResolvedValueOnce([[{ id: 5, provider: 'conekta', secret_key_encrypted: 'e' }]])   // SELECT gateway
+        .mockResolvedValueOnce([[{ name: 'John Doe', email: 'john@test.com' }]])                // SELECT client contact
+        .mockResolvedValueOnce([{ insertId: 100 }])                                             // INSERT tx
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                                          // UPDATE gateway_reference_id
+      paymentGatewayService.createConektaCheckoutSession.mockResolvedValue({
+        id: 'ord_x', url: 'https://pay.conekta.com/link/ord_x',
+      });
 
       const result = await checkoutService.generatePaymentLink({
         organizationId: 1,
@@ -167,7 +185,7 @@ describe('checkoutService', () => {
 
       expect(result.client_name).toBe('John Doe');
       expect(result.client_email).toBe('john@test.com');
-      expect(result.payment_url).toContain('/pay/');
+      expect(result.payment_url).toBe('https://pay.conekta.com/link/ord_x');
     });
   });
 
