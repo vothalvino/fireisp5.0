@@ -16,6 +16,14 @@ describe('paymentGatewayService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     paymentGatewayService.paymentCircuitBreaker.reset();
+    // Default connection stub so code paths that open a transaction (e.g. the
+    // reverseRefund inside refund()) no-op cleanly unless a test overrides it via
+    // mockResolvedValueOnce. execute -> [[]] makes "SELECT ... FOR UPDATE" find
+    // no row, so reverseRefund returns early.
+    db.getConnection.mockResolvedValue({
+      beginTransaction: jest.fn(), execute: jest.fn().mockResolvedValue([[]]),
+      commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+    });
   });
 
   // =========================================================================
@@ -219,6 +227,46 @@ describe('paymentGatewayService', () => {
       expect(result.status).toBe('refunded');
       // No gateway_refund_reference for manual refunds
       expect(result.gateway_refund_reference).toBeUndefined();
+    });
+
+    test('reverses the settled invoice + writes a ledger debit', async () => {
+      const tx = { id: 100, gateway_status: 'succeeded', provider: 'manual', client_id: 5, invoice_id: 50,
+        organization_id: 42, amount: '500.00', currency: 'MXN', gateway_reference_id: 'manual_x', secret_key_encrypted: null };
+      db.query
+        .mockResolvedValueOnce([[tx]])                 // SELECT tx + gateway
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE -> refunded
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn()
+          .mockResolvedValueOnce([[tx]])          // SELECT tx FOR UPDATE
+          .mockResolvedValueOnce([[{ id: 1 }]])   // reconcile CREDIT exists
+          .mockResolvedValueOnce([[]])            // no prior reversal DEBIT
+          .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE invoices -> issued
+          .mockResolvedValueOnce([{ affectedRows: 1 }]), // INSERT ledger debit
+      };
+      db.getConnection.mockResolvedValue(conn);
+
+      const res = await paymentGatewayService.refund(100);
+      expect(res.status).toBe('refunded');
+      const revert = conn.execute.mock.calls.find((c) => /UPDATE invoices SET status = 'issued'/.test(c[0]));
+      expect(revert).toBeTruthy();
+      expect(revert[1]).toEqual([50]); // the linked invoice
+      const debit = conn.execute.mock.calls.find((c) => /INSERT INTO client_balance_ledger/.test(c[0]) && /'debit'/.test(c[0]));
+      expect(debit).toBeTruthy();
+    });
+
+    test('does NOT reverse when the payment was never reconciled (no credit entry)', async () => {
+      const tx = { id: 101, gateway_status: 'succeeded', provider: 'manual', client_id: 5, invoice_id: null,
+        organization_id: 42, amount: '500.00', currency: 'MXN', gateway_reference_id: 'm', secret_key_encrypted: null };
+      db.query.mockResolvedValueOnce([[tx]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
+      const conn = {
+        beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+        execute: jest.fn().mockResolvedValueOnce([[tx]]).mockResolvedValueOnce([[]]), // tx, then NO credit
+      };
+      db.getConnection.mockResolvedValue(conn);
+      await paymentGatewayService.refund(101);
+      const anyInsert = conn.execute.mock.calls.find((c) => /INSERT INTO client_balance_ledger/.test(c[0]));
+      expect(anyInsert).toBeFalsy();
     });
 
     test('throws when transaction not found', async () => {
