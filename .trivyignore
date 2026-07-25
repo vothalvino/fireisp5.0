@@ -26,3 +26,26 @@ CVE-2026-41907
 # Remove this entry once the runtime image has stably carried the fixed liblzma5 for a while
 # (i.e. no red container-scan recurrence) — it is inert while the installed package is patched.
 CVE-2026-34743
+
+# CVE-2026-14257 — brace-expansion DoS: a maliciously-crafted brace pattern (e.g. deeply nested
+# {a,b}{a,b}... ) expands unbounded and OOMs the process. Fixed in brace-expansion 5.0.8 (a MAJOR
+# bump from the 1.x/2.x instances that pull it). brace-expansion reaches the tree only transitively
+# via minimatch, and NO runtime code path expands an attacker-controlled brace pattern:
+#   - backend prod: brace-expansion@2.1.2 <- minimatch@5.1.9 <- readdir-glob <- archiver <- exceljs
+#     (exceljs is used only to WRITE .xlsx exports to a buffer/stream; it never globs a
+#      user-supplied directory pattern). `src/` contains zero direct glob/minimatch/brace-expansion
+#      usage (grep-verified) — no endpoint feeds user input to a brace expander.
+#   - the 1.x/5.x instances are dev/build tooling only (jest, @vitest/coverage-v8, openapi-typescript).
+# Same shape as the uuid/autocannon entry above: the vulnerable API is never exercised at runtime,
+# and the only fix is a deep transitive MAJOR bump we can't force without breaking minimatch@3/@5.
+# Remove once exceljs/archiver (and the dev tools) ship a minimatch resolving brace-expansion >=5.0.8.
+CVE-2026-14257
+
+# GHSA-qwww-vcr4-c8h2 — react-router "RSC Mode CSRF Bypass": affects React Router's React Server
+# Components request handler, and is fixed only in react-router 8.3.0 (a MAJOR upgrade). NOT
+# APPLICABLE here: the frontend is a client-side SPA using react-router-dom v7 in declarative
+# BrowserRouter mode (frontend/src/App.tsx) — RSC / framework mode is never enabled, so the
+# vulnerable RSC action handler is never mounted. The separately-tracked, APPLICABLE react-router
+# DoS (CVE-2026-55685) IS fixed in this change by bumping react-router-dom to 7.18.1.
+# Remove this entry when the app adopts react-router v8 (or the advisory is rescoped off v7).
+GHSA-qwww-vcr4-c8h2
