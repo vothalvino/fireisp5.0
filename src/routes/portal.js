@@ -78,6 +78,8 @@ const portalServiceRequestService = require('../services/portalServiceRequestSer
 const pdfService = require('../services/pdfService');
 const aiReplyService = require('../services/aiReplyService');
 const { computeClientBalance } = require('../services/clientBalanceService');
+const whatsappService = require('../services/whatsappService');
+const config = require('../config');
 const logger = require('../utils/logger');
 
 const router = Router();
@@ -276,6 +278,78 @@ router.put('/auth/password', validate(portalPasswordSchema), async (req, res, ne
 
     await portalAuthService.setPassword(req.client.id, newPassword);
     res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// WHATSAPP LINKING (docs/whatsapp-support-design.md)
+// The portal session IS the proof of account ownership; minting a code here and
+// texting it to the bot binds the WhatsApp number to this client.
+// ---------------------------------------------------------------------------
+
+function maskPhone(e164) {
+  const s = String(e164 || '');
+  return s.length <= 4 ? s : `••••${s.slice(-4)}`;
+}
+
+// POST /portal/whatsapp/link-code — mint a short-lived linking code + wa.me link.
+router.post('/whatsapp/link-code', async (req, res, next) => {
+  try {
+    // Cap pending codes per client so an authenticated client can't inflate the
+    // verification table (and marginally raise cross-client collision odds).
+    const pending = await whatsappService.pendingPortalCodeCount(req.client.id);
+    if (pending >= config.whatsapp.maxCodesPerHour) {
+      throw new ValidationError('Too many linking codes requested. Please wait a few minutes and try again.');
+    }
+    const code = await whatsappService.createPortalLinkCode({
+      organizationId: req.client.organizationId,
+      clientId: req.client.id,
+    });
+    const num = (config.whatsapp.businessNumber || '').replace(/\D/g, '');
+    res.json({
+      data: {
+        code,
+        deepLink: num ? `https://wa.me/${num}?text=${encodeURIComponent(code)}` : null,
+        businessNumber: config.whatsapp.businessNumber || null,
+        expiresInMinutes: config.whatsapp.linkCodeTtlMinutes,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /portal/whatsapp/status — this client's active WhatsApp links (masked).
+router.get('/whatsapp/status', async (req, res, next) => {
+  try {
+    const links = await whatsappService.listClientLinks(req.client.id);
+    res.json({
+      data: {
+        linked: links.length > 0,
+        links: links.map((l) => ({
+          id: l.id,
+          phone: maskPhone(l.phone_e164),
+          boundVia: l.bound_via,
+          boundAt: l.bound_at,
+          lastSeenAt: l.last_seen_at,
+        })),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /portal/whatsapp/link/:id — unlink one of this client's numbers.
+router.delete('/whatsapp/link/:id', async (req, res, next) => {
+  try {
+    const linkId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(linkId)) throw new ValidationError('Invalid link id');
+    const ok = await whatsappService.revokeLink({ clientId: req.client.id, linkId });
+    if (!ok) throw new NotFoundError('WhatsApp link not found');
+    res.json({ message: 'WhatsApp number disconnected' });
   } catch (err) {
     next(err);
   }

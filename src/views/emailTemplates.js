@@ -358,6 +358,31 @@ function customMessageEmail({ recipientName, bodyText, orgName }) {
   return baseLayout(content);
 }
 
+// ---------------------------------------------------------------------------
+// WhatsApp linking code
+// ---------------------------------------------------------------------------
+
+function whatsappLinkCodeEmail(vars) {
+  // userName is user-controlled — escape before interpolating into HTML.
+  const userName = escapeHtml(String(vars.userName || 'Customer'));
+  // code is server-generated numeric, but render it defensively all the same.
+  const code = escapeHtml(String(vars.code || ''));
+  const expiresIn = escapeHtml(String(vars.expiresIn || '10 minutes'));
+  const content = `
+    <div class="header">
+      <h1>WhatsApp Linking Code</h1>
+    </div>
+    <p>Hello <strong>${userName}</strong>,</p>
+    <p>Use this code to connect your WhatsApp number to your account. Reply with it in the WhatsApp chat:</p>
+    <p style="text-align: center; margin: 24px 0; font-size: 28px; font-weight: bold; letter-spacing: 4px;">${code}</p>
+    <p class="meta">This code expires in ${expiresIn}. If you did not request this, you can safely ignore this email — no one can connect a number without it.</p>`;
+
+  return {
+    subject: 'Your WhatsApp linking code',
+    html: baseLayout(content),
+  };
+}
+
 module.exports = {
   baseLayout,
   welcomeEmail,
@@ -369,4 +394,5 @@ module.exports = {
   serviceSuspendedEmail,
   outageNotificationEmail,
   customMessageEmail,
+  whatsappLinkCodeEmail,
 };
