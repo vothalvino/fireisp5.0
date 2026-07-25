@@ -103,9 +103,18 @@ async function fetchClients(): Promise<Client[]> {
   return (res.data as unknown as { data: Client[] }).data;
 }
 
+// Surface the backend's own message (e.g. the totals-consistency 422) instead
+// of a generic failure string.
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const msg = (err as { error?: { message?: string } })?.error?.message;
+  return msg || fallback;
+}
+
 async function createCreditNote(body: CreditNoteBody): Promise<void> {
   const res = await api.POST('/credit-notes', { body: body as never });
-  if (res.error) throw new Error('Failed to create credit note');
+  // The generated type declares no error member (typed `never`) — widen it.
+  const err = (res as { error?: unknown }).error;
+  if (err) throw new Error(apiErrorMessage(err, 'Failed to create credit note'));
 }
 
 async function updateCreditNote(id: number, body: Partial<CreditNoteBody>): Promise<void> {
@@ -113,7 +122,9 @@ async function updateCreditNote(id: number, body: Partial<CreditNoteBody>): Prom
     params: { path: { id } },
     body: body as never,
   });
-  if (res.error) throw new Error('Failed to update credit note');
+  // The generated PUT type has no error member (typed `never`) — widen it.
+  const err = (res as { error?: unknown }).error;
+  if (err) throw new Error(apiErrorMessage(err, 'Failed to update credit note'));
 }
 
 async function deleteCreditNote(id: number): Promise<void> {
@@ -221,7 +232,7 @@ export function CreditNoteModal({ creditNote, clients, onClose, onSaved, lockedC
       onSaved();
       onClose();
     },
-    onError: () => setError('Failed to save credit note. Check all fields and try again.'),
+    onError: (err: Error) => setError(err.message || 'Failed to save credit note. Check all fields and try again.'),
   });
 
   function handleSubmit(e: React.FormEvent) {

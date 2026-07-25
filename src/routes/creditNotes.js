@@ -13,10 +13,41 @@ const { requireMxLocale } = require('../middleware/orgLocale');
 const { validate } = require('../middleware/validate');
 const { createCreditNote, updateCreditNote, createCreditNoteItem, stampCreditNote } = require('../middleware/schemas/creditNotes');
 const creditNoteCfdiService = require('../services/creditNoteCfdiService');
+const { AppError } = require('../utils/errors');
 const db = require('../config/database');
 
+// Header-amounts consistency: a credit note's total drives the client balance
+// (POST writes a client_balance_ledger credit) and the CFDI de Egreso, but the
+// three amount columns were accepted unvalidated — an inconsistent note
+// (subtotal + tax ≠ total) polluted the books at create and only failed later,
+// at stamp time. Reject it at the door. Fires only when both subtotal and total
+// are known (a total-only note, like the refund path creates, is coherent).
+function assertTotalsConsistent({ subtotal, tax_amount, total }) {
+  const missing = (v) => v === null || v === undefined;
+  if (missing(subtotal) || missing(total)) return;
+  const sub = Number(subtotal);
+  const tax = Number(tax_amount ?? 0);
+  const tot = Number(total);
+  if ([sub, tax, tot].some(Number.isNaN)) return; // type errors are validate()'s job
+  if (Math.abs(sub + tax - tot) > 0.01) {
+    throw new AppError(
+      `Credit note amounts are inconsistent: subtotal (${sub.toFixed(2)}) + tax (${tax.toFixed(2)}) must equal total (${tot.toFixed(2)}).`,
+      422, 'CREDIT_NOTE_TOTALS_INCONSISTENT',
+    );
+  }
+}
+
 const router = Router();
-const ctrl = crudController(CreditNote);
+// The update guard merges the incoming partial body over the existing row so a
+// PUT that changes only one amount can't sneak the note inconsistent (or can
+// deliberately FIX an inconsistent legacy note).
+const ctrl = crudController(CreditNote, {
+  beforeUpdate: (old, req) => assertTotalsConsistent({
+    subtotal: req.body.subtotal ?? old.subtotal,
+    tax_amount: req.body.tax_amount ?? old.tax_amount,
+    total: req.body.total ?? old.total,
+  }),
+});
 
 router.use(authenticate);
 router.use(orgScope);
@@ -25,6 +56,7 @@ router.get('/', requirePermission('credit_notes.view'), ctrl.list);
 router.get('/:id', requirePermission('credit_notes.view'), ctrl.get);
 router.post('/', requirePermission('credit_notes.create'), validate(createCreditNote), async (req, res, next) => {
   try {
+    assertTotalsConsistent(req.body);
     req.body.organization_id = req.orgId;
     // Default currency when the caller omits one: prefer the linked
     // invoice's own currency (a credit note against an invoice should be
