@@ -284,6 +284,59 @@ async function chargeStripe(gateway, amount, currency, description, paymentMetho
 }
 
 /**
+ * Create a Stripe-hosted Checkout Session for a one-time payment and return its
+ * id + hosted url. The client is redirected to Stripe; on completion Stripe fires
+ * checkout.session.completed, which the webhook reconciles against the pending
+ * transaction (matched by gateway_reference_id = the session id).
+ */
+async function createStripeCheckoutSession(gateway, { amount, currency, description, successUrl, cancelUrl, metadata = {} }) {
+  const https = require('https');
+  const secretKey = decrypt(gateway.secret_key_encrypted);
+
+  const params = {
+    mode: 'payment',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': String(currency || 'MXN').toLowerCase(),
+    'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+    'line_items[0][price_data][product_data][name]': description || 'FireISP payment',
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  };
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v !== null && v !== undefined) params[`metadata[${k}]`] = String(v);
+  }
+  const body = new URLSearchParams(params).toString();
+
+  const response = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.stripe.com',
+      path: '/v1/checkout/sessions',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+    req.on('timeout', () => req.destroy(new Error('Stripe request timed out')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  const data = JSON.parse(response.body);
+  if (response.statusCode >= 400 || data.error) {
+    throw new Error(data.error?.message || `Stripe error: HTTP ${response.statusCode}`);
+  }
+  return { id: data.id, url: data.url };
+}
+
+/**
  * Charge via Conekta REST API.
  */
 async function chargeConekta(gateway, amount, currency, description, _paymentMethodToken) {
@@ -646,7 +699,7 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
     // Find the matching payment transaction. When the event arrived on a
     // gateway-scoped route, confine the match to that tenant (cross-tenant
     // reconciliation guard); otherwise fall back to the global lookup.
-    const [txRows] = organizationId
+    let [txRows] = organizationId
       ? await db.query(
         'SELECT * FROM payment_transactions WHERE gateway_reference_id = ? AND organization_id = ? LIMIT 1',
         [gatewayRef, organizationId],
@@ -655,6 +708,18 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
         'SELECT * FROM payment_transactions WHERE gateway_reference_id = ? LIMIT 1',
         [gatewayRef],
       );
+
+    // Fallback: a Checkout Session carries transaction_id in its metadata, so if
+    // the reference lookup misses (e.g. the gateway_reference_id UPDATE never
+    // landed after the session was created) we can still recover the tx by id.
+    if (txRows.length === 0) {
+      const metaTxId = payload?.data?.object?.metadata?.transaction_id;
+      if (metaTxId) {
+        [txRows] = organizationId
+          ? await db.query('SELECT * FROM payment_transactions WHERE id = ? AND organization_id = ? LIMIT 1', [metaTxId, organizationId])
+          : await db.query('SELECT * FROM payment_transactions WHERE id = ? LIMIT 1', [metaTxId]);
+      }
+    }
 
     if (txRows.length === 0) {
       await db.query(
@@ -742,8 +807,23 @@ async function handleWebhookEvent({ provider, providerEventId, eventType, payloa
 function mapProviderEvent(provider, eventType, payload) {
   if (provider === 'stripe') {
     const obj = payload.data?.object || {};
-    const gatewayRef = obj.id || null;
 
+    // Hosted Checkout Session events — the reference is the session id (cs_...)
+    // stored on the pending transaction at createCheckoutSession time.
+    if (eventType === 'checkout.session.completed') {
+      // Card/synchronous methods settle immediately (payment_status 'paid');
+      // async methods (bank debits) settle later via async_payment_succeeded, so
+      // don't mark those succeeded yet.
+      return { gatewayRef: obj.id || null, newStatus: obj.payment_status === 'paid' ? 'succeeded' : null };
+    }
+    if (eventType === 'checkout.session.async_payment_succeeded') {
+      return { gatewayRef: obj.id || null, newStatus: 'succeeded' };
+    }
+    if (eventType === 'checkout.session.async_payment_failed' || eventType === 'checkout.session.expired') {
+      return { gatewayRef: obj.id || null, newStatus: 'failed' };
+    }
+
+    const gatewayRef = obj.id || null;
     const statusMap = {
       'payment_intent.succeeded': 'succeeded',
       'payment_intent.payment_failed': 'failed',
@@ -801,34 +881,51 @@ async function reconcilePayment(transactionId) {
       return;
     }
 
-    // Find the oldest unpaid invoice for this client whose total matches
-    const [invoices] = await conn.execute(
-      `SELECT * FROM invoices
-       WHERE client_id = ? AND organization_id = ? AND status = 'issued'
-       ORDER BY due_date ASC LIMIT 1
-       FOR UPDATE`,
-      [tx.client_id, tx.organization_id],
-    );
+    // Resolve the invoice this payment settles. Prefer the EXPLICIT linkage —
+    // hosted checkout / payment links store payment_transactions.invoice_id — so
+    // we settle exactly the invoice the customer chose and never strand captured
+    // money on the wrong invoice (or none). Legacy charge()/autopay transactions
+    // have no linkage and fall back to the old "oldest issued invoice of matching
+    // amount" heuristic.
+    let invoice = null;
+    let shouldCredit = false;
+    let markPaid = false;
 
-    if (invoices.length === 0) {
+    if (tx.invoice_id) {
+      const [linked] = await conn.execute(
+        'SELECT * FROM invoices WHERE id = ? AND client_id = ? AND organization_id = ? FOR UPDATE',
+        [tx.invoice_id, tx.client_id, tx.organization_id],
+      );
+      invoice = linked[0] || null;
+      // The money was captured for THIS invoice — always credit it, even if the
+      // invoice was since deleted or already settled (an overpayment becomes a
+      // client credit); mark it paid only if it is still in a payable state.
+      shouldCredit = true;
+      markPaid = Boolean(invoice) && (invoice.status === 'issued' || invoice.status === 'sent');
+    } else {
+      const [oldest] = await conn.execute(
+        `SELECT * FROM invoices
+           WHERE client_id = ? AND organization_id = ? AND status = 'issued'
+           ORDER BY due_date ASC LIMIT 1 FOR UPDATE`,
+        [tx.client_id, tx.organization_id],
+      );
+      invoice = oldest[0] || null;
+      if (invoice && Math.abs(parseFloat(tx.amount) - parseFloat(invoice.total)) <= RECONCILE_AMOUNT_TOLERANCE) {
+        shouldCredit = true;
+        markPaid = true;
+      } else {
+        invoice = null;
+      }
+    }
+
+    if (!shouldCredit) {
       await conn.rollback();
       return;
     }
 
-    const invoice = invoices[0];
-    const txAmount = parseFloat(tx.amount);
-    const invoiceTotal = parseFloat(invoice.total);
-
-    if (Math.abs(txAmount - invoiceTotal) > RECONCILE_AMOUNT_TOLERANCE) {
-      await conn.rollback();
-      return;
+    if (invoice && markPaid) {
+      await conn.execute('UPDATE invoices SET status = \'paid\' WHERE id = ?', [invoice.id]);
     }
-
-    // Mark invoice as paid
-    await conn.execute(
-      'UPDATE invoices SET status = \'paid\' WHERE id = ?',
-      [invoice.id],
-    );
 
     // Credit client balance ledger
     await conn.execute(
@@ -840,7 +937,7 @@ async function reconcilePayment(transactionId) {
     );
 
     await conn.commit();
-    logger.info({ transactionId, invoiceId: invoice.id }, 'Payment auto-reconciled');
+    logger.info({ transactionId, invoiceId: invoice ? invoice.id : null }, 'Payment auto-reconciled');
   } catch (err) {
     await conn.rollback();
     // Reconciliation is best-effort; don't fail the webhook
@@ -857,6 +954,7 @@ module.exports = {
   refund,
   getClientTransactions,
   chargeStripe,
+  createStripeCheckoutSession,
   chargeConekta,
   checkIdempotencyKey,
   storeIdempotencyKey,

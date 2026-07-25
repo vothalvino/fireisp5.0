@@ -12,6 +12,7 @@ jest.mock('../src/config/database', () => ({
 
 jest.mock('../src/services/paymentGatewayService', () => ({
   charge: jest.fn(),
+  createStripeCheckoutSession: jest.fn(),
 }));
 
 jest.mock('../src/services/paymentRetryService', () => ({
@@ -60,6 +61,48 @@ describe('checkoutService', () => {
       expect(insertParams).toContain(5); // resolved payment_gateway_id
     });
 
+    test('creates a real Stripe hosted Checkout Session for a stripe gateway', async () => {
+      const invoice = {
+        id: 1, invoice_number: 'INV-000001', total: '500.00',
+        currency: 'MXN', status: 'issued', client_id: 10,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[invoice]])                                              // SELECT invoice
+        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'enc' }]]) // SELECT gateway
+        .mockResolvedValueOnce([{ insertId: 200 }])                                      // INSERT transaction (provisional ref)
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                                   // UPDATE gateway_reference_id = cs_...
+      paymentGatewayService.createStripeCheckoutSession.mockResolvedValue({
+        id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay/cs_test_1',
+      });
+
+      const result = await checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 });
+
+      expect(paymentGatewayService.createStripeCheckoutSession).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'stripe' }),
+        expect.objectContaining({ amount: 500, currency: 'MXN', metadata: expect.objectContaining({ transaction_id: 200 }) }),
+      );
+      expect(result.provider).toBe('stripe');
+      expect(result.payment_url).toBe('https://checkout.stripe.com/c/pay/cs_test_1');
+      // The pending tx is created first (provisional ref), then updated to the cs_ session id.
+      expect(db.query.mock.calls[2][0]).toMatch(/INSERT INTO payment_transactions/);
+      expect(db.query.mock.calls[3][0]).toMatch(/UPDATE payment_transactions SET gateway_reference_id/);
+      expect(db.query.mock.calls[3][1]).toContain('cs_test_1');
+    });
+
+    test('marks the pending transaction failed if the Stripe session creation throws', async () => {
+      const invoice = { id: 1, invoice_number: 'INV-1', total: '500.00', currency: 'MXN', status: 'issued', client_id: 10 };
+      db.query
+        .mockResolvedValueOnce([[invoice]])
+        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'enc' }]])
+        .mockResolvedValueOnce([{ insertId: 200 }])   // INSERT tx
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE ... failed
+      paymentGatewayService.createStripeCheckoutSession.mockRejectedValue(new Error('Stripe down'));
+
+      await expect(checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 })).rejects.toThrow('Stripe down');
+      expect(db.query.mock.calls[3][0]).toMatch(/gateway_status = 'failed'/);
+    });
+
     test('throws a validation error when no active gateway is configured', async () => {
       const invoice = {
         id: 1, invoice_number: 'INV-000001', total: '500.00',
@@ -82,11 +125,24 @@ describe('checkoutService', () => {
       ).rejects.toThrow('Invoice not found');
     });
 
-    test('throws when invoice already paid', async () => {
-      db.query.mockResolvedValueOnce([[{ id: 1, status: 'paid' }]]);
+    test('rejects a non-payable invoice (paid/void/cancelled)', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 1, invoice_number: 'INV-1', status: 'paid' }]]);
       await expect(
         checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1 }),
-      ).rejects.toThrow('Invoice already paid');
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+      db.query.mockResolvedValueOnce([[{ id: 2, invoice_number: 'INV-2', status: 'cancelled' }]]);
+      await expect(
+        checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 2 }),
+      ).rejects.toThrow(/cannot be paid online/);
+    });
+
+    test('rejects when the invoice does not belong to the supplied client', async () => {
+      db.query.mockResolvedValueOnce([[{ id: 1, invoice_number: 'INV-1', status: 'issued', client_id: 10, total: '5.00', currency: 'MXN' }]]);
+      db.query.mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'e' }]]);
+      await expect(
+        checkoutService.createCheckoutSession({ organizationId: 1, invoiceId: 1, clientId: 999 }),
+      ).rejects.toThrow(/does not belong/);
     });
   });
 

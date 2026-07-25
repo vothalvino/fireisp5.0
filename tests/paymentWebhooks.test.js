@@ -339,6 +339,91 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(upd[0]).not.toMatch(/organization_id/);
     });
 
+    test('processes checkout.session.completed (paid) — settles the LINKED invoice, not the oldest', async () => {
+      const payload = {
+        id: 'evt_cs_1',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_123', payment_status: 'paid', amount_total: 50000 } },
+      };
+      // The transaction is linked (invoice_id=77) to the invoice the customer chose.
+      const linkedTx = { id: 200, client_id: 5, invoice_id: 77, organization_id: 42, amount: '500.00', currency: 'MXN', gateway_reference_id: 'cs_test_123' };
+
+      db.query
+        .mockResolvedValueOnce([[]])                  // No duplicate
+        .mockResolvedValueOnce([{ insertId: 12 }])    // INSERT webhook_events
+        .mockResolvedValueOnce([[linkedTx]])          // Find transaction by cs_ session id
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE payment_transactions
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events processed
+
+      mockConnection.execute
+        .mockResolvedValueOnce([[linkedTx]])                                          // SELECT tx FOR UPDATE
+        .mockResolvedValueOnce([[{ id: 77, status: 'issued', total: '500.00' }]])     // SELECT LINKED invoice by id
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                                 // UPDATE invoices SET paid
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                                // INSERT ledger
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe', providerEventId: 'evt_cs_1', eventType: 'checkout.session.completed', payload,
+      });
+
+      expect(result.status).toBe('processed');
+      expect(result.newStatus).toBe('succeeded');
+      // The linked invoice (77) is looked up by id and marked paid — NOT an oldest-by-due-date heuristic.
+      expect(mockConnection.execute.mock.calls[1][0]).toMatch(/FROM invoices WHERE id = \?/);
+      expect(mockConnection.execute.mock.calls[1][1]).toEqual([77, 5, 42]);
+      expect(mockConnection.execute.mock.calls[2][1]).toEqual([77]); // UPDATE invoices ... WHERE id = 77
+    });
+
+    test('checkout.session.completed recovers a tx via metadata.transaction_id when the reference lookup misses', async () => {
+      const payload = {
+        id: 'evt_cs_orphan',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_orphan', payment_status: 'paid', metadata: { transaction_id: '201' } } },
+      };
+      const tx = { id: 201, client_id: 5, invoice_id: 78, organization_id: 42, amount: '100.00', currency: 'MXN', gateway_reference_id: 'pending_stripe_x' };
+
+      db.query
+        .mockResolvedValueOnce([[]])                  // No duplicate
+        .mockResolvedValueOnce([{ insertId: 14 }])    // INSERT webhook_events
+        .mockResolvedValueOnce([[]])                  // find by gateway_reference_id -> MISS
+        .mockResolvedValueOnce([[tx]])                // fallback: find by metadata.transaction_id
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE payment_transactions
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events processed
+
+      mockConnection.execute
+        .mockResolvedValueOnce([[tx]])
+        .mockResolvedValueOnce([[{ id: 78, status: 'issued', total: '100.00' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe', providerEventId: 'evt_cs_orphan', eventType: 'checkout.session.completed', payload,
+      });
+      expect(result.status).toBe('processed');
+      expect(result.transactionId).toBe(201);
+    });
+
+    test('ignores checkout.session.completed that is not yet paid (async method)', async () => {
+      const payload = {
+        id: 'evt_cs_2',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_async', payment_status: 'unpaid' } },
+      };
+
+      db.query
+        .mockResolvedValueOnce([[]])                  // No duplicate
+        .mockResolvedValueOnce([{ insertId: 13 }])    // INSERT webhook_events
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE webhook_events -> ignored
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe',
+        providerEventId: 'evt_cs_2',
+        eventType: 'checkout.session.completed',
+        payload,
+      });
+
+      expect(result.status).toBe('ignored');
+    });
+
     test('processes Stripe payment_intent.payment_failed event', async () => {
       const payload = {
         id: 'evt_stripe_2',
