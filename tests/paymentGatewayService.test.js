@@ -108,6 +108,33 @@ describe('paymentGatewayService', () => {
   // charge
   // =========================================================================
   describe('charge()', () => {
+    test('sends customer + off_session to Stripe for a saved-card autopay charge', async () => {
+      const https = require('https');
+      const EventEmitter = require('events');
+      db.query
+        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', status: 'active', secret_key_encrypted: 'enc' }]]) // getActiveGateway
+        .mockResolvedValueOnce([{ insertId: 200 }])   // INSERT pending tx
+        .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE tx after charge
+
+      const mockReq = new EventEmitter(); mockReq.write = jest.fn(); mockReq.end = jest.fn(); mockReq.destroy = jest.fn();
+      const mockRes = new EventEmitter(); mockRes.statusCode = 200;
+      const spy = jest.spyOn(https, 'request').mockImplementation((_opts, cb) => {
+        process.nextTick(() => { cb(mockRes); mockRes.emit('data', JSON.stringify({ id: 'pi_1', status: 'succeeded' })); mockRes.emit('end'); });
+        return mockReq;
+      });
+
+      await paymentGatewayService.charge({
+        organizationId: 1, clientId: 7, amount: 100, currency: 'MXN', description: 'x',
+        paymentMethodToken: 'pm_1', customer: 'cus_1', offSession: true,
+      });
+
+      const body = mockReq.write.mock.calls[0][0];
+      expect(body).toMatch(/payment_method=pm_1/);
+      expect(body).toMatch(/customer=cus_1/);
+      expect(body).toMatch(/off_session=true/);
+      spy.mockRestore();
+    });
+
     test('creates transaction and returns success', async () => {
       const gw = { id: 1, provider: 'manual', status: 'active' };
       db.query

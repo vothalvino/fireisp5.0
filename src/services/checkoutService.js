@@ -250,6 +250,10 @@ async function chargeRecurringProfile(profileId) {
       currency: invoice.currency,
       description,
       paymentMethodToken: token,
+      // Off-session (unattended) charge of the saved, mandate-backed card. Without
+      // the customer + off_session flag Stripe returns authentication_required.
+      customer: profile.stripe_customer_id || undefined,
+      offSession: true,
       idempotencyKey,
     });
   }

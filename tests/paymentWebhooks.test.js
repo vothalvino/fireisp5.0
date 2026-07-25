@@ -402,6 +402,33 @@ describe('Payment Webhooks & Idempotency', () => {
       expect(result.transactionId).toBe(201);
     });
 
+    test('checkout.session.completed in SETUP mode enrolls autopay (no payment reconcile)', async () => {
+      const payload = {
+        id: 'evt_setup',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_setup', mode: 'setup', metadata: { client_id: '7' } } },
+      };
+      const spy = jest.spyOn(paymentGatewayService, 'retrieveStripeCheckoutSession')
+        .mockResolvedValue({ mode: 'setup', customer: 'cus_1', paymentMethod: 'pm_1', metadata: { client_id: 7 } });
+
+      db.query
+        .mockResolvedValueOnce([[]])                                                   // dup
+        .mockResolvedValueOnce([{ insertId: 40 }])                                     // INSERT webhook_events
+        .mockResolvedValueOnce([[{ id: 5, provider: 'stripe', secret_key_encrypted: 'e' }]]) // gateway (completeEnrollment)
+        .mockResolvedValueOnce([{ affectedRows: 1 }])                                  // clear other defaults
+        .mockResolvedValueOnce([{ insertId: 30 }])                                     // INSERT profile
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);                                 // UPDATE webhook_events processed
+
+      const result = await paymentGatewayService.handleWebhookEvent({
+        provider: 'stripe', providerEventId: 'evt_setup', eventType: 'checkout.session.completed', payload, organizationId: 42,
+      });
+
+      expect(result.status).toBe('processed');
+      expect(result.autopay).toBe(true);
+      expect(db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]))).toBeTruthy();
+      spy.mockRestore();
+    });
+
     test('ignores checkout.session.completed that is not yet paid (async method)', async () => {
       const payload = {
         id: 'evt_cs_2',

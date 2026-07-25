@@ -2047,6 +2047,17 @@ function generateSpec() {
         delete: { tags: ['Portal Auth'], summary: 'Unlink a WhatsApp number', operationId: 'portalWhatsappUnlink', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Message') },
       },
 
+      // ---- Portal Autopay (Stripe off-session card capture) ----
+      '/portal/autopay/enroll': {
+        post: { tags: ['Portal Auth'], summary: 'Start autopay card capture (returns a Stripe setup URL)', operationId: 'portalAutopayEnroll', security: [{ bearerAuth: [] }], responses: r201('{ setup_url, provider }') },
+      },
+      '/portal/autopay/status': {
+        get: { tags: ['Portal Auth'], summary: 'Whether autopay is enabled for this client', operationId: 'portalAutopayStatus', security: [{ bearerAuth: [] }], responses: r200('{ enabled, profile }') },
+      },
+      '/portal/autopay': {
+        delete: { tags: ['Portal Auth'], summary: 'Disable autopay', operationId: 'portalAutopayDisable', security: [{ bearerAuth: [] }], responses: r200('Message') },
+      },
+
       // ---- Portal Dashboard §11.1 ----
       '/portal/dashboard': {
         get: { tags: ['Portal Dashboard'], summary: 'Account overview (plan, balance, session status, usage)', operationId: 'portalDashboard', security: [{ bearerAuth: [] }], responses: r200('DashboardOverview') },

@@ -38313,6 +38313,84 @@
         }
       }
     },
+    "/portal/autopay/enroll": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Start autopay card capture (returns a Stripe setup URL)",
+        "operationId": "portalAutopayEnroll",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ setup_url, provider }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/autopay/status": {
+      "get": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Whether autopay is enabled for this client",
+        "operationId": "portalAutopayStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ enabled, profile }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/autopay": {
+      "delete": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Disable autopay",
+        "operationId": "portalAutopayDisable",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal/dashboard": {
       "get": {
         "tags": [

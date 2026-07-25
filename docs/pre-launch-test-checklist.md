@@ -11,7 +11,6 @@ Manual / integration tests that only surface against a **real environment or ext
 
 The audit surfaced items that will **fail for a code reason, not a config reason** — a fix/build is a prerequisite, so schedule these first:
 
-- **Autopay can't actually charge a saved card.** `chargeStripe` builds the PaymentIntent with `confirm=true` but **no `customer` and no `off_session=true`**, and there is **no card-tokenization/SetupIntent UI** to capture a reusable payment method. A real unattended charge would decline (`authentication_required`) → mapped to `pending` → autopay silently never collects while the customer thinks they're enrolled. *(fix + build)*
 - **Conekta (and every non-Stripe provider) can't be paid online.** `createCheckoutSession` only builds a real hosted session for Stripe; others return `payment_url = ${APP_URL}/pay/:token`, and **there is no `/pay/:token` route** — the link 404s. For an MX launch where Conekta is the primary processor, this is near-blocking. *(build)*
 - **No egreso/credit-note CFDI.** A refund-as-credit against a stamped invoice can't produce a stamped *CFDI de Egreso* — that stamp path isn't built. *(build, MX)*
 - **Finkok cancellation format** is an open defect (cer/key vs xmldsig) — cancel via Finkok won't succeed until resolved (SW failover currently covers it). *(fix, MX)*
