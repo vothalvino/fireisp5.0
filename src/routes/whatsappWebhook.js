@@ -63,11 +63,15 @@ router.post('/webhook', async (req, res) => {
   // Ack immediately so the provider's delivery window is never blocked on our
   // downstream work (the bot + a live outbound HTTPS reply, up to 15s). Work
   // continues async; the (provider, provider_message_id) dedup makes any
-  // redelivery a no-op, so we never double-process.
+  // redelivery a no-op, so we never double-process. Messages in one batch are
+  // processed SEQUENTIALLY so a same-sender burst can't race the per-client
+  // ticket cap (check-then-act) within a single delivery.
   res.status(200).json({ received: true });
-  for (const m of messages) {
-    processMessage(provider, m).catch((err) => logger.error({ err, provider }, 'whatsapp webhook async processing error'));
-  }
+  (async () => {
+    for (const m of messages) {
+      await processMessage(provider, m).catch((err) => logger.error({ err, provider }, 'whatsapp webhook async processing error'));
+    }
+  })();
 });
 
 async function processMessage(provider, m) {

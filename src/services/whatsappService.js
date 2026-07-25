@@ -232,6 +232,8 @@ async function bindNumber({ organizationId = null, clientId, phone, via }) {
        VALUES (?, ?, ?, ?, 'active', NOW())`,
       [organizationId, clientId, phone, via],
     );
+    // A rebind must not carry the previous occupant's in-flight bot flow.
+    await conn.execute('DELETE FROM whatsapp_conversation_state WHERE phone_e164 = ?', [phone]);
     await conn.commit();
     return { id: ins.insertId };
   } catch (err) {
@@ -288,6 +290,10 @@ async function revokeLink({ clientId, linkId }) {
       WHERE id = ? AND client_id = ? AND status = 'active'`,
     [linkId, clientId],
   );
+  if (res.affectedRows > 0) {
+    // Drop any in-flight bot flow for this client (portal/staff unlink path).
+    await db.query('DELETE FROM whatsapp_conversation_state WHERE client_id = ?', [clientId]).catch(() => {});
+  }
   return res.affectedRows > 0;
 }
 
@@ -343,6 +349,45 @@ async function recentInboundCount(phone, minutes = 60) {
   return rows[0]?.n || 0;
 }
 
+// ---------------------------------------------------------------------------
+// Multi-turn conversation state (the bot's short flows: report-a-problem, etc.)
+// ---------------------------------------------------------------------------
+
+const CONVERSATION_STATE_TTL_MIN = 15;
+
+/** Current (non-stale) conversation state for a phone, or null. */
+async function getConversationState(phone) {
+  const [rows] = await db.query(
+    `SELECT client_id, state, context FROM whatsapp_conversation_state
+      WHERE phone_e164 = ? AND updated_at > (NOW() - INTERVAL ? MINUTE) LIMIT 1`,
+    [phone, CONVERSATION_STATE_TTL_MIN],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  let context = null;
+  if (r.context) {
+    try { context = typeof r.context === 'string' ? JSON.parse(r.context) : r.context; }
+    catch (_e) { context = null; }
+  }
+  return { clientId: r.client_id, state: r.state, context };
+}
+
+/** Upsert the conversation state for a phone (resets the TTL clock). */
+async function setConversationState(phone, clientId, state, context = null) {
+  await db.query(
+    `INSERT INTO whatsapp_conversation_state (phone_e164, client_id, state, context)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE client_id = VALUES(client_id), state = VALUES(state),
+       context = VALUES(context), updated_at = NOW()`,
+    [phone, clientId, state, context ? JSON.stringify(context) : null],
+  );
+}
+
+/** Clear a phone's conversation state (flow finished or abandoned). */
+async function clearConversationState(phone) {
+  await db.query('DELETE FROM whatsapp_conversation_state WHERE phone_e164 = ?', [phone]);
+}
+
 module.exports = {
   normalizeE164,
   generateNumericCode,
@@ -364,6 +409,9 @@ module.exports = {
   redactSecrets,
   setInboundOwner,
   recentInboundCount,
+  getConversationState,
+  setConversationState,
+  clearConversationState,
   PORTAL_CODE_LENGTH,
   EMAIL_CODE_LENGTH,
 };

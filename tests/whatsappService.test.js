@@ -161,6 +161,33 @@ describe('bindNumber', () => {
   });
 });
 
+describe('conversation state', () => {
+  it('returns null when no fresh state exists', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    expect(await wa.getConversationState('+521')).toBeNull();
+  });
+  it('parses a JSON-string context', async () => {
+    db.query.mockResolvedValueOnce([[{ client_id: 7, state: 'await_problem_desc', context: '{"contract":{"id":9}}' }]]);
+    expect(await wa.getConversationState('+521')).toEqual({ clientId: 7, state: 'await_problem_desc', context: { contract: { id: 9 } } });
+  });
+  it('passes through an already-parsed object context', async () => {
+    db.query.mockResolvedValueOnce([[{ client_id: 7, state: 's', context: { a: 1 } }]]);
+    expect((await wa.getConversationState('+521')).context).toEqual({ a: 1 });
+  });
+  it('setConversationState upserts and serializes context', async () => {
+    db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    await wa.setConversationState('+521', 7, 'await_contract_pick', { contracts: [1] });
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/ON DUPLICATE KEY UPDATE/);
+    expect(params[3]).toBe('{"contracts":[1]}');
+  });
+  it('clearConversationState deletes the row', async () => {
+    db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    await wa.clearConversationState('+521');
+    expect(db.query.mock.calls[0][0]).toMatch(/DELETE FROM whatsapp_conversation_state/);
+  });
+});
+
 describe('recordInbound', () => {
   it('reports isNew=true when the row inserts', async () => {
     db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);

@@ -110,8 +110,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 333 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–418)
+│   ├── schema.sql           # Combined schema (all 334 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–419)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
