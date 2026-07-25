@@ -108,6 +108,7 @@ const pdfRoutes = require('./routes/pdf');
 const { router: eventsRoutes } = require('./routes/events');
 const { router: metricsRoutes, metricsMiddleware } = require('./routes/metrics');
 const paymentWebhookRoutes = require('./routes/paymentWebhooks');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 const usageRoutes = require('./routes/usage');
 const reportRoutes = require('./routes/reports');
 const scheduledReportRoutes = require('./routes/scheduledReports');
@@ -288,9 +289,12 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json({
   limit: '10mb',
-  // Preserve raw body for payment webhook signature verification
+  // Preserve raw body for webhook signature verification (payment gateways +
+  // WhatsApp/Meta X-Hub-Signature-256, which is an HMAC over the exact bytes).
   verify: (req, _res, buf) => {
-    if (req.originalUrl && (req.originalUrl.startsWith('/api/payment-webhooks') || req.originalUrl.startsWith('/api/v1/payment-webhooks'))) {
+    const u = req.originalUrl || '';
+    if (u.startsWith('/api/payment-webhooks') || u.startsWith('/api/v1/payment-webhooks')
+      || u.startsWith('/api/whatsapp/webhook') || u.startsWith('/api/v1/whatsapp/webhook')) {
       req.rawBody = buf.toString('utf8');
     }
   },
@@ -363,6 +367,8 @@ app.use('/api/events', sseLimiter);
 app.use('/api/v1/events', sseLimiter);
 app.use('/api/payment-webhooks', webhookLimiter);
 app.use('/api/v1/payment-webhooks', webhookLimiter);
+app.use('/api/whatsapp/webhook', webhookLimiter);
+app.use('/api/v1/whatsapp/webhook', webhookLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -576,6 +582,7 @@ v1.use('/config-compliance-rules', configComplianceRoutes);
 v1.use('/payment-gateways', paymentGatewayRoutes);
 v1.use('/payment-transactions', paymentTransactionRoutes);
 v1.use('/payment-webhooks', paymentWebhookRoutes);
+v1.use('/whatsapp', whatsappWebhookRoutes);
 v1.use('/recurring-payment-profiles', recurringPaymentProfileRoutes);
 v1.use('/promotions', promotionRoutes);
 v1.use('/tax-rules', taxRuleRoutes);

@@ -38225,6 +38225,94 @@
         }
       }
     },
+    "/portal/whatsapp/link-code": {
+      "post": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Mint a WhatsApp linking code for this client",
+        "operationId": "portalWhatsappLinkCode",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ code, deepLink, businessNumber, expiresInMinutes }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/whatsapp/status": {
+      "get": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "List this client's active WhatsApp links (masked)",
+        "operationId": "portalWhatsappStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ linked, links[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/whatsapp/link/{id}": {
+      "delete": {
+        "tags": [
+          "Portal Auth"
+        ],
+        "summary": "Unlink a WhatsApp number",
+        "operationId": "portalWhatsappUnlink",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal/dashboard": {
       "get": {
         "tags": [

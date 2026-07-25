@@ -2036,6 +2036,17 @@ function generateSpec() {
         post: { tags: ['Portal Auth'], summary: 'Reset portal password with token', operationId: 'portalResetPassword', requestBody: jsonBody('token + password'), responses: r200('Message') },
       },
 
+      // ---- Portal WhatsApp Linking (docs/whatsapp-support-design.md) ----
+      '/portal/whatsapp/link-code': {
+        post: { tags: ['Portal Auth'], summary: 'Mint a WhatsApp linking code for this client', operationId: 'portalWhatsappLinkCode', security: [{ bearerAuth: [] }], responses: r200('{ code, deepLink, businessNumber, expiresInMinutes }') },
+      },
+      '/portal/whatsapp/status': {
+        get: { tags: ['Portal Auth'], summary: "List this client's active WhatsApp links (masked)", operationId: 'portalWhatsappStatus', security: [{ bearerAuth: [] }], responses: r200('{ linked, links[] }') },
+      },
+      '/portal/whatsapp/link/{id}': {
+        delete: { tags: ['Portal Auth'], summary: 'Unlink a WhatsApp number', operationId: 'portalWhatsappUnlink', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: r200('Message') },
+      },
+
       // ---- Portal Dashboard §11.1 ----
       '/portal/dashboard': {
         get: { tags: ['Portal Dashboard'], summary: 'Account overview (plan, balance, session status, usage)', operationId: 'portalDashboard', security: [{ bearerAuth: [] }], responses: r200('DashboardOverview') },

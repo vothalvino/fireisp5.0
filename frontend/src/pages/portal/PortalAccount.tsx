@@ -21,6 +21,21 @@ interface ServiceRequest {
   created_at: string;
 }
 
+interface WaLink {
+  id: number;
+  phone: string;
+  boundVia: string;
+  boundAt: string;
+  lastSeenAt: string | null;
+}
+
+interface WaCode {
+  code: string;
+  deepLink: string | null;
+  businessNumber: string | null;
+  expiresInMinutes: number;
+}
+
 async function portalFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = portalTokenStore.getAccess();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -52,11 +67,12 @@ const REQUEST_LABELS: Record<RequestType, string> = {
 
 export function PortalAccount() {
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'requests' | 'new'>('requests');
+  const [activeTab, setActiveTab] = useState<'requests' | 'new' | 'whatsapp'>('requests');
   const [reqType, setReqType] = useState<RequestType>('plan_upgrade');
   const [payload, setPayload] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState('');
   const [errMsg, setErrMsg] = useState('');
+  const [waCode, setWaCode] = useState<WaCode | null>(null);
 
   const { data: reqData, isLoading } = useQuery({
     queryKey: ['portal-service-requests'],
@@ -88,6 +104,25 @@ export function PortalAccount() {
       setMsg('');
     },
   });
+
+  const { data: waStatus } = useQuery({
+    queryKey: ['portal-whatsapp-status'],
+    queryFn: () => portalFetch<{ data: { linked: boolean; links: WaLink[] } }>('/whatsapp/status'),
+  });
+
+  const linkCodeMutation = useMutation({
+    mutationFn: () => portalFetch<{ data: WaCode }>('/whatsapp/link-code', { method: 'POST' }),
+    onSuccess: (res) => { setWaCode(res.data); setErrMsg(''); },
+    onError: (e: Error) => { setErrMsg(e.message); },
+  });
+
+  const unlinkWaMutation = useMutation({
+    mutationFn: (id: number) => portalFetch(`/whatsapp/link/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { setWaCode(null); qc.invalidateQueries({ queryKey: ['portal-whatsapp-status'] }); },
+    onError: (e: Error) => { setErrMsg(e.message); },
+  });
+
+  const waLinks = waStatus?.data.links ?? [];
 
   function handleSubmit() {
     setMsg(''); setErrMsg('');
@@ -137,6 +172,12 @@ export function PortalAccount() {
           onClick={() => setActiveTab('new')}
         >
           New Request
+        </button>
+        <button
+          style={{ ...styles.tab, ...(activeTab === 'whatsapp' ? styles.tabActive : {}) }}
+          onClick={() => setActiveTab('whatsapp')}
+        >
+          WhatsApp
         </button>
       </div>
 
@@ -300,6 +341,69 @@ export function PortalAccount() {
           </button>
         </section>
       )}
+
+      {activeTab === 'whatsapp' && (
+        <section style={styles.card}>
+          <h2 style={styles.sectionTitle}>Connect WhatsApp</h2>
+          <p style={styles.muted}>
+            Link your WhatsApp number to check your balance and get support in chat. We only ever
+            send a new code — we never share your existing passwords in WhatsApp.
+          </p>
+
+          {waLinks.length > 0 ? (
+            <table style={{ ...styles.table, marginTop: '0.75rem' }}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Number</th>
+                  <th style={styles.th}>Connected</th>
+                  <th style={styles.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {waLinks.map(l => (
+                  <tr key={l.id}>
+                    <td style={styles.td}>{l.phone}</td>
+                    <td style={styles.td}>{l.boundAt.slice(0, 10)}</td>
+                    <td style={styles.td}>
+                      <button style={styles.cancelBtn} onClick={() => unlinkWaMutation.mutate(l.id)}>
+                        Unlink
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p style={{ ...styles.muted, marginTop: '0.75rem' }}>No WhatsApp number connected yet.</p>
+          )}
+
+          <div style={{ marginTop: '1.25rem' }}>
+            <button
+              style={styles.submitBtn}
+              onClick={() => linkCodeMutation.mutate()}
+              disabled={linkCodeMutation.isPending}
+            >
+              {linkCodeMutation.isPending ? 'Generating…' : 'Get a linking code'}
+            </button>
+          </div>
+
+          {waCode && (
+            <div style={styles.waCodeBox}>
+              <p style={styles.muted}>
+                Send this code to our WhatsApp to connect your number. It expires in {waCode.expiresInMinutes} minutes.
+              </p>
+              <p style={styles.waCode}>{waCode.code}</p>
+              {waCode.deepLink && (
+                <a href={waCode.deepLink} target="_blank" rel="noopener noreferrer" style={styles.waLink}>
+                  Open WhatsApp
+                </a>
+              )}
+            </div>
+          )}
+
+          {errMsg && <p style={styles.error}>{errMsg}</p>}
+        </section>
+      )}
     </div>
   );
 }
@@ -344,4 +448,7 @@ const styles: Record<string, React.CSSProperties> = {
   submitBtn: { padding: '0.5rem 1.25rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 },
   success: { color: '#16a34a', fontSize: '0.875rem', marginBottom: '0.5rem' },
   error: { color: '#dc2626', fontSize: '0.875rem', marginBottom: '0.5rem' },
+  waCodeBox: { marginTop: '1rem', padding: '1rem', border: '1px dashed var(--border-strong)', borderRadius: 8, textAlign: 'center' as const },
+  waCode: { fontSize: '1.8rem', fontWeight: 700, letterSpacing: 6, color: 'var(--text-primary)', margin: '0.5rem 0' },
+  waLink: { display: 'inline-block', padding: '0.5rem 1.25rem', background: '#25D366', color: '#fff', borderRadius: 4, textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 },
 };
