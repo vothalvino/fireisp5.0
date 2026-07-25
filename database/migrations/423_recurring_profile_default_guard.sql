@@ -38,13 +38,18 @@ BEGIN
       AND TABLE_NAME   = 'recurring_payment_profiles'
       AND COLUMN_NAME  = 'default_guard'
   ) THEN
+    -- VIRTUAL (not STORED): a STORED column forces an ALGORITHM=COPY rebuild,
+    -- which fails with ER_CANNOT_ADD_FOREIGN on this table because it is the
+    -- parent of payment_retries' FK. VIRTUAL adds in place; a unique index on a
+    -- virtual generated column is fully supported (MySQL materializes it in the
+    -- index).
     ALTER TABLE recurring_payment_profiles
       ADD COLUMN default_guard VARCHAR(64)
         GENERATED ALWAYS AS (
           CASE WHEN is_default = 1 AND status = 'active'
                THEN CONCAT(client_id, '-', payment_gateway_id)
                ELSE NULL END
-        ) STORED
+        ) VIRTUAL
         COMMENT 'One active default per (client, gateway): unique key, NULL when not an active default — migration 423';
   END IF;
 

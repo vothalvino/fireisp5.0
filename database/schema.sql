@@ -6193,7 +6193,7 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
                           CASE WHEN is_default = 1 AND status = 'active'
                                THEN CONCAT(client_id, '-', payment_gateway_id)
                                ELSE NULL END
-                        ) STORED                                       COMMENT 'One active default per (client, gateway): unique key, NULL when not an active default (migration 423)',
+                        ) VIRTUAL                                      COMMENT 'One active default per (client, gateway): unique key, NULL when not an active default (migration 423)',
     created_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
