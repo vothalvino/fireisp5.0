@@ -7,10 +7,21 @@
 
 const crypto = require('crypto');
 const db = require('../config/database');
+const config = require('../config');
 const paymentGatewayService = require('./paymentGatewayService');
 const paymentRetryService = require('./paymentRetryService');
 const logger = require('../utils/logger');
 const { ValidationError } = require('../utils/errors');
+
+/** Return `url` only if it is same-origin as `base` (anti open-redirect); else null. */
+function sameOriginUrl(url, base) {
+  if (!url) return null;
+  try {
+    return new URL(url).origin === new URL(base).origin ? url : null;
+  } catch (_e) {
+    return null;
+  }
+}
 
 /**
  * Create a checkout session for a specific invoice.
@@ -25,14 +36,20 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
   if (invoices.length === 0) throw new Error('Invoice not found');
 
   const invoice = invoices[0];
-  if (invoice.status === 'paid') throw new Error('Invoice already paid');
+  // Only payable invoices — never capture money for an invoice that can't be
+  // settled (paid/void/cancelled/draft/refunded). reconcilePayment can only mark
+  // an issued/sent invoice paid.
+  const NON_PAYABLE = ['paid', 'void', 'cancelled', 'draft', 'refunded'];
+  if (NON_PAYABLE.includes(invoice.status)) {
+    throw new ValidationError(`Invoice ${invoice.invoice_number} cannot be paid online (status: ${invoice.status})`);
+  }
 
   // Resolve the organization's payment gateway: prefer the default, otherwise
   // fall back to the first active gateway. payment_transactions.payment_gateway_id
   // is NOT NULL, so a missing gateway is a client-fixable configuration error (422),
   // not a 500.
   const [gateways] = await db.query(
-    `SELECT id FROM payment_gateways
+    `SELECT id, provider, secret_key_encrypted FROM payment_gateways
      WHERE organization_id = ? AND status = 'active'
      ORDER BY is_default DESC, id ASC
      LIMIT 1`,
@@ -41,20 +58,83 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
   if (gateways.length === 0) {
     throw new ValidationError('No active payment gateway is configured for this organization');
   }
-  const paymentGatewayId = gateways[0].id;
-
-  // Generate a unique checkout token and a gateway reference for this attempt.
-  const token = crypto.randomBytes(32).toString('hex');
-  const gatewayReferenceId = `chk_${token.slice(0, 32)}`;
+  const gateway = gateways[0];
+  const resolvedClientId = clientId || invoice.client_id;
+  // Defense-in-depth: the invoice must belong to the client being charged (the
+  // portal route already scopes by req.client.id, but the staff route forwards a
+  // raw client_id). Never attribute a payment to a client who doesn't own the invoice.
+  if (clientId && Number(invoice.client_id) !== Number(clientId)) {
+    throw new ValidationError('Invoice does not belong to this client');
+  }
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  // Store the session in payment_transactions as 'pending'
+  // Stripe: create a REAL hosted Checkout Session and redirect the client to it.
+  // The pending transaction stores the session id (cs_...) as its gateway
+  // reference so the checkout.session.completed webhook reconciles it.
+  if (gateway.provider === 'stripe') {
+    const base = (config.appUrl || 'http://localhost:3000').replace(/\/+$/, '');
+    // Only honor a same-origin returnUrl as the Stripe success redirect target.
+    const successUrl = sameOriginUrl(returnUrl, base) || `${base}/portal/invoices?payment=success&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${base}/portal/invoices?payment=cancelled`;
+
+    // Create the pending transaction FIRST (provisional reference) so a payable
+    // session always has a local record — never leave an orphan paid Stripe
+    // session with nothing to reconcile. The real session id replaces the
+    // provisional reference below; the tx id also rides in the session metadata.
+    const provisionalRef = `pending_stripe_${crypto.randomBytes(8).toString('hex')}`;
+    const [txResult] = await db.query(
+      `INSERT INTO payment_transactions
+       (organization_id, client_id, invoice_id, payment_gateway_id, gateway_reference_id,
+        amount, currency, gateway_status, gateway_response_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [organizationId, resolvedClientId, invoiceId, gateway.id, provisionalRef,
+        invoice.total, invoice.currency, `Checkout for invoice ${invoice.invoice_number}`],
+    );
+    const transactionId = txResult.insertId;
+
+    let session;
+    try {
+      session = await paymentGatewayService.createStripeCheckoutSession(gateway, {
+        amount: parseFloat(invoice.total),
+        currency: invoice.currency,
+        description: `Invoice ${invoice.invoice_number}`,
+        successUrl,
+        cancelUrl,
+        metadata: { invoice_id: invoiceId, client_id: resolvedClientId, transaction_id: transactionId },
+      });
+    } catch (err) {
+      await db.query(
+        "UPDATE payment_transactions SET gateway_status = 'failed', gateway_response_message = ? WHERE id = ?",
+        [String(err.message || err).slice(0, 255), transactionId],
+      ).catch(() => {});
+      throw err;
+    }
+
+    // Store the real session id so the checkout.session.completed webhook matches.
+    await db.query('UPDATE payment_transactions SET gateway_reference_id = ? WHERE id = ?', [session.id, transactionId]);
+
+    return {
+      checkout_id: transactionId,
+      invoice_id: invoiceId,
+      invoice_number: invoice.invoice_number,
+      amount: invoice.total,
+      currency: invoice.currency,
+      expires_at: expiresAt.toISOString(),
+      payment_url: session.url, // Stripe-hosted checkout page
+      provider: 'stripe',
+      return_url: returnUrl || null,
+    };
+  }
+
+  // Other providers (conekta/manual/...): the existing internal token flow.
+  const token = crypto.randomBytes(32).toString('hex');
+  const gatewayReferenceId = `chk_${token.slice(0, 32)}`;
   const [result] = await db.query(
     `INSERT INTO payment_transactions
-     (organization_id, client_id, payment_gateway_id, gateway_reference_id,
+     (organization_id, client_id, invoice_id, payment_gateway_id, gateway_reference_id,
       amount, currency, gateway_status, gateway_response_message, idempotency_key)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    [organizationId, clientId || invoice.client_id, paymentGatewayId, gatewayReferenceId,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    [organizationId, resolvedClientId, invoiceId, gateway.id, gatewayReferenceId,
       invoice.total, invoice.currency, `Payment for invoice ${invoice.invoice_number}`, token],
   );
 
@@ -66,7 +146,7 @@ async function createCheckoutSession({ organizationId, invoiceId, clientId, retu
     amount: invoice.total,
     currency: invoice.currency,
     expires_at: expiresAt.toISOString(),
-    payment_url: `${process.env.APP_URL || 'http://localhost:3000'}/pay/${token}`,
+    payment_url: `${config.appUrl || 'http://localhost:3000'}/pay/${token}`,
     return_url: returnUrl || null,
   };
 }
