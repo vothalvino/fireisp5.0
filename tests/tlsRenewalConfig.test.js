@@ -100,3 +100,38 @@ describe('a DNS challenge, if ever reintroduced, must be renewable', () => {
     expect(certbotService()).toMatch(/letsencrypt:\/etc\/letsencrypt/);
   });
 });
+
+describe('documented compose commands are runnable as written', () => {
+  // docker-compose.prod.yml uses ${REDIS_PASSWORD:?...} — the `:?` form makes the
+  // variable mandatory at PARSE time, so Compose refuses ANY subcommand against
+  // this file without the environment loaded:
+  //   "error while interpolating services.redis.command: required variable
+  //    REDIS_PASSWORD is missing a value"
+  // Nine documented commands omitted --env-file and failed that way for anyone
+  // who copied them, including the certificate-renewal instructions in a TLS
+  // runbook — the exact moment an operator is least able to debug tooling.
+  const docs = require('node:fs')
+    .readdirSync(path.join(root, 'docs'))
+    .filter(f => f.endsWith('.md'))
+    .map(f => ['docs/' + f, read('docs/' + f)])
+    .concat([['README.md', read('README.md')]]);
+
+  it('every prod-compose command in the docs passes --env-file', () => {
+    const offenders = [];
+    for (const [name, body] of docs) {
+      for (const line of body.split('\n')) {
+        if (line.includes('docker compose -f docker-compose.prod.yml')
+            && !line.includes('--env-file')) {
+          offenders.push(`${name}: ${line.trim().slice(0, 80)}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the mandatory-variable syntax that causes it is still present', () => {
+    // If this ever softens to ${REDIS_PASSWORD} the test above becomes advisory
+    // rather than load-bearing — worth knowing, not worth failing over silently.
+    expect(compose).toMatch(/\$\{REDIS_PASSWORD:\?/);
+  });
+});

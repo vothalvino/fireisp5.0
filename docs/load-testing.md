@@ -170,7 +170,7 @@ cp .env.example .env
 
 # Start MySQL primary, Redis, app, and Nginx:
 RATE_LIMIT_API=10000000 RATE_LIMIT_AUTH=10000000 \
-  docker compose -f docker-compose.prod.yml up -d
+  docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
 # Wait for MySQL to be ready, then run migrations and seed:
 docker exec fireisp-app npm run migrate
