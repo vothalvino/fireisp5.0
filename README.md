@@ -35,7 +35,6 @@ curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.
 | `EMAIL` | *(prompted)* | Admin email — used for Let's Encrypt and first login |
 | `INSTALL_DIR` | `/opt/fireisp` | Installation directory |
 | `SKIP_TLS` | `0` | Set to `1` to use a self-signed certificate (dev/testing) |
-| `CF_API_TOKEN` | — | Cloudflare API token — enables DNS-01 wildcard certificates |
 | `DB_PASSWORD` | *(auto-generated)* | MySQL application user password |
 | `DB_ROOT_PASSWORD` | *(auto-generated)* | MySQL root password |
 | `MYSQL_REPL_PASSWORD` | *(auto-generated)* | MySQL replication password |

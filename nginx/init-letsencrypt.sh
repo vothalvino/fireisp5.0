@@ -23,9 +23,6 @@
 #   chmod +x nginx/init-letsencrypt.sh
 #   DOMAIN=isp.example.com EMAIL=admin@example.com ./nginx/init-letsencrypt.sh
 #
-# For wildcard certificates via Cloudflare DNS-01 challenge:
-#   CF_API_TOKEN=<token> DOMAIN=isp.example.com EMAIL=admin@example.com \
-#     ./nginx/init-letsencrypt.sh --cloudflare
 #
 # For staging (Let's Encrypt test environment — no rate limits):
 #   STAGING=1 DOMAIN=isp.example.com EMAIL=admin@example.com \
@@ -39,7 +36,6 @@ EMAIL="${EMAIL:?Set EMAIL=admin@your.domain.com before running this script}"
 
 # ── Optional parameters ───────────────────────────────────────────────────────
 STAGING="${STAGING:-0}"           # Set to 1 to use Let's Encrypt staging CA
-USE_CLOUDFLARE=0
 USE_HOST_NGINX=0                  # Set to 1 (or pass --host-nginx) to bootstrap
                                   # using a host-level nginx instead of the
                                   # Docker nginx container.
@@ -47,15 +43,11 @@ USE_HOST_NGINX=0                  # Set to 1 (or pass --host-nginx) to bootstrap
 # ── Parse flags ───────────────────────────────────────────────────────────────
 for arg in "$@"; do
   case "$arg" in
-    --cloudflare)  USE_CLOUDFLARE=1  ;;
     --host-nginx)  USE_HOST_NGINX=1  ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
 
-if [[ "$USE_CLOUDFLARE" == "1" ]]; then
-  : "${CF_API_TOKEN:?Set CF_API_TOKEN when using --cloudflare}"
-fi
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -143,55 +135,23 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
 
   log "Requesting Let's Encrypt certificate for $DOMAIN ..."
 
-  if [[ "$USE_CLOUDFLARE" == "1" ]]; then
-    # ── DNS-01 challenge via Cloudflare (supports wildcard certs) ─────────────
-    log "Using Cloudflare DNS-01 challenge ..."
-
-    # The credentials live INSIDE the certificate store, and are KEPT.
-    # certbot records the authenticator and this exact path in
-    # /etc/letsencrypt/renewal/<domain>.conf, and `certbot renew` re-reads both.
-    # Writing them to $SCRIPT_DIR and deleting them after issuance (which this
-    # script used to do) produced a certificate that could be issued but never
-    # renewed: the file was gone and the path was outside anything the renewal
-    # container mounts. $LE_DIR is already bind-mounted as /etc/letsencrypt by
-    # the compose certbot service, so putting the ini here needs no new mount,
-    # and the directory already holds private keys — same sensitivity, same 0600.
-    mkdir -p "$LE_DIR"
-    CF_INI="$LE_DIR/cloudflare.ini"
-    printf 'dns_cloudflare_api_token = %s\n' "$CF_API_TOKEN" > "$CF_INI"
-    chmod 600 "$CF_INI"
-
-    docker run --rm \
-      -v "$LE_DIR:/etc/letsencrypt" \
-      certbot/dns-cloudflare:v5.7.0 certonly \
-        --dns-cloudflare \
-        --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
-        --dns-cloudflare-propagation-seconds 60 \
-        -d "$DOMAIN" -d "*.$DOMAIN" \
-        --email "$EMAIL" \
-        --agree-tos --non-interactive \
-        $STAGING_FLAG
-
-    # NOT deleted: `certbot renew` needs this file every 60-90 days forever.
-  else
-    # ── HTTP-01 challenge via webroot (host nginx serves the challenge) ────────
-    # The certbot-www bind-mount in docker-compose.host-nginx.yml makes the
-    # same directory visible to both the Docker certbot container (write) and
-    # the host nginx (read).  We use a plain `docker run` here (not compose)
-    # so the certbot image can be pulled and run without the rest of the stack.
-    docker run --rm \
-      -v "$LE_DIR:/etc/letsencrypt" \
-      -v "$SCRIPT_DIR/certbot-www:/var/www/certbot" \
-      -v "$CERTS_DIR:/certs" \
-      -v "$SCRIPT_DIR/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro" \
-      certbot/certbot:v5.7.0 certonly \
-        --webroot \
-        --webroot-path /var/www/certbot \
-        -d "$DOMAIN" \
-        --email "$EMAIL" \
-        --agree-tos --non-interactive \
-        $STAGING_FLAG
-  fi
+  # ── HTTP-01 challenge via webroot (host nginx serves the challenge) ────────
+  # The certbot-www bind-mount in docker-compose.host-nginx.yml makes the
+  # same directory visible to both the Docker certbot container (write) and
+  # the host nginx (read).  We use a plain `docker run` here (not compose)
+  # so the certbot image can be pulled and run without the rest of the stack.
+  docker run --rm \
+    -v "$LE_DIR:/etc/letsencrypt" \
+    -v "$SCRIPT_DIR/certbot-www:/var/www/certbot" \
+    -v "$CERTS_DIR:/certs" \
+    -v "$SCRIPT_DIR/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro" \
+    certbot/certbot:v5.7.0 certonly \
+      --webroot \
+      --webroot-path /var/www/certbot \
+      -d "$DOMAIN" \
+      --email "$EMAIL" \
+      --agree-tos --non-interactive \
+      $STAGING_FLAG
 
   log "Certificate issued successfully."
 
@@ -256,52 +216,23 @@ STAGING_FLAG=""
 
 log "Requesting Let's Encrypt certificate for $DOMAIN ..."
 
-if [[ "$USE_CLOUDFLARE" == "1" ]]; then
-  # ── DNS-01 challenge via Cloudflare (supports wildcard certs) ──────────────
-  log "Using Cloudflare DNS-01 challenge ..."
-
-  # Credentials go INSIDE the certificate store and are KEPT — see the long
-  # comment on the host-nginx path above. certbot records this path in
-  # renewal/<domain>.conf and re-reads it on every `certbot renew`.
-  mkdir -p "$LE_DIR"
-  CF_INI="$LE_DIR/cloudflare.ini"
-  printf 'dns_cloudflare_api_token = %s\n' "$CF_API_TOKEN" > "$CF_INI"
-  chmod 600 "$CF_INI"
-
-  # certbot/dns-cloudflare has the Cloudflare plugin pre-installed.
-  # The ./nginx/letsencrypt bind-mount is used so this one-time issuance and
-  # the ongoing compose certbot service share the same certificate store.
-  docker run --rm \
-    -v "$LE_DIR:/etc/letsencrypt" \
-    certbot/dns-cloudflare:v5.7.0 certonly \
-      --dns-cloudflare \
-      --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
-      --dns-cloudflare-propagation-seconds 60 \
-      -d "$DOMAIN" -d "*.$DOMAIN" \
-      --email "$EMAIL" \
-      --agree-tos --non-interactive \
-      $STAGING_FLAG
-
-  # NOT deleted: `certbot renew` needs this file every 60-90 days forever.
-else
-  # ── HTTP-01 challenge via webroot ─────────────────────────────────────────
-  # -T disables pseudo-TTY allocation so the command does not try to attach
-  # to the current terminal — without this flag Docker Compose will attempt
-  # to allocate a PTY, which disrupts the SSH session when the installer is
-  # run over a pipe (curl … | bash) or from a non-interactive terminal.
-  #
-  # --entrypoint certbot overrides the custom entrypoint defined in
-  # docker-compose.prod.yml (the 12-hour renewal loop) so that `certonly`
-  # is executed directly instead of being treated as a positional argument
-  # to the loop shell script (which would cause a silent 12-hour hang).
-  $DOCKER_COMPOSE_CMD run --rm -T --entrypoint certbot certbot certonly \
-    --webroot \
-    --webroot-path /var/www/certbot \
-    -d "$DOMAIN" \
-    --email "$EMAIL" \
-    --agree-tos --non-interactive \
-    $STAGING_FLAG
-fi
+# ── HTTP-01 challenge via webroot ─────────────────────────────────────────
+# -T disables pseudo-TTY allocation so the command does not try to attach
+# to the current terminal — without this flag Docker Compose will attempt
+# to allocate a PTY, which disrupts the SSH session when the installer is
+# run over a pipe (curl … | bash) or from a non-interactive terminal.
+#
+# --entrypoint certbot overrides the custom entrypoint defined in
+# docker-compose.prod.yml (the 12-hour renewal loop) so that `certonly`
+# is executed directly instead of being treated as a positional argument
+# to the loop shell script (which would cause a silent 12-hour hang).
+$DOCKER_COMPOSE_CMD run --rm -T --entrypoint certbot certbot certonly \
+  --webroot \
+  --webroot-path /var/www/certbot \
+  -d "$DOMAIN" \
+  --email "$EMAIL" \
+  --agree-tos --non-interactive \
+  $STAGING_FLAG
 
 log "Certificate issued successfully."
 

@@ -57,7 +57,6 @@ curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.
 | `EMAIL` | *(prompted)* | Admin email — Let's Encrypt notifications + first login |
 | `INSTALL_DIR` | `/opt/fireisp` | Destination directory |
 | `SKIP_TLS` | `0` | Set to `1` to create a self-signed cert (dev / air-gapped) |
-| `CF_API_TOKEN` | — | Cloudflare API token — switches to DNS-01 wildcard challenge |
 | `DB_PASSWORD` | *(auto-generated)* | MySQL app user password |
 | `DB_ROOT_PASSWORD` | *(auto-generated)* | MySQL root password |
 | `MYSQL_REPL_PASSWORD` | *(auto-generated)* | MySQL replication password |
@@ -524,9 +523,6 @@ guide, including:
 
 - **Let's Encrypt (HTTP-01)** — single-domain, automated via the Certbot
   Docker service + `nginx/init-letsencrypt.sh` bootstrap script.
-- **Let's Encrypt (DNS-01 / Cloudflare)** — wildcard certificates
-  (`*.isp.example.com`) using the `certbot-dns-cloudflare` plugin and
-  `nginx/cloudflare.ini`.
 - **Manual / commercial certificate** — drop `fullchain.pem` + `privkey.pem`
   into `./nginx/certs/` and reload nginx.
 

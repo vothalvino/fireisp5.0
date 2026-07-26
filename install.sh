@@ -14,7 +14,6 @@
 #   EMAIL               Email for Let's Encrypt + admin account
 #   INSTALL_DIR         Target install directory (default: /opt/fireisp)
 #   SKIP_TLS            Set to 1 to use a self-signed cert instead of Let's Encrypt
-#   CF_API_TOKEN        Cloudflare API token — enables DNS-01 wildcard certificates
 #   DB_PASSWORD         MySQL app user password     (auto-generated if omitted)
 #   DB_ROOT_PASSWORD    MySQL root password          (auto-generated if omitted)
 #   MYSQL_REPL_PASSWORD MySQL replication password   (auto-generated if omitted)
@@ -244,9 +243,6 @@ if [[ "$SKIP_TLS" == "1" ]]; then
 else
   info "TLS: Let's Encrypt certificate will be obtained for ${DOMAIN}."
   info "     The domain must resolve to this server's public IP before continuing."
-  if [[ -n "${CF_API_TOKEN:-}" ]]; then
-    info "     Cloudflare DNS-01 challenge detected (CF_API_TOKEN is set)."
-  fi
 fi
 echo ""
 
@@ -460,14 +456,13 @@ else
   # Build the flag list for the TLS bootstrap script using an array to
   # avoid word-splitting issues when flags contain no content.
   _TLS_ARGS=()
-  [[ -n "${CF_API_TOKEN:-}" ]] && _TLS_ARGS+=(--cloudflare)
   [[ "$USE_HOST_NGINX" == "1" ]] && _TLS_ARGS+=(--host-nginx)
   # Run the TLS bootstrap script.  If it fails (e.g. domain DNS is not yet
   # pointing to this server, or a network error), we fall back to a
   # temporary self-signed certificate so containers can still start.
   # The real certificate can be obtained later by running init-letsencrypt.sh
   # manually once DNS is in place.
-  if CF_API_TOKEN="${CF_API_TOKEN:-}" DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
+  if DOMAIN="$DOMAIN" EMAIL="$EMAIL" \
        bash "$LETSENCRYPT_SCRIPT" "${_TLS_ARGS[@]}"; then
     log "Let's Encrypt certificate obtained."
   else
