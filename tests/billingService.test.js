@@ -516,7 +516,11 @@ describe('billingService', () => {
         .mockResolvedValueOnce([[{ id: 9, rate: '0.0800' }]]);
       const r = await billingService.resolveTaxContext(exec, { orgId: 5, clientId: 100, contractTaxRateId: 9 });
       expect(r).toEqual({ rate: 0.08, taxRateId: 9, exempt: false });
-      expect(exec.mock.calls[1][1]).toEqual([9, 5, 9]); // id both in the OR and the ORDER BY
+      // id, org (explicit-id branch), org (default branch), id (ORDER BY).
+      // The org now appears TWICE: the explicit-id branch used to be a bare
+      // `WHERE id = ?` with no org, status or soft-delete predicate, so a
+      // caller-supplied tax_rate_id resolved across tenants.
+      expect(exec.mock.calls[1][1]).toEqual([9, 5, 5, 9]);
     });
 
     test('MX org with no configured rate → 16% IVA safety net (never silently 0%)', async () => {

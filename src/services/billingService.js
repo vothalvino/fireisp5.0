@@ -48,12 +48,29 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   }
   const clientIsMx = clientRow ? clientRow.locale === 'MX' : false;
 
+  // The explicit-id branch previously read `WHERE id = ?` with NO org, status or
+  // soft-delete predicate at all, so a caller-supplied tax_rate_id resolved
+  // across tenants — and could resurrect an inactive or deleted rate. It is
+  // unreachable today (nothing passes contractTaxRateId: contracts has no
+  // tax_rate_id column), which is exactly why it was worth closing before a
+  // caller appears.
+  //
+  // `organization_id IS NULL` is admitted deliberately: migration 121 seeds
+  // shared rates with a NULL org ('applies to all tenants'), so restricting the
+  // branch to `organization_id = ?` would silently stop resolving those.
+  //
+  // The ORDER BY is what makes the explicit id win over the org default when
+  // both rows match; with no explicit id its key is constant, and migration 427
+  // is what now guarantees only one row can satisfy the default branch — before
+  // it, two active defaults made this LIMIT 1 a coin flip.
   const [rates] = await exec(
     `SELECT id, rate FROM tax_rates
-      WHERE id = ?
+      WHERE (id = ?
+             AND (organization_id = ? OR organization_id IS NULL)
+             AND status = 'active' AND deleted_at IS NULL)
          OR (organization_id = ? AND is_default = TRUE AND status = 'active' AND deleted_at IS NULL)
       ORDER BY id = ? DESC LIMIT 1`,
-    [contractTaxRateId || 0, orgId, contractTaxRateId || 0],
+    [contractTaxRateId || 0, orgId, orgId, contractTaxRateId || 0],
   );
   const r = rates[0];
   if (r) return { rate: parseFloat(r.rate) || 0, taxRateId: r.id, exempt: false };

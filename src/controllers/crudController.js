@@ -48,6 +48,14 @@ function crudController(Model, _options = {}) {
   // the error propagates to the error handler. Reuses the existing fetch, so it
   // adds no extra query. Useful for terminal-state guards (e.g. voided invoices).
   const beforeUpdateHook = typeof _options.beforeUpdate === 'function' ? _options.beforeUpdate : null;
+  // Optional pre-create hook — called with (req) after organization_id has been
+  // injected and BEFORE the row is inserted. Like beforeUpdate it MAY throw to
+  // reject the create, and it may mutate req.body. Needed for invariants that
+  // must be reconciled ACROSS rows rather than validated within one — e.g.
+  // demoting the previous default before a new default is inserted, where an
+  // after* hook is useless because the insert has already tripped the unique
+  // index by then.
+  const beforeCreateHook = typeof _options.beforeCreate === 'function' ? _options.beforeCreate : null;
   // Optional post-update hook — called after the update succeeds (PUT and
   // PATCH) with the updated record (and req). Same non-fatal contract as
   // afterCreate by default: errors are caught and logged, never failing the
@@ -124,6 +132,10 @@ function crudController(Model, _options = {}) {
         if (Model.hasOrgScope && req.orgId) {
           req.body.organization_id = req.orgId;
         }
+
+        // After the org injection, so a hook reconciling per-org state sees the
+        // org it will actually be written with.
+        if (beforeCreateHook) await beforeCreateHook(req);
 
         const record = await createFn(req.body);
 

@@ -4093,8 +4093,16 @@ CREATE TABLE IF NOT EXISTS tax_rates (
     created_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    default_guard   BIGINT UNSIGNED
+                    GENERATED ALWAYS AS (
+                      CASE WHEN is_default = 1 AND status = 'active' AND deleted_at IS NULL
+                           THEN IFNULL(organization_id, 0)
+                           ELSE NULL END
+                    ) VIRTUAL
+                    COMMENT 'One active default per org (0 = global): unique key, NULL when not an active default — migration 427',
 
     PRIMARY KEY (id),
+    UNIQUE KEY uq_tax_rates_default_guard (default_guard),
     KEY idx_tax_rates_organization_id (organization_id),
     KEY idx_tax_rates_status (status),
     KEY idx_tax_rates_is_default (is_default),
