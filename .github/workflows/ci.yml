@@ -357,7 +357,11 @@ jobs:
         run: pnpm --filter fireisp-frontend run lint
 
   e2e:
-    if: false
+    # Runs on PRs as well as main pushes — deliberately unlike lint-and-test and
+    # frontend-test. Those two are main-push-only because a developer can run
+    # them locally in seconds; e2e needs Docker plus a full stack, so it is the
+    # one gate that cannot be reproduced on every dev box. Main-push-only here
+    # would mean the core money flow is never checked until after merge.
     runs-on: ubuntu-latest
 
     steps:
