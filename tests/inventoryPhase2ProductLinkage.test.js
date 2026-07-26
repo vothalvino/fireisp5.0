@@ -677,6 +677,96 @@ describe('POST /api/v1/quotes/:id/convert-to-invoice — carries inventory_item_
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/quotes/:id/convert-to-invoice — tax coherence at CONVERSION time
+// ---------------------------------------------------------------------------
+// The INSERT copies subtotal/tax_amount/total/tax_rate off the quote verbatim,
+// so it inherits whatever was true when the quote was DRAFTED and is not
+// subject to the guard on POST /invoices. A zero-tax quote for a non-exempt MX
+// client therefore became an invoice that stamps ObjetoImp=01 with no Impuestos
+// node — telling SAT the sale was not taxable.
+describe('POST /api/v1/quotes/:id/convert-to-invoice — rejects a zero-tax quote when tax applies', () => {
+  it('422s before any write instead of converting', async () => {
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM quotes WHERE id')) {
+        // Drafted with NO tax at all: total === subtotal.
+        return Promise.resolve([[{
+          id: 1, client_id: 5, contract_id: null, subtotal: '500.00', tax_amount: '0.00', total: '500.00',
+          currency: 'MXN', tax_rate: '0.0000', tax_rate_id: null, notes: null, status: 'accepted',
+        }]]);
+      }
+      // resolveTaxContext: a non-exempt client, and a 16% default configured.
+      if (typeof sql === 'string' && sql.includes('FROM clients')) {
+        return Promise.resolve([[{ tax_exempt: 0, locale: 'MX' }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM tax_rates')) {
+        return Promise.resolve([[{ id: 7, rate: '0.1600' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/quotes/1/convert-to-invoice')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('TAX_REQUIRED');
+
+    // Nothing may be written, and no connection left mid-transaction — the
+    // guard runs BEFORE beginTransaction for exactly this reason.
+    const invoiceInserts = conn.execute.mock.calls.filter(c => String(c[0]).includes('INSERT INTO invoices'));
+    expect(invoiceInserts).toHaveLength(0);
+    expect(conn.commit).not.toHaveBeenCalled();
+  });
+
+  it('still converts a quote that carries the tax it should', async () => {
+    // The guard must not block the normal path.
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      if (typeof sql === 'string' && sql.includes('FROM quotes WHERE id')) {
+        return Promise.resolve([[{
+          id: 1, client_id: 5, contract_id: null, subtotal: '500.00', tax_amount: '80.00', total: '580.00',
+          currency: 'MXN', tax_rate: '0.16', tax_rate_id: 7, notes: null, status: 'accepted',
+        }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM clients')) {
+        return Promise.resolve([[{ tax_exempt: 0, locale: 'MX' }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM tax_rates')) {
+        return Promise.resolve([[{ id: 7, rate: '0.1600' }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM invoices WHERE id')) {
+        return Promise.resolve([[{ id: 50, total: '580.00' }]]);
+      }
+      return Promise.resolve([[]]);
+    });
+
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('INSERT INTO invoices')) return Promise.resolve([{ insertId: 50, affectedRows: 1 }]);
+      if (sql.includes('SELECT * FROM quote_items WHERE quote_id')) return Promise.resolve([[]]);
+      return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const billingService = require('../src/services/billingService');
+    jest.spyOn(billingService, 'nextInvoiceNumber').mockResolvedValue('INV-000010');
+
+    const res = await request(app)
+      .post('/api/v1/quotes/1/convert-to-invoice')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(201);
+    expect(conn.commit).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/quotes/:id/convert-to-invoice — idempotency (converted_invoice_id)
 // ---------------------------------------------------------------------------
 describe('POST /api/v1/quotes/:id/convert-to-invoice — idempotency', () => {

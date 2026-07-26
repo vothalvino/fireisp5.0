@@ -415,6 +415,24 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
       });
     }
 
+    // Re-check the tax figures AT CONVERSION TIME, before the transaction.
+    // The INSERT below copies subtotal/tax_amount/total/tax_rate off the quote
+    // verbatim, so it inherits whatever was true when the quote was DRAFTED and
+    // is not subject to the guard on POST /invoices. Both directions matter:
+    // a quote drafted before the client was flagged IVA-exempt would convert to
+    // a taxed invoice for an exempt client, and a zero-tax quote for a
+    // non-exempt MX client would convert to an invoice that stamps ObjetoImp=01
+    // with no Impuestos node.
+    //
+    // Outside the transaction deliberately — it only reads, and a 422 here must
+    // not leave a connection mid-transaction.
+    await billingService.assertTaxCoherentForCreate(db.query.bind(db), {
+      orgId: req.orgId,
+      clientId: quote.client_id,
+      taxAmount: quote.tax_amount,
+      docType: 'quote',
+    });
+
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();

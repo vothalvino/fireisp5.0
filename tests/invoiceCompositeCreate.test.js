@@ -34,6 +34,12 @@ jest.mock('../src/services/billingService', () => ({
   nextInvoiceNumber: jest.fn().mockResolvedValue('INV-000042'),
   // real normalization — the route depends on it for tax handling
   invoiceTaxFraction: (r) => { const n = parseFloat(r) || 0; return n > 1 ? n / 100 : n; },
+  // The create-time tax guard. Default is a no-op so the existing cases below
+  // keep exercising the route's own arithmetic; the tax-coherence cases
+  // override it per test. It MUST be present here — a partial mock of a service
+  // silently turns a new call site into `undefined is not a function`, which
+  // surfaces as a 500 on every create rather than as a missing-guard failure.
+  assertTaxCoherentForCreate: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../src/models/Organization', () => ({
   getCurrency: jest.fn().mockResolvedValue('MXN'),
@@ -159,17 +165,34 @@ describe('POST /api/v1/invoices (composite create)', () => {
     expect(lastConn.commit).not.toHaveBeenCalled();
   });
 
-  test('rejects a taxed invoice for an IVA-exempt client (422 CLIENT_TAX_EXEMPT)', async () => {
+  // Tax coherence itself is decided by billingService.assertTaxCoherentForCreate
+  // and unit-tested against a real database mock in tests/taxCoherentCreate.test.js.
+  // What matters HERE is that the route delegates to it with the right arguments
+  // and lets its 422 through before any write — the guard used to be an inline
+  // check that only looked at the exempt-carrying-tax direction.
+  test('delegates tax coherence to the service and propagates its 422', async () => {
     db.query.mockImplementation(async (sql) => {
       if (/FROM clients/.test(sql)) return [[{ tax_exempt: 1 }]];
       if (/SELECT \* FROM invoices WHERE id/.test(sql)) return [[{ id: 900 }]];
       return [[]];
     });
-    // BASE carries tax_amount 16 (> 0) for an exempt client → rejected before any write.
+    const { AppError } = require('../src/utils/errors');
+    billingService.assertTaxCoherentForCreate.mockRejectedValueOnce(
+      new AppError('This client is IVA-exempt — the invoice must carry no tax.', 422, 'CLIENT_TAX_EXEMPT'),
+    );
+
     const res = await request(app).post('/api/v1/invoices').send({ ...BASE });
+
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
+    // Rejected BEFORE any write — a fiscal document must never be half-created.
     expect(lastConn.commit).not.toHaveBeenCalled();
+    // BASE carries tax_amount 16 on client 5; the guard must receive the figure
+    // that is actually about to be written, not the raw request body.
+    expect(billingService.assertTaxCoherentForCreate).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ clientId: BASE.client_id, taxAmount: 16, docType: 'invoice' }),
+    );
   });
 
   test('itemless create still works (plain invoice)', async () => {
