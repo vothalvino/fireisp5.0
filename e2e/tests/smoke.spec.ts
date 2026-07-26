@@ -182,8 +182,14 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(invClientSelect).toBeVisible({ timeout: 10_000 });
   await invClientSelect.selectOption({ label: clientName });
 
-  // The modal pre-adds one "Contract charge" item by default.
-  // The contract select is the second select in the dialog.
+  // The modal starts with NO line items — GenerateInvoiceModal was redesigned
+  // into a flexible builder ("Start with no line — the user picks the type"),
+  // so nothing is pre-added. Clicking "+ Contract charge" is what reveals the
+  // contract picker. The old spec assumed a pre-added line and therefore looked
+  // for a second <select> that no longer existed until this click.
+  await generateDialog.getByRole('button', { name: /contract charge/i }).click();
+
+  // Now the contract picker exists — the second select in the dialog.
   const invContractSelect = generateDialog.locator('select').nth(1);
   await expect(invContractSelect).toBeVisible({ timeout: 10_000 });
   await invContractSelect.selectOption({ index: 1 }); // first real option
