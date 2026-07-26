@@ -271,12 +271,23 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   const cnNumbers = cnDialog.locator('input[type="number"]');
   await cnNumbers.nth(0).fill(String(invoice.id));   // invoice_id
 
-  // A coherent 100.00 + 16% IVA = 116.00 note. Order of number inputs:
-  // invoice_id, subtotal, tax_rate, tax_amount, total.
-  await cnNumbers.nth(1).fill('100.00');   // subtotal
+  // Two server-side rules constrain these figures, and the note must satisfy
+  // BOTH or the modal stays open with the error shown inline:
+  //   1. subtotal + tax_amount === total          (#530 consistency guard)
+  //   2. total <= the linked invoice's total      ("Credit note total would
+  //      exceed the linked invoice total")
+  // So credit a deliberately small, internally consistent slice: 1.00 + 16% = 1.16.
+  expect(
+    invoice.total,
+    `Invoice ${invoice.id} totals ${invoice.total}, too small to credit 1.16 — ` +
+    'the seeded plan price must have changed; adjust these figures.',
+  ).toBeGreaterThanOrEqual(1.16);
+
+  // Order of number inputs: invoice_id, subtotal, tax_rate, tax_amount, total.
+  await cnNumbers.nth(1).fill('1.00');     // subtotal
   await cnNumbers.nth(2).fill('0.16');     // tax_rate (fraction, not percent)
-  await cnNumbers.nth(3).fill('16.00');    // tax_amount
-  await cnNumbers.nth(4).fill('116.00');   // total  = subtotal + tax
+  await cnNumbers.nth(3).fill('0.16');     // tax_amount = subtotal x rate
+  await cnNumbers.nth(4).fill('1.16');     // total      = subtotal + tax
 
   const cnNumberInput = cnDialog.locator('input[type="text"]').first();
   await cnNumberInput.fill(`CN-E2E-${suffix}`);
