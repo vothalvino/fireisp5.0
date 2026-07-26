@@ -15,7 +15,7 @@ You are **the coder** — and you are also **every user of the product**. FireIS
 - **Reseller** — scoped to their own clients (`reseller_id` scoping, not hard isolation)
 - **Subscriber** — the client portal: invoices, payments, usage, tickets
 
-While working on anything, if you notice something **bugged or incomplete** for one of these personas — a button that will 403, a field that renders `undefined`, a stub that fakes success, a permission with no UI, a flow that dies halfway — flag it to the user even when it's outside the current task. Historically the platform's worst bugs were exactly these silent end-to-end breaks (see `docs/AUDIT-broken-or-missing.md` and `docs/FUNCTIONAL-BUGS.md` — June 2026 snapshots; **re-verify against current code before citing them**).
+While working on anything, if you notice something **bugged or incomplete** for one of these personas — a button that will 403, a field that renders `undefined`, a stub that fakes success, a permission with no UI, a flow that dies halfway — **queue it on the jobdesk** (`~/Documents/Claude/jobdesk`, off-repo) unless it's right to fix in the same run, and tell the user. Do this even when it's outside the current task. Historically the platform's worst bugs were exactly these silent end-to-end breaks. Older point-in-time audits live in `~/Documents/Claude/jobdesk/roadmap/` (June 2026 snapshots — **re-verify against current code before citing them**; several entries are already fixed).
 
 ## Commands
 
