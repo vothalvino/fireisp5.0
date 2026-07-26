@@ -71,10 +71,14 @@ function wireDb({ liveCfdi = false, exempt = false } = {}) {
   const updated = { ...STORED };
   db.query.mockImplementation(async (sql, params) => {
     if (/FROM cfdi_documents/.test(sql)) return [liveCfdi ? [{ id: 31 }] : []];
-    if (/SELECT tax_exempt FROM clients/.test(sql)) return [[{ tax_exempt: exempt ? 1 : 0 }]];
+    if (/SELECT tax_exempt FROM clients/.test(sql)) {
+      // client 43 is the exempt one; client 42 follows the `exempt` switch
+      const isExempt = Number(params[0]) === 43 ? true : exempt;
+      return [[{ tax_exempt: isExempt ? 1 : 0 }]];
+    }
     if (/SELECT id FROM clients/.test(sql)) {
-      // client 42 belongs to org 5; anything else does not
-      return [Number(params[0]) === 42 ? [{ id: 42 }] : []];
+      // clients 42 and 43 belong to org 5; anything else does not
+      return [[42, 43].includes(Number(params[0])) ? [{ id: Number(params[0]) }] : []];
     }
     if (/SELECT \* FROM `?invoices`? WHERE id/.test(sql)) return [[updated]];
     if (/^UPDATE `?invoices`?/i.test(sql)) return [{ affectedRows: 1 }];
@@ -123,10 +127,12 @@ describe('PATCH /api/v1/invoices/:id — stamped invoices are fiscally frozen', 
 });
 
 describe('PATCH /api/v1/invoices/:id — IVA exemption cannot be bypassed', () => {
-  it('rejects putting tax on an exempt client’s invoice (422 CLIENT_TAX_EXEMPT)', async () => {
+  it('rejects an edit that raises tax on an exempt client’s invoice (422 CLIENT_TAX_EXEMPT)', async () => {
     wireDb({ exempt: true });
+    // coherent figures (1250 × 16% = 200) so the rate check passes and the
+    // exemption check is what rejects it
     const res = await request(app).patch('/api/v1/invoices/900')
-      .send({ subtotal: 1000, tax_amount: 160, total: 1160 });
+      .send({ subtotal: 1250, tax_amount: 200, total: 1450, tax_rate: 0.16 });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
   });
@@ -177,5 +183,136 @@ describe('PATCH /api/v1/invoices/:id — cross-tenant client swap', () => {
     const res = await request(app).patch('/api/v1/invoices/900').send({ client_id: 77 });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('CLIENT_NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression cover for the review findings on the first cut of this guard.
+// ---------------------------------------------------------------------------
+
+describe('the guard fires on a real CHANGE, not on field presence', () => {
+  // The invoice Edit modal re-sends subtotal/tax_amount/total on every save.
+  // A presence-based guard 422'd a due-date edit on any stamped invoice while
+  // the Edit button still rendered — visible-but-forbidden, amounts identical.
+  it('allows a due_date edit that re-sends UNCHANGED amounts on a stamped invoice', async () => {
+    wireDb({ liveCfdi: true });
+    const res = await request(app).put('/api/v1/invoices/900').send({
+      subtotal: 1000, tax_amount: 160, total: 1160, due_date: '2026-09-01',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('tolerates the string/number DECIMAL round-trip when comparing', async () => {
+    wireDb({ liveCfdi: true });
+    // stored values are strings ('1000.00'); the client sends numbers
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000.0, tax_amount: 160.0, total: 1160.0, status: 'paid' });
+    expect(res.status).toBe(200);
+  });
+
+  it('an equivalent tax_rate expressed as a percent is not a change', async () => {
+    wireDb({ liveCfdi: true });
+    // stored 0.1600; caller sends 16 (percent) — same rate after normalization
+    const res = await request(app).patch('/api/v1/invoices/900').send({ tax_rate: 16 });
+    expect(res.status).toBe(200);
+  });
+
+  it('still blocks a REAL amount change on a stamped invoice', async () => {
+    wireDb({ liveCfdi: true });
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000, tax_amount: 160, total: 1161 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CFDI_STAMPED');
+  });
+});
+
+describe('client_id is fiscally frozen too', () => {
+  it('blocks moving a STAMPED invoice to a different client (receptor is filed)', async () => {
+    wireDb({ liveCfdi: true });
+    const res = await request(app).patch('/api/v1/invoices/900').send({ client_id: 43 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CFDI_STAMPED');
+  });
+
+  it('blocks moving a TAXED invoice onto an IVA-exempt client', async () => {
+    wireDb({ liveCfdi: false });
+    // client 43 is exempt; the invoice carries 160.00 of tax
+    const res = await request(app).patch('/api/v1/invoices/900').send({ client_id: 43 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
+  });
+
+  it('re-sending the SAME client_id is not a change', async () => {
+    wireDb({ liveCfdi: true });
+    const res = await request(app).patch('/api/v1/invoices/900').send({ client_id: 42 });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('an invoice can never be moved to another organization', () => {
+  it('rejects organization_id (fillable, but undeclared in the update schema)', async () => {
+    wireDb();
+    const res = await request(app).patch('/api/v1/invoices/900').send({ organization_id: 9 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ORG_IMMUTABLE');
+  });
+});
+
+describe('exemption is enforced going-forward, not retroactively', () => {
+  it('does NOT brick an older correctly-taxed invoice after its client is flagged exempt', async () => {
+    wireDb({ exempt: true });
+    // client 42 is now exempt; this edit does not add tax, it only moves the due date
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000, tax_amount: 160, total: 1160, due_date: '2026-10-01' });
+    expect(res.status).toBe(200);
+  });
+
+  it('still rejects an edit that INCREASES tax for an exempt client', async () => {
+    wireDb({ exempt: true });
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1250, tax_amount: 200, total: 1450 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CLIENT_TAX_EXEMPT');
+  });
+});
+
+describe('legacy inconsistent rows stay repairable', () => {
+  it('does not impose the rate invariant on a row that was already inconsistent', async () => {
+    wireDb();
+    // stored row is made inconsistent: tax 160 with rate 0 (a legacy 0%-rate row)
+    db.query.mockImplementation(async (sql, params) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/SELECT tax_exempt FROM clients/.test(sql)) return [[{ tax_exempt: 0 }]];
+      if (/SELECT id FROM clients/.test(sql)) return [[{ id: 42 }]];
+      if (/SELECT \* FROM `?invoices`? WHERE id/.test(sql)) {
+        return [[{ ...STORED, tax_rate: '0.0000' }]];
+      }
+      if (/^UPDATE `?invoices`?/i.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+    // repairing the amounts without restating the rate must not 422
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 2000, tax_amount: 320, total: 2320 });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('the rate is kept describing the amounts', () => {
+  it('back-derives tax_rate when amounts change and no rate is supplied', async () => {
+    wireDb();
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 2000, tax_amount: 320, total: 2320 });
+    expect(res.status).toBe(200);
+    const writes = db.query.mock.calls.filter(([sql]) => /^UPDATE `?invoices`?/i.test(sql));
+    const params = writes.flatMap(([, p]) => p || []);
+    expect(params.some((v) => Number(v) === 0.16)).toBe(true); // 320/2000
+  });
+
+  it('rejects an asserted rate that contradicts the amounts', async () => {
+    wireDb();
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000, tax_amount: 300, total: 1300, tax_rate: 0.16 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('TAX_INCONSISTENT');
   });
 });

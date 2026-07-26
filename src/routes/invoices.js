@@ -47,15 +47,48 @@ function assertInvoiceNotTerminal(status) {
 // resolver is create-only, and re-resolving here would retroactively re-tax
 // historical invoices whenever an org changed its default rate — which is
 // exactly the "going forward only" guarantee the IVA feature rests on.
-const MONEY_FIELDS = ['subtotal', 'tax_amount', 'total', 'tax_rate', 'tax_rate_id'];
+// Every field a CFDI freezes. Amounts obviously, but also the receptor
+// (client_id), the currency (CFDI Moneda) and the folio (invoice_number) — the
+// filed XML snapshots all of them, so letting any drift makes the row disagree
+// with what SAT holds. organization_id is handled separately: it is never
+// changeable at all.
+const FROZEN_FIELDS = [
+  'subtotal', 'tax_amount', 'total', 'tax_rate', 'tax_rate_id',
+  'currency', 'invoice_number', 'client_id',
+];
+const AMOUNT_FIELDS = ['subtotal', 'tax_amount', 'total'];
+
+// The guards fire on a real CHANGE, never on mere field presence: the invoice
+// edit modal re-sends subtotal/tax_amount/total on every save, so a
+// presence-based check would 422 a due-date edit on any stamped invoice while
+// the button still rendered — visible-but-forbidden, and the amounts identical.
+// DECIMAL columns arrive from MySQL as strings, hence the numeric compare.
+function sameValue(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) return a === b;
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return Math.abs(na - nb) < 0.005;
+  return String(a) === String(b);
+}
 
 async function assertUpdateFiscallySafe(old, req) {
   const body = req.body || {};
 
+  // organization_id is fillable but undeclared in the update schemas, so it
+  // reached BaseModel.update untouched — an update could move an invoice into
+  // another tenant. It is immutable, full stop.
+  if (body.organization_id !== undefined
+      && Number(body.organization_id) !== Number(old.organization_id)) {
+    throw new AppError('An invoice cannot be moved to another organization.', 422, 'ORG_IMMUTABLE');
+  }
+  delete body.organization_id;
+
+  const clientChanged = body.client_id !== undefined && body.client_id !== null
+    && Number(body.client_id) !== Number(old.client_id);
+
   // Re-pointing an invoice at another tenant's client is the same hole #514
   // closed on create; the update path was still open.
-  if (body.client_id !== undefined && body.client_id !== null
-      && Number(body.client_id) !== Number(old.client_id)) {
+  if (clientChanged) {
     const [owned] = await db.query(
       'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
       [body.client_id, req.orgId],
@@ -65,48 +98,65 @@ async function assertUpdateFiscallySafe(old, req) {
     }
   }
 
-  if (!MONEY_FIELDS.some((f) => body[f] !== undefined)) return;
-
-  await assertNoLiveCfdi(db.query, old.id);
-
   // invoices.tax_rate is a DECIMAL(5,4) FRACTION (max 9.9999). The schema
   // accepts a percent up to 100, which POST normalizes and this path did not —
-  // a raw 16 overflows the column.
+  // a raw 16 overflowed the column. Normalize BEFORE comparing, or an
+  // equivalent value would read as a change.
   if (body.tax_rate !== undefined && body.tax_rate !== null) {
     body.tax_rate = billingService.invoiceTaxFraction(body.tax_rate);
   }
 
-  // Validate the patch MERGED over the stored row, so changing one amount can't
-  // sneak the invoice inconsistent.
+  const changed = FROZEN_FIELDS.filter((f) => body[f] !== undefined && !sameValue(body[f], old[f]));
+  if (changed.length === 0) return;
+
+  await assertNoLiveCfdi(db.query, old.id,
+    "Cancel or substitute the CFDI before changing this invoice's amounts, client or folio.");
+
+  // Validate the patch MERGED over the stored row, so changing one amount
+  // cannot sneak the invoice inconsistent.
   const subtotal = Number(body.subtotal ?? old.subtotal);
   const taxAmount = Number(body.tax_amount ?? old.tax_amount ?? 0);
   const total = Number(body.total ?? old.total);
-  if ([subtotal, taxAmount, total].some(Number.isNaN)) return; // type errors are validate()'s job
+  const rate = Number(body.tax_rate ?? old.tax_rate ?? 0);
+  if ([subtotal, taxAmount, total, rate].some(Number.isNaN)) return; // type errors are validate()'s job
 
-  // Only when the caller explicitly asserts a rate — a legacy row whose stored
-  // rate disagrees with its stored tax must stay repairable.
-  if (body.tax_rate !== undefined && body.tax_rate !== null && subtotal > 0) {
-    const derived = Math.round(subtotal * Number(body.tax_rate) * 100) / 100;
+  // The rate must describe the amounts it is paired with.
+  //  - Caller asserted a rate  → validate the pair, reject a contradiction.
+  //  - Amounts moved, no rate  → back-derive it exactly as create does, so the
+  //    row stays self-consistent. Rejecting instead would make the legitimate
+  //    "zero the tax for an exempt client" edit fail unless the caller also
+  //    restated tax_rate, and would leave legacy rows unrepairable.
+  const amountsChanged = changed.some((f) => AMOUNT_FIELDS.includes(f));
+  const rateAsserted = body.tax_rate !== undefined && body.tax_rate !== null;
+  if (rateAsserted) {
+    const derived = Math.round(subtotal * rate * 100) / 100;
     if (Math.abs(taxAmount - derived) > 0.01) {
       throw new AppError(
-        `tax_amount ${taxAmount.toFixed(2)} does not match subtotal ${subtotal.toFixed(2)} × ${(Number(body.tax_rate) * 100).toFixed(2)}% = ${derived.toFixed(2)}.`,
+        `tax_amount ${taxAmount.toFixed(2)} does not match subtotal ${subtotal.toFixed(2)} × ${(rate * 100).toFixed(2)}% = ${derived.toFixed(2)}.`,
         422, 'TAX_INCONSISTENT',
+      );
+    }
+  } else if (amountsChanged) {
+    body.tax_rate = subtotal > 0 ? Math.round((taxAmount / subtotal) * 1e6) / 1e6 : 0;
+  }
+
+  if (amountsChanged) {
+    const expectedTotal = Math.round((subtotal + taxAmount) * 100) / 100;
+    if (Math.abs(total - expectedTotal) > 0.01) {
+      throw new AppError(
+        `total ${total.toFixed(2)} does not equal subtotal + tax = ${expectedTotal.toFixed(2)}.`,
+        422, 'TOTAL_INCONSISTENT',
       );
     }
   }
 
-  const expectedTotal = Math.round((subtotal + taxAmount) * 100) / 100;
-  if (Math.abs(total - expectedTotal) > 0.01) {
-    throw new AppError(
-      `total ${total.toFixed(2)} does not equal subtotal + tax = ${expectedTotal.toFixed(2)}.`,
-      422, 'TOTAL_INCONSISTENT',
-    );
-  }
-
-  // An IVA-exempt client must never end up carrying tax. POST rejects this;
-  // PATCH bypassed the check entirely.
+  // An IVA-exempt client must never end up carrying tax. Enforced only when
+  // this edit INTRODUCES tax or moves the invoice onto an exempt client —
+  // flagging a client exempt must not retroactively brick their older,
+  // correctly-taxed invoices ("going forward only" again).
+  const addsTax = taxAmount > Number(old.tax_amount ?? 0) + 0.005;
   const clientId = body.client_id ?? old.client_id;
-  if (taxAmount > 0 && clientId !== null && clientId !== undefined) {
+  if (taxAmount > 0 && (addsTax || clientChanged) && clientId !== null && clientId !== undefined) {
     const [crows] = await db.query(
       'SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
       [clientId, req.orgId],
@@ -434,7 +484,7 @@ function assertAmountMatchesLine(body) {
 // Amounts on an invoice with a live (stamped) CFDI are fiscally frozen — the
 // XML on file with SAT is immutable, so growing the invoice would make the
 // system disagree with the legal document. Cancel/substitute the CFDI first.
-async function assertNoLiveCfdi(exec, invoiceId) {
+async function assertNoLiveCfdi(exec, invoiceId, remedy = 'Cancel or substitute the CFDI before modifying line items.') {
   const [rows] = await exec(
     // 'draft' freezes amounts too: its conceptos were derived from the current
     // line items, and it may be stamped at any moment.
@@ -443,7 +493,7 @@ async function assertNoLiveCfdi(exec, invoiceId) {
   );
   if (rows && rows[0]) {
     throw new AppError(
-      'Invoice has a stamped CFDI — amounts are fiscally frozen. Cancel or substitute the CFDI before modifying line items.',
+      `Invoice has a stamped CFDI — amounts are fiscally frozen. ${remedy}`,
       422, 'CFDI_STAMPED',
     );
   }
