@@ -175,7 +175,7 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
       -v "$SCRIPT_DIR/certbot-www:/var/www/certbot" \
       -v "$CERTS_DIR:/certs" \
       -v "$SCRIPT_DIR/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro" \
-      certbot/certbot:latest certonly \
+      certbot/certbot:v5.7.0 certonly \
         --webroot \
         --webroot-path /var/www/certbot \
         -d "$DOMAIN" \
