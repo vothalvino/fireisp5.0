@@ -4358,6 +4358,8 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_config_backups (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED  NOT NULL
+                                     COMMENT 'Owning org, denormalised from devices (migration 425)',
     device_id       BIGINT UNSIGNED  NOT NULL COMMENT 'Device this config snapshot belongs to',
     version         INT UNSIGNED     NOT NULL DEFAULT 1
                                      COMMENT 'Monotonically increasing version number per device',
@@ -4388,6 +4390,9 @@ CREATE TABLE IF NOT EXISTS device_config_backups (
     KEY idx_device_config_backups_checksum (checksum),
     KEY idx_device_config_backups_created_at (created_at),
     KEY idx_device_config_backups_deleted_at (deleted_at),
+    KEY idx_dcb_org (organization_id, device_id, created_at DESC),
+    CONSTRAINT fk_dcb_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_device_config_backups_device FOREIGN KEY (device_id)
         REFERENCES devices (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_device_config_backups_user FOREIGN KEY (captured_by_user_id)
@@ -6197,6 +6202,7 @@ CREATE TABLE IF NOT EXISTS payment_retries (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
+    organization_id     BIGINT UNSIGNED     NOT NULL                   COMMENT 'Owning org, denormalised from clients (migration 425)',
     client_id           BIGINT UNSIGNED     NOT NULL                   COMMENT 'Client this autopay profile belongs to',
     payment_gateway_id  BIGINT UNSIGNED     NOT NULL                   COMMENT 'Gateway that issued the stored token',
     token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway payment method / card token (pm_... for Stripe)',
@@ -6224,6 +6230,9 @@ CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     KEY idx_recurring_profiles_status (status),
     KEY idx_recurring_payment_profiles_deleted_at (deleted_at),
     UNIQUE KEY uq_recurring_profiles_default_guard (default_guard),
+    KEY idx_rpp_org (organization_id, client_id),
+    CONSTRAINT fk_rpp_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_recurring_profiles_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_recurring_profiles_gateway FOREIGN KEY (payment_gateway_id)
