@@ -108,11 +108,15 @@ describe('migration 425 backfills before it constrains', () => {
 
   it('adds the column nullable, backfills from the parent, then tightens', () => {
     // Adding it NOT NULL outright would fail on any table with existing rows.
-    // Slice the PROCEDURE BODY, not the file: both table names appear in the
-    // header comment, so indexOf on a bare table name lands in prose and makes
-    // every assertion below vacuous.
-    const body = mig.slice(mig.indexOf('CREATE PROCEDURE'));
-    const dcb = body.slice(0, body.indexOf('recurring_payment_profiles'));
+    // Anchor on the SECTION MARKERS, not on bare table names: those appear in
+    // the header comment and in the shared stale-index guard, so an indexOf on
+    // the name lands somewhere arbitrary and silently truncates the slice —
+    // which is exactly how this assertion first went vacuous.
+    const start = mig.indexOf('-- ── device_config_backups →');
+    const end = mig.indexOf('-- ── recurring_payment_profiles →');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const dcb = mig.slice(start, end);
     expect(dcb.length).toBeGreaterThan(300);
     expect(dcb).toMatch(/ADD COLUMN organization_id BIGINT UNSIGNED NULL/);
     expect(dcb).toMatch(/JOIN devices d ON d\.id = b\.device_id/);
