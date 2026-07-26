@@ -47,10 +47,15 @@ function fetchPeerCertificate(hostname, port) {
     const socket = tls.connect(
       { host: hostname, port, servername: hostname, rejectUnauthorized: false, timeout: CONNECT_TIMEOUT_MS },
       () => {
+        // rejectUnauthorized is off so an expired cert can still be read, but
+        // the verdict it would have produced is still available — keep it, or a
+        // self-signed or wrong-hostname certificate reads as perfectly healthy.
         const cert = socket.getPeerCertificate();
+        const authorized = socket.authorized;
+        const authorizationError = socket.authorizationError ? String(socket.authorizationError) : null;
         socket.end();
         if (!cert || !cert.valid_to) done(reject, new Error('server presented no certificate'));
-        else done(resolve, cert);
+        else done(resolve, { cert, authorized, authorizationError });
       },
     );
     socket.on('timeout', () => { socket.destroy(); done(reject, new Error(`TLS connect to ${hostname}:${port} timed out`)); });
@@ -63,30 +68,23 @@ function fetchPeerCertificate(hostname, port) {
  * CSD monitor does — the scheduled task runs daily and must not re-alert every
  * run for the same certificate and the same threshold.
  */
-async function notifyTlsExpiry({ hostname, validTo, daysLeft, threshold, organizationId }) {
+/**
+ * Deliver one alert to an organization's admins/managers.
+ *
+ * `title` IS the dedupe key: one row per recipient per distinct title, so the
+ * title must carry whatever makes this alert distinct from the last one. The
+ * scheduled task runs daily and must not re-alert every run for the same
+ * certificate and threshold — but it MUST alert again for a new certificate.
+ */
+async function deliver({ organizationId, type, title, body }) {
   const Notification = require('../models/Notification');
   const User = require('../models/User');
   const emailTransport = require('./emailTransport');
 
-  const validToDay = validTo.toISOString().slice(0, 10);
-  const expired = threshold === 0;
-  const title = expired
-    ? `TLS certificate EXPIRED — ${hostname}`
-    : `TLS certificate expires in ≤${threshold} days — ${hostname}`;
-
-  const body = expired
-    ? `The TLS certificate for ${hostname} expired on ${validToDay}. Browsers are now showing a security warning `
-      + 'to every visitor, including the customer portal. Check the renewal container: '
-      + '`docker logs fireisp-certbot`, then force one with '
-      + '`docker exec fireisp-certbot certbot renew --force-renewal` (see docs/runbook.md).'
-    : `The TLS certificate for ${hostname} expires on ${validToDay} (${daysLeft} days). `
-      + 'Automatic renewal should already have run — if this alert repeats, renewal is failing silently. '
-      + 'Check `docker logs fireisp-certbot` and see docs/runbook.md.';
-
   const recipients = await User.getStaffByEffectiveRole(organizationId, ['admin', 'manager']);
   if (recipients.length === 0) {
-    logger.error({ organizationId, hostname },
-      'TLS expiry alert has NO recipients — organization has no active admin/manager');
+    logger.error({ organizationId, title },
+      'TLS alert has NO recipients — organization has no active admin/manager');
     return 0;
   }
 
@@ -98,26 +96,91 @@ async function notifyTlsExpiry({ hostname, validTo, daysLeft, threshold, organiz
     );
     if (already[0]) continue;
 
-    await Notification.create({
-      user_id: r.id,
-      type: expired ? 'error' : 'warning',
-      title,
-      body,
-      entity_type: 'tls_certificate',
-      entity_id: null,
-    }).catch(err => logger.warn({ err: err.message, userId: r.id }, 'TLS expiry bell failed'));
+    // Count only what actually persisted. The bell row is also the dedupe
+    // marker, so if it fails to write the alert is NOT suppressed next run.
+    let stored = false;
+    try {
+      await Notification.create({
+        user_id: r.id, type, title, body,
+        entity_type: 'tls_certificate', entity_id: null,
+      });
+      stored = true;
+    } catch (err) {
+      logger.warn({ err: err.message, userId: r.id }, 'TLS alert bell failed');
+    }
 
     if (r.email) {
-      await emailTransport.sendEmail({
-        to: r.email,
-        subject: title,
-        text: body,
-        organizationId,
-      }).catch(err => logger.warn({ err: err.message, userId: r.id }, 'TLS expiry email failed'));
+      await emailTransport.sendEmail({ to: r.email, subject: title, text: body, organizationId })
+        .catch(err => logger.warn({ err: err.message, userId: r.id }, 'TLS alert email failed'));
     }
-    sent += 1;
+    if (stored) sent += 1;
   }
   return sent;
+}
+
+/** Certificate is approaching, or past, its expiry date. */
+async function notifyTlsExpiry({ hostname, validTo, daysLeft, threshold, organizationId }) {
+  const validToDay = validTo.toISOString().slice(0, 10);
+  const expired = threshold === 0;
+
+  // The certificate's own expiry date is IN THE TITLE on purpose: the title is
+  // the dedupe key, so it must change when the certificate does. Without it the
+  // key is just threshold+hostname — constant for the life of the install — and
+  // since notifications are never purged (no delete route, and retentionService
+  // does not cover the table), the first alert would suppress every future one.
+  // The monitor would become a one-shot alarm that silently stops warning: the
+  // exact failure this feature exists to prevent. The CSD monitor avoids it the
+  // same way, by embedding certificate_number.
+  const title = expired
+    ? `TLS certificate EXPIRED ${validToDay} — ${hostname}`
+    : `TLS certificate expires ${validToDay} (≤${threshold} days) — ${hostname}`;
+
+  // Remediation is deliberately service-scoped rather than naming a container:
+  // `fireisp-certbot` only exists if the compose project happens to be named
+  // that, and it does not exist at all on k8s.
+  const remedy = 'Check the renewal service — `docker compose -f docker-compose.prod.yml logs certbot` '
+    + '(or `kubectl logs` for the cert-manager pod on k8s) — and see docs/runbook.md.';
+
+  const body = expired
+    ? `The TLS certificate for ${hostname} expired on ${validToDay} UTC. Every visitor, including the customer `
+      + `portal, is now seeing a browser security warning. ${remedy}`
+    : `The TLS certificate for ${hostname} expires on ${validToDay} UTC (${daysLeft} days). `
+      + `Automatic renewal should already have run — if this alert repeats, renewal is failing silently. ${remedy}`;
+
+  return deliver({ organizationId, type: expired ? 'error' : 'warning', title, body });
+}
+
+/**
+ * Run `notify` once per organization. A global run (organizationId null) fans
+ * out to every ACTIVE organization — the certificate is install-wide — while a
+ * scoped run touches only the one asked for. Inactive orgs are skipped: their
+ * staff cannot act on it and should not be paged.
+ */
+async function notifyForAllOrgs(organizationId, notify) {
+  let orgIds = [organizationId];
+  if (organizationId === null || organizationId === undefined) {
+    const [orgs] = await db.query(
+      "SELECT id FROM organizations WHERE deleted_at IS NULL AND status = 'active'",
+    );
+    orgIds = orgs.map(o => o.id);
+  }
+  let sent = 0;
+  for (const orgId of orgIds) sent += await notify(orgId);
+  return sent;
+}
+
+/** Certificate is untrustworthy for a reason other than expiry. */
+async function notifyTlsInvalid({ hostname, reason, validTo, organizationId }) {
+  const validToDay = validTo.toISOString().slice(0, 10);
+  return deliver({
+    organizationId,
+    type: 'error',
+    // reason is in the title so a DIFFERENT failure still alerts.
+    title: `TLS certificate is not trusted (${reason}) — ${hostname}`,
+    body: `The certificate served by ${hostname} fails verification: ${reason}. `
+      + `It expires ${validToDay} UTC, so this is not an expiry problem — visitors are seeing a security `
+      + 'warning. Check that the renewal wrote the certificate the web server is actually serving.',
+  });
 }
 
 /**
@@ -142,9 +205,9 @@ async function checkTlsExpiry(organizationId = null) {
   const hostname = url.hostname;
   const port = url.port ? Number(url.port) : 443;
 
-  let cert;
+  let cert; let authorized; let authorizationError;
   try {
-    cert = await fetchPeerCertificate(hostname, port);
+    ({ cert, authorized, authorizationError } = await fetchPeerCertificate(hostname, port));
   } catch (err) {
     logger.warn({ err: err.message, hostname, port }, 'TLS expiry check could not reach the endpoint');
     return { checked: false, hostname, error: err.message };
@@ -164,25 +227,31 @@ async function checkTlsExpiry(organizationId = null) {
     valid_to: validTo.toISOString(),
     days_left: daysLeft,
     issuer: cert.issuer?.O || cert.issuer?.CN || null,
+    authorized: authorized === true,
+    authorization_error: authorizationError,
     notifications_sent: 0,
   };
+
+  // A certificate can be untrustworthy without being expired — self-signed, or
+  // issued for a different hostname. Those read as "plenty of days left" and
+  // would otherwise be reported healthy. Expiry has its own alert below, so
+  // only surface OTHER verification failures here.
+  const expiryError = /EXPIRED|NOT_YET_VALID/i.test(authorizationError || '');
+  if (!authorized && authorizationError && !expiryError) {
+    result.notifications_sent += await notifyForAllOrgs(organizationId, (orgId) => notifyTlsInvalid({
+      hostname, reason: authorizationError, validTo, organizationId: orgId,
+    }));
+    logger.warn({ hostname, authorizationError }, 'TLS certificate fails verification');
+  }
 
   if (threshold === undefined) return result;   // healthy, nothing to say
 
   // Global task: the certificate is install-wide, so every organization's
   // admins are affected by it. Scoped runs (organizationId given) notify only
   // that organization.
-  let orgIds = [organizationId];
-  if (organizationId === null || organizationId === undefined) {
-    const [orgs] = await db.query('SELECT id FROM organizations WHERE deleted_at IS NULL');
-    orgIds = orgs.map(o => o.id);
-  }
-
-  for (const orgId of orgIds) {
-    result.notifications_sent += await notifyTlsExpiry({
-      hostname, validTo, daysLeft, threshold, organizationId: orgId,
-    });
-  }
+  result.notifications_sent += await notifyForAllOrgs(organizationId, (orgId) => notifyTlsExpiry({
+    hostname, validTo, daysLeft, threshold, organizationId: orgId,
+  }));
 
   logger.warn({ hostname, daysLeft, threshold, sent: result.notifications_sent },
     'TLS certificate expiry alert raised');
