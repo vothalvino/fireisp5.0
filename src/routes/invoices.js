@@ -36,9 +36,94 @@ function assertInvoiceNotTerminal(status) {
   }
 }
 
+// A CFDI freezes an invoice's money, but `assertInvoiceNotTerminal` only blocks
+// the void/cancelled statuses — and stamping never changes `status`. An invoice
+// whose CFDI is vigente at SAT therefore sits at issued/sent/overdue/paid and
+// stayed fully editable through PUT/PATCH, letting the row drift from the
+// immutable XML the client and SAT both hold (unfixable after the fact). The
+// line-item routes already call assertNoLiveCfdi; this path never did.
+//
+// GUARD AND VALIDATE ONLY. This hook must never call resolveTaxContext: the
+// resolver is create-only, and re-resolving here would retroactively re-tax
+// historical invoices whenever an org changed its default rate — which is
+// exactly the "going forward only" guarantee the IVA feature rests on.
+const MONEY_FIELDS = ['subtotal', 'tax_amount', 'total', 'tax_rate', 'tax_rate_id'];
+
+async function assertUpdateFiscallySafe(old, req) {
+  const body = req.body || {};
+
+  // Re-pointing an invoice at another tenant's client is the same hole #514
+  // closed on create; the update path was still open.
+  if (body.client_id !== undefined && body.client_id !== null
+      && Number(body.client_id) !== Number(old.client_id)) {
+    const [owned] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+      [body.client_id, req.orgId],
+    );
+    if (!owned[0]) {
+      throw new AppError('client_id not found in this organization.', 422, 'CLIENT_NOT_FOUND');
+    }
+  }
+
+  if (!MONEY_FIELDS.some((f) => body[f] !== undefined)) return;
+
+  await assertNoLiveCfdi(db.query, old.id);
+
+  // invoices.tax_rate is a DECIMAL(5,4) FRACTION (max 9.9999). The schema
+  // accepts a percent up to 100, which POST normalizes and this path did not —
+  // a raw 16 overflows the column.
+  if (body.tax_rate !== undefined && body.tax_rate !== null) {
+    body.tax_rate = billingService.invoiceTaxFraction(body.tax_rate);
+  }
+
+  // Validate the patch MERGED over the stored row, so changing one amount can't
+  // sneak the invoice inconsistent.
+  const subtotal = Number(body.subtotal ?? old.subtotal);
+  const taxAmount = Number(body.tax_amount ?? old.tax_amount ?? 0);
+  const total = Number(body.total ?? old.total);
+  if ([subtotal, taxAmount, total].some(Number.isNaN)) return; // type errors are validate()'s job
+
+  // Only when the caller explicitly asserts a rate — a legacy row whose stored
+  // rate disagrees with its stored tax must stay repairable.
+  if (body.tax_rate !== undefined && body.tax_rate !== null && subtotal > 0) {
+    const derived = Math.round(subtotal * Number(body.tax_rate) * 100) / 100;
+    if (Math.abs(taxAmount - derived) > 0.01) {
+      throw new AppError(
+        `tax_amount ${taxAmount.toFixed(2)} does not match subtotal ${subtotal.toFixed(2)} × ${(Number(body.tax_rate) * 100).toFixed(2)}% = ${derived.toFixed(2)}.`,
+        422, 'TAX_INCONSISTENT',
+      );
+    }
+  }
+
+  const expectedTotal = Math.round((subtotal + taxAmount) * 100) / 100;
+  if (Math.abs(total - expectedTotal) > 0.01) {
+    throw new AppError(
+      `total ${total.toFixed(2)} does not equal subtotal + tax = ${expectedTotal.toFixed(2)}.`,
+      422, 'TOTAL_INCONSISTENT',
+    );
+  }
+
+  // An IVA-exempt client must never end up carrying tax. POST rejects this;
+  // PATCH bypassed the check entirely.
+  const clientId = body.client_id ?? old.client_id;
+  if (taxAmount > 0 && clientId !== null && clientId !== undefined) {
+    const [crows] = await db.query(
+      'SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+      [clientId, req.orgId],
+    );
+    if (crows[0] && (crows[0].tax_exempt === 1 || crows[0].tax_exempt === true)) {
+      throw new AppError(
+        'This client is IVA-exempt — the invoice must carry no tax (subtotal = total, tax_amount 0).',
+        422, 'CLIENT_TAX_EXEMPT',
+      );
+    }
+  }
+}
+
 const ctrl = crudController(Invoice, {
-  beforeUpdate: (old) => {
+  beforeUpdate: async (old, req) => {
     assertInvoiceNotTerminal(old.status);
+    await assertUpdateFiscallySafe(old, req);
   },
 });
 
