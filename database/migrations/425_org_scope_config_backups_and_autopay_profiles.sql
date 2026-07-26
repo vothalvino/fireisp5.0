@@ -53,6 +53,28 @@ DROP PROCEDURE IF EXISTS migration_425_org_scope_leaky_tables;
 DELIMITER //
 CREATE PROCEDURE migration_425_org_scope_leaky_tables()
 BEGIN
+  -- A leftover index from a previous rollback would make ADD KEY below fail with
+  -- ER_DUP_KEYNAME: dropping a column does NOT drop a multi-column index that
+  -- contains it, MySQL just removes that column from the index. Clear any stale
+  -- one first so this migration is re-runnable after a rollback.
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'device_config_backups'
+      AND INDEX_NAME   = 'idx_dcb_org'
+  ) THEN
+    ALTER TABLE device_config_backups DROP INDEX idx_dcb_org;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'recurring_payment_profiles'
+      AND INDEX_NAME   = 'idx_rpp_org'
+  ) THEN
+    ALTER TABLE recurring_payment_profiles DROP INDEX idx_rpp_org;
+  END IF;
+
   -- ── device_config_backups → devices.organization_id ────────────────────────
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS

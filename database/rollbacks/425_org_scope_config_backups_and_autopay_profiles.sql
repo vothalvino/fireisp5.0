@@ -19,15 +19,32 @@ DROP PROCEDURE IF EXISTS rollback_425_org_scope_leaky_tables;
 DELIMITER //
 CREATE PROCEDURE rollback_425_org_scope_leaky_tables()
 BEGIN
+  -- ORDER MATTERS, AND THE INDEX MUST GO EXPLICITLY.
+  -- Dropping a column does NOT drop a MULTI-column index that contains it —
+  -- MySQL removes the column from the index and keeps the rest. idx_dcb_org is
+  -- (organization_id, device_id, created_at), so dropping only the column left
+  -- an idx_dcb_org over (device_id, created_at) behind, and re-running the
+  -- forward migration then died with ER_DUP_KEYNAME "Duplicate key name
+  -- 'idx_dcb_org'". Caught by the CI rollback round-trip, not by review.
   IF EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME   = 'device_config_backups'
       AND COLUMN_NAME  = 'organization_id'
   ) THEN
-    -- The FK must go before the column; the index goes with it.
     ALTER TABLE device_config_backups DROP FOREIGN KEY fk_dcb_org;
     ALTER TABLE device_config_backups DROP COLUMN organization_id;
+  END IF;
+
+  -- Separate from the column check on purpose: the index can outlive the column
+  -- (see above), so a state with no column but a stale index must still clean up.
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'device_config_backups'
+      AND INDEX_NAME   = 'idx_dcb_org'
+  ) THEN
+    ALTER TABLE device_config_backups DROP INDEX idx_dcb_org;
   END IF;
 
   IF EXISTS (
@@ -38,6 +55,15 @@ BEGIN
   ) THEN
     ALTER TABLE recurring_payment_profiles DROP FOREIGN KEY fk_rpp_org;
     ALTER TABLE recurring_payment_profiles DROP COLUMN organization_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'recurring_payment_profiles'
+      AND INDEX_NAME   = 'idx_rpp_org'
+  ) THEN
+    ALTER TABLE recurring_payment_profiles DROP INDEX idx_rpp_org;
   END IF;
 END //
 DELIMITER ;

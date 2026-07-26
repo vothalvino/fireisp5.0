@@ -134,4 +134,26 @@ describe('migration 425 backfills before it constrains', () => {
     expect(rb).toMatch(/DROP FOREIGN KEY fk_dcb_org/);
     expect(rb).toMatch(/DROP FOREIGN KEY fk_rpp_org/);
   });
+
+  it('the rollback drops the indexes EXPLICITLY, not as a side effect', () => {
+    // Dropping a column does NOT drop a multi-column index containing it —
+    // MySQL removes the column from the index and keeps the remainder. So
+    // dropping only organization_id left an idx_dcb_org over
+    // (device_id, created_at), and re-migrating died with ER_DUP_KEYNAME.
+    // Caught by the CI rollback round-trip against real MySQL, which no unit
+    // test here can reproduce; this assertion is the cheap standing guard.
+    const rb = read('database/rollbacks/425_org_scope_config_backups_and_autopay_profiles.sql');
+    expect(rb).toMatch(/DROP INDEX idx_dcb_org/);
+    expect(rb).toMatch(/DROP INDEX idx_rpp_org/);
+    expect(rb).toMatch(/INFORMATION_SCHEMA\.STATISTICS/);
+  });
+
+  it('the forward migration survives a leftover index from an older rollback', () => {
+    // Operators who already ran the previous rollback have the stale index on
+    // disk; without this the upgrade fails for exactly them.
+    expect(mig).toMatch(/INFORMATION_SCHEMA\.STATISTICS/);
+    const body = mig.slice(mig.indexOf('CREATE PROCEDURE'));
+    expect(body.indexOf('DROP INDEX idx_dcb_org'))
+      .toBeLessThan(body.indexOf('ADD KEY idx_dcb_org'));
+  });
 });
