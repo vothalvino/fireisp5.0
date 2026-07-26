@@ -244,11 +244,24 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(subjectInput).toBeVisible({ timeout: 10_000 });
   await subjectInput.fill(`E2E smoke ${suffix}`);
 
-  // Link to client (optional field — use the first non-empty select)
+  // Link to client — NOT optional any more. TicketList.tsx:262 disables the
+  // submit button unless subject, client AND category are all set.
   const ticketClientSelect = ticketDialog.locator('select').first();
   await ticketClientSelect.selectOption({ label: clientName });
 
-  // Submit
+  // Category became a required field with migration 394 (it mirrors the
+  // tickets.category ENUM), which landed after this spec was written. Without
+  // it the Create Ticket button stays `disabled` and the click hangs until the
+  // test times out — which is exactly how this failed.
+  // Selects in the dialog, in order: client, assigned_to, priority, status, category.
+  const ticketCategorySelect = ticketDialog.locator('select').nth(4);
+  await expect(ticketCategorySelect).toBeVisible({ timeout: 10_000 });
+  await ticketCategorySelect.selectOption({ index: 1 }); // first real category
+
+  // Submit — assert the guard actually released, so a future required field
+  // fails here with a clear message instead of a 2-minute timeout.
+  const createTicketBtn = page.getByRole('button', { name: /create ticket/i });
+  await expect(createTicketBtn).toBeEnabled({ timeout: 10_000 });
   await page.getByRole('button', { name: /create ticket/i }).click();
 
   // Modal closes; our ticket subject should appear in the list
