@@ -337,25 +337,17 @@ services:
   # First-time setup: run nginx/init-letsencrypt.sh instead of starting
   # this service directly — it handles the chicken-and-egg bootstrapping.
   certbot:
-    # certbot/dns-cloudflare, NOT certbot/certbot — it is the same certbot plus
-    # the Cloudflare DNS plugin, and it renews webroot (HTTP-01) certificates
-    # identically. One image therefore covers both challenge types with no
-    # conditional plumbing.
-    #
-    # This matters because init-letsencrypt.sh --cloudflare issues via DNS-01,
-    # which is the only option for a host that cannot accept inbound HTTP-01
-    # validation (behind a firewall, split-horizon DNS, IP allowlist). With the
-    # plain certbot image such a certificate could be ISSUED but never RENEWED:
-    # `certbot renew` reads the authenticator back out of
-    # /etc/letsencrypt/renewal/<domain>.conf and fails with a missing-plugin
-    # error. The operator got 90 working days and then a silent expiry.
-    #
-    # The credentials it needs live at /etc/letsencrypt/cloudflare.ini, inside
-    # the volume already mounted below — no extra mount, and no file to forget.
-    #
     # Pinned: :latest can change underneath an operator with no warning, and a
     # broken renewal stays invisible until the certificate actually expires.
-    image: certbot/dns-cloudflare:v5.7.0
+    #
+    # HTTP-01 (webroot) only. DNS-01 support was removed 2026-07-26 — it was
+    # Cloudflare-specific, unused, and speculative capability in the TLS
+    # renewal path is capability that can rot unnoticed. If DNS-01 is ever
+    # needed, the renewal image MUST carry the matching plugin: `certbot renew`
+    # reads the authenticator back out of /etc/letsencrypt/renewal/<domain>.conf
+    # and fails without it, silently, until the certificate expires.
+    # tests/tlsRenewalConfig.test.js enforces exactly that.
+    image: certbot/certbot:v5.7.0
     restart: unless-stopped
     # Renewal loop: check every 12 hours. certbot renew is a no-op when
     # the certificate is not yet due for renewal (< 30 days to expiry).

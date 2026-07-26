@@ -13,7 +13,6 @@ package-lock.json
 .env.local
 
 # TLS credentials (never commit secrets)
-nginx/cloudflare.ini
 nginx/certs/
 nginx/letsencrypt/
 # Transient backup created by nginx/init-letsencrypt.sh during TLS bootstrap.

@@ -411,10 +411,6 @@ An incident should be **formally declared** (create an incident channel / ticket
    docker exec fireisp-certbot certbot renew --force-renewal
    docker exec fireisp-nginx nginx -s reload
    ```
-3. **Cloudflare DNS-01** (wildcard):
-   ```bash
-   bash scripts/cloudflare-renew.sh
-   ```
 4. If automated renewal is broken, check Certbot logs:
    ```bash
    docker logs fireisp-certbot --tail 50

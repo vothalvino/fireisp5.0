@@ -6,7 +6,6 @@ HTTPS.  This guide covers four ways to provision TLS certificates:
 | Method | Use case |
 |---|---|
 | [Let's Encrypt (HTTP-01)](#lets-encrypt-http-01-challenge) | Single-domain cert, server reachable on port 80 |
-| [Let's Encrypt (DNS-01 / Cloudflare)](#lets-encrypt-dns-01-cloudflare) | Wildcard cert (`*.isp.example.com`), or server not on port 80 |
 | [Manual / commercial certificate](#manual--commercial-certificate) | Bring-your-own cert (DigiCert, ZeroSSL, self-signed) |
 | [Host Nginx (port-80 conflict)](#host-nginx-mode-port-80-conflict) | Docker already binds port 80; system nginx acts as TLS front-door |
 
@@ -92,68 +91,6 @@ openssl s_client -connect isp.example.com:443 -servername isp.example.com \
 # Check nginx is using the live cert
 docker compose -f docker-compose.prod.yml exec nginx \
   openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -subject -dates
-```
-
----
-
-## Let's Encrypt (DNS-01 / Cloudflare)
-
-Use this method when:
-- You need a **wildcard certificate** (`*.isp.example.com`).
-- Your server is behind a NAT/firewall and port 80 is not reachable from the
-  internet.
-- You use Cloudflare as your DNS provider.
-
-**Requirements:** A Cloudflare API Token with `Zone:Read` + `DNS:Edit` scopes
-for the zone containing your domain.  Create one at
-<https://dash.cloudflare.com/profile/api-tokens>.
-
-### 1. Bootstrap the first certificate
-
-```bash
-chmod +x nginx/init-letsencrypt.sh
-CF_API_TOKEN=<your-token> DOMAIN=isp.example.com EMAIL=admin@example.com \
-  ./nginx/init-letsencrypt.sh --cloudflare
-```
-
-This issues certificates for both `isp.example.com` **and** `*.isp.example.com`
-using the DNS-01 challenge.  A 60-second propagation delay is built in to allow
-Cloudflare to publish the `_acme-challenge` TXT record.
-
-### 2. Renewal — nothing to configure
-
-**No compose edit is needed.** The `certbot` service already runs
-`certbot/dns-cloudflare`, which is plain certbot plus the Cloudflare plugin and
-renews HTTP-01 (webroot) certificates identically — so one image covers both
-challenge types.
-
-The bootstrap above writes your API token to
-`nginx/letsencrypt/cloudflare.ini` (mode `0600`) and **keeps it**. That
-directory is already mounted into the certbot container as `/etc/letsencrypt`,
-and certbot records both the authenticator and that exact credentials path in
-`/etc/letsencrypt/renewal/<domain>.conf`. `certbot renew` re-reads both every
-12 hours, so DNS-01 renewal works with no further setup.
-
-> **Security:** the token sits inside the certificate store, alongside your
-> private keys — same sensitivity, same `0600`, same directory you already back
-> up and protect. It is never committed: `nginx/letsencrypt/` is gitignored.
-
-> **Upgrading an existing DNS-01 install?** Earlier versions told you to
-> hand-edit `docker-compose.prod.yml` and mount `./nginx/cloudflare.ini` at
-> `/cloudflare.ini`. If you did that, your renewal config still points at the
-> old path. Either keep your local compose edit, or re-run the bootstrap above
-> to move the credentials into the certificate store and rewrite the renewal
-> config. Check which path is in use with:
-> ```bash
-> grep dns_cloudflare_credentials nginx/letsencrypt/renewal/*.conf
-> ```
-
-### 3. Start the stack and verify
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
-openssl s_client -connect isp.example.com:443 -servername isp.example.com \
-  </dev/null 2>/dev/null | openssl x509 -noout -subject -dates
 ```
 
 ---
@@ -264,13 +201,6 @@ mkdir -p /opt/fireisp/nginx/certbot-www/.well-known/acme-challenge
 cd /opt/fireisp
 DOMAIN=isp.example.com EMAIL=admin@example.com \
   ./nginx/init-letsencrypt.sh --host-nginx
-```
-
-For Cloudflare DNS-01 (wildcard certs), combine both flags:
-
-```bash
-CF_API_TOKEN=<token> DOMAIN=isp.example.com EMAIL=admin@example.com \
-  ./nginx/init-letsencrypt.sh --cloudflare --host-nginx
 ```
 
 **5. Start the FireISP stack**
