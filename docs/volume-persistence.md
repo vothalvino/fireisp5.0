@@ -34,11 +34,34 @@ persistent:
 | MySQL primary | `/var/lib/mysql` | `db_primary_data` | `db_data` |
 | MySQL replica | `/var/lib/mysql` | `db_replica_data` | — |
 | Redis (AOF) | `/data` | `redis_data` | `redis_data` |
-| App storage | `/app/storage` | `./storage` (bind) | `./storage` (bind) |
+| App storage | `/app/storage` | `storage` (named volume) | `./storage` (bind) |
 | ChromaDB | `/chroma/chroma` | `chroma_data` | `chroma_data` |
 
 See [`docker-compose.prod.yml`](../docker-compose.prod.yml) and
 [`docker-compose.yml`](../docker-compose.yml).
+
+> **Upgrading from a build before ticket/work-order attachments moved:** those
+> two upload types used to be written to `/app/uploads/`, which **nothing
+> mounts**. On Docker they lived in the container's writable layer and were
+> destroyed by every `docker compose up -d` that recreated the app container; on
+> Kubernetes, `readOnlyRootFilesystem: true` meant the directory could not be
+> created at all. Everything now writes under `/app/storage`, alongside client
+> and device documents.
+>
+> Existing database rows keep working either way — they store an absolute path
+> and are read as-is. But if your container is **still running** from before the
+> upgrade, copy the files out before you recreate it, or they go with it:
+>
+> ```bash
+> docker compose -f docker-compose.prod.yml --env-file .env.prod \
+>   exec app sh -c 'cp -rn /app/uploads/tickets/. /app/storage/tickets/ 2>/dev/null; \
+>                   mkdir -p /app/storage/work-orders; \
+>                   cp -rn /app/uploads/work-orders/. /app/storage/work-orders/ 2>/dev/null; \
+>                   ls /app/storage/tickets | wc -l'
+> ```
+>
+> Then redeploy. Attachments uploaded after the upgrade store a path relative to
+> `/app/storage`, so they survive the install root moving as well.
 
 ---
 

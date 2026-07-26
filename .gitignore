@@ -39,7 +39,18 @@ Thumbs.db
 # Build artifacts
 dist/
 
-# Runtime file uploads (ticket / work order attachments)
+# Runtime file uploads. Everything now lands under storage/ (STORAGE_ROOT in
+# src/middleware/upload.js) — the only directory any deployment mounts. Keep the
+# scaffolded subdirectories, ignore whatever gets uploaded into them.
+storage/**/*
+# Re-include the DIRECTORIES themselves. Without this git treats each excluded
+# subdirectory as pruned, never descends into it, and the .gitkeep negation
+# below can never match — new subdirectories silently lose their scaffolding.
+!storage/**/
+!storage/**/.gitkeep
+
+# Legacy: ticket and work-order attachments were written here before they were
+# moved under storage/. Still ignored so an old working copy stays clean.
 uploads/
 .ds-sync/
 ds-bundle/
