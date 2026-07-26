@@ -64,8 +64,15 @@ describe('completeEnrollment', () => {
     expect(db.query.mock.calls[0][1]).toEqual([5]);
     const ins = db.query.mock.calls.find((c) => /INSERT INTO recurring_payment_profiles/.test(c[0]));
     expect(ins).toBeTruthy();
-    // client, gateway, pm (token_reference), customer, brand, last4, exp month/year
-    expect(ins[1]).toEqual([7, 5, 'pm_1', 'cus_1', 'visa', '4242', 12, 2030]);
+    // org (migration 425), client, gateway, pm (token_reference), customer,
+    // brand, last4, exp month/year.
+    //
+    // organization_id leads and is taken from the GATEWAY, not from the request:
+    // payment_gateways.organization_id is NOT NULL, and the ownership check just
+    // above returns early unless the client belongs to that org, so the two
+    // cannot disagree. This matters on the global env-var webhook route, where
+    // the request carries no organizationId at all.
+    expect(ins[1]).toEqual([1, 7, 5, 'pm_1', 'cus_1', 'visa', '4242', 12, 2030]);
   });
 
   it('enrolls on the global env-var webhook route (no organizationId) via the session metadata gateway', async () => {

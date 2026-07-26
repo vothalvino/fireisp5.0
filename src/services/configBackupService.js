@@ -119,11 +119,19 @@ async function pullBackupForDevice({
   const nextVersion = (await getLatestVersion(deviceId)) + 1;
 
   const [result] = await db.query(
+    // organization_id is derived from the device in the statement itself rather
+    // than passed in: this is the nightly unattended pull, it has no request
+    // context to take req.orgId from, and a subquery cannot drift from the
+    // parent the way a caller-supplied value can. Migration 425 made the column
+    // NOT NULL precisely so a backup can never land unattributed — an
+    // unattributed row would be invisible to every tenant, which is the silent
+    // failure this whole change exists to close.
     `INSERT INTO device_config_backups
-       (device_id, version, config_type, content, file_size, checksum,
+       (organization_id, device_id, version, config_type, content, file_size, checksum,
         capture_method, captured_by_user_id, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES ((SELECT organization_id FROM devices WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      deviceId,
       deviceId,
       nextVersion,
       configType,

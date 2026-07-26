@@ -35,9 +35,14 @@ router.get('/', requirePermission('device_config_backups.view'), ctrl.list);
 router.get('/diff/:id', requirePermission('device_config_backups.view'), async (req, res, next) => {
   try {
     const { id } = req.params;
+    // Raw query — BaseModel's org scoping does not reach it, so the predicate is
+    // explicit. Without it any tenant could read any other tenant's config diff
+    // by id, which is the same RouterOS content the list route now scopes.
     const [rows] = await db.query(
-      'SELECT id, device_id, version, diff_from_previous FROM device_config_backups WHERE id = ?',
-      [id],
+      `SELECT id, device_id, version, diff_from_previous
+         FROM device_config_backups
+        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
+      [id, req.orgId],
     );
     if (rows.length === 0) throw new NotFoundError('device_config_backups');
     res.json({ data: rows[0] });

@@ -123,11 +123,15 @@ async function completeEnrollment({ sessionId, organizationId, metadata = {} }) 
   );
   try {
     await db.query(
+      // organization_id is NOT NULL as of migration 425. gateway.organization_id
+      // is the right source and is already proven correct here: the `owners`
+      // check above returned early unless this client belongs to the gateway's
+      // org, so the two cannot disagree.
       `INSERT INTO recurring_payment_profiles
-         (client_id, payment_gateway_id, token_reference, stripe_customer_id,
+         (organization_id, client_id, payment_gateway_id, token_reference, stripe_customer_id,
           card_brand, card_last_four, card_exp_month, card_exp_year, is_default, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
-      [clientId, gateway.id, s.paymentMethod, s.customer,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
+      [gateway.organization_id, clientId, gateway.id, s.paymentMethod, s.customer,
         card.brand || null, card.last4 || null, card.expMonth || null, card.expYear || null],
     );
   } catch (err) {
