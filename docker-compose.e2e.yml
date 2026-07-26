@@ -53,6 +53,9 @@ services:
       JWT_SECRET: e2e-test-jwt-secret-for-automated-tests-not-for-production-use!!
       REDIS_URL: ''
       LOG_LEVEL: warn
+      # seed.js generates a random admin password when unset; the smoke suite
+      # logs in as this user, so both sides must agree on the value.
+      ADMIN_PASSWORD: e2e-admin-password-not-for-production
     # Run migrations and seed before starting the server so Playwright
     # can immediately find the admin user and reference data.
     command: >
@@ -79,6 +82,9 @@ services:
     environment:
       BASE_URL: http://app:3000
       CI: 'true'
+      # Must match the app service's ADMIN_PASSWORD above — the seed creates the
+      # admin with that value and the smoke suite logs in as it.
+      ADMIN_PASSWORD: e2e-admin-password-not-for-production
     command: >
       sh -c "corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm install --frozen-lockfile && pnpm --filter fireisp-e2e exec playwright install --with-deps chromium && pnpm --filter fireisp-e2e test"
 

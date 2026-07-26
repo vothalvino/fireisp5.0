@@ -2,10 +2,11 @@
  * FireISP 5.0 — End-to-End Smoke Test
  *
  * Scenario: log in → create client (API) → assign plan (UI) →
- *           generate invoice (UI) → record payment (UI) → open ticket (UI) → log out
+ *           generate invoice (UI) → record payment (UI) → credit note (UI) →
+ *           open ticket (UI) → log out
  *
  * The test relies on the development seed data
- * (admin@demo-isp.com / admin123!, plans 1–4, sites 1–2) being present.
+ * (admin@demo-isp.com with $ADMIN_PASSWORD, plans 1–4, sites 1–2) being present.
  * "Create client" is done via the REST API because the ClientList page is
  * intentionally read-only; all subsequent write operations use the browser UI.
  */
@@ -17,7 +18,12 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 // ---------------------------------------------------------------------------
 
 const ADMIN_EMAIL = 'admin@demo-isp.com';
-const ADMIN_PASSWORD = 'admin123!';
+// The seed generates a RANDOM admin password unless ADMIN_PASSWORD is set
+// (src/scripts/seed.js:42 — a deliberate security fix from 2026-05-08 that
+// stopped shipping a known default). The harness must therefore pass the same
+// value to the seed and to this suite; hardcoding one here is what silently
+// broke this test and got the CI job disabled on 2026-05-31.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'admin123!';
 const API = '/api/v1';
 
 /**
@@ -72,6 +78,25 @@ async function apiCreateClient(
   expect(res.ok(), `Create client failed: ${await res.text()}`).toBeTruthy();
   const body = await res.json();
   return (body.data?.id ?? body.id) as number;
+}
+
+/** Find the newest invoice belonging to a client (the one step 5 just generated). */
+async function apiLatestInvoiceForClient(
+  request: APIRequestContext,
+  token: string,
+  clientId: number,
+): Promise<{ id: number; total: number }> {
+  const res = await request.get(`${API}/invoices?limit=100`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.ok(), `List invoices failed: ${await res.text()}`).toBeTruthy();
+  const body = await res.json();
+  const rows = (body.data ?? body) as Array<{ id: number; client_id: number; total: string | number }>;
+  const mine = rows
+    .filter((r) => Number(r.client_id) === clientId)
+    .sort((a, b) => b.id - a.id);
+  expect(mine.length, `No invoice found for client ${clientId}`).toBeGreaterThan(0);
+  return { id: mine[0].id, total: Number(mine[0].total) };
 }
 
 // ---------------------------------------------------------------------------
@@ -177,8 +202,14 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(invClientSelect).toBeVisible({ timeout: 10_000 });
   await invClientSelect.selectOption({ label: clientName });
 
-  // The modal pre-adds one "Contract charge" item by default.
-  // The contract select is the second select in the dialog.
+  // The modal starts with NO line items — GenerateInvoiceModal was redesigned
+  // into a flexible builder ("Start with no line — the user picks the type"),
+  // so nothing is pre-added. Clicking "+ Contract charge" is what reveals the
+  // contract picker. The old spec assumed a pre-added line and therefore looked
+  // for a second <select> that no longer existed until this click.
+  await generateDialog.getByRole('button', { name: /contract charge/i }).click();
+
+  // Now the contract picker exists — the second select in the dialog.
   const invContractSelect = generateDialog.locator('select').nth(1);
   await expect(invContractSelect).toBeVisible({ timeout: 10_000 });
   await invContractSelect.selectOption({ index: 1 }); // first real option
@@ -220,6 +251,55 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(payDialog).not.toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
+  // Step 6b — Credit notes → New Credit Note against the invoice from step 5
+  //
+  // Post-M7 coverage. Exercises the create path AND the totals-consistency
+  // guard added in #530: the API rejects subtotal + tax != total with
+  // CREDIT_NOTE_TOTALS_INCONSISTENT, so the figures below must add up or this
+  // step fails with the modal still open.
+  // -------------------------------------------------------------------------
+  const invoice = await apiLatestInvoiceForClient(request, token, clientId);
+
+  await page.goto('/credit-notes');
+  await page.getByRole('button', { name: /new credit note/i }).click();
+
+  const cnDialog = page.getByRole('dialog', { name: /new credit note/i });
+  await expect(cnDialog).toBeVisible({ timeout: 10_000 });
+
+  // Client (first select) and the invoice this note credits (first number input).
+  await cnDialog.locator('select').first().selectOption({ label: clientName });
+  const cnNumbers = cnDialog.locator('input[type="number"]');
+  await cnNumbers.nth(0).fill(String(invoice.id));   // invoice_id
+
+  // Two server-side rules constrain these figures, and the note must satisfy
+  // BOTH or the modal stays open with the error shown inline:
+  //   1. subtotal + tax_amount === total          (#530 consistency guard)
+  //   2. total <= the linked invoice's total      ("Credit note total would
+  //      exceed the linked invoice total")
+  // So credit a deliberately small, internally consistent slice: 1.00 + 16% = 1.16.
+  expect(
+    invoice.total,
+    `Invoice ${invoice.id} totals ${invoice.total}, too small to credit 1.16 — ` +
+    'the seeded plan price must have changed; adjust these figures.',
+  ).toBeGreaterThanOrEqual(1.16);
+
+  // Order of number inputs: invoice_id, subtotal, tax_rate, tax_amount, total.
+  await cnNumbers.nth(1).fill('1.00');     // subtotal
+  await cnNumbers.nth(2).fill('0.16');     // tax_rate (fraction, not percent)
+  await cnNumbers.nth(3).fill('0.16');     // tax_amount = subtotal x rate
+  await cnNumbers.nth(4).fill('1.16');     // total      = subtotal + tax
+
+  const cnNumberInput = cnDialog.locator('input[type="text"]').first();
+  await cnNumberInput.fill(`CN-E2E-${suffix}`);
+
+  await cnDialog.getByRole('button', { name: /^(create|save|submit)/i }).click();
+
+  // The modal closes only on a successful POST — if the consistency guard
+  // rejected the figures it would stay open with an error.
+  await expect(cnDialog).not.toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(`CN-E2E-${suffix}`)).toBeVisible({ timeout: 15_000 });
+
+  // -------------------------------------------------------------------------
   // Step 7 — Tickets → New Ticket linked to our test client
   // -------------------------------------------------------------------------
   await page.goto('/tickets');
@@ -233,11 +313,24 @@ test('full operator workflow smoke test', async ({ page, request }) => {
   await expect(subjectInput).toBeVisible({ timeout: 10_000 });
   await subjectInput.fill(`E2E smoke ${suffix}`);
 
-  // Link to client (optional field — use the first non-empty select)
+  // Link to client — NOT optional any more. TicketList.tsx:262 disables the
+  // submit button unless subject, client AND category are all set.
   const ticketClientSelect = ticketDialog.locator('select').first();
   await ticketClientSelect.selectOption({ label: clientName });
 
-  // Submit
+  // Category became a required field with migration 394 (it mirrors the
+  // tickets.category ENUM), which landed after this spec was written. Without
+  // it the Create Ticket button stays `disabled` and the click hangs until the
+  // test times out — which is exactly how this failed.
+  // Selects in the dialog, in order: client, assigned_to, priority, status, category.
+  const ticketCategorySelect = ticketDialog.locator('select').nth(4);
+  await expect(ticketCategorySelect).toBeVisible({ timeout: 10_000 });
+  await ticketCategorySelect.selectOption({ index: 1 }); // first real category
+
+  // Submit — assert the guard actually released, so a future required field
+  // fails here with a clear message instead of a 2-minute timeout.
+  const createTicketBtn = page.getByRole('button', { name: /create ticket/i });
+  await expect(createTicketBtn).toBeEnabled({ timeout: 10_000 });
   await page.getByRole('button', { name: /create ticket/i }).click();
 
   // Modal closes; our ticket subject should appear in the list

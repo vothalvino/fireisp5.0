@@ -357,7 +357,11 @@ jobs:
         run: pnpm --filter fireisp-frontend run lint
 
   e2e:
-    if: false
+    # Runs on PRs as well as main pushes — deliberately unlike lint-and-test and
+    # frontend-test. Those two are main-push-only because a developer can run
+    # them locally in seconds; e2e needs Docker plus a full stack, so it is the
+    # one gate that cannot be reproduced on every dev box. Main-push-only here
+    # would mean the core money flow is never checked until after merge.
     runs-on: ubuntu-latest
 
     steps:
@@ -412,6 +416,10 @@ jobs:
           DB_NAME: fireisp_e2e
           JWT_SECRET: e2e-test-jwt-secret-for-github-actions-only-not-for-production
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+          # The seed generates a RANDOM admin password when this is unset
+          # (seed.js:42). The smoke suite logs in as this user, so the same
+          # value must reach both steps — omitting it is what broke e2e.
+          ADMIN_PASSWORD: e2e-admin-password-not-for-production
         run: |
           pnpm run migrate
           pnpm run seed
@@ -450,6 +458,8 @@ jobs:
         env:
           BASE_URL: http://localhost:3000
           CI: 'true'
+          # Must match the value given to the seed step above.
+          ADMIN_PASSWORD: e2e-admin-password-not-for-production
         run: pnpm --filter fireisp-e2e test
 
       - name: Upload Playwright report
