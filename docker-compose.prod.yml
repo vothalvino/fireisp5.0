@@ -337,15 +337,25 @@ services:
   # First-time setup: run nginx/init-letsencrypt.sh instead of starting
   # this service directly — it handles the chicken-and-egg bootstrapping.
   certbot:
-    image: certbot/certbot:latest
+    # Pinned. This container renews the TLS certificates for every self-hosted
+    # install; :latest can change underneath an operator with no warning, and a
+    # broken renewal is silent until the certificate actually expires.
+    image: certbot/certbot:v5.7.0
     restart: unless-stopped
     # Renewal loop: check every 12 hours. certbot renew is a no-op when
     # the certificate is not yet due for renewal (< 30 days to expiry).
+    #
+    # NOT --quiet, deliberately. With --quiet a failing renewal printed nothing,
+    # `restart: unless-stopped` kept the loop going, and nothing else watched
+    # TLS expiry — so the first symptom would be the portal serving an expired
+    # certificate ~60-90 days later. The output now reaches the container log
+    # via the shared logging driver. Active alerting on expiry is a separate
+    # piece of work (see the TLS expiry monitor).
     entrypoint: >
       /bin/sh -c
       'trap exit TERM;
        while :; do
-         certbot renew --quiet;
+         certbot renew;
          sleep 12h & wait $${!};
        done'
     volumes:
