@@ -468,11 +468,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/isp.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/isp.example.com/privkey.pem;
 
-    # Security headers
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    # Security headers are set by the APP (Helmet, see src/app.js) — do not add
+    # them here. nginx `add_header` appends to what the upstream already sent,
+    # so repeating them puts two values on every response instead of overriding.
 
     # SSE support — disable buffering for event streams
     location /api/events/ {
