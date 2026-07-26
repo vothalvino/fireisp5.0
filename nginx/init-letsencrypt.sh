@@ -147,23 +147,32 @@ if [[ "$USE_HOST_NGINX" == "1" ]]; then
     # ── DNS-01 challenge via Cloudflare (supports wildcard certs) ─────────────
     log "Using Cloudflare DNS-01 challenge ..."
 
-    CF_INI="$SCRIPT_DIR/cloudflare.ini"
+    # The credentials live INSIDE the certificate store, and are KEPT.
+    # certbot records the authenticator and this exact path in
+    # /etc/letsencrypt/renewal/<domain>.conf, and `certbot renew` re-reads both.
+    # Writing them to $SCRIPT_DIR and deleting them after issuance (which this
+    # script used to do) produced a certificate that could be issued but never
+    # renewed: the file was gone and the path was outside anything the renewal
+    # container mounts. $LE_DIR is already bind-mounted as /etc/letsencrypt by
+    # the compose certbot service, so putting the ini here needs no new mount,
+    # and the directory already holds private keys — same sensitivity, same 0600.
+    mkdir -p "$LE_DIR"
+    CF_INI="$LE_DIR/cloudflare.ini"
     printf 'dns_cloudflare_api_token = %s\n' "$CF_API_TOKEN" > "$CF_INI"
     chmod 600 "$CF_INI"
 
     docker run --rm \
       -v "$LE_DIR:/etc/letsencrypt" \
-      -v "$CF_INI:/cloudflare.ini:ro" \
-      certbot/dns-cloudflare:latest certonly \
+      certbot/dns-cloudflare:v5.7.0 certonly \
         --dns-cloudflare \
-        --dns-cloudflare-credentials /cloudflare.ini \
+        --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
         --dns-cloudflare-propagation-seconds 60 \
         -d "$DOMAIN" -d "*.$DOMAIN" \
         --email "$EMAIL" \
         --agree-tos --non-interactive \
         $STAGING_FLAG
 
-    rm -f "$CF_INI"
+    # NOT deleted: `certbot renew` needs this file every 60-90 days forever.
   else
     # ── HTTP-01 challenge via webroot (host nginx serves the challenge) ────────
     # The certbot-www bind-mount in docker-compose.host-nginx.yml makes the
@@ -251,7 +260,11 @@ if [[ "$USE_CLOUDFLARE" == "1" ]]; then
   # ── DNS-01 challenge via Cloudflare (supports wildcard certs) ──────────────
   log "Using Cloudflare DNS-01 challenge ..."
 
-  CF_INI="$SCRIPT_DIR/cloudflare.ini"
+  # Credentials go INSIDE the certificate store and are KEPT — see the long
+  # comment on the host-nginx path above. certbot records this path in
+  # renewal/<domain>.conf and re-reads it on every `certbot renew`.
+  mkdir -p "$LE_DIR"
+  CF_INI="$LE_DIR/cloudflare.ini"
   printf 'dns_cloudflare_api_token = %s\n' "$CF_API_TOKEN" > "$CF_INI"
   chmod 600 "$CF_INI"
 
@@ -260,17 +273,16 @@ if [[ "$USE_CLOUDFLARE" == "1" ]]; then
   # the ongoing compose certbot service share the same certificate store.
   docker run --rm \
     -v "$LE_DIR:/etc/letsencrypt" \
-    -v "$CF_INI:/cloudflare.ini:ro" \
-    certbot/dns-cloudflare:latest certonly \
+    certbot/dns-cloudflare:v5.7.0 certonly \
       --dns-cloudflare \
-      --dns-cloudflare-credentials /cloudflare.ini \
+      --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
       --dns-cloudflare-propagation-seconds 60 \
       -d "$DOMAIN" -d "*.$DOMAIN" \
       --email "$EMAIL" \
       --agree-tos --non-interactive \
       $STAGING_FLAG
 
-  rm -f "$CF_INI"
+  # NOT deleted: `certbot renew` needs this file every 60-90 days forever.
 else
   # ── HTTP-01 challenge via webroot ─────────────────────────────────────────
   # -T disables pseudo-TTY allocation so the command does not try to attach
