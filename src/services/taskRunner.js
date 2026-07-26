@@ -8,6 +8,7 @@
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'taskRunner' });
 const automationService = require('./automationService');
+const tlsMonitorService = require('./tlsMonitorService');
 const analyticsService = require('./analyticsService');
 const billingService = require('./billingService');
 const suspensionService = require('./suspensionService');
@@ -112,6 +113,11 @@ async function runTask(taskName, organizationId = null) {
       return { message: 'Revenue summary is populated by MySQL scheduled event' };
     case 'populate_network_health_snapshots':
       return { message: 'Network health snapshots are populated by MySQL scheduled event' };
+    case 'tls_expiry_monitor':
+      // The server's own TLS certificate — the one customers actually hit.
+      // check_certificate_expiry covers subscriber_certificates (RADIUS) and
+      // csd_expiry_monitor covers csd_certificates (SAT); neither covered this.
+      return tlsMonitorService.checkTlsExpiry(organizationId);
     case 'csd_expiry_monitor':
       return runCsdExpiryCheck(organizationId);
     case 'alert_evaluation':
