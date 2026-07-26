@@ -18,6 +18,7 @@ const inventorySerialService = require('../services/inventorySerialService');
 const eventBus = require('../services/eventBus');
 const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/workOrders' });
+const { attachmentStorage, resolveStoredPath, STORAGE_ROOT } = require('../middleware/upload');
 
 // Fire-and-forget: notifies the assignee (in-app + email via notificationHooks)
 // without ever delaying or failing the HTTP response.
@@ -46,17 +47,13 @@ async function assigneeAuthError(assignedTo, orgId) {
 // ---------------------------------------------------------------------------
 // Multer — work order attachments (disk storage, 20 MB limit)
 // ---------------------------------------------------------------------------
-const ATTACH_DIR = path.resolve(__dirname, '../../uploads/work-orders');
-if (!fs.existsSync(ATTACH_DIR)) fs.mkdirSync(ATTACH_DIR, { recursive: true });
-
+// Under STORAGE_ROOT, which is the ONLY directory any deployment mounts:
+// `storage:/app/storage` in docker-compose.prod.yml and the fireisp-storage PVC
+// in k8s/deployment.yaml. The previous ../../uploads/work-orders was mounted by
+// nothing, so a technician's installation photos lived in the container's
+// writable layer and were destroyed by every redeploy.
 const workOrderAttachUpload = multer({
-  storage: multer.diskStorage({
-    destination: ATTACH_DIR,
-    filename: (_req, file, cb) => {
-      const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      cb(null, unique + path.extname(file.originalname));
-    },
-  }),
+  storage: attachmentStorage('work-orders'),
   limits: { fileSize: 20 * 1024 * 1024 },
 }).single('file');
 
@@ -397,7 +394,10 @@ router.post('/:id/attachments', requirePermission('work_order_attachments.create
     if (!req.file) return res.status(422).json({ error: 'No file uploaded' });
     const [result] = await db.query(
       'INSERT INTO work_order_attachments (work_order_id, filename, original_filename, mime_type, file_size, storage_path, uploaded_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.file.path, req.user.id, req.orgId],
+      // Relative to STORAGE_ROOT, matching clients.js and files.js — see the
+      // note on the ticket-attachment insert.
+      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size,
+        path.relative(STORAGE_ROOT, req.file.path), req.user.id, req.orgId],
     );
     const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM work_order_attachments WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: row });
@@ -412,7 +412,8 @@ router.delete('/:id/attachments/:attachmentId', requirePermission('work_order_at
     );
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
     await db.query('DELETE FROM work_order_attachments WHERE id = ?', [req.params.attachmentId]);
-    fs.unlink(row.storage_path, () => {});
+    const abs = resolveStoredPath(row.storage_path);
+    if (abs) fs.unlink(abs, () => {});
     res.status(204).end();
   } catch (err) { next(err); }
 });
@@ -424,9 +425,11 @@ router.get('/:id/attachments/:attachmentId/download', requirePermission('work_or
       [req.params.attachmentId, req.params.id, req.orgId],
     );
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    const abs = resolveStoredPath(row.storage_path);
+    if (!abs) return res.status(404).json({ error: 'Attachment file not found' });
     res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
     res.setHeader('Content-Type', row.mime_type);
-    res.sendFile(row.storage_path);
+    res.sendFile(abs);
   } catch (err) { next(err); }
 });
 

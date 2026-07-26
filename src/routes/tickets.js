@@ -18,21 +18,18 @@ const { pubsub } = require('../services/pubsub');
 const jobQueue = require('../services/jobQueueService');
 const logger = require('../utils/logger').child({ service: 'routes/tickets' });
 const aiReplyService = require('../services/aiReplyService');
+const { attachmentStorage, resolveStoredPath, STORAGE_ROOT } = require('../middleware/upload');
 
 // ---------------------------------------------------------------------------
 // Multer — ticket attachments (disk storage, 20 MB limit)
 // ---------------------------------------------------------------------------
-const ATTACH_DIR = path.resolve(__dirname, '../../uploads/tickets');
-if (!fs.existsSync(ATTACH_DIR)) fs.mkdirSync(ATTACH_DIR, { recursive: true });
-
+// Under STORAGE_ROOT, which is the ONLY directory any deployment mounts:
+// `storage:/app/storage` in docker-compose.prod.yml and the fireisp-storage PVC
+// in k8s/deployment.yaml. The previous ../../uploads/tickets was mounted by
+// nothing, so attachments lived in the container's writable layer and were
+// destroyed by every redeploy.
 const ticketAttachUpload = multer({
-  storage: multer.diskStorage({
-    destination: ATTACH_DIR,
-    filename: (_req, file, cb) => {
-      const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      cb(null, unique + path.extname(file.originalname));
-    },
-  }),
+  storage: attachmentStorage('tickets'),
   limits: { fileSize: 20 * 1024 * 1024 },
 }).single('file');
 
@@ -449,7 +446,12 @@ router.post('/:id/attachments', requireTicketPermission('ticket_attachments.crea
     if (!req.file) return res.status(422).json({ error: 'No file uploaded' });
     const [result] = await db.query(
       'INSERT INTO ticket_attachments (ticket_id, filename, original_filename, mime_type, file_size, storage_path, uploaded_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.file.path, req.user.id, req.orgId],
+      // Relative to STORAGE_ROOT, matching clients.js and files.js. An absolute
+      // path would break the moment the install root differs from the one that
+      // wrote it — /app under Docker, /opt/fireisp from install.sh, or a backup
+      // restored onto another host.
+      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size,
+        path.relative(STORAGE_ROOT, req.file.path), req.user.id, req.orgId],
     );
     const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM ticket_attachments WHERE id = ?', [result.insertId]);
     res.status(201).json({ data: row });
@@ -464,7 +466,8 @@ router.delete('/:ticketId/attachments/:attachmentId', requireTicketPermission('t
     );
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
     await db.query('DELETE FROM ticket_attachments WHERE id = ?', [req.params.attachmentId]);
-    fs.unlink(row.storage_path, () => {});
+    const abs = resolveStoredPath(row.storage_path);
+    if (abs) fs.unlink(abs, () => {});
     res.status(204).end();
   } catch (err) { next(err); }
 });
@@ -476,9 +479,11 @@ router.get('/:ticketId/attachments/:attachmentId/download', requireTicketPermiss
       [req.params.attachmentId, req.params.ticketId, req.orgId],
     );
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    const abs = resolveStoredPath(row.storage_path);
+    if (!abs) return res.status(404).json({ error: 'Attachment file not found' });
     res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
     res.setHeader('Content-Type', row.mime_type);
-    res.sendFile(row.storage_path);
+    res.sendFile(abs);
   } catch (err) { next(err); }
 });
 

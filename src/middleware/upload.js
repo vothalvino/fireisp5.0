@@ -122,4 +122,58 @@ const uploadClientDocument = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 }).single('file');
 
-module.exports = { uploadSingle, uploadMultiple, uploadClientDocument, STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS };
+/**
+ * Disk storage for a FIXED sub-directory of STORAGE_ROOT, for routes that own
+ * one attachment type (ticket attachments, work-order photos).
+ *
+ * The directory is created at UPLOAD time, never at module load. A top-level
+ * `mkdirSync` runs during `require()`, so on a read-only root filesystem — which
+ * is exactly what k8s/deployment.yaml sets with `readOnlyRootFilesystem: true` —
+ * it throws EROFS while app.js is still wiring routes and takes the whole
+ * process down. That turns "attachments are broken" into "the app will not
+ * boot", which is a much worse failure for a much smaller cause.
+ */
+function attachmentStorage(subdir) {
+  return multer.diskStorage({
+    destination(_req, _file, cb) {
+      const dir = path.join(STORAGE_ROOT, subdir);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      } catch (err) {
+        cb(err);          // surfaces as a 422 on the upload, not a dead server
+      }
+    },
+    filename(_req, file, cb) {
+      const unique = crypto.randomBytes(16).toString('hex');
+      cb(null, `${Date.now()}-${unique}${path.extname(file.originalname).toLowerCase()}`);
+    },
+  });
+}
+
+/**
+ * Resolve a stored attachment path to an absolute path on disk.
+ *
+ * Two shapes exist in the database and both must keep working:
+ *   * relative to STORAGE_ROOT — what everything writes now, and what survives
+ *     the install root moving (/app in Docker, /opt/fireisp from install.sh);
+ *   * absolute — written by ticket and work-order attachments before they were
+ *     moved into STORAGE_ROOT. Those rows are read as-is so existing
+ *     attachments stay downloadable.
+ *
+ * Returns null for a relative path that escapes STORAGE_ROOT, so a malformed or
+ * tampered row can never be turned into a read of an arbitrary file.
+ */
+function resolveStoredPath(stored) {
+  if (!stored || typeof stored !== 'string') return null;
+  if (path.isAbsolute(stored)) return stored;
+  const abs = path.resolve(STORAGE_ROOT, stored);
+  if (abs !== STORAGE_ROOT && !abs.startsWith(STORAGE_ROOT + path.sep)) return null;
+  return abs;
+}
+
+module.exports = {
+  uploadSingle, uploadMultiple, uploadClientDocument,
+  STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS,
+  attachmentStorage, resolveStoredPath,
+};
