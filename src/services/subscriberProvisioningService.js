@@ -233,9 +233,13 @@ async function provisionNewContract(runner, contract, { seed, pppoeUsername, ppp
       : null;
 
     const [ins] = await runner.query(
-      `INSERT INTO radius (client_id, contract_id, username, password, ipv4_pool_id, ipv6_pool_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'active')`,
-      [contract.client_id, contract.id, username, password, ipv4PoolId, ipv6PoolId],
+      // organization_id is NOT NULL as of migration 426. organizationId is the
+      // caller's already-resolved org — the same value used to pick the IP pools
+      // above — and the contract was loaded under it, so it cannot disagree with
+      // the client's owning org.
+      `INSERT INTO radius (organization_id, client_id, contract_id, username, password, ipv4_pool_id, ipv6_pool_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [organizationId, contract.client_id, contract.id, username, password, ipv4PoolId, ipv6PoolId],
     );
 
     result.pppoe = {
