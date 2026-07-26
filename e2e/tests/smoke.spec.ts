@@ -5,7 +5,7 @@
  *           generate invoice (UI) → record payment (UI) → open ticket (UI) → log out
  *
  * The test relies on the development seed data
- * (admin@demo-isp.com / admin123!, plans 1–4, sites 1–2) being present.
+ * (admin@demo-isp.com with $ADMIN_PASSWORD, plans 1–4, sites 1–2) being present.
  * "Create client" is done via the REST API because the ClientList page is
  * intentionally read-only; all subsequent write operations use the browser UI.
  */
@@ -17,7 +17,12 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 // ---------------------------------------------------------------------------
 
 const ADMIN_EMAIL = 'admin@demo-isp.com';
-const ADMIN_PASSWORD = 'admin123!';
+// The seed generates a RANDOM admin password unless ADMIN_PASSWORD is set
+// (src/scripts/seed.js:42 — a deliberate security fix from 2026-05-08 that
+// stopped shipping a known default). The harness must therefore pass the same
+// value to the seed and to this suite; hardcoding one here is what silently
+// broke this test and got the CI job disabled on 2026-05-31.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'admin123!';
 const API = '/api/v1';
 
 /**
