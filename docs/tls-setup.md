@@ -273,14 +273,26 @@ The nginx configuration (`nginx/nginx.conf`) is pre-hardened:
 |---|---|---|
 | Protocols | TLSv1.2, TLSv1.3 | TLS 1.2 retained for MikroTik CPE compatibility |
 | Ciphers | ECDHE+AESGCM, CHACHA20 | AEAD only; 3DES and RC4 excluded |
-| HSTS | `max-age=63072000; includeSubDomains; preload` | 2-year HSTS with preload |
 | OCSP stapling | On | Reduces TLS handshake latency |
 | Session tickets | Off | Improved forward secrecy |
 | Session cache | 10 MB shared | ~40,000 sessions |
 
+**HSTS is set by the application, not by nginx** — `max-age=31536000; includeSubDomains`,
+deliberately without `preload`. See the security-header block in `src/app.js`. nginx
+`add_header` appends to the upstream's headers rather than replacing them, so setting
+them in both places put two values on every response.
+
 To score A+ on [SSL Labs](https://www.ssllabs.com/ssltest/), verify:
-- HSTS preload is submitted after your first deployment.
 - CAA DNS records are set (e.g., `0 issue "letsencrypt.org"`).
+- HSTS `max-age` is at least one year (it is).
+
+**HSTS preload is optional and is a one-way door.** Submitting your domain to the
+browser preload list is slow to reverse and pins *every* subdomain to HTTPS — enough
+to strand a legacy HTTP-only equipment portal on a subdomain of the same host. It is
+not required for an A+ score. If you want it, and only after confirming every
+subdomain serves HTTPS: add `preload: true` to the `hsts` options in `src/app.js`,
+raise `maxAge` to at least `31536000`, redeploy, then submit at
+[hstspreload.org](https://hstspreload.org).
 
 ---
 

@@ -244,10 +244,62 @@ app.use((req, res, next) => {
   })(req, res, next);
 });
 
-// Apply all other Helmet protections once (not per-request)
+// ── Security headers: THE APP IS THE SINGLE OWNER ──────────────────────────
+// Do NOT also set these at the reverse proxy. nginx `add_header` APPENDS to
+// whatever the upstream sent, so a proxy that repeats them puts two values on
+// every response and the effective policy becomes a browser parsing detail
+// rather than anything anyone chose. That was live: the edge shipped
+// `x-xss-protection: 0, 1; mode=block` and two different Referrer-Policies.
+//
+// The app owns them because it is the only layer present in EVERY supported
+// topology — nginx (compose/host), the Helm chart's Ingress (which adds no
+// headers at all), bare `pnpm start`, and CI's DAST scan. nginx proxies 100%
+// of content here, including the SPA and its static assets, so the edge adds
+// no coverage the app doesn't already have.
+//
+// Values are set explicitly, not left to Helmet's defaults, so a Helmet major
+// bump cannot silently change the security posture. See tests/securityHeaders.test.js.
 app.use(helmet({
   contentSecurityPolicy: false, // handled above with per-request nonce
+
+  // strict-origin-when-cross-origin, NOT Helmet's stricter `no-referrer`
+  // default: src/middleware/csrf.js falls back to the Referer header when
+  // Origin is absent and 403s when BOTH are missing. `no-referrer` strips it
+  // on same-origin requests too, which would break that fallback for
+  // cookie-session clients. This value sends only the origin cross-origin —
+  // no path, no query — and keeps the full Referer same-origin.
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+
+  // One year + subdomains, deliberately WITHOUT `preload`. The proxy used to
+  // declare preload; submitting a domain to the browser preload list is a
+  // one-way door that is slow to reverse and pins every subdomain to HTTPS,
+  // which can strand an operator's legacy HTTP-only equipment portal. That is
+  // an operator's decision to make, not a default to inherit. To opt in, raise
+  // maxAge to >= 1 year, add `preload: true`, and submit at hstspreload.org.
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+
+  // DENY, to agree with the CSP `frame-ancestors 'none'` set above. SAMEORIGIN
+  // alongside frame-ancestors 'none' is a contradiction: modern browsers honour
+  // the CSP and ignore XFO, so the two layers disagreed about legacy browsers
+  // only. Nothing in the frontend frames the app.
+  xFrameOptions: { action: 'deny' },
+
+  // xXssProtection stays at Helmet's default of `0`, which DISABLES the legacy
+  // XSS auditor. This is not a weakening: the filter is removed from every
+  // modern browser and was itself an information-leak vector, which is why the
+  // proxy's `1; mode=block` was the wrong value to be fighting over.
 }));
+
+// Permissions-Policy has no Helmet equivalent, so it is set here to keep every
+// security header in one place. Verified against the frontend: nothing calls
+// navigator.geolocation, mediaDevices or getUserMedia, so denying these costs
+// no feature. Technician GPS arrives from device/API reporting, not the
+// browser Geolocation API.
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+
 app.use(requestId);
 
 // Request timeout — prevent long-running requests from hanging the server
