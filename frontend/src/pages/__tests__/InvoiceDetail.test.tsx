@@ -150,15 +150,12 @@ describe('InvoiceDetail page', () => {
     const body = mockApiPost.mock.calls.find(c => c[0] === '/invoices/{id}/items')?.[1].body;
     expect(body.inventory_item_id).toBeUndefined();
 
-    // Recomputes and persists subtotal/tax/total from all items — fraction
-    // tax_rate (0.16), never *100.
-    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith(
-      '/invoices/{id}',
-      expect.objectContaining({
-        params: { path: { id: 42 } },
-        body: expect.objectContaining({ subtotal: 150, tax_amount: 24, total: 174 }),
-      }),
-    ));
+    // This used to assert the opposite — that the page followed the POST with a
+    // PUT of subtotal 150 / tax 24 / total 174, recomputed from the visible
+    // lines. That assertion was encoding the bug: the server had ALREADY
+    // applied the line as a delta, and the PUT overwrote its answer with the
+    // page's. Totals belong to the server; the page only re-reads them.
+    expect(mockApiPut.mock.calls.filter(c => c[0] === '/invoices/{id}')).toEqual([]);
     expect(await screen.findByText('Line item added.')).toBeInTheDocument();
   });
 
@@ -573,6 +570,72 @@ describe('InvoiceDetail stamp-later', () => {
     expect(warning).toBeInTheDocument();
     // The amount renders inside the warning itself (not just the totals card).
     expect(warning.textContent).toMatch(/\$116\.00/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Invoice totals are the SERVER'S, not the page's
+  // -------------------------------------------------------------------------
+  // POST /invoices/:id/items applies the change as a delta
+  // (`SET subtotal = subtotal + ?, ...`) inside the same transaction that
+  // inserts the line. The page used to follow that with its OWN recompute from
+  // the visible lines and PUT the result, which overwrote the authoritative
+  // numbers with a different answer whenever the header total was not the exact
+  // sum of the fetched lines.
+
+  it('adding a line item issues NO follow-up write to the invoice', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'Install' } });
+    fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/Unit Price/), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Item' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/invoices/{id}/items', expect.anything(),
+    ));
+
+    // The line POST is the ONLY write. A PUT here would also 422 against
+    // assertNoLiveCfdi on an invoice that already has a live CFDI (#532).
+    const invoicePuts = mockApiPut.mock.calls.filter(c => c[0] === '/invoices/{id}');
+    expect(invoicePuts).toEqual([]);
+  });
+
+  it('leaves an invoice alone whose total is not the sum of its lines', async () => {
+    // The corruption case, with real numbers: an imported invoice carrying a
+    // 1160.00 header but only one 100.00 line on file. Recomputing from the
+    // lines rewrote 1160.00 -> 116.00 and dragged the client's balance down
+    // with it. Nothing the page does may touch those columns.
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/invoices/{id}') {
+        return Promise.resolve({
+          data: { data: { ...makeInvoice('issued'), subtotal: '1000.00', tax_amount: '160.00', total: '1160.00' } },
+          error: undefined,
+        });
+      }
+      if (path === '/invoices/{id}/items') return Promise.resolve({ data: { data: [item1] }, error: undefined });
+      if (path === '/invoices/{id}/payments') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients/{id}') return Promise.resolve({ data: { data: client1 }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Setup Fee')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'Install' } });
+    fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/Unit Price/), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Item' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/invoices/{id}/items', expect.anything(),
+    ));
+
+    const wrote = mockApiPut.mock.calls
+      .filter(c => c[0] === '/invoices/{id}')
+      .map(c => c[1]?.body)
+      .filter(b => b && ('subtotal' in b || 'tax_amount' in b || 'total' in b));
+    expect(wrote).toEqual([]);
   });
 
 });

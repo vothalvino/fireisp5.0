@@ -219,17 +219,12 @@ async function addInvoiceItem(invoiceId: number, body: AddInvoiceItemBody): Prom
   return (res as { data: { data: InvoiceItem } }).data.data;
 }
 
-// Mirrors billingService's rounding convention (Math.round(x*100)/100) and
-// treats tax_rate as a 0-1 FRACTION (DECIMAL(5,4) on invoices — same
-// convention as quotes; see QuoteDetail.tsx's identical helper) — never
-// multiply by an extra 100 here.
-function computeInvoiceTotals(items: InvoiceItem[], taxRate: number) {
-  const rawSubtotal = items.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
-  const subtotal = Math.round(rawSubtotal * 100) / 100;
-  const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
-  const total = Math.round((subtotal + taxAmount) * 100) / 100;
-  return { subtotal, taxAmount, total };
-}
+// NOTE: there is deliberately no computeInvoiceTotals helper here any more.
+// Invoice totals are owned by the server — POST /invoices/:id/items applies a
+// delta transactionally — and a second, client-side opinion about what they
+// should be is what corrupted them. QuoteDetail.tsx keeps its own helper
+// because a quote's totals genuinely are derived client-side before it is
+// converted; an invoice's are not.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -823,14 +818,25 @@ export function InvoiceDetail() {
         amount,
         ...(form.inventory_item_id ? { inventory_item_id: form.inventory_item_id } : {}),
       });
-
-      // Recompute subtotal/tax/total from the full item set (fraction
-      // tax-rate math, same as billingService/QuoteDetail.tsx) and persist
-      // it onto the invoice, so the header always reflects its line items.
-      const freshItems = await fetchItems(id!);
-      const taxRate = invoiceQ.data ? (parseFloat(invoiceQ.data.tax_rate ?? '0') || 0) : 0;
-      const { subtotal, taxAmount, total } = computeInvoiceTotals(freshItems, taxRate);
-      await updateInvoice(Number(id), { subtotal, tax_amount: taxAmount, total });
+      // No follow-up total write. POST /invoices/:id/items already applies the
+      // change as an authoritative DELTA (`SET subtotal = subtotal + ?, ...` in
+      // billingService.applyItemTotals) inside the same transaction that
+      // inserts the line, under SELECT ... FOR UPDATE, and refreshes paid
+      // status afterwards.
+      //
+      // Recomputing here from the visible lines and PUTting the result did not
+      // merely duplicate that work, it OVERWROTE it with a different number:
+      // any invoice whose header total is not the exact sum of its line items —
+      // an imported one, or one created with totals before its lines — was
+      // silently rewritten to the sum of whatever lines happened to be
+      // fetched, taking the client's balance with it.
+      //
+      // It also issued a second write that assertNoLiveCfdi would reject, so
+      // adding a line to an invoice with a live CFDI 422'd after the guard
+      // landed in #532 even though the line itself had been accepted.
+      //
+      // onSuccess invalidates ['invoice', id], so the header re-reads the
+      // authoritative totals from the server.
     },
     onSuccess: () => {
       setAddItemError('');
