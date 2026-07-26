@@ -88,6 +88,91 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   return { rate: 0, taxRateId: null, exempt: false };
 }
 
+/**
+ * Reject a NEW fiscal document whose tax figures contradict what the resolver
+ * says should apply. Both directions, because both produce a false statement to
+ * SAT on a document that cannot be un-sent:
+ *
+ *   * tax present on an IVA-EXEMPT client;
+ *   * NO tax at all when a non-zero rate applies — the invoice then stamps as
+ *     ObjetoImp=01 with no Impuestos node, positively asserting to the tax
+ *     authority that the sale was not taxable.
+ *
+ * REJECTS rather than rewriting. The caller has already seen and approved these
+ * figures — an operator who sent 1000.00 and gets back an invoice for 1160.00
+ * has been given a document they never agreed to. A 422 is recoverable; a
+ * silently altered fiscal total is not.
+ *
+ * Deliberately narrow, so it cannot break the deployments it does not concern:
+ *
+ *   * it compares against resolveTaxContext rather than re-deriving locale
+ *     rules, so a non-MX org — or an MX org that has genuinely configured a 0%
+ *     default — resolves to rate 0 and is never blocked;
+ *   * it only fires when tax is ENTIRELY absent, never on a mismatched non-zero
+ *     rate. An invoice legitimately carrying a different rate (a reduced rate,
+ *     a mixed-rate document, a per-line override) stays valid;
+ *   * an exempt client is always allowed to carry zero.
+ *
+ * NOTE THE MISSING PARAMETER. This deliberately does NOT pass the caller's
+ * tax_rate_id through to the resolver, and must not be "fixed" to do so. The
+ * question here is what SHOULD apply to this client, which has to be answered
+ * independently of what the caller claimed — feeding their own rate id back in
+ * makes the check circular ("is the caller's rate consistent with the caller's
+ * rate?") and it always passes.
+ *
+ * That is not hypothetical: migration 121 seeds a SHARED rate
+ * ('Tax Exempt', 0.0000, organization_id NULL, status 'active') and the
+ * explicit-id branch of resolveTaxContext admits organization_id IS NULL by
+ * design, so `{subtotal: 1000, total: 1000, tax_rate_id: <Tax Exempt>}` would
+ * resolve to rate 0 and walk straight through this guard.
+ *
+ * Consequence worth knowing: an operator cannot justify a zero-tax document by
+ * selecting a 0% rate on it. A genuinely zero-rated sale is expressed by
+ * marking the client IVA-exempt, or by the org configuring a 0% default — both
+ * of which are decisions someone makes once and on purpose, which is the point.
+ *
+ * @param {Function} exec - db.query or a transaction-bound execute
+ * @param {object} p
+ * @param {number|null} p.orgId
+ * @param {number|null} p.clientId
+ * @param {number|string} p.taxAmount - the tax figure about to be written
+ * @param {string} [p.docType] - wording only ('invoice' | 'quote')
+ */
+async function assertTaxCoherentForCreate(exec, {
+  orgId, clientId, taxAmount, docType = 'invoice',
+}) {
+  if (clientId === null || clientId === undefined) return;
+
+  // DECIMAL columns round-trip from MySQL as STRINGS, so this must be a numeric
+  // comparison — `'0.00' > 0` is false but `'0.00' !== 0` is true, and a truthy
+  // check on the string '0.00' is true. Half a cent of tolerance keeps a
+  // rounding artefact from reading as "carries tax".
+  const tax = Number(taxAmount);
+  const carriesTax = Number.isFinite(tax) && tax > 0.005;
+
+  const ctx = await resolveTaxContext(exec, { orgId, clientId });
+
+  if (ctx.exempt) {
+    if (carriesTax) {
+      throw new AppError(
+        `This client is IVA-exempt — the ${docType} must carry no tax (subtotal = total, tax_amount 0).`,
+        422, 'CLIENT_TAX_EXEMPT',
+      );
+    }
+    return;
+  }
+
+  if (!carriesTax && ctx.rate > 0) {
+    const pct = (ctx.rate * 100).toFixed(2).replace(/\.00$/, '');
+    throw new AppError(
+      `This ${docType} carries no tax, but ${pct}% applies to this client. `
+      + 'Send the tax figures, or mark the client IVA-exempt if that is correct. '
+      + 'A zero-tax CFDI declares to SAT that the sale was not taxable.',
+      422, 'TAX_REQUIRED',
+    );
+  }
+}
+
 // Format a DATE-column value (mysql2 returns a JS Date) as YYYY-MM-DD for
 // user-visible strings — never interpolate a Date object raw (it prints the
 // full "Wed Aug 12 2026 00:00:00 GMT+0000 (...)" form).
@@ -938,7 +1023,7 @@ module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
-  releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext,
+  releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext, assertTaxCoherentForCreate,
   voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,

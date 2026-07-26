@@ -331,12 +331,18 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       if (!crows[0]) {
         throw new AppError('client_id not found in this organization.', 422, 'CLIENT_NOT_FOUND');
       }
-      if (taxAmount > 0 && (crows[0].tax_exempt === 1 || crows[0].tax_exempt === true)) {
-        throw new AppError(
-          'This client is IVA-exempt — create the invoice without tax (subtotal = total, no tax_amount/tax_rate).',
-          422, 'CLIENT_TAX_EXEMPT',
-        );
-      }
+      // Both directions, via the resolver. This previously checked only
+      // "exempt client carrying tax" — the reverse, a NON-exempt MX client
+      // carrying NO tax, sailed through: subtotal 100 / total 100 with no tax
+      // fields infers taxAmount 0, satisfies both invariants above, and stamps
+      // ObjetoImp=01 with no Impuestos node, positively telling SAT the sale
+      // was not taxable.
+      await billingService.assertTaxCoherentForCreate(db.query.bind(db), {
+        orgId: req.orgId,
+        clientId: req.body.client_id,
+        taxAmount,
+        docType: 'invoice',
+      });
     }
 
     const conn = await db.getConnection();
