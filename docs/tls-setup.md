@@ -108,19 +108,7 @@ Use this method when:
 for the zone containing your domain.  Create one at
 <https://dash.cloudflare.com/profile/api-tokens>.
 
-### 1. Create the Cloudflare credentials file
-
-```bash
-cp nginx/cloudflare.ini.example nginx/cloudflare.ini
-# Edit nginx/cloudflare.ini and paste your API token:
-#   dns_cloudflare_api_token = <your-token>
-chmod 600 nginx/cloudflare.ini
-```
-
-> **Security:** `nginx/cloudflare.ini` is listed in `.gitignore` and must never
-> be committed to source control.
-
-### 2. Bootstrap the first certificate
+### 1. Bootstrap the first certificate
 
 ```bash
 chmod +x nginx/init-letsencrypt.sh
@@ -132,42 +120,35 @@ This issues certificates for both `isp.example.com` **and** `*.isp.example.com`
 using the DNS-01 challenge.  A 60-second propagation delay is built in to allow
 Cloudflare to publish the `_acme-challenge` TXT record.
 
-### 3. Configure the certbot service for DNS-01 renewal
+### 2. Renewal — nothing to configure
 
-The default `certbot/certbot` image does not include the Cloudflare plugin.
-Switch the image to `certbot/dns-cloudflare` in `docker-compose.prod.yml` for
-DNS-01 renewal:
+**No compose edit is needed.** The `certbot` service already runs
+`certbot/dns-cloudflare`, which is plain certbot plus the Cloudflare plugin and
+renews HTTP-01 (webroot) certificates identically — so one image covers both
+challenge types.
 
-```yaml
-certbot:
-  image: certbot/dns-cloudflare:latest
-  environment:
-    - CF_API_TOKEN=${CF_API_TOKEN}
-  entrypoint: >
-    /bin/sh -c
-    'trap exit TERM;
-     while :; do
-       certbot renew --quiet \
-         --dns-cloudflare \
-         --dns-cloudflare-credentials /cloudflare.ini \
-         --dns-cloudflare-propagation-seconds 60;
-       sleep 12h & wait $${!};
-     done'
-  volumes:
-    - certbot_conf:/etc/letsencrypt
-    - certbot_www:/var/www/certbot
-    - ./nginx/certs:/certs
-    - ./nginx/certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/copy-certs.sh:ro
-    - ./nginx/cloudflare.ini:/cloudflare.ini:ro
-```
+The bootstrap above writes your API token to
+`nginx/letsencrypt/cloudflare.ini` (mode `0600`) and **keeps it**. That
+directory is already mounted into the certbot container as `/etc/letsencrypt`,
+and certbot records both the authenticator and that exact credentials path in
+`/etc/letsencrypt/renewal/<domain>.conf`. `certbot renew` re-reads both every
+12 hours, so DNS-01 renewal works with no further setup.
 
-Then add `CF_API_TOKEN` to `.env.prod`:
+> **Security:** the token sits inside the certificate store, alongside your
+> private keys — same sensitivity, same `0600`, same directory you already back
+> up and protect. It is never committed: `nginx/letsencrypt/` is gitignored.
 
-```env
-CF_API_TOKEN=your-cloudflare-api-token
-```
+> **Upgrading an existing DNS-01 install?** Earlier versions told you to
+> hand-edit `docker-compose.prod.yml` and mount `./nginx/cloudflare.ini` at
+> `/cloudflare.ini`. If you did that, your renewal config still points at the
+> old path. Either keep your local compose edit, or re-run the bootstrap above
+> to move the credentials into the certificate store and rewrite the renewal
+> config. Check which path is in use with:
+> ```bash
+> grep dns_cloudflare_credentials nginx/letsencrypt/renewal/*.conf
+> ```
 
-### 4. Start the stack and verify
+### 3. Start the stack and verify
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
