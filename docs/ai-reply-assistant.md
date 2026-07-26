@@ -411,7 +411,7 @@ after each PR — matches the project's existing standard.
 - Add a short "AI Assistant" section to `README.md` and `docs/runbook.md`
   (how to switch off the chatbot in an emergency: `PUT /api/v1/ai/policy`
   `{enabled:false}` or untick the master switch in Settings).
-- Add an entry to `ROADMAP.md` and to the changelog panel (P3.8).
+- Queue follow-up work on the jobdesk (`~/Documents/Claude/jobdesk`) and add an entry to the changelog panel (P3.8).
 - Add an ADR in `docs/adr/` titled
   `ADR-00XX-pluggable-llm-providers.md` documenting the provider
   abstraction and the on/off semantics.

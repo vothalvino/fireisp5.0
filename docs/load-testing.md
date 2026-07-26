@@ -158,7 +158,7 @@ the 4.1 milestone calls for.
 
 ## Running against the production docker-compose stack (P1.6)
 
-**P1.6 of `ROADMAP_PRODUCTION.md`** requires verifying the load test
+**P1.6 of the production-hardening roadmap** (archived off-repo; programme complete) requires verifying the load test
 against the full production stack, not just the dev API.
 
 ### Start the production stack
