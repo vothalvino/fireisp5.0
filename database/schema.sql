@@ -5985,6 +5985,26 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Seed: TLS certificate expiry monitoring scheduled task (migration 424)
+-- ---------------------------------------------------------------------------
+-- Watches the SERVER's own TLS certificate. check_certificate_expiry covers
+-- subscriber_certificates (RADIUS) and csd_expiry_monitor covers
+-- csd_certificates (SAT) — neither covered the certificate customers actually
+-- hit. Requires the matching case in src/services/taskRunner.js; a seeded task
+-- with no case never runs, silently.
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description, cron_expression,
+     priority, is_enabled)
+VALUES
+    (NULL,
+     'tls_expiry_monitor',
+     'notification',
+     'Check the server TLS certificate expiry and alert admins at 30/14/7 days',
+     '0 7 * * *',
+     'high',
+     TRUE);
+
 -- Seed: CSD expiry monitoring scheduled task (migration 100)
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO scheduled_tasks
