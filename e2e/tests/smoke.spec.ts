@@ -2,7 +2,8 @@
  * FireISP 5.0 — End-to-End Smoke Test
  *
  * Scenario: log in → create client (API) → assign plan (UI) →
- *           generate invoice (UI) → record payment (UI) → open ticket (UI) → log out
+ *           generate invoice (UI) → record payment (UI) → credit note (UI) →
+ *           open ticket (UI) → log out
  *
  * The test relies on the development seed data
  * (admin@demo-isp.com with $ADMIN_PASSWORD, plans 1–4, sites 1–2) being present.
@@ -77,6 +78,25 @@ async function apiCreateClient(
   expect(res.ok(), `Create client failed: ${await res.text()}`).toBeTruthy();
   const body = await res.json();
   return (body.data?.id ?? body.id) as number;
+}
+
+/** Find the newest invoice belonging to a client (the one step 5 just generated). */
+async function apiLatestInvoiceForClient(
+  request: APIRequestContext,
+  token: string,
+  clientId: number,
+): Promise<{ id: number; total: number }> {
+  const res = await request.get(`${API}/invoices?limit=100`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.ok(), `List invoices failed: ${await res.text()}`).toBeTruthy();
+  const body = await res.json();
+  const rows = (body.data ?? body) as Array<{ id: number; client_id: number; total: string | number }>;
+  const mine = rows
+    .filter((r) => Number(r.client_id) === clientId)
+    .sort((a, b) => b.id - a.id);
+  expect(mine.length, `No invoice found for client ${clientId}`).toBeGreaterThan(0);
+  return { id: mine[0].id, total: Number(mine[0].total) };
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +249,44 @@ test('full operator workflow smoke test', async ({ page, request }) => {
 
   // Modal closes
   await expect(payDialog).not.toBeVisible({ timeout: 15_000 });
+
+  // -------------------------------------------------------------------------
+  // Step 6b — Credit notes → New Credit Note against the invoice from step 5
+  //
+  // Post-M7 coverage. Exercises the create path AND the totals-consistency
+  // guard added in #530: the API rejects subtotal + tax != total with
+  // CREDIT_NOTE_TOTALS_INCONSISTENT, so the figures below must add up or this
+  // step fails with the modal still open.
+  // -------------------------------------------------------------------------
+  const invoice = await apiLatestInvoiceForClient(request, token, clientId);
+
+  await page.goto('/credit-notes');
+  await page.getByRole('button', { name: /new credit note/i }).click();
+
+  const cnDialog = page.getByRole('dialog', { name: /new credit note/i });
+  await expect(cnDialog).toBeVisible({ timeout: 10_000 });
+
+  // Client (first select) and the invoice this note credits (first number input).
+  await cnDialog.locator('select').first().selectOption({ label: clientName });
+  const cnNumbers = cnDialog.locator('input[type="number"]');
+  await cnNumbers.nth(0).fill(String(invoice.id));   // invoice_id
+
+  // A coherent 100.00 + 16% IVA = 116.00 note. Order of number inputs:
+  // invoice_id, subtotal, tax_rate, tax_amount, total.
+  await cnNumbers.nth(1).fill('100.00');   // subtotal
+  await cnNumbers.nth(2).fill('0.16');     // tax_rate (fraction, not percent)
+  await cnNumbers.nth(3).fill('16.00');    // tax_amount
+  await cnNumbers.nth(4).fill('116.00');   // total  = subtotal + tax
+
+  const cnNumberInput = cnDialog.locator('input[type="text"]').first();
+  await cnNumberInput.fill(`CN-E2E-${suffix}`);
+
+  await cnDialog.getByRole('button', { name: /^(create|save|submit)/i }).click();
+
+  // The modal closes only on a successful POST — if the consistency guard
+  // rejected the figures it would stay open with an error.
+  await expect(cnDialog).not.toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(`CN-E2E-${suffix}`)).toBeVisible({ timeout: 15_000 });
 
   // -------------------------------------------------------------------------
   // Step 7 — Tickets → New Ticket linked to our test client
