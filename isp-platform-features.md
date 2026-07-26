@@ -2,6 +2,23 @@
 
 > Comprehensive feature specification for an integrated ISP platform covering CRM, NMS, and Regulatory Compliance. Covers subscriber management, network operations, billing, and Mexican regulatory requirements (IFT/ATDT).
 
+> ### Box legend — re-verified against code 2026-07-26
+>
+> This file is a **spec and industry reference**, not a to-do list. An unticked box does not
+> automatically mean pending work, which is why the markers below now distinguish four cases.
+> Of 48 unticked boxes found on 2026-07-26, only 11 were real engineering work.
+>
+> | Marker | Meaning |
+> |---|---|
+> | `- [x]` | Shipped. Where useful, the parenthetical cites the code that proves it. |
+> | `- [ ]` | **Genuinely open work** — 12 remain. Five are queued as jobs (attachment data-loss, Aviso de Privacidad, config rollback, WhatsApp→AI, technician map); the other seven are acknowledged backlog, not yet scheduled: PayPal, NetFlow/sFlow classification, FTTH OLT drivers, map clustering, Zabbix/LibreNMS sync, poller sharding, CDN docs. |
+> | `- ⊘` | **Never tickable.** Either a stack the spec *surveyed but FireISP did not choose* (Python/PHP, PostgreSQL), or an **operator action** — a legal/organizational step the software cannot perform (registering a licence, drafting terms with counsel). |
+> | `- ◷` / `✅` | A performance **target to measure**, not build. `◷` = never measured; `✅` = measured and passing. |
+>
+> **Section numbers are cited by 58 files** (`-- Implements isp-platform-features.md §10.1 ...`
+> across ~50 migrations, `schema.sql` and several services). Edit box states and annotations
+> freely; **never renumber a section.**
+
 ---
 
 ## Table of Contents
@@ -292,7 +309,7 @@
 
 ### 7.1 OLT Management
 - [x] Supported vendors: Huawei MA5800/EA5800, ZTE C300/C320/C600, VSOL V1600/W40/W80, C-Data 1600/9000, WOLCK WNM Series, Calix E7 (capability records + seed data; live protocol drivers are stubs)
-- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI (stub service interface; ftth_onu_firmware_job_processor dispatches — no live session driver yet)
+- [ ] Remote management via SNMP / TL1 / NETCONF / SSH CLI — **no live device I/O.** No src/services/ftth/drivers/ exists, and ftth_onu_firmware_job_processor (taskRunner.js:224-230) logs a warning and returns {deferred:true} — jobs are inserted but never dispatched. Queued as jobdesk work.
 - [x] OLT chassis monitoring: CPU, memory, temperature, PSU, fan, uplink card (GET /olt-management/:id/chassis reads from snmp_metrics)
 - [x] PON port monitoring: Tx/Rx optical power, ONU count, bandwidth utilization (olt_ports table + API)
 - [x] GPON/EPON/XGSPON profile management (onu_profiles table, technology enum)
@@ -427,9 +444,10 @@
 
 ### 11.2 Billing & Payments
 - [x] Invoice history and PDF download
-- [ ] Online payment (card, OXXO, SPEI, PayPal) — deferred: requires payment-gateway integration (Conekta/Stripe); models and route stubs present but no live gateway
+- [x] Online payment — card, OXXO and SPEI: Stripe hosted checkout (checkoutService.js:74-129) + Conekta (paymentGatewayService.js:367-434), webhooks (paymentWebhooks.js:172-175), portal pay flow (#523/#527).
+- [ ] Online payment — **PayPal** still unwired (checkoutService.js:204 throws for it).
 - [x] Payment history
-- [ ] Auto-debit enrollment — deferred: requires mandate/recurring-charge gateway support not yet wired
+- [x] Auto-debit enrollment — Stripe off-session mandates: autopayService SETUP capture + chargeRecurringProfile (checkoutService.js:240-345), portal /autopay/*, migrations 422-423 (#526). Stripe only; Conekta recurring not wired.
 - [x] CFDI receipt download
 
 ### 11.3 Self-Service Actions
@@ -454,7 +472,7 @@
 
 ### 11.5 Mobile
 - [x] Responsive design / PWA
-- [ ] Native mobile app (Android/iOS) with same features — explicitly out of scope per spec
+- ⊘ Native mobile app (Android/iOS) — **out of scope by design.** The responsive PWA (above) is the chosen substitute; no react-native/capacitor in the tree.
 - [x] Push notifications for outages and billing events
 
 ---
@@ -482,18 +500,18 @@
 - [x] Network-wide health status (green/yellow/red) (`GET /noc/health` — device status counts + active alert counts by severity; frontend: `NocDashboard.tsx` panel)
 - [x] Active alarm count by severity (`GET /noc/alarms` — `alert_events` grouped by severity; frontend: NOC Dashboard alarms panel)
 - [x] Ongoing outage map (`GET /noc/outages` — ongoing outages grouped by site; list/grouping, no map dependency added; frontend: NOC Dashboard outages panel)
-- [ ] Technician GPS tracking (mobile app) — GPS data ingested via `GET /technician-tracking/positions`; live map display requires a frontend map component not added (no heavy map dependency introduced per spec guidance)
+- [ ] Technician GPS live map — **this is a normal web page, NOT a mobile-app dependency** (the old note here was wrong). Backend complete (technicianTracking POST /breadcrumb, GET /positions); frontend consumers: zero. Queued as jobdesk work.
 - [x] Ticket queue by priority and due time (`GET /noc/ticket-queue`; frontend: NOC Dashboard queue panel)
 - [x] Recent events timeline (`GET /noc/events` — last 50 combined alert/outage/ticket events; frontend: NOC Dashboard events panel)
 - [x] SLA compliance percentage (`GET /noc/sla-compliance` — % non-breached over last 30 days; frontend: NOC Dashboard SLA panel)
 
 ### 12.3 Field Operations
 - [x] Work order creation and dispatch (`work_orders` table + full CRUD under `/work-orders`; frontend: `WorkOrders.tsx` list/create/status-dispatch/detail view)
-- [ ] Technician mobile app: view assigned jobs, navigate, log hours, take photos, capture customer signature — API surface implemented (`GET /work-orders`, `PATCH /work-orders/:id`, `POST /work-orders/:id/materials`, `POST /technician-tracking/breadcrumb`); native mobile app UI and offline sync are out of scope (deferred per spec guidance)
+- ⊘ Technician mobile *app UI* — **same scope exclusion as the native app.** The API surface (work orders, materials, attachments, breadcrumbs) shipped and is ticked elsewhere. (Customer e-signature has no endpoint; it rides this exclusion.)
 - [x] Route optimization for field visits (`POST /technician-tracking/route-optimize` — nearest-neighbor TSP in pure JS, no external API; frontend: WorkOrders route-optimize action)
 - [x] Material usage logging (cable length, converters, etc.) (`work_order_materials` table + `GET/POST/DELETE /work-orders/:id/materials`; frontend: WorkOrders materials sub-panel; `work_order_attachments` table migration 301 for work order photos)
 - [x] GPS breadcrumb tracking of technician movements (`technician_gps_breadcrumbs` table + `POST /technician-tracking/breadcrumb` + `GET /technician-tracking/:userId/history`)
-- [ ] Offline capability with auto-sync — deferred; requires native mobile app (React Native / PWA with service worker background sync); server-side conflict-resolution endpoint not implemented
+- ⊘ Offline capability with auto-sync — **only meaningful inside the excluded native-app decision**; not an independent gap.
 
 ---
 
@@ -731,7 +749,7 @@
 - [x] Smart alert correlation and noise reduction
 - [x] Bandwidth forecasting (capacity planning)
 - [x] Churn prediction scoring
-- [ ] **Full AI-powered customer support system — see Section 21**
+- [x] **Full AI-powered customer support system — see Section 21** — §21 shipped: migrations 351-358, 25 endpoints (app.js:693-694), AiSupportPage.tsx, 121 backend tests.
 
 ---
 
@@ -1137,53 +1155,53 @@ Beyond customer-facing AI, the same engine assists NOC staff:
 ## Appendix A — Architecture Recommendations
 
 ### High Availability
-- [ ] Database: PostgreSQL with streaming replication (primary + read replica)
-- [ ] Application: Load-balanced app servers (2+ behind HAProxy/Nginx)
-- [ ] Redis for caching and session management (Redis Sentinel for HA)
-- [ ] Shared storage or block-level replication for file attachments
-- [ ] Automated failover with health checks
+- [x] Database: primary + read replica with streaming replication — shipped on **MySQL 8.4 GTID** replication (docker-compose.prod.yml:59-129, docs/deployment.md:895-935). "PostgreSQL" above is stack-survey wording; the capability is what shipped.
+- [x] Application: Load-balanced app servers (2+ behind HAProxy/Nginx) — k8s replicas:2 + hpa.yaml (2-10), Nginx reverse proxy, documented `--scale app=3`.
+- [x] Redis for caching and session management (Redis Sentinel for HA) — redis in both compose files, REDIS_URL wired app-wide (BullMQ/cache/rate-limit); Sentinel documented for operators (deployment.md:1009-1040).
+- [ ] Shared storage or block-level replication for file attachments — **LIVE BUG:** tickets.js:25 and workOrders.js:49 write to /app/uploads, outside the mounted /app/storage volume → lost on container recreate, and EROFS under k8s (readOnlyRootFilesystem). Queued as jobdesk work.
+- [x] Automated failover with health checks — k8s liveness/readiness/startup probes, PodDisruptionBudget, RollingUpdate maxUnavailable:0, Dockerfile HEALTHCHECK. (App tier; DB failover is a documented manual runbook step.)
 
 ### Performance Targets
-- [ ] 10,000 subscribers: single server (4 vCPU, 8GB RAM) sufficient
-- [ ] 50,000+ subscribers: distributed architecture required
-- [ ] SNMP polling: <30s per device at 10,000 devices (requires multiple pollers)
-- [ ] Page load: <2 seconds for all dashboard pages
-- [ ] API response: <200ms for CRUD operations
+- ◷ 10,000 subscribers on a single 4 vCPU / 8 GB server — **never measured.** Rig exists (docs/load-testing.md, autocannon) but the fixture seeds only 500 clients / 5k invoices / 100 devices.
+- ◷ 50,000+ subscribers: distributed architecture required — **never verified at scale.** Building blocks exist (HPA to 10 replicas, read replica, Redis).
+- ◷ SNMP polling <30s per device at 10,000 devices — **never measured.** Poller is real and device-proven; no test exercises poll-cycle duration at device-count scale.
+- ◷ Page load <2 seconds for all dashboard pages — **never measured**; no Lighthouse/web-vitals/perf-budget tooling exists.
+- ✅ API response <200ms for CRUD — **MEASURED AND PASSING.** docs/load-testing.md gates p99 ≤200ms (sample p50 17-20ms, p99 22-35ms, CI-gateable). The first run caught a real LIMIT/OFFSET bug in BaseModel.findAll.
 
 ### Recommended Stack (Budget-Oriented)
-- [ ] Backend: Python (Django/FastAPI) or PHP (Laravel) — both proven in ISP stacks
-- [ ] Database: PostgreSQL (primary) + Redis (cache)
-- [ ] Frontend: Vue.js / React (SPA dashboard) + Nginx
-- [ ] RADIUS: FreeRADIUS 3.x with MySQL/PostgreSQL backend
+- ⊘ Backend: Python (Django/FastAPI) or PHP (Laravel) — **surveyed, not chosen.** FireISP is Node/Express. Never tickable.
+- ⊘ Database: PostgreSQL (primary) + Redis (cache) — **surveyed, not chosen.** FireISP is MySQL + Redis. Never tickable.
+- [x] Frontend: React SPA dashboard + Nginx — frontend/ (154 pages), nginx in prod compose and k8s ingress.
+- [x] RADIUS: FreeRADIUS 3.x with MySQL backend — docs/freeradius/, radiusService.syncFreeradiusTables(); embedded RADIUS also available.
 - [ ] NMS: Custom SNMP poller + LibreNMS/Zabbix integration
-- [ ] Queue: RabbitMQ / Redis for async tasks
-- [ ] Storage: MinIO (S3-compatible, self-hosted) for file backups
+- [x] Queue: Redis chosen (not RabbitMQ) — BullMQ via scheduler.js:6,84.
+- [x] Storage: MinIO (S3-compatible, self-hosted) for file backups — cloudStorageService SigV4 + BACKUP_S3_ENDPOINT, UI-configurable, live-verified against MinIO.
 
 ### Scalability Considerations
 - [ ] Horizontal scaling for polling engine (add poller nodes)
-- [ ] Database partitioning by date for accounting records
+- [x] Database partitioning by date for accounting records — connection_logs and snmp_metrics both PARTITION BY RANGE (migrations 025/032).
 - [ ] CDN for static assets and customer portal
-- [ ] Containerized deployment (Docker / Docker Compose) for easy scaling
+- [x] Containerized deployment (Docker / Docker Compose) for easy scaling — Dockerfile, 5 compose files, k8s/, Helm chart, install.sh.
 
 ---
 
 ## Appendix B — Compliance Checklist (Mexico)
 
-- [ ] Subscriber identity capture (INE/IFE/CURP)
-- [ ] LFPDPPP Aviso de Privacidad displayed and accepted
-- [ ] IP-to-subscriber log retention configured and verified
-- [ ] Log integrity protection (append-only / WORM)
-- [ ] Lawful interception capability documented and operational
-- [ ] CFDI 4.0 invoicing integration with PAC
-- [ ] Tax regimen facturacion (regimen fiscal) properly configured
-- [ ] Complaint response SLA configured
-- [ ] Consumer terms template compliant with PROFECO
-- [ ] Data backup within Mexican territory (verify latest rules)
-- [ ] Audit trail activated for all administrative actions
-- [ ] Access control policy documented and enforced
-- [ ] Incident response plan documented
-- [ ] Annual compliance self-assessment scheduled
-- [ ] ATDT/CRT registration and licensing up to date
+- [x] Subscriber identity capture (INE/IFE/CURP) — identity_verification_records + CURP checksum + verify/reject endpoints (regulatoryCompliance.js:231-324) + UI tab.
+- [ ] LFPDPPP Aviso de Privacidad displayed and accepted — API + subscriber_consents table exist (regulatoryCompliance.js:41-113) but **nothing ever displays the notice or captures acceptance**; staff tab is read-only. Queued as jobdesk work.
+- [x] IP-to-subscriber log retention configured and verified — connection_logs monthly partitions + scheduled purge_radius_accounting (taskRunner.js:149-151, migration 233) + 2-year partition-drop procedure.
+- [x] Log integrity protection (append-only / WORM) — DB-level BEFORE UPDATE/DELETE SIGNAL triggers on audit_logs (schema.sql:7601-7620); row_hash on gov_data_requests.
+- [x] Lawful interception capability documented and operational — gov_data_requests (migration 315) with intake/fulfill/reject workflow; docs/compliance-mexico.md §4.
+- [x] CFDI 4.0 invoicing integration with PAC — stamp + cancel against SW and Finkok with failover, local sealing, CFDI de Egreso (#528); both PACs sandbox-proven.
+- [x] Tax regimen facturacion (regimen fiscal) properly configured — org + client regimen_fiscal validated against the sat_regimen_fiscal catalog, enforced at stamp time (cfdiService.js:116-123).
+- [x] Complaint response SLA configured — sla_definitions + ticket_sla_events + scheduled sla_breach_check (taskRunner.js:171-172); profeco_complaints rides the same machinery.
+- ⊘ Consumer terms template compliant with PROFECO — **operator action** (legal drafting with your counsel). Software already stores/versions templates (contract_templates_mx) and handles complaints (profeco_complaints).
+- [x] Data backup within Mexican territory (verify latest rules) — data_residency_config (default MX) + dataResidency CRUD + /check + UI tab. Self-attestation by design in a self-hosted product.
+- [x] Audit trail activated for all administrative actions — auditLog service writing to the WORM audit_logs table, wired in 18 route modules.
+- [x] Access control policy documented and enforced — docs/rbac-permissions.md + requirePermission() on every route.
+- [x] Incident response plan documented — docs/runbook.md:237+ "Incident Response (P1.9)": severity matrix, declaration criteria, workflow, SEV1 scenarios.
+- ⊘ Annual compliance self-assessment scheduled — **operator action** (calendar). Automated inputs exist (DSAR-overdue check, data-residency /check) but the review itself is yours.
+- ⊘ ATDT/CRT registration and licensing up to date — **operator legal act.** Software ships full tracking (concession_titles with expiration/renewal_filed_at, regulatory_filings) but cannot make a licence current.
 
 ---
 
