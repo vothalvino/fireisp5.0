@@ -29,10 +29,12 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
 const DeviceConfigBackup = require('../src/models/DeviceConfigBackup');
 const RecurringPaymentProfile = require('../src/models/RecurringPaymentProfile');
+const Radius = require('../src/models/Radius');
 
 const SCOPED = [
   ['DeviceConfigBackup', DeviceConfigBackup, 'device_config_backups'],
   ['RecurringPaymentProfile', RecurringPaymentProfile, 'recurring_payment_profiles'],
+  ['Radius', Radius, 'radius'],
 ];
 
 describe('the formerly-unscoped models now scope by organization', () => {
@@ -50,14 +52,38 @@ describe('the formerly-unscoped models now scope by organization', () => {
     expect(Model.fillable).toContain('organization_id');
   });
 
-  it.each(SCOPED)('%s table has a NOT NULL organization_id in schema.sql', (_name, _Model, table) => {
+  it.each(SCOPED)('%s organization_id is NULLABLE, like every parent org column', (_name, _Model, table) => {
+    // NOT NULL here is a DATA-LOSS bug, not extra safety. Every parent org
+    // column in this schema is nullable by design —
+    //   devices.organization_id / clients.organization_id:
+    //   'Tenant organization ...; NULL = single-tenant deployment'
+    // — so on a single-tenant install the backfill legitimately yields NULL.
+    // A NOT NULL column can only be reconciled by deleting those rows, which is
+    // what an earlier draft did: it would have wiped every device config backup
+    // and every autopay profile on such an install. CI passed because the
+    // tables are empty there.
+    //
+    // Nullable is also correct, not just safe: BaseModel applies no org
+    // predicate when req.orgId is null, so a single-tenant deployment still
+    // sees its own rows.
     const schema = read('database/schema.sql');
     const block = schema.slice(schema.indexOf(`CREATE TABLE IF NOT EXISTS ${table} (`));
     const ddl = block.slice(0, block.indexOf('ENGINE='));
-    expect(ddl).toMatch(/organization_id\s+BIGINT UNSIGNED\s+NOT NULL/);
-    // Nullable would recreate the same silent class: a row no tenant can see.
-    expect(ddl).not.toMatch(/organization_id\s+BIGINT UNSIGNED\s+NULL/);
+    expect(ddl).toMatch(/organization_id\s+BIGINT UNSIGNED\s+NULL/);
+    expect(ddl).not.toMatch(/organization_id\s+BIGINT UNSIGNED\s+NOT NULL/);
   });
+
+  it.each(['425_org_scope_config_backups_and_autopay_profiles', '426_org_scope_radius'])(
+    'migration %s deletes no rows', (name) => {
+      // The specific line that would have caused it:
+      //   DELETE FROM device_config_backups WHERE organization_id IS NULL;
+      // An org-scoping migration adds a column and backfills it. If one is ever
+      // reaching for DELETE to satisfy a constraint, the constraint is wrong.
+      const sql = read(`database/migrations/${name}.sql`);
+      const statements = sql.split('\n').filter(l => !l.trim().startsWith('--'));
+      expect(statements.filter(l => /\bDELETE\s+FROM\b/i.test(l))).toEqual([]);
+    },
+  );
 });
 
 describe('BaseModel still omits the predicate silently — the reason this is easy to get wrong', () => {
@@ -84,9 +110,9 @@ describe('raw SQL that BaseModel scoping cannot reach', () => {
 
   it('the nightly config pull writes an organization_id', () => {
     // configBackupService runs unattended with no request context, so it derives
-    // the org from the device in the statement itself. Miss this and every
-    // nightly backup fails the NOT NULL — or worse, if the column were nullable,
-    // silently refills the table with rows no tenant can see.
+    // the org from the device in the statement itself. Miss this and the nightly
+    // pull silently refills the table with NULL-org rows that no multi-tenant
+    // request can see — re-creating the leak's mirror image.
     const src = read('src/services/configBackupService.js');
     const ins = src.slice(src.indexOf('INSERT INTO device_config_backups'));
     const stmt = ins.slice(0, ins.indexOf('`,'));
@@ -103,10 +129,10 @@ describe('raw SQL that BaseModel scoping cannot reach', () => {
   });
 });
 
-describe('migration 425 backfills before it constrains', () => {
+describe('migration 425 backfills without deleting', () => {
   const mig = read('database/migrations/425_org_scope_config_backups_and_autopay_profiles.sql');
 
-  it('adds the column nullable, backfills from the parent, then tightens', () => {
+  it('adds the column nullable and backfills from the parent', () => {
     // Adding it NOT NULL outright would fail on any table with existing rows.
     // Anchor on the SECTION MARKERS, not on bare table names: those appear in
     // the header comment and in the shared stale-index guard, so an indexOf on
@@ -120,8 +146,10 @@ describe('migration 425 backfills before it constrains', () => {
     expect(dcb.length).toBeGreaterThan(300);
     expect(dcb).toMatch(/ADD COLUMN organization_id BIGINT UNSIGNED NULL/);
     expect(dcb).toMatch(/JOIN devices d ON d\.id = b\.device_id/);
-    expect(dcb.indexOf('UPDATE device_config_backups'))
-      .toBeLessThan(dcb.indexOf('MODIFY COLUMN organization_id BIGINT UNSIGNED NOT NULL'));
+    // The column is added, then backfilled, and stays nullable — there is no
+    // NOT NULL tightening to order against, deliberately (see above).
+    expect(dcb.indexOf('ADD COLUMN organization_id'))
+      .toBeLessThan(dcb.indexOf('UPDATE device_config_backups'));
   });
 
   it('backfills autopay profiles from their client', () => {
@@ -159,5 +187,38 @@ describe('migration 425 backfills before it constrains', () => {
     const body = mig.slice(mig.indexOf('CREATE PROCEDURE'));
     expect(body.indexOf('DROP INDEX idx_dcb_org'))
       .toBeLessThan(body.indexOf('ADD KEY idx_dcb_org'));
+  });
+});
+
+describe('radius — the one that LOOKED already fixed (migration 426)', () => {
+  it('keeps the JOIN overrides that scope reads', () => {
+    // These are not redundant with the column: they serve the RADIUS auth path
+    // with an explicit SAFE_COLUMNS list and carry their own cross-tenant tests.
+    // Deleting them because "the column handles it now" would drop that
+    // column-allowlisting too.
+    const src = read('src/models/Radius.js');
+    expect(src).toMatch(/JOIN clients cl ON cl\.id = r\.client_id/);
+    for (const m of ['findById', 'findAll', 'count']) {
+      expect(src).toMatch(new RegExp(`static async ${m}\\(`));
+    }
+  });
+
+  it('does NOT override the write paths — which is why the column is needed', () => {
+    // The whole point. Reads were scoped by the JOIN; update/delete/restore fell
+    // through to BaseModel with no predicate, so any tenant could rewrite or
+    // soft-delete another tenant's PPPoE username and password by id. If someone
+    // later adds these overrides, this test should be revisited, not deleted.
+    const src = read('src/models/Radius.js');
+    for (const m of ['update', 'delete', 'restore']) {
+      expect(src).not.toMatch(new RegExp(`static async ${m}\\(`));
+    }
+    expect(Radius.hasOrgScope).toBe(true);
+  });
+
+  it('subscriber provisioning writes the org on the raw INSERT', () => {
+    const src = read('src/services/subscriberProvisioningService.js');
+    const ins = src.slice(src.indexOf('INSERT INTO radius'));
+    expect(ins.slice(0, ins.indexOf('`,'))).toMatch(/organization_id/);
+    expect(src).toMatch(/\[organizationId, contract\.client_id, contract\.id/);
   });
 });

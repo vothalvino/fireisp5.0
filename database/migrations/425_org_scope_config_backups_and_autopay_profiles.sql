@@ -39,12 +39,25 @@
 -- historical backup staying with the original org is the correct answer, not a
 -- stale one.
 --
--- NOT NULL is deliberate. A nullable column would let a row with a NULL org sit
--- invisible to every tenant — the same silent class this migration closes.
--- Backfill runs before the constraint tightens. Orphans should not exist either
--- way — device_config_backups cascades from devices, and recurring_payment_
--- profiles RESTRICTs client deletion outright — so the DELETE below is a safety
--- net for hand-edited data, not an expected path.
+-- THE COLUMN IS NULLABLE, and that is deliberate — an earlier draft of this
+-- migration made it NOT NULL and would have destroyed data.
+--
+-- Every parent org column in this schema is itself nullable, by design:
+--   devices.organization_id  'Tenant organization ...; NULL = single-tenant deployment'
+--   clients.organization_id  same
+--
+-- So on a SINGLE-TENANT install the backfill legitimately produces NULL. A
+-- NOT NULL column would then have to be reconciled by deleting those rows —
+-- which is exactly what the first draft did, and it would have silently wiped
+-- every device config backup and every autopay profile on such an install. CI
+-- did not catch it because the tables are empty there.
+--
+-- Nullable is also functionally correct rather than merely safe.
+-- src/models/BaseModel.js:99 reads `if (orgId !== null && this.hasOrgScope)`,
+-- so a single-tenant request (req.orgId === null) applies no predicate at all
+-- and sees its NULL-org rows normally, while a multi-tenant request carries a
+-- real org and is filtered. Matching the parents' convention is what makes both
+-- deployments work.
 --
 -- Guarded via INFORMATION_SCHEMA (idempotent — safe to re-run on MySQL 8).
 -- =============================================================================
@@ -92,14 +105,7 @@ BEGIN
       JOIN devices d ON d.id = b.device_id
        SET b.organization_id = d.organization_id;
 
-    -- Any row whose device disappeared without cascading is unattributable and
-    -- was already unreachable through the API; drop it rather than block the
-    -- NOT NULL below with a row nobody can see or own.
-    DELETE FROM device_config_backups WHERE organization_id IS NULL;
-
     ALTER TABLE device_config_backups
-      MODIFY COLUMN organization_id BIGINT UNSIGNED NOT NULL
-          COMMENT 'Owning org, denormalised from devices (migration 425)',
       ADD KEY idx_dcb_org (organization_id, device_id, created_at DESC),
       ADD CONSTRAINT fk_dcb_org FOREIGN KEY (organization_id)
           REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -121,11 +127,7 @@ BEGIN
       JOIN clients c ON c.id = p.client_id
        SET p.organization_id = c.organization_id;
 
-    DELETE FROM recurring_payment_profiles WHERE organization_id IS NULL;
-
     ALTER TABLE recurring_payment_profiles
-      MODIFY COLUMN organization_id BIGINT UNSIGNED NOT NULL
-          COMMENT 'Owning org, denormalised from clients (migration 425)',
       ADD KEY idx_rpp_org (organization_id, client_id),
       ADD CONSTRAINT fk_rpp_org FOREIGN KEY (organization_id)
           REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE;

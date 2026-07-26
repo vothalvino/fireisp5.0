@@ -9,6 +9,11 @@ class Radius extends BaseModel {
 
   static get fillable() {
     return [
+      // MUST be listed. crudController injects req.orgId into the body only
+      // when hasOrgScope is true (crudController.js:123-125), and
+      // BaseModel.create filters strictly to `fillable` — omit it and every
+      // create silently drops the org, writing a row no tenant can see.
+      'organization_id',
       'contract_id', 'nas_id', 'username', 'password',
       'ip_address', 'ipv4_pool_id', 'ipv6_address',
       'ipv6_delegated_prefix', 'ipv6_prefix_len', 'ipv6_pool_id',
@@ -17,7 +22,21 @@ class Radius extends BaseModel {
     ];
   }
 
-  static get hasOrgScope() { return false; }
+  // Migration 426 added organization_id (denormalised from clients), so org
+  // scoping is ON.
+  //
+  // This table LOOKED already protected and was not. The findById/findAll/count
+  // overrides below scope reads with a JOIN on clients — but update, delete and
+  // restore are NOT overridden, so they fell through to BaseModel, which omits
+  // the org predicate SILENTLY when this flag is false. radius holds `username`
+  // and `password`, the PPPoE credentials a subscriber authenticates with, so
+  // any tenant could rewrite or soft-delete another tenant's by id.
+  //
+  // The JOIN overrides are KEPT rather than replaced: they serve the RADIUS
+  // authentication path with an explicit SAFE_COLUMNS list and carry their own
+  // cross-tenant tests (tests/radiusCredentials.test.js). They and this flag are
+  // not redundant — the flag covers the six operations the JOIN never did.
+  static get hasOrgScope() { return true; }
 
   static get softDelete() { return true; }
 

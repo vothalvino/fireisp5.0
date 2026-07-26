@@ -703,6 +703,8 @@ CREATE TABLE IF NOT EXISTS user_network_assignments (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radius (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL
+                                  COMMENT 'Owning org, denormalised from clients; NULL = single-tenant (migration 426)',
     client_id     BIGINT UNSIGNED NOT NULL,
     contract_id   BIGINT UNSIGNED NULL,
     nas_id        BIGINT UNSIGNED NULL     COMMENT 'NAS this subscriber authenticates through',
@@ -730,6 +732,9 @@ CREATE TABLE IF NOT EXISTS radius (
 
     PRIMARY KEY (id),
     UNIQUE KEY uq_radius_username (username, active_flag),
+    KEY idx_radius_org (organization_id, client_id),
+    CONSTRAINT fk_radius_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     KEY idx_radius_client_id (client_id),
     KEY idx_radius_contract_id (contract_id),
     KEY idx_radius_nas_id (nas_id),
@@ -4358,8 +4363,8 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_config_backups (
     id              BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    organization_id BIGINT UNSIGNED  NOT NULL
-                                     COMMENT 'Owning org, denormalised from devices (migration 425)',
+    organization_id BIGINT UNSIGNED  NULL
+                                     COMMENT 'Owning org, denormalised from devices; NULL = single-tenant (migration 425)',
     device_id       BIGINT UNSIGNED  NOT NULL COMMENT 'Device this config snapshot belongs to',
     version         INT UNSIGNED     NOT NULL DEFAULT 1
                                      COMMENT 'Monotonically increasing version number per device',
@@ -6202,7 +6207,7 @@ CREATE TABLE IF NOT EXISTS payment_retries (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS recurring_payment_profiles (
     id                  BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
-    organization_id     BIGINT UNSIGNED     NOT NULL                   COMMENT 'Owning org, denormalised from clients (migration 425)',
+    organization_id     BIGINT UNSIGNED     NULL                       COMMENT 'Owning org, denormalised from clients; NULL = single-tenant (migration 425)',
     client_id           BIGINT UNSIGNED     NOT NULL                   COMMENT 'Client this autopay profile belongs to',
     payment_gateway_id  BIGINT UNSIGNED     NOT NULL                   COMMENT 'Gateway that issued the stored token',
     token_reference     VARCHAR(500)        NOT NULL                   COMMENT 'Gateway payment method / card token (pm_... for Stripe)',
