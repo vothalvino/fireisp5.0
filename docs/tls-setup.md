@@ -89,7 +89,7 @@ openssl s_client -connect isp.example.com:443 -servername isp.example.com \
   </dev/null 2>/dev/null | openssl x509 -noout -dates
 
 # Check nginx is using the live cert
-docker compose -f docker-compose.prod.yml exec nginx \
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec nginx \
   openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -subject -dates
 ```
 
@@ -127,7 +127,7 @@ reload nginx:
 ```bash
 cp /path/to/new/fullchain.pem nginx/certs/fullchain.pem
 cp /path/to/new/privkey.pem   nginx/certs/privkey.pem
-docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec nginx nginx -s reload
 ```
 
 ---
@@ -253,14 +253,14 @@ The `certbot` service handles renewal automatically:
 ### Verify renewal works (dry-run)
 
 ```bash
-docker compose -f docker-compose.prod.yml run --rm certbot \
+docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm certbot \
   certbot renew --dry-run
 ```
 
 ### Force an immediate reload of nginx
 
 ```bash
-docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec nginx nginx -s reload
 ```
 
 ---
@@ -350,7 +350,7 @@ instructions.
 
 - Verify port 80 is open in your firewall/security group.
 - Confirm DNS A record points to the correct server IP.
-- Check nginx logs: `docker compose -f docker-compose.prod.yml logs nginx`
+- Check nginx logs: `docker compose -f docker-compose.prod.yml --env-file .env.prod logs nginx`
   (Docker nginx mode) or `sudo journalctl -u nginx -n 50` (host-nginx mode).
 
 ### Let's Encrypt rate limits

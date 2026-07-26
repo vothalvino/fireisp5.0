@@ -74,7 +74,7 @@ and redeploy; the app stops shelling out (configs/snippets/QRs are still issued)
 
 > **Where do the interfaces live?** In the **app container's own network namespace**
 > (the compose does *not* use host networking, which would break the bridge service-DNS
-> MySQL/Redis/Nginx rely on). Inspect them with `docker compose -f docker-compose.prod.yml
+> MySQL/Redis/Nginx rely on). Inspect them with `docker compose -f docker-compose.prod.yml --env-file .env.prod
 > exec app wg show`. Device access is entirely through the tunnels, so host networking is
 > unnecessary.
 
@@ -102,7 +102,7 @@ sudo sh -c 'umask 077; wg genkey | tee /etc/wireguard/wg-fireisp.key | wg pubkey
 
 ```bash
 # Interfaces are in the app container's netns
-docker compose -f docker-compose.prod.yml exec app wg show          # both interfaces, no peers yet
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec app wg show          # both interfaces, no peers yet
 ```
 - Create a peer in **My Tunnels** → `… exec app wg show wg-clients` lists it, and
   `… exec app nft list table inet fireisp_wg` shows the `forward` + `wg_user_fwd` chains.

@@ -298,7 +298,7 @@ An incident should be **formally declared** (create an incident channel / ticket
    ```
 5. **Restart MySQL** (if no data-integrity issue):
    ```bash
-   docker compose -f docker-compose.prod.yml restart db
+   docker compose -f docker-compose.prod.yml --env-file .env.prod restart db
    ```
 6. **Switch to read replica** (if write DB is down and read-only mode is acceptable):
    - Set `DB_READ_REPLICA_URL` in `.env` to the replica host; the app will serve reads from replica.
