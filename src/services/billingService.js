@@ -14,20 +14,99 @@ const auditLog = require('./auditLog');
 const { drawdownForSale } = require('./inventoryDrawdownService');
 
 /**
+ * Normalise a free-text postal code to a 5-digit Mexican CP, or null.
+ *
+ * clients.zip_code is VARCHAR(20) free text, so it holds "22000", " 22000 ",
+ * "CP 22000", "22000-1234" and worse. Anything that does not yield exactly one
+ * unambiguous 5-digit code returns null, which means NO region match and a
+ * fall-through to the org default. That direction is deliberate: guessing a
+ * border ZIP out of malformed input would under-tax, and under-taxing is a
+ * liability with SAT.
+ */
+function normalizePostalCode(raw) {
+  if (raw === null || raw === undefined) return null;
+  const digits = String(raw).match(/\d{5}/g);
+  // Exactly one 5-digit run, or the first of a "CP-plus-suffix" form where the
+  // extra digits are a known 4-digit extension. Two unrelated codes = ambiguous.
+  if (!digits || digits.length === 0) return null;
+  if (digits.length > 1 && !/^\s*\d{5}\s*-\s*\d{4}\s*$/.test(String(raw))) return null;
+  return digits[0];
+}
+
+/**
+ * Does `cp` fall inside a postal_codes spec like "21000-22999,88000"?
+ * Returns the width of the matching entry (1 for a single code), or null.
+ * The width is what makes a more specific rule win over a broader one.
+ */
+function postalSpecMatch(spec, cp) {
+  if (!spec || !cp) return null;
+  let best = null;
+  for (const partRaw of String(spec).split(',')) {
+    const part = partRaw.trim();
+    if (!part) continue;
+    const range = part.match(/^(\d{5})\s*-\s*(\d{5})$/);
+    if (range) {
+      const [lo, hi] = [range[1], range[2]].sort();
+      if (cp >= lo && cp <= hi) {
+        const width = Number(hi) - Number(lo) + 1;
+        if (best === null || width < best) best = width;
+      }
+    } else if (/^\d{5}$/.test(part) && part === cp) {
+      best = 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * The org's active region rule matching this client's service ZIP, or null.
+ *
+ * When several rules match, the NARROWEST range wins, tie-broken by lowest id.
+ * Deterministic on purpose — migration 427 exists because an ORDER BY that
+ * could return either of two rows silently billed some invoices at the wrong
+ * rate, and this lookup must not repeat that.
+ */
+async function resolveRegionRate(exec, orgId, rawZip) {
+  const cp = normalizePostalCode(rawZip);
+  if (!cp) return null;
+
+  const [rules] = await exec(
+    `SELECT id, rate, postal_codes FROM tax_rules
+      WHERE organization_id = ?
+        AND status = 'active'
+        AND deleted_at IS NULL
+        AND postal_codes IS NOT NULL
+      ORDER BY id`,
+    [orgId],
+  );
+  let winner = null;
+  for (const r of rules || []) {
+    const width = postalSpecMatch(r.postal_codes, cp);
+    if (width === null) continue;
+    if (!winner || width < winner.width) winner = { id: r.id, rate: parseFloat(r.rate) || 0, width };
+  }
+  return winner;
+}
+
+/**
  * Resolve the tax treatment for a newly-generated invoice/quote.
  *
  * Precedence:
  *   1. An IVA-exempt client (clients.tax_exempt) forces 0 % / Exento.
  *   2. An explicit contract/line tax_rate_id.
- *   3. The organization's active default rate (tax_rates.is_default).
- *   4. For MX-locale orgs ONLY, a 16 % IVA safety net so a Mexican invoice is
+ *   3. A REGION RULE matching the client's service postal code — Mexico's
+ *      región fronteriza 8 % IVA (migration 428). Below the explicit id so an
+ *      operator override still wins, above the default so the border carve-out
+ *      works with a 16 % default.
+ *   4. The organization's active default rate (tax_rates.is_default).
+ *   5. For MX-locale orgs ONLY, a 16 % IVA safety net so a Mexican invoice is
  *      never silently untaxed (migration 416 seeds an editable per-org row;
  *      this covers any org created/switched to MX afterwards). Non-MX orgs
  *      with no default rate get 0 %, unchanged.
  *
  * @param {Function} exec  db.query or a connection's .execute (returns [rows,fields])
  * @param {{orgId:number, clientId?:number, contractTaxRateId?:number|null}} p
- * @returns {Promise<{rate:number, taxRateId:(number|null), exempt:boolean}>}
+ * @returns {Promise<{rate:number, taxRateId:(number|null), exempt:boolean, taxRuleId?:number}>}
  */
 async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRateId = null, client = null }) {
   // The client row also tells us its own locale — used as an MX signal for the
@@ -38,7 +117,7 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   let clientRow = client;
   if (clientRow === null && clientId) {
     const [crows] = await exec(
-      'SELECT tax_exempt, locale FROM clients WHERE id = ? AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL)) LIMIT 1',
+      'SELECT tax_exempt, locale, zip_code FROM clients WHERE id = ? AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL)) LIMIT 1',
       [clientId, orgId, orgId],
     );
     clientRow = crows[0] || null;
@@ -47,6 +126,24 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
     return { rate: 0, taxRateId: null, exempt: true };
   }
   const clientIsMx = clientRow ? clientRow.locale === 'MX' : false;
+
+  // ── Region rule by the client's SERVICE postal code (migration 428) ───────
+  // Mexico has two IVA rates: 16% standard, 8% in the región fronteriza
+  // norte/sur. Which applies is decided by WHERE THE SERVICE IS PROVIDED, so
+  // this reads clients.zip_code (the install address), not the client's fiscal
+  // domicile — a subscriber can be billed to an address far from their line.
+  //
+  // Sits BELOW an explicitly chosen tax_rate_id (an operator override wins) and
+  // ABOVE the org default, which is exactly the ordering that makes a border
+  // ISP work: the default stays 16% and the region rule carves out the 8%.
+  //
+  // An unmatched ZIP falls through to the default DELIBERATELY. Over-taxing is
+  // recoverable with a credit note; under-taxing is a liability with SAT, so a
+  // missing or malformed ZIP must never be read as "border".
+  if (!contractTaxRateId && clientRow) {
+    const region = await resolveRegionRate(exec, orgId, clientRow.zip_code);
+    if (region) return { rate: region.rate, taxRateId: null, exempt: false, taxRuleId: region.id };
+  }
 
   // The explicit-id branch previously read `WHERE id = ?` with NO org, status or
   // soft-delete predicate at all, so a caller-supplied tax_rate_id resolved
@@ -1046,6 +1143,7 @@ module.exports = {
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
   releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext, assertTaxCoherent,
+  normalizePostalCode, postalSpecMatch, resolveRegionRate,
   voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,

@@ -9,7 +9,7 @@ class TaxRule extends BaseModel {
 
   static get fillable() {
     return [
-      'organization_id', 'name', 'region', 'tax_type', 'rate',
+      'organization_id', 'name', 'region', 'postal_codes', 'tax_type', 'rate',
       'is_default', 'status',
     ];
   }

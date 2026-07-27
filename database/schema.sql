@@ -3757,6 +3757,8 @@ CREATE TABLE IF NOT EXISTS tax_rules (
     organization_id BIGINT UNSIGNED  NULL     COMMENT 'Tenant organization; NULL = applies to all tenants',
     name            VARCHAR(255)     NOT NULL,
     region          VARCHAR(100)     NULL     COMMENT 'State, province, or country the rule applies to',
+    postal_codes    VARCHAR(2000)    NULL
+                                     COMMENT 'Comma-separated 5-digit codes and/or ranges this rule applies to, e.g. "21000-22999,88000-88299". NULL = matches no ZIP (rule only applies via is_default) — migration 428',
     tax_type        ENUM('vat', 'sales_tax', 'gst', 'other') NOT NULL DEFAULT 'sales_tax',
     rate            DECIMAL(5, 4)    NOT NULL COMMENT 'Tax rate as a decimal, e.g. 0.0800 = 8%',
     is_default      BOOLEAN          NOT NULL DEFAULT FALSE COMMENT 'Default rule applied when no region match is found',
