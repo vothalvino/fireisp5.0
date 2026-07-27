@@ -73,6 +73,34 @@ describe('rejects a zero-tax document when a rate applies', () => {
     await expect(call(execFor({ rate: 0.16 }))).rejects.toThrow(/16%/);
   });
 
+  it('this guard is NOT MX-only — a non-MX org with a configured rate is blocked too', async () => {
+    // It fires on ctx.rate > 0, which is true for ANY org that configured a
+    // default rate. Only the 16% FALLBACK inside resolveTaxContext is
+    // Mexico-specific. A US org at 8% is blocked on the same terms.
+    Organization.getLocale.mockResolvedValue('US');
+    await expect(call(execFor({ rate: 0.08, clientLocale: 'US' })))
+      .rejects.toMatchObject({ code: 'TAX_REQUIRED' });
+  });
+
+  it('does not mention CFDI, SAT or IVA to a non-MX org', async () => {
+    // The message was unconditionally Mexican: it told a Canadian operator
+    // their invoice would misdeclare to SAT, and pointed them at an
+    // "IVA-exempt" flag by a name their locale does not use.
+    Organization.getLocale.mockResolvedValue('US');
+    let msg = '';
+    await call(execFor({ rate: 0.08, clientLocale: 'US' })).catch((e) => { msg = e.message; });
+    expect(msg).toMatch(/8% applies/);
+    expect(msg).toMatch(/tax-exempt/);
+    expect(msg).not.toMatch(/CFDI|SAT|IVA/);
+  });
+
+  it('DOES add the SAT sentence for an MX org', async () => {
+    Organization.getLocale.mockResolvedValue('MX');
+    let msg = '';
+    await call(execFor({ rate: 0.16 })).catch((e) => { msg = e.message; });
+    expect(msg).toMatch(/CFDI declares to SAT/);
+  });
+
   it('treats a rounding crumb as no tax', async () => {
     // Half a cent is not tax; without a tolerance a 0.001 artefact would slip
     // through the guard entirely.
