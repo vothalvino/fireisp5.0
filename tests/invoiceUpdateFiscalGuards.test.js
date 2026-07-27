@@ -40,6 +40,12 @@ jest.mock('../src/services/billingService', () => ({
   // real normalization — the guard depends on it
   invoiceTaxFraction: (r) => { const n = parseFloat(r) || 0; return n > 1 ? n / 100 : n; },
   refreshInvoicePaidStatus: jest.fn().mockResolvedValue(undefined),
+  // The tax-coherence guard, reached when an edit REMOVES tax. Default no-op so
+  // the cases below still exercise the hook's own arithmetic; the zero-tax cases
+  // override it. It MUST be listed — a partial mock of a service turns a new
+  // call site into "undefined is not a function", surfacing as a 500 on the
+  // edit rather than as a missing-guard failure. (Same trap as #550.)
+  assertTaxCoherent: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../src/models/Organization', () => ({ getCurrency: jest.fn().mockResolvedValue('MXN') }));
 
@@ -362,5 +368,70 @@ describe('invoice delete and restore respect a live CFDI', () => {
     // either purpose: the row is already gone, and its errors are swallowed.
     expect(src.indexOf('if (beforeRestoreHook) await beforeRestoreHook(req)'))
       .toBeLessThan(src.indexOf('const record = await Model.restore(req.params.id, req.orgId)'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An edit may not STRIP the tax off an invoice (the mirror of the exempt guard)
+// ---------------------------------------------------------------------------
+// PATCH {tax_amount: 0, total: 1000} on a 1000/160/1160 invoice passed every
+// existing check — TOTAL_INCONSISTENT is satisfied (1000 = 1000 + 0) and the
+// back-derive branch helpfully rewrote tax_rate to 0. The invoice then stamped
+// ObjetoImp='01' with no Impuestos node, telling SAT the sale was not taxable.
+// POST /invoices rejects these exact figures (#549); this was the same hole
+// through the update door, and it is the fully UI-driven path.
+describe('PATCH /api/v1/invoices/:id — an edit cannot silently zero-rate', () => {
+  const billingService = require('../src/services/billingService');
+
+  it('consults the tax guard when the edit removes tax', async () => {
+    wireDb();
+    await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000, tax_amount: 0, total: 1000 });
+    expect(billingService.assertTaxCoherent).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ taxAmount: 0, docType: 'invoice' }),
+    );
+  });
+
+  it('propagates the guard 422 instead of writing', async () => {
+    wireDb();
+    const { AppError } = require('../src/utils/errors');
+    billingService.assertTaxCoherent.mockRejectedValueOnce(
+      new AppError('This invoice carries no tax, but 16% applies to this client.', 422, 'TAX_REQUIRED'),
+    );
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 1000, tax_amount: 0, total: 1000 });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('TAX_REQUIRED');
+    const writes = db.query.mock.calls.filter(c => /^UPDATE `?invoices`?/i.test(c[0]));
+    expect(writes).toHaveLength(0);
+  });
+
+  it('does NOT consult it when the invoice was already untaxed', async () => {
+    // The "going forward only" guarantee. A legacy or legitimately untaxed row
+    // must not be re-examined, or editing its due date would 422 forever.
+    wireDb();
+    const stored = { ...STORED, tax_amount: '0.00', total: '1000.00', tax_rate: '0.0000' };
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/SELECT \* FROM `?invoices`? WHERE id/.test(sql)) return [[stored]];
+      if (/^UPDATE `?invoices`?/i.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+    db.execute.mockImplementation(db.query.getMockImplementation());
+    // Must edit a FROZEN field. A due_date patch returns early at the
+    // `changed.length === 0` check and never reaches the guard under EITHER
+    // version — which made the first draft of this test pass against the
+    // mutation it was written to catch.
+    const res = await request(app).patch('/api/v1/invoices/900')
+      .send({ subtotal: 2000, tax_amount: 0, total: 2000 });
+    expect(res.status).toBe(200);
+    expect(billingService.assertTaxCoherent).not.toHaveBeenCalled();
+  });
+
+  it('does NOT consult it when the edit leaves tax in place', async () => {
+    wireDb();
+    await request(app).patch('/api/v1/invoices/900').send({ notes: 'called the client' });
+    expect(billingService.assertTaxCoherent).not.toHaveBeenCalled();
   });
 });

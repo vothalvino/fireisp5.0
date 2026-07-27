@@ -89,9 +89,10 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
 }
 
 /**
- * Reject a NEW fiscal document whose tax figures contradict what the resolver
- * says should apply. Both directions, because both produce a false statement to
- * SAT on a document that cannot be un-sent:
+ * Reject fiscal figures that contradict what the resolver says should apply.
+ * Used on CREATE (invoices, quote conversion) and on the UPDATE path for an
+ * edit that STRIPS the tax off an invoice. Both directions, because both
+ * produce a false statement to SAT on a document that cannot be un-sent:
  *
  *   * tax present on an IVA-EXEMPT client;
  *   * NO tax at all when a non-zero rate applies — the invoice then stamps as
@@ -138,7 +139,7 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
  * @param {number|string} p.taxAmount - the tax figure about to be written
  * @param {string} [p.docType] - wording only ('invoice' | 'quote')
  */
-async function assertTaxCoherentForCreate(exec, {
+async function assertTaxCoherent(exec, {
   orgId, clientId, taxAmount, docType = 'invoice',
 }) {
   if (clientId === null || clientId === undefined) return;
@@ -1023,7 +1024,7 @@ module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
   reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
-  releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext, assertTaxCoherentForCreate,
+  releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext, assertTaxCoherent,
   voidInvoiceById, cancelInvoiceForSat,
   isContractInTrial, calculateOverageCharges,
   nextInvoiceNumber, nextQuoteNumber,

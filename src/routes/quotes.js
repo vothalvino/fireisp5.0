@@ -426,7 +426,7 @@ router.post('/:id/convert-to-invoice', requirePermission('quotes.create'), requi
     //
     // Outside the transaction deliberately — it only reads, and a 422 here must
     // not leave a connection mid-transaction.
-    await billingService.assertTaxCoherentForCreate(db.query.bind(db), {
+    await billingService.assertTaxCoherent(db.query.bind(db), {
       orgId: req.orgId,
       clientId: quote.client_id,
       taxAmount: quote.tax_amount,
