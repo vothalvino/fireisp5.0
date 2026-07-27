@@ -481,24 +481,52 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Warm the BuildKit image (Docker Hub is intermittently unreachable)
-        # setup-buildx-action pulls moby/buildkit itself, and that pull failing
-        # reads as a broken build. GitHub Actions has no native per-step retry,
-        # so pre-pull with backoff; the action's own pull then hits the local
-        # cache. A red build that is not your fault teaches people to ignore red
-        # builds — which is how the e2e job stayed dark for two months.
+        id: warm
+        # A Docker Hub outage must not red main. This job's REAL gate is the
+        # Trivy scan below (exit-code 1 on HIGH/CRITICAL) — being unable to
+        # reach a third-party registry is not a defect in this repository, and a
+        # red build that is not your fault teaches people to ignore red builds,
+        # which is how the e2e job stayed dark for two months.
+        #
+        # So: retry hard, and if the registry is genuinely down, let the job end
+        # GREEN WITH A LOUD WARNING rather than failing the branch. Every step
+        # after this is gated on the outcome, so nothing runs against an image
+        # that was never built.
+        #
+        # The previous version retried 3 times with a flat 15s sleep — about 90
+        # seconds of cover including the client timeouts — and a real outage on
+        # 2026-07-27 walked straight through it. Exponential backoff now covers
+        # roughly five minutes.
+        continue-on-error: true
         run: |
-          for attempt in 1 2 3; do
+          delay=10
+          for attempt in 1 2 3 4 5; do
             if docker pull moby/buildkit:buildx-stable-1; then exit 0; fi
-            echo "::warning::BuildKit pull failed (attempt $attempt/3) — retrying in 15s"
-            sleep 15
+            if [ "$attempt" -lt 5 ]; then
+              echo "::warning::BuildKit pull failed (attempt $attempt/5) — retrying in ${delay}s"
+              sleep "$delay"
+              delay=$(( delay * 2 ))
+            fi
           done
-          echo "::error::Could not pull the BuildKit image after 3 attempts — Docker Hub is unreachable"
+          echo "::error::Could not pull the BuildKit image after 5 attempts"
           exit 1
 
+      - name: Report a skipped scan loudly
+        if: steps.warm.outcome == 'failure'
+        # The trade-off made explicit: THIS COMMIT WAS NOT SCANNED. The job is
+        # green so the branch is not blocked by someone else's outage, but the
+        # annotation is on the run summary so it cannot pass unnoticed. If this
+        # appears on consecutive runs it is no longer an outage — treat it as
+        # broken CI and fix the pull.
+        run: |
+          echo "::warning title=Container scan SKIPPED::Docker Hub was unreachable after 5 attempts, so the image was never built and NO vulnerability scan ran for this commit. The branch is intentionally not failed for a third-party outage — but this commit is unscanned. Re-run the job once Docker Hub recovers."
+
       - name: Set up Docker Buildx
+        if: steps.warm.outcome == 'success'
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
+        if: steps.warm.outcome == 'success'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -509,6 +537,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Generate SBOM with Syft
+        if: steps.warm.outcome == 'success'
         uses: anchore/sbom-action@v0.18.0
         with:
           image: fireisp/fireisp:ci-${{ github.sha }}
@@ -517,6 +546,7 @@ jobs:
           format: spdx-json
 
       - name: Upload SBOM artifact
+        if: steps.warm.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: sbom-${{ github.sha }}
@@ -524,7 +554,7 @@ jobs:
           retention-days: 90
 
       - name: Scan image with Trivy (PR report)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.warm.outcome == 'success'
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: fireisp/fireisp:ci-${{ github.sha }}
@@ -538,7 +568,7 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Scan image with Trivy (blocking)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.warm.outcome == 'success'
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: fireisp/fireisp:ci-${{ github.sha }}
@@ -553,7 +583,7 @@ jobs:
 
       - name: Upload Trivy SARIF report
         uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && steps.warm.outcome == 'success'
         with:
           name: trivy-results-${{ github.sha }}
           path: trivy-results.sarif
@@ -561,10 +591,10 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.8.1
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome == 'success'
 
       - name: Sign image (keyless, main branch only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.REGISTRY != ''
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.REGISTRY != '' && steps.warm.outcome == 'success'
         env:
           REGISTRY: ${{ vars.REGISTRY }}
           COSIGN_EXPERIMENTAL: "1"
