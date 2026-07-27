@@ -56,6 +56,17 @@ function crudController(Model, _options = {}) {
   // after* hook is useless because the insert has already tripped the unique
   // index by then.
   const beforeCreateHook = typeof _options.beforeCreate === 'function' ? _options.beforeCreate : null;
+  // Optional pre-delete guard — called with the EXISTING record (and req) right
+  // after it is fetched and BEFORE the delete is applied. Like beforeUpdate it
+  // MAY throw to reject. Reuses the existing fetch, so it costs no extra query.
+  // afterDelete cannot serve this purpose: it runs once the row is already gone
+  // AND its errors are deliberately swallowed as advisory.
+  const beforeDeleteHook = typeof _options.beforeDelete === 'function' ? _options.beforeDelete : null;
+  // Same, for the restore path — un-deleting a row can be just as consequential
+  // as deleting it (it resurrects an invoice whose CFDI is cancelled at SAT).
+  // Called with (req) rather than a record: restore does not pre-fetch, and
+  // adding a read just to feed the hook would cost a query on every restore.
+  const beforeRestoreHook = typeof _options.beforeRestore === 'function' ? _options.beforeRestore : null;
   // Optional post-update hook — called after the update succeeds (PUT and
   // PATCH) with the updated record (and req). Same non-fatal contract as
   // afterCreate by default: errors are caught and logged, never failing the
@@ -263,6 +274,7 @@ function crudController(Model, _options = {}) {
     async destroy(req, res, next) {
       try {
         const old = await Model.findByIdOrFail(req.params.id, req.orgId);
+        if (beforeDeleteHook) await beforeDeleteHook(old, req);
         await Model.delete(req.params.id, req.orgId);
 
         await auditLog.log({
@@ -301,6 +313,7 @@ function crudController(Model, _options = {}) {
      */
     async restore(req, res, next) {
       try {
+        if (beforeRestoreHook) await beforeRestoreHook(req);
         const record = await Model.restore(req.params.id, req.orgId);
 
         await auditLog.log({

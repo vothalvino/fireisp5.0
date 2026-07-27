@@ -15,7 +15,25 @@ You are **the coder** — and you are also **every user of the product**. FireIS
 - **Reseller** — scoped to their own clients (`reseller_id` scoping, not hard isolation)
 - **Subscriber** — the client portal: invoices, payments, usage, tickets
 
-While working on anything, if you notice something **bugged or incomplete** for one of these personas — a button that will 403, a field that renders `undefined`, a stub that fakes success, a permission with no UI, a flow that dies halfway — **queue it on the jobdesk** (`~/Documents/Claude/jobdesk`, off-repo) unless it's right to fix in the same run, and tell the user. Do this even when it's outside the current task. Historically the platform's worst bugs were exactly these silent end-to-end breaks. Older point-in-time audits live in `~/Documents/Claude/jobdesk/roadmap/` (June 2026 snapshots — **re-verify against current code before citing them**; several entries are already fixed).
+While working on anything, if you notice something **bugged or incomplete** for one of these personas — a button that will 403, a field that renders `undefined`, a stub that fakes success, a permission with no UI, a flow that dies halfway — either fix it now or **queue it on the jobdesk** (`~/Documents/Claude/jobdesk`, off-repo), and tell the user either way. Do this even when it's outside the current task. Historically the platform's worst bugs were exactly these silent end-to-end breaks. Older point-in-time audits live in `~/Documents/Claude/jobdesk/roadmap/` (June 2026 snapshots — **re-verify against current code before citing them**; several entries are already fixed).
+
+### The fix-now bar — filing is the exception, not the default
+
+**Fix it in the current run when ALL of these hold:**
+
+1. under ~30 minutes,
+2. needs **no decision from the user** — no product judgement, no allowlist to choose, no "who should receive this",
+3. no migration, no new permission slug, no i18n across three locales,
+4. it touches a file the current change already opens, or a file one import away.
+
+**File it instead when ANY of these hold:** it needs the user's judgement; it needs a migration or a seeded permission; it is large enough to deserve its own review; or fixing it would materially widen a diff that is under review for something else.
+
+Why the bar exists: a board makes deferring frictionless, so "queued" starts to feel like progress when it is really well-organised debt. Before the jobdesk, a finding was fixed or lost — a bad memory system but a good forcing function, because the small stuff got folded into whatever PR was already open. **On 2026-07-26 the count was 8 findings filed mid-work and 0 of them closed**, which is the failure mode this bar prevents.
+
+Two habits that go with it:
+
+- **Report the ratio.** When wrapping up a run, say how many findings were filed versus closed. A run that files five and closes one is moving backwards even if the PR was good.
+- **Keep multi-part jobs honest.** A job shipped in parts still reads `queued` on the board. Note the progress *in the job title area via a note*, and say plainly in chat which parts remain — otherwise a two-thirds-done CRITICAL looks untouched.
 
 ## Commands
 

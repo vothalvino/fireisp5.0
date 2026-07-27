@@ -175,6 +175,26 @@ const ctrl = crudController(Invoice, {
     assertInvoiceNotTerminal(old.status);
     await assertUpdateFiscallySafe(old, req);
   },
+
+  // DELETE and restore went straight to the generic controller with no fiscal
+  // check at all, so an invoice whose CFDI is vigente at SAT could be
+  // soft-deleted — and restored — while the filed XML stayed on record. The
+  // UPDATE path has been guarded since #532; this is its sibling, and the same
+  // reasoning applies: the row must not diverge from the immutable document the
+  // client and SAT both hold.
+  //
+  // Deliberately NOT also calling assertInvoiceNotTerminal here. A void or
+  // SAT-cancelled invoice carries no live CFDI, and archiving one is exactly
+  // what an operator should be able to do — blocking it would make cancelled
+  // invoices permanently undeletable.
+  beforeDelete: async (old) => {
+    await assertNoLiveCfdi(db.query, old.id,
+      'Cancel or substitute the CFDI before deleting this invoice.');
+  },
+  beforeRestore: async (req) => {
+    await assertNoLiveCfdi(db.query, req.params.id,
+      'This invoice has a live CFDI; restoring it would resurrect a row that disagrees with the filed document.');
+  },
 });
 
 router.use(authenticate);

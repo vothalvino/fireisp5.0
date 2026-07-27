@@ -316,3 +316,51 @@ describe('the rate is kept describing the amounts', () => {
     expect(res.body.error.code).toBe('TAX_INCONSISTENT');
   });
 });
+
+// ---------------------------------------------------------------------------
+// DELETE / restore — the sibling of the update guard (#532)
+// ---------------------------------------------------------------------------
+// Both routes went straight to the generic crudController with no fiscal check
+// at all, so an invoice whose CFDI is vigente at SAT could be soft-deleted, and
+// restored, while the filed XML stayed on record. The update path has been
+// guarded since #532; these are the doors that were left open.
+describe('invoice delete and restore respect a live CFDI', () => {
+  it('the routes declare beforeDelete and beforeRestore guards', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/routes/invoices.js'), 'utf8',
+    );
+    const opts = src.slice(src.indexOf('const ctrl = crudController(Invoice, {'));
+    const block = opts.slice(0, opts.indexOf('\n});'));
+    expect(block).toMatch(/beforeDelete:/);
+    expect(block).toMatch(/beforeRestore:/);
+    // Both must go through the same helper the rest of the file uses.
+    expect(block.match(/assertNoLiveCfdi/g) || []).toHaveLength(2);
+  });
+
+  it('does NOT also block deleting a terminal invoice', () => {
+    // A void or SAT-cancelled invoice carries no live CFDI, and archiving one is
+    // exactly what an operator should be able to do. Calling
+    // assertInvoiceNotTerminal here would make cancelled invoices permanently
+    // undeletable — a guard too broad is its own bug.
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/routes/invoices.js'), 'utf8',
+    );
+    const opts = src.slice(src.indexOf('const ctrl = crudController(Invoice, {'));
+    const block = opts.slice(0, opts.indexOf('\n});'));
+    const del = block.slice(block.indexOf('beforeDelete:'), block.indexOf('beforeRestore:'));
+    expect(del).not.toMatch(/assertInvoiceNotTerminal/);
+  });
+
+  it('crudController runs the guards BEFORE the write', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/controllers/crudController.js'), 'utf8',
+    );
+    // beforeDelete fires between the fetch and the delete...
+    expect(src.indexOf('if (beforeDeleteHook) await beforeDeleteHook(old, req)'))
+      .toBeLessThan(src.indexOf('await Model.delete(req.params.id, req.orgId)'));
+    // ...and beforeRestore before the restore. An after* hook could not serve
+    // either purpose: the row is already gone, and its errors are swallowed.
+    expect(src.indexOf('if (beforeRestoreHook) await beforeRestoreHook(req)'))
+      .toBeLessThan(src.indexOf('const record = await Model.restore(req.params.id, req.orgId)'));
+  });
+});

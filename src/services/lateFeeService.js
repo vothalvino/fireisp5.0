@@ -129,10 +129,16 @@ async function applyLateFees(organizationId) {
        -- line item + changing totals would desync it from the stamped, filed
        -- document. Such invoices need a separate charge (nota de cargo), not
        -- an in-place edit.
+       -- 'draft' belongs here too: a draft CFDI has ALREADY snapshotted its
+       -- conceptos from the current line items and is waiting on a stamp retry,
+       -- so adding a late-fee line silently makes the pending document disagree
+       -- with the invoice it will be filed against. Every sibling guard
+       -- (routes/invoices.js, billingService, invoiceCfdiService,
+       -- creditNoteCfdiService) already includes it; this query was the outlier.
        AND NOT EXISTS (
          SELECT 1 FROM cfdi_documents cd
          WHERE cd.invoice_id = i.id
-           AND cd.sat_status IN ('vigente', 'cancel_pending')
+           AND cd.sat_status IN ('draft', 'vigente', 'cancel_pending')
        )`,
     [organizationId],
   );
