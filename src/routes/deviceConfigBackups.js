@@ -95,7 +95,13 @@ router.get('/:id', requirePermission('device_config_backups.view'), ctrl.get);
 router.post('/', requirePermission('device_config_backups.create'), validate(createDeviceConfigBackup), ctrl.create);
 router.put('/:id', requirePermission('device_config_backups.update'), validate(updateDeviceConfigBackup), ctrl.update);
 router.delete('/:id', requirePermission('device_config_backups.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('device_config_backups.update'), ctrl.restore);
+// NO POST /:id/restore. It existed and was a lie: ctrl.restore is
+// BaseModel.restore, which clears deleted_at on the ROW — it does not push any
+// configuration back to the device, while its name and 200 response say it did.
+// Nothing called it (zero frontend references, and crudPaths never emits it into
+// the OpenAPI spec), so removing it breaks no client. Restoring a device config
+// means writing it to the device; when that is built it needs its own route,
+// its own permission and a job that reports what the device actually accepted.
 
 // ---------------------------------------------------------------------------
 // POST /api/device-config-backups/pull

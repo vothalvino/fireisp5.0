@@ -138,7 +138,12 @@ describe('lateFeeService', () => {
       const invQuery = db.query.mock.calls.find(c => /FROM invoices i/.test(c[0]));
       expect(invQuery[0]).toMatch(/NOT EXISTS/);
       expect(invQuery[0]).toMatch(/cfdi_documents/);
-      expect(invQuery[0]).toMatch(/sat_status IN \('vigente', 'cancel_pending'\)/);
+      // 'draft' belongs in this list too and was missing: a draft CFDI has
+      // already snapshotted its conceptos and is awaiting a stamp retry, so a
+      // late-fee line makes the pending document disagree with the invoice.
+      // This assertion previously pinned the INCOMPLETE list, which is how the
+      // gap survived — the sibling guards all included 'draft'.
+      expect(invQuery[0]).toMatch(/sat_status IN \('draft', 'vigente', 'cancel_pending'\)/);
     });
 
     it('skips invoice when still within grace period', async () => {
@@ -209,5 +214,22 @@ describe('lateFeeService', () => {
       const upd = db.query.mock.calls.find(c => /UPDATE invoices SET subtotal = subtotal \+/.test(c[0]));
       expect(upd[1]).toEqual([50, 8, 58, 10]);
     });
+  });
+});
+
+describe('late fees never touch an invoice whose CFDI is already frozen', () => {
+  it('excludes DRAFT CFDIs, not just vigente/cancel_pending', () => {
+    // A draft CFDI has ALREADY snapshotted its conceptos from the current line
+    // items and is waiting on a stamp retry, so adding a late-fee line makes
+    // the pending document disagree with the invoice it will be filed against.
+    // Every sibling guard (routes/invoices.js, billingService,
+    // invoiceCfdiService, creditNoteCfdiService) includes 'draft'; this query
+    // was the only one that did not.
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/services/lateFeeService.js'), 'utf8',
+    );
+    const notExists = src.slice(src.indexOf('AND NOT EXISTS'));
+    const clause = notExists.slice(0, notExists.indexOf(')`'));
+    expect(clause).toMatch(/sat_status IN \('draft', 'vigente', 'cancel_pending'\)/);
   });
 });

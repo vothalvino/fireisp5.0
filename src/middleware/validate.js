@@ -62,6 +62,14 @@ function validate(schema, options = {}) {
         }
       }
 
+      // Once the DECLARED type is already wrong, every check below is noise and
+      // some of it is actively misleading: the min/max branches key off the
+      // RUNTIME type, so a string sent for a {type:'number', max:1} field fell
+      // into the STRING-length branch and reported "must be at most 1
+      // characters" — read by an operator as "this field takes one digit".
+      // Seen on the IVA rate field, where max:1 is the numeric ceiling (100%).
+      if (errors.some(e => e.field === field)) continue;
+
       // Enum check
       if (rules.enum && !rules.enum.includes(value)) {
         errors.push({ field, message: `${field} must be one of: ${rules.enum.join(', ')}` });
