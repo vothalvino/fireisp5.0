@@ -68330,6 +68330,11 @@
             "type": "string",
             "maximum": 100
           },
+          "postal_codes": {
+            "type": "string",
+            "maximum": 2000,
+            "pattern": {}
+          },
           "tax_type": {
             "type": "string",
             "enum": [
@@ -68370,6 +68375,11 @@
           "region": {
             "type": "string",
             "maximum": 100
+          },
+          "postal_codes": {
+            "type": "string",
+            "maximum": 2000,
+            "pattern": {}
           },
           "tax_type": {
             "type": "string",

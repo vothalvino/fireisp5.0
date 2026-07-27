@@ -20,6 +20,7 @@ interface TaxRule {
   id: number;
   name: string;
   region: string | null;
+  postal_codes: string | null;
   tax_type: string;
   rate: number | string;
   is_default: number | boolean;
@@ -34,6 +35,7 @@ interface TaxRuleResponse {
 interface TaxRuleBody {
   name: string;
   region?: string;
+  postal_codes?: string;
   tax_type?: string;
   rate: number;
   is_default?: boolean;
@@ -122,6 +124,7 @@ function TaxRuleModal({ taxRule, onClose, onSaved }: TaxRuleModalProps) {
   const [form, setForm] = useState({
     name: taxRule?.name ?? '',
     region: taxRule?.region ?? '',
+    postal_codes: taxRule?.postal_codes ?? '',
     tax_type: taxRule?.tax_type ?? 'sales_tax',
     rate: taxRule?.rate != null ? String(taxRule.rate) : '',
     is_default: taxRule ? Boolean(taxRule.is_default) : false,
@@ -143,6 +146,7 @@ function TaxRuleModal({ taxRule, onClose, onSaved }: TaxRuleModalProps) {
         status: form.status,
       };
       if (form.region.trim()) body.region = form.region.trim();
+      if (form.postal_codes.trim()) body.postal_codes = form.postal_codes.trim().replace(/\s+/g, '');
       return isEdit ? updateTaxRule(taxRule.id, body) : createTaxRule(body);
     },
     onSuccess: () => {
@@ -205,6 +209,23 @@ function TaxRuleModal({ taxRule, onClose, onSaved }: TaxRuleModalProps) {
               onChange={e => setField('region', e.target.value)}
               placeholder="State, province, or country"
             />
+          </label>
+
+          <label style={modalStyles.label}>
+            Postal codes
+            <input
+              style={modalStyles.input}
+              type="text"
+              maxLength={2000}
+              value={form.postal_codes}
+              onChange={e => setField('postal_codes', e.target.value)}
+              placeholder="21000-22999,32000-32699,88000"
+            />
+            <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}>
+              5-digit codes and/or ranges, comma separated. A client whose service
+              address falls in one of these gets this rate instead of the org
+              default. Leave blank for a rule that is not postal-code based.
+            </span>
           </label>
 
           <label style={modalStyles.label}>
@@ -378,7 +399,7 @@ export function TaxRuleList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Name', 'Region', 'Type', 'Rate', 'Default', 'Status', 'Actions'].map(
+                    {['ID', 'Name', 'Region', 'Postal codes', 'Type', 'Rate', 'Default', 'Status', 'Actions'].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
@@ -389,6 +410,12 @@ export function TaxRuleList() {
                       <td style={styles.td}>#{t.id}</td>
                       <td style={{ ...styles.td, fontWeight: 500 }}>{t.name}</td>
                       <td style={styles.td}>{t.region ?? '—'}</td>
+                      <td style={{ ...styles.td, fontFamily: 'var(--mono, monospace)', fontSize: 12 }}
+                          title={t.postal_codes ?? ''}>
+                        {t.postal_codes
+                          ? (t.postal_codes.length > 28 ? `${t.postal_codes.slice(0, 28)}…` : t.postal_codes)
+                          : '—'}
+                      </td>
                       <td style={{ ...styles.td, textTransform: 'uppercase' }}>{t.tax_type?.replace(/_/g, ' ')}</td>
                       <td style={styles.td}>{formatRate(t.rate)}</td>
                       <td style={styles.td}>{t.is_default ? '⭐' : '—'}</td>
