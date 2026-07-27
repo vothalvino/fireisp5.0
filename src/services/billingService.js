@@ -165,10 +165,31 @@ async function assertTaxCoherent(exec, {
 
   if (!carriesTax && ctx.rate > 0) {
     const pct = (ctx.rate * 100).toFixed(2).replace(/\.00$/, '');
+
+    // THIS GUARD IS NOT MX-ONLY, and the message must not pretend otherwise.
+    // It fires whenever the resolver reports a non-zero rate, which is true for
+    // ANY org that has configured a default tax_rate — a US org at 8% sales tax
+    // is blocked on the same terms as an MX org at 16% IVA. Only the 16%
+    // FALLBACK inside resolveTaxContext is Mexico-specific.
+    //
+    // So the CFDI/SAT sentence is appended only for an MX org. It was
+    // unconditional, which told a Canadian operator their invoice would
+    // misdeclare to the Mexican tax authority, and pointed them at an
+    // "IVA-exempt" flag by a name their locale does not use.
+    //
+    // The locale read happens only on the failure path, so the happy path costs
+    // no extra query.
+    let mxNote = '';
+    try {
+      if (orgId !== null && orgId !== undefined && (await Organization.getLocale(orgId)) === 'MX') {
+        mxNote = ' A zero-tax CFDI declares to SAT that the sale was not taxable.';
+      }
+    } catch { /* locale unavailable — fall back to the neutral wording */ }
+
     throw new AppError(
       `This ${docType} carries no tax, but ${pct}% applies to this client. `
-      + 'Send the tax figures, or mark the client IVA-exempt if that is correct. '
-      + 'A zero-tax CFDI declares to SAT that the sale was not taxable.',
+      + 'Send the tax figures, or mark the client tax-exempt if that is correct.'
+      + mxNote,
       422, 'TAX_REQUIRED',
     );
   }
