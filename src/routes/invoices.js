@@ -168,6 +168,36 @@ async function assertUpdateFiscallySafe(old, req) {
       );
     }
   }
+
+  // The MIRROR of addsTax, and the reason this hook existed with only half a
+  // guard. An edit that STRIPS the tax off an invoice was accepted silently:
+  //
+  //   PATCH /invoices/123 {"tax_amount": 0, "total": 1000}
+  //
+  // on a 1000 / 160 / 1160 invoice passes TOTAL_INCONSISTENT (1000 = 1000 + 0),
+  // and because no rate was asserted the back-derive branch above rewrites
+  // tax_rate to 0 for us. The invoice then stamps ObjetoImp='01' with no
+  // Impuestos node — telling SAT the sale was not taxable. The identical figures
+  // are rejected by POST /invoices (#549); this was the same hole through the
+  // update door, and unlike create it is the fully UI-driven path.
+  //
+  // Fires ONLY when the edit REMOVES tax that was there. That is what keeps the
+  // "going forward only" guarantee intact:
+  //   * an invoice already at zero tax (a legacy row, or a correctly untaxed
+  //     one) is never re-examined, so changing its due date cannot 422;
+  //   * nothing is ever re-taxed — the edit is refused, never rewritten;
+  //   * an exempt client still passes, because the resolver reports exempt and
+  //     zero tax is then correct. That is the "zero the tax for an exempt
+  //     client" repair the comment above worries about, and it still works.
+  const removesTax = Number(old.tax_amount ?? 0) > 0.005 && taxAmount <= 0.005;
+  if (removesTax && clientId !== null && clientId !== undefined) {
+    await billingService.assertTaxCoherent(db.query.bind(db), {
+      orgId: req.orgId,
+      clientId,
+      taxAmount,
+      docType: 'invoice',
+    });
+  }
 }
 
 const ctrl = crudController(Invoice, {
@@ -357,7 +387,7 @@ router.post('/', requirePermission('invoices.create'), validate(createInvoice), 
       // fields infers taxAmount 0, satisfies both invariants above, and stamps
       // ObjetoImp=01 with no Impuestos node, positively telling SAT the sale
       // was not taxable.
-      await billingService.assertTaxCoherentForCreate(db.query.bind(db), {
+      await billingService.assertTaxCoherent(db.query.bind(db), {
         orgId: req.orgId,
         clientId: req.body.client_id,
         taxAmount,

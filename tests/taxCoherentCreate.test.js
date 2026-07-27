@@ -29,7 +29,7 @@ jest.mock('../src/config/database', () => ({
 jest.mock('../src/models/Organization', () => ({ getLocale: jest.fn(), getCurrency: jest.fn() }));
 
 const Organization = require('../src/models/Organization');
-const { assertTaxCoherentForCreate } = require('../src/services/billingService');
+const { assertTaxCoherent } = require('../src/services/billingService');
 
 /**
  * Stand-in for db.query. resolveTaxContext issues two reads: the client row,
@@ -47,7 +47,7 @@ function execFor({ exempt = false, clientLocale = 'MX', rate = null }) {
   });
 }
 
-const call = (exec, over = {}) => assertTaxCoherentForCreate(exec, {
+const call = (exec, over = {}) => assertTaxCoherent(exec, {
   orgId: 1, clientId: 5, taxAmount: 0, ...over,
 });
 
