@@ -20,6 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { readCsrfCookie } from '@/api/csrf';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -173,6 +174,13 @@ export default function RegulatoryCompliancePage() {
 
 function ConsentTab() {
   const { t } = useTranslation();
+  // PrivateRoute lets readonly and technician onto this page as well as the
+  // intended billing role, and migration 321 grants those two only
+  // subscriber_consents.view. Withdraw needs .manage, which ONLY admin has —
+  // so an ungated button 403s for every non-admin who can see this tab.
+  const { user } = useAuth();
+  const canCreate = can(user, 'subscriber_consents.create');
+  const canManage = can(user, 'subscriber_consents.manage');
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
   const [loading, setLoading] = useState(false);
   // In-person / phone signups get recorded by staff — the portal only covers
@@ -232,6 +240,7 @@ function ConsentTab() {
     <div>
       <h2>{t('regulatoryCompliance.tabs.consent')}</h2>
 
+      {canCreate && (
       <form onSubmit={create} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}>
         <label style={fld}>{t('regulatoryCompliance.consent.clientId')}
           <input style={inp} type="number" min={1} required value={form.client_id}
@@ -260,6 +269,7 @@ function ConsentTab() {
         </button>
         {msg && <span style={{ color: msg.ok ? '#2e7d32' : '#c62828', fontSize: 13 }}>{msg.text}</span>}
       </form>
+      )}
 
       {loading ? (
         <p>{t('common.loading')}</p>
@@ -292,7 +302,7 @@ function ConsentTab() {
                     : t('regulatoryCompliance.consent.active')}
                 </td>
                 <td style={tdStyle}>
-                  {!c.withdrawn_at && (
+                  {canManage && !c.withdrawn_at && (
                     <button onClick={() => withdraw(c.id)} style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #c62828', color: '#c62828', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
                       {t('regulatoryCompliance.consent.withdraw')}
                     </button>

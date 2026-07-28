@@ -1361,17 +1361,27 @@ router.post('/push/subscribe', validate(pushSubscribeSchema), async (req, res, n
 // comes from the portal token, and a client belongs to exactly one org, so an
 // org predicate adds nothing — and would wrongly exclude single-tenant rows
 // where organization_id is NULL by design.
+//
+// document_hash is compared, not just stored. Version alone is not enough: the
+// version is free text an operator is never forced to change, so editing the
+// notice — adding a finalidad, say — while leaving the version box alone would
+// otherwise keep every prior acceptance reading as current against text that no
+// longer exists. That is exactly the claim this feature is meant to be able to
+// prove. The IS NULL arm keeps hash-less rows counting: staff-recorded paper
+// and phone consents (and any row predating this feature) are an operator's
+// attestation, not a hash of served text, so they must not be invalidated.
 const CONSENT_LOOKUP_SQL =
   `SELECT id, given_at FROM subscriber_consents
    WHERE client_id = ? AND purpose = 'service_delivery'
-     AND consent_version = ? AND withdrawn_at IS NULL
+     AND consent_version = ? AND (document_hash IS NULL OR document_hash = ?)
+     AND withdrawn_at IS NULL
    ORDER BY given_at DESC LIMIT 1`;
 
 // GET /portal/privacy-notice — the notice text + whether THIS version is accepted
 router.get('/privacy-notice', async (req, res, next) => {
   try {
     const notice = await privacyNoticeService.getNotice(req.client.organizationId);
-    const [rows] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version]);
+    const [rows] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version, notice.hash]);
     res.json({
       data: {
         version: notice.version,
@@ -1389,7 +1399,7 @@ router.get('/privacy-notice', async (req, res, next) => {
 router.post('/privacy-notice/accept', async (req, res, next) => {
   try {
     const notice = await privacyNoticeService.getNotice(req.client.organizationId);
-    const [existing] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version]);
+    const [existing] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version, notice.hash]);
     if (existing.length > 0) {
       return res.json({ data: { accepted: true, accepted_at: existing[0].given_at } });
     }
@@ -1399,7 +1409,7 @@ router.post('/privacy-notice/accept', async (req, res, next) => {
        VALUES (?, ?, ?, 'service_delivery', 'web', ?, ?, NOW())`,
       [req.client.organizationId, req.client.id, notice.version, req.ip || null, notice.hash],
     );
-    const [rows] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version]);
+    const [rows] = await db.query(CONSENT_LOOKUP_SQL, [req.client.id, notice.version, notice.hash]);
     res.status(201).json({ data: { accepted: true, accepted_at: rows[0]?.given_at ?? null } });
   } catch (err) {
     next(err);

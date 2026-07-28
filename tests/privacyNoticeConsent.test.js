@@ -144,6 +144,33 @@ describe('POST /portal/privacy-notice/accept', () => {
   });
 });
 
+describe('an edit to the notice text re-prompts even with the version unchanged', () => {
+  // The failure this closes: an org pastes its own text, leaves the version box
+  // empty (so it stays 'custom-1'), subscribers accept, then the org adds a new
+  // finalidad and saves — still 'custom-1'. Version-only matching would report
+  // every one of those acceptances as current against text that no longer
+  // exists, which is precisely the claim the feature has to be able to prove.
+  it('compares the content hash, not just the version string', async () => {
+    wirePortal({ org: { ...MX_ORG, privacy_notice: '# v1 text' } });
+    await getNotice();
+    const lookup = db.query.mock.calls.find(c => /FROM subscriber_consents/.test(c[0]));
+    expect(lookup[0]).toMatch(/document_hash/);
+    // The bound hash is the SHA-256 of the text actually served.
+    const served = require('crypto').createHash('sha256').update('# v1 text', 'utf8').digest('hex');
+    expect(lookup[1]).toContain(served);
+  });
+
+  it('still honours a hash-less row — a staff-recorded paper consent stays valid', async () => {
+    // Paper and phone consents are an operator attestation, not a hash of
+    // served text. Invalidating them would nag subscribers who already signed.
+    wirePortal({ consents: [{ id: 4, given_at: '2026-06-01T00:00:00.000Z' }] });
+    const { body } = await getNotice();
+    expect(body.data.accepted).toBe(true);
+    const lookup = db.query.mock.calls.find(c => /FROM subscriber_consents/.test(c[0]));
+    expect(lookup[0]).toMatch(/document_hash IS NULL OR document_hash = \?/);
+  });
+});
+
 describe('staff POST /regulatory-compliance/consent — now validated and org-checked', () => {
   const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
 
