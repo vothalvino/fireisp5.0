@@ -5,11 +5,21 @@
 const TAX_TYPES = ['vat', 'sales_tax', 'gst', 'other'];
 const STATUSES = ['active', 'inactive'];
 
-// A comma-separated list of 5-digit codes and/or 5-digit ranges:
-//   "21000-22999,32000-32699,88000"
+// A comma-separated list of postal codes, ranges and/or prefixes:
+//   "21000-22999,32000-32699,88000"   Mexico / US / Spain — 5-digit
+//   "0801-0899,0301"                  Panama — 4-digit
+//   "K1A*,M5V*"                       Canada — alphanumeric prefix
+//   "3000-3999"                       Australia — 4-digit
+//
+// Deliberately NOT 5-digit-only. The first version of this pattern was, which
+// meant an operator outside a 5-digit country could not save a rule for their
+// own addresses at all — a Mexican assumption baked into a feature that is
+// supposed to be region-agnostic.
+//
 // Enforced here because a malformed entry silently matches nothing, which bills
-// a border subscriber at 16% with no error anywhere.
-const POSTAL_CODES = /^\s*\d{5}(\s*-\s*\d{5})?(\s*,\s*\d{5}(\s*-\s*\d{5})?)*\s*$/;
+// the subscriber at the default rate with no error anywhere.
+const ENTRY = '[A-Za-z0-9]{1,10}\\*?(\\s*-\\s*[A-Za-z0-9]{1,10})?';
+const POSTAL_CODES = new RegExp(`^\\s*${ENTRY}(\\s*,\\s*${ENTRY})*\\s*$`);
 
 const createTaxRule = {
   name: { type: 'string', required: true, max: 255 },

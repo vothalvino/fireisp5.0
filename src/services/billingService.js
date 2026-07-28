@@ -25,12 +25,32 @@ const { drawdownForSale } = require('./inventoryDrawdownService');
  */
 function normalizePostalCode(raw) {
   if (raw === null || raw === undefined) return null;
-  const digits = String(raw).match(/\d{5}/g);
-  // Exactly one 5-digit run, or the first of a "CP-plus-suffix" form where the
-  // extra digits are a known 4-digit extension. Two unrelated codes = ambiguous.
-  if (!digits || digits.length === 0) return null;
-  if (digits.length > 1 && !/^\s*\d{5}\s*-\s*\d{4}\s*$/.test(String(raw))) return null;
-  return digits[0];
+  const str = String(raw).trim().toUpperCase();
+  if (!str) return null;
+
+  // Strategy 1 — a 5-digit run. Covers Mexico, the US, Spain, France, Germany,
+  // and the "CP 22000" / "22000-1234" forms operators actually type. Kept FIRST
+  // and unchanged so the border-region behaviour that is already live cannot
+  // shift under it.
+  const five = str.match(/\d{5}/g);
+  if (five) {
+    // Two unrelated codes in one field is ambiguous — "22000 o 06000" must not
+    // silently pick the border one.
+    if (five.length > 1 && !/^\s*\d{5}\s*-\s*\d{4}\s*$/.test(str)) return null;
+    return five[0];
+  }
+
+  // Strategy 2 — every other postal shape in the world. FireISP is not a
+  // Mexican product with a global mode; a 5-digit-only matcher meant a Panama
+  // operator (0801), a Canadian (K1A 0B1), an Australian (3000) or a UK
+  // operator (SW1A 1AA) could never match a rule to their own addresses.
+  // Punctuation and spacing are dropped so "K1A 0B1" and "k1a-0b1" compare equal.
+  const cleaned = str.replace(/[^A-Z0-9]/g, '');
+  if (cleaned.length < 3 || cleaned.length > 10) return null;
+  // A postal code contains at least one digit everywhere it is used; requiring
+  // one keeps free text like "n/a" or "unknown" from becoming a code.
+  if (!/\d/.test(cleaned)) return null;
+  return cleaned;
 }
 
 /**
@@ -41,19 +61,38 @@ function normalizePostalCode(raw) {
 function postalSpecMatch(spec, cp) {
   if (!spec || !cp) return null;
   let best = null;
+  const consider = (width) => { if (best === null || width < best) best = width; };
+
   for (const partRaw of String(spec).split(',')) {
-    const part = partRaw.trim();
+    const part = partRaw.trim().toUpperCase().replace(/\s+/g, '');
     if (!part) continue;
-    const range = part.match(/^(\d{5})\s*-\s*(\d{5})$/);
+
+    // A RANGE, e.g. 21000-22999 or 0801-0899. Only meaningful between numeric
+    // codes of the SAME length: "K1A-M5V" has no ordering, and comparing a
+    // 4-digit code against a 5-digit range would match across countries.
+    const range = part.match(/^(\d+)-(\d+)$/);
     if (range) {
-      const [lo, hi] = [range[1], range[2]].sort();
-      if (cp >= lo && cp <= hi) {
-        const width = Number(hi) - Number(lo) + 1;
-        if (best === null || width < best) best = width;
-      }
-    } else if (/^\d{5}$/.test(part) && part === cp) {
-      best = 1;
+      const [a, b] = [range[1], range[2]];
+      if (a.length !== b.length || cp.length !== a.length || !/^\d+$/.test(cp)) continue;
+      const [lo, hi] = Number(a) <= Number(b) ? [a, b] : [b, a];
+      if (cp >= lo && cp <= hi) consider(Number(hi) - Number(lo) + 1);
+      continue;
     }
+
+    // A PREFIX, e.g. K1A* — the only workable form for alphanumeric systems
+    // (Canada, the UK, the Netherlands), where a numeric range is meaningless
+    // but the leading characters denote the area.
+    if (part.endsWith('*')) {
+      const prefix = part.slice(0, -1);
+      if (prefix && cp.startsWith(prefix)) {
+        // Longer prefix = narrower rule, and always broader than an exact code.
+        consider(10 ** Math.max(1, 10 - prefix.length));
+      }
+      continue;
+    }
+
+    // An EXACT code.
+    if (part === cp) consider(1);
   }
   return best;
 }

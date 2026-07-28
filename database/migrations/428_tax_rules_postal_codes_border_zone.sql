@@ -54,8 +54,16 @@
 --        Balancán, Tenosique; Quintana Roo: Othón P. Blanco.
 --
 -- ── FORMAT ──────────────────────────────────────────────────────────────────
--- postal_codes holds a comma-separated list of 5-digit codes and/or ranges:
---     '21000-22999,32000-32699,88000'
+-- postal_codes holds a comma-separated list of codes, ranges and/or prefixes:
+--     '21000-22999,32000-32699,88000'   Mexico / US / ES / FR — 5-digit
+--     '0801-0899,0301'                  Panama — 4-digit
+--     'K1A*,M5V*'                       Canada — alphanumeric prefix
+--
+-- NOTE: the COLUMN COMMENT below still says "5-digit". It was written when the
+-- matcher was 5-digit-only and is deliberately NOT edited here — changing an
+-- ALTER that has already run would drift this file from every database that
+-- applied it, for a piece of developer-facing metadata. The authoritative
+-- description is this header and the format help on the Tax Rules screen.
 -- Matching happens in JS over the org's handful of active rules, so no index is
 -- needed; the column is a list rather than a child table so the existing Tax
 -- Rules CRUD screen can edit it without a sub-editor.
