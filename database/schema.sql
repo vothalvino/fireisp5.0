@@ -7138,7 +7138,6 @@ INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
     -- `default_currency` intentionally omitted (removed by migration 405):
     -- an org's currency lives on organizations.currency, read by
     -- Organization.getCurrency(); a duplicate settings key had zero readers.
-    ('default_tax_rate',             '0.00',       'Default tax rate percentage applied to new invoices when no tax_rate_id is selected'),
     ('invoice_prefix',               'INV-',       'Prefix prepended to auto-generated invoice numbers'),
     ('quote_prefix',                 'QUT-',       'Prefix prepended to auto-generated quote numbers'),
     ('credit_note_prefix',           'CN-',        'Prefix prepended to auto-generated credit note numbers'),
