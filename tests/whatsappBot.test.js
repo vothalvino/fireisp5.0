@@ -5,6 +5,10 @@
 jest.mock('../src/config/database', () => ({ query: jest.fn() }));
 jest.mock('../src/services/whatsappService');
 jest.mock('../src/services/whatsappCapabilityService');
+// The §21 engine is required lazily inside the bot's AI branch.
+jest.mock('../src/services/supportConversationService', () => ({
+  startConversation: jest.fn(), sendMessage: jest.fn(),
+}));
 jest.mock('../src/services/emailTransport', () => ({ sendEmail: jest.fn().mockResolvedValue({ success: true }) }));
 jest.mock('../src/utils/logger', () => {
   const m = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), child: jest.fn(() => m) };
@@ -15,6 +19,7 @@ const db = require('../src/config/database');
 const wa = require('../src/services/whatsappService');
 const cap = require('../src/services/whatsappCapabilityService');
 const emailTransport = require('../src/services/emailTransport');
+const support = require('../src/services/supportConversationService');
 const bot = require('../src/services/whatsappBotService');
 
 const PHONE = '+525512345678';
@@ -359,4 +364,113 @@ it('throttles an unbound number that floods messages', async () => {
   const { reply } = await bot.handleInbound({ phone: PHONE, body: 'test@x.com' });
   expect(reply).toMatch(/wait a few minutes/i);
   expect(wa.createVerification).not.toHaveBeenCalled();
+});
+
+// ===========================================================================
+// Free text reaches the §21 AI support engine (j27)
+// ===========================================================================
+// The bot was a fixed numbered menu, so "mi internet se cae cada noche desde el
+// martes" fell through to 'menu' and got a list of numbers back — the channel
+// most Mexican customers prefer had the least capable support path, while a
+// full intent-classification and diagnostics engine sat unused next door.
+describe('free-text support', () => {
+  // The binding uses camelCase (handleBound reads binding.clientId /
+  // binding.organizationId) — snake_case here silently yields undefined orgId.
+  const BOUND = { clientId: 42, organizationId: 3, linkId: 11 };
+  const aiConversation = (over = {}) => ({
+    conversation: { id: 900, status: 'open', ...over.conversation },
+    messages: over.messages ?? [
+      { role: 'customer', content: 'x' },
+      { role: 'assistant', content: 'Veo reintentos de PPPoE en tu enlace desde el martes.' },
+    ],
+  });
+
+  beforeEach(() => {
+    wa.resolveBinding.mockResolvedValue(BOUND);
+    support.startConversation.mockResolvedValue(aiConversation());
+    support.sendMessage.mockResolvedValue(aiConversation());
+  });
+
+  const ask = (body) => bot.handleInbound({ phone: PHONE, body });
+
+  it('routes a real question to the engine and returns its answer', async () => {
+    const { reply } = await ask('mi internet se cae cada noche desde el martes');
+    expect(support.startConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 3, clientId: 42, channel: 'whatsapp' }),
+    );
+    expect(reply).toMatch(/reintentos de PPPoE/);
+  });
+
+  it('passes channel=whatsapp — the engine was already channel-aware', async () => {
+    await ask('no tengo servicio desde ayer por la tarde');
+    expect(support.startConversation.mock.calls[0][0].channel).toBe('whatsapp');
+  });
+
+  it.each([
+    ['hola', 'a bare greeting'],
+    ['1', 'a menu selection'],
+    ['gracias', 'a pleasantry'],
+    ['ok', 'an acknowledgement'],
+  ])('does NOT spend an LLM call on %s (%s)', async (body) => {
+    await ask(body);
+    expect(support.startConversation).not.toHaveBeenCalled();
+  });
+
+  it('does not spend an LLM call on a SHORT multi-word reply', async () => {
+    // "voy a ver" is 9 chars / 3 words: it starts with no pleasantry keyword
+    // and clears the word-count bar, so the LENGTH guard is the only thing
+    // rejecting it. Without a case like this the length check is untested —
+    // every other input here is caught by one of the other rules, which a
+    // mutation run showed by surviving its removal.
+    await ask('voy a ver');
+    expect(support.startConversation).not.toHaveBeenCalled();
+  });
+
+  it('leaves the numbered menu working — 1 is still the balance', async () => {
+    const { reply } = await ask('1');
+    expect(support.startConversation).not.toHaveBeenCalled();
+    expect(reply).toMatch(/balance/i);
+  });
+
+  it('CONTINUES one thread rather than opening a conversation per message', async () => {
+    // A subscriber describes a fault across three messages. A new conversation
+    // each time means a new diagnostic context each time.
+    wa.getConversationState.mockResolvedValue({
+      state: 'ai_support', clientId: 42, context: { supportConversationId: 900 },
+    });
+    await ask('y tambien se cae el wifi en el cuarto de atras');
+    expect(support.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 900, orgId: 3 }),
+    );
+    expect(support.startConversation).not.toHaveBeenCalled();
+  });
+
+  it('remembers the thread id for the next message', async () => {
+    await ask('mi internet se cae cada noche desde el martes');
+    expect(wa.setConversationState).toHaveBeenCalledWith(
+      PHONE, 42, 'ai_support', { supportConversationId: 900 },
+    );
+  });
+
+  it('tells the customer a human is coming when the engine escalates', async () => {
+    support.startConversation.mockResolvedValue(aiConversation({ conversation: { status: 'escalated' } }));
+    const { reply } = await ask('esto es un fraude, me estan cobrando de mas otra vez');
+    expect(reply).toMatch(/support team|follow up/i);
+    // The thread is cleared so the next message starts fresh with a human involved.
+    expect(wa.clearConversationState).toHaveBeenCalledWith(PHONE);
+  });
+
+  it('FALLS BACK TO THE MENU when the engine is unavailable', async () => {
+    // An LLM outage must not surface as an error message to a customer.
+    support.startConversation.mockRejectedValue(new Error('no AI provider configured'));
+    const { reply } = await ask('mi internet se cae cada noche desde el martes');
+    expect(reply).toMatch(/Account balance/);      // the menu
+    expect(reply).not.toMatch(/error|sorry|unavailable/i);
+  });
+
+  it('falls back to the menu when the engine returns no assistant message', async () => {
+    support.startConversation.mockResolvedValue(aiConversation({ messages: [{ role: 'customer', content: 'x' }] }));
+    const { reply } = await ask('mi internet se cae cada noche desde el martes');
+    expect(reply).toMatch(/Account balance/);
+  });
 });

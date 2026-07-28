@@ -52,6 +52,13 @@ const MSG = {
   problemLogged: (id) => `✅ Thanks — I've opened ticket #${id} and our team will follow up. Reply MENU anytime.`,
   humanLogged: (id) => `👍 A team member will reach out. Your reference is ticket #${id}.`,
   ticketCapped: 'You already have open requests with us — our team is on it. Reply MENU for other options.',
+  // The §21 engine returns its own answer text; these two frame it. Kept
+  // alongside the other bot copy rather than in i18n because whatsappBotService
+  // is server-side and speaks one language per install — the copy here is
+  // English to match every other string in this file, and translating the whole
+  // bot is its own job.
+  aiEscalated: "Thanks — I've passed this to our support team and someone will follow up here shortly. Reply MENU anytime.",
+  aiMenuHint: 'Reply MENU for the options list, or 7 to talk to a person.',
   // Wi-Fi reset
   wifiConfirm: (emailMasked) =>
     `🔐 I'll set a *new* Wi-Fi password and email it to ${emailMasked} — I never show it here in chat. `
@@ -225,6 +232,63 @@ async function handleInbound({ phone, body }) {
 // Bound-client bot: menu + read-only capabilities + report-a-problem flow
 // ---------------------------------------------------------------------------
 
+/**
+ * Route a free-text message through the AI support engine.
+ *
+ * Continuity matters on WhatsApp: a subscriber describes a fault across three
+ * messages. The support_conversations id is kept in the bot's own conversation
+ * state so follow-ups continue ONE thread rather than opening a new
+ * conversation — and therefore a new diagnostic context — per message.
+ *
+ * channel='whatsapp' is passed through: support_conversations.channel is a
+ * free-text VARCHAR defaulting to 'web', so the engine was already
+ * channel-aware and nobody had connected the second channel. No migration.
+ *
+ * THE HANDOFF THRESHOLD IS NOT A NEW DECISION. supportConversationService
+ * already owns it (LOW_CONFIDENCE_THRESHOLD, MAX_LOW_CONFIDENCE_MESSAGES, plus
+ * explicit human-request / negative-sentiment / billing-dispute triggers).
+ * Inventing a second threshold for WhatsApp would mean the same sentence
+ * escalates in the portal and not here.
+ *
+ * Returns the reply text, or null to fall back to the menu. EVERY failure
+ * returns null: an LLM outage, a missing provider, a DB error — none of them
+ * may surface as an error message to a customer on WhatsApp.
+ */
+async function tryAiSupport({ phone, orgId, clientId, text, state }) {
+  try {
+    const support = require('./supportConversationService');
+    const priorId = state?.context?.supportConversationId || null;
+
+    let result;
+    if (priorId) {
+      result = await support.sendMessage({ conversationId: priorId, orgId, content: text, clientId });
+    } else {
+      result = await support.startConversation({ orgId, clientId, channel: 'whatsapp', message: text });
+    }
+    if (!result?.conversation) return null;
+
+    const conv = result.conversation;
+    const messages = result.messages || [];
+
+    // An escalated conversation gets no AI reply by design, so say a human is
+    // coming rather than returning the greeting and looking like a non-answer.
+    if (conv.status === 'escalated') {
+      await wa.clearConversationState(phone);
+      return MSG.aiEscalated;
+    }
+
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    if (!lastAssistant?.content) return null;
+
+    // Remember the thread so the next message continues it.
+    await wa.setConversationState(phone, clientId, 'ai_support', { supportConversationId: conv.id });
+    return `${lastAssistant.content}\n\n_${MSG.aiMenuHint}_`;
+  } catch (err) {
+    logger.warn({ err: err.message, clientId }, 'WhatsApp AI support unavailable — falling back to the menu');
+    return null;
+  }
+}
+
 function isMenuCommand(text) {
   return /^\s*(menu|men[uú]|cancel|cancelar|salir|0)\s*$/i.test(text || '');
 }
@@ -240,6 +304,27 @@ function parseIntent(text) {
   if (/^6$|visit|visita|t[eé]cnico|technician|schedule|agenda|cita/.test(t)) return 'visit';
   if (/^7$|human|agente|asesor|person|talk|hablar/.test(t)) return 'human';
   return 'menu';
+}
+
+/**
+ * Is this free text worth sending to the §21 AI support engine?
+ *
+ * The bot is a fixed numbered menu, so "mi internet se cae cada noche desde el
+ * martes" fell through parseIntent to 'menu' and got a list of numbers back —
+ * the channel most Mexican customers prefer had the least capable support path,
+ * while a full intent-classification + diagnostics engine sat unused next door.
+ *
+ * The bar is deliberately conservative. A bare greeting, a stray number or a
+ * one-word reply is menu navigation, not a support question, and routing those
+ * to an LLM would spend money to answer "hola" worse than the menu does.
+ */
+function isFreeTextQuestion(text) {
+  const t = String(text || '').trim();
+  if (t.length < 12) return false;                       // "hola", "1", "gracias"
+  if (/^\d+$/.test(t)) return false;                     // menu selection
+  if (/^\s*(hola|hi|hello|buenas|buenos d[ií]as|gracias|thanks|ok|s[ií]|no)\b/i.test(t)
+      && t.split(/\s+/).length <= 3) return false;       // short pleasantry
+  return t.split(/\s+/).length >= 3;                     // a sentence, not a keyword
 }
 
 function isConfirmCommand(text) {
@@ -416,6 +501,23 @@ async function handleBound({ phone, body, binding }) {
     }
     const id = await cap.scheduleVisit({ orgId, clientId, contract: state.context?.contract || null, preferredDate: state.context?.date, slot });
     return { reply: MSG.visitLogged(id, state.context?.date, slot), clientId };
+  }
+
+  // No active flow. Before falling back to the numbered menu, give real
+  // free text to the §21 engine — intent classification, diagnostics against
+  // the actual account and connection, and confidence-scored escalation. The
+  // menu stays as the fallback for everything else.
+  // FREE TEXT WINS OVER KEYWORD MATCHING, and that ordering is the point.
+  // parseIntent matches bare words anywhere in the message, so "no tengo
+  // servicio desde ayer" hits `servicio` and "y tambien se cae el wifi" hits
+  // `wifi` — both would have been answered with a canned menu response instead
+  // of reaching the engine. Someone who writes a SENTENCE wants an answer, not
+  // a plan summary; someone who types `2` wants the menu.
+  if (isFreeTextQuestion(text)) {
+    const aiReply = await tryAiSupport({ phone, orgId, clientId, text, state });
+    if (aiReply) return { reply: aiReply, clientId };
+    // Fall through to the menu when the engine is unavailable — a bot that
+    // apologises for an internal error is worse than one that offers a menu.
   }
 
   // No active flow — parse an intent.
