@@ -2,7 +2,7 @@
 // FireISP 5.0 — Device Bulk Import
 // =============================================================================
 // Standalone page at /device-import.
-// Provides a CSV file upload form that posts to POST /import/devices/upload.
+// Provides a CSV file upload form that posts to POST /api/v1/import/devices/upload.
 // Displays per-row import results (successes and errors) after submission.
 // §6.1 feature: "Bulk device import via CSV"
 // =============================================================================
@@ -53,7 +53,10 @@ async function uploadDeviceCsv(file: File): Promise<ImportResult> {
   formData.append('file', file);
 
   const csrf = readCsrfCookie();
-  const res = await fetch('/api/import/devices/upload', {
+  // Versioned prefix: the unversioned /api mount still forwards to the same
+  // v1 router, but emits a Deprecation header with a 2027-06-01 Sunset
+  // (src/app.js). This was the last unversioned call left in the frontend.
+  const res = await fetch('/api/v1/import/devices/upload', {
     method: 'POST',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
