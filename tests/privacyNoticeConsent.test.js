@@ -112,12 +112,32 @@ describe('GET /portal/privacy-notice — bundled templates', () => {
     wirePortal({ org: { name: 'Bare Org', locale: 'MX', privacy_notice: null, privacy_notice_version: null } });
     const { body } = await getNotice();
     const { content } = body.data;
-    expect(content).not.toMatch(/—/);
+    // Match the DEAD PLACEHOLDER shape, not the character. A bare /—/ is the
+    // wrong assertion: the English template legitimately uses an em-dash as a
+    // clause separator ("...consent you have given — open a ticket..."), so a
+    // character-level check both misses the English regression it should catch
+    // and would fire on innocent Spanish prose. What is actually forbidden is a
+    // dash standing WHERE A VALUE SHOULD BE.
+    expect(content).not.toMatch(/\*\*—\*\*/);
+    expect(content).not.toMatch(/(?:en|at|a)\s+—/);
     expect(content).not.toMatch(/\{\{/);          // no unreplaced template vars either
     // The portal is always a real channel — the subscriber is reading this in it.
     expect(content).toMatch(/abra un ticket desde este portal/);
     // And no dangling "con domicilio en ," from the omitted address.
     expect(content).toMatch(/\*\*Bare Org\*\* \(el "Responsable"\) es responsable/);
+  });
+
+  it('the ENGLISH template is equally free of dead placeholders', async () => {
+    // The MX case above cannot cover this: the two templates have different
+    // prose, and only the English one uses an em-dash as a separator — so the
+    // English path was the one a character-level check could never guard.
+    wirePortal({ org: { name: 'Bare Global Org', locale: 'global', privacy_notice: null, privacy_notice_version: null } });
+    const { content } = (await getNotice()).body.data;
+    expect(content).not.toMatch(/\*\*—\*\*/);
+    expect(content).not.toMatch(/located at\s*—/);
+    expect(content).not.toMatch(/\{\{/);
+    expect(content).toMatch(/open a ticket from this customer portal/);
+    expect(content).toMatch(/\*\*Bare Global Org\*\* \("we"\) is responsible/);
   });
 
   it('uses the real contact channels when the org has them', async () => {
