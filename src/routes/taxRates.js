@@ -61,11 +61,93 @@ const ctrl = crudController(TaxRate, {
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('tax_rates.view'), ctrl.list);
-router.get('/:id', requirePermission('tax_rates.view'), ctrl.get);
+// ---------------------------------------------------------------------------
+// Shared (NULL-org) rates — j42
+// ---------------------------------------------------------------------------
+// Migration 121 seeds four rates with organization_id NULL, 'applies to all
+// tenants'. The two halves of the product disagreed about whether they exist:
+// the resolver's explicit-id branch admits them (organization_id IS NULL, kept
+// deliberately in #548), while this router's org-scoped CRUD emitted
+// `WHERE organization_id = ?`, which a NULL row can never match. So a rate the
+// resolver would happily apply was invisible: the operator could not see,
+// deactivate, or even discover WHY a rate id resolved.
+//
+// The fix makes the READ half agree with the resolver: list and get admit
+// NULL-org rows, marked `is_shared`, and the write routes refuse them with an
+// explicit 403 instead of the misleading 404 the org predicate used to
+// produce. Writes stay refused because a shared row nobody owns must not be
+// editable by any one tenant — deactivating it for yourself would deactivate
+// it for everybody.
+//
+// req.orgId is always set here: orgScope (mounted above) rejects a caller with
+// no organization outright, so there is no null-org case on this router and no
+// branch is written for one.
+
+/** True when the target row is a shared (NULL-org) rate. */
+async function isSharedRate(id) {
+  const [rows] = await db.query(
+    'SELECT organization_id FROM tax_rates WHERE id = ? LIMIT 1',
+    [id],
+  );
+  return rows.length > 0 && rows[0].organization_id === null;
+}
+
+function blockSharedRateWrites(req, res, next) {
+  isSharedRate(req.params.id)
+    .then((shared) => {
+      if (!shared) return next();
+      res.status(403).json({
+        error: {
+          code: 'SHARED_TAX_RATE_READONLY',
+          message: 'This is a shared rate available to every organization on this install — it cannot be edited or deleted from one organization. Create your own rate instead.',
+        },
+      });
+    })
+    .catch(next);
+}
+
+router.get('/', requirePermission('tax_rates.view'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
+    // The org's own rows plus the install-wide shared ones.
+    const conditions = ['deleted_at IS NULL', '(organization_id = ? OR organization_id IS NULL)'];
+    const params = [req.orgId];
+    if (req.query.status) { conditions.push('status = ?'); params.push(req.query.status); }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const [rows] = await db.query(
+      `SELECT tax_rates.*, (organization_id IS NULL) AS is_shared FROM tax_rates ${where}
+        ORDER BY is_shared ASC, id ASC LIMIT ${limit} OFFSET ${offset}`,
+      params,
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM tax_rates ${where}`,
+      params,
+    );
+    res.json({ data: rows, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+  } catch (err) { next(err); }
+});
+
+router.get('/:id', requirePermission('tax_rates.view'), async (req, res, next) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT tax_rates.*, (organization_id IS NULL) AS is_shared
+         FROM tax_rates
+        WHERE id = ? AND deleted_at IS NULL
+          AND (organization_id = ? OR organization_id IS NULL) LIMIT 1`,
+      [req.params.id, req.orgId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Tax rate not found' } });
+    }
+    res.json({ data: rows[0] });
+  } catch (err) { next(err); }
+});
+
 router.post('/', requirePermission('tax_rates.create'), validate(createTaxRate), ctrl.create);
-router.put('/:id', requirePermission('tax_rates.update'), validate(updateTaxRate), ctrl.update);
-router.delete('/:id', requirePermission('tax_rates.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('tax_rates.update'), ctrl.restore);
+router.put('/:id', requirePermission('tax_rates.update'), blockSharedRateWrites, validate(updateTaxRate), ctrl.update);
+router.delete('/:id', requirePermission('tax_rates.delete'), blockSharedRateWrites, ctrl.destroy);
+router.post('/:id/restore', requirePermission('tax_rates.update'), blockSharedRateWrites, ctrl.restore);
 
 module.exports = router;

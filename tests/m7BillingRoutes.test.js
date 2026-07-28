@@ -22,6 +22,7 @@ jest.mock('../src/models/TaxRate');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
+const db = require('../src/config/database');
 const User = require('../src/models/User');
 const Promotion = require('../src/models/Promotion');
 const TaxRule = require('../src/models/TaxRule');
@@ -53,6 +54,20 @@ beforeEach(() => {
   TaxRule.tableName = 'tax_rules';
   TaxRate.hasOrgScope = true;
   TaxRate.tableName = 'tax_rates';
+
+  // tax-rates' list and its write guard read the DB directly rather than going
+  // through the model — they have to, because shared (NULL-org) rates need
+  // `organization_id = ? OR IS NULL`, which BaseModel cannot express (j42).
+  // Default the mock to "one org-owned row", so the generic write tests below
+  // behave exactly as they did when everything went through the model.
+  db.query.mockImplementation(async (sql) => {
+    if (/COUNT\(\*\)/.test(sql)) return [[{ total: 1 }]];
+    if (/SELECT organization_id FROM tax_rates WHERE id = \?/.test(sql)) {
+      return [[{ organization_id: 1 }]];           // org-owned ⇒ writes allowed
+    }
+    if (/FROM tax_rates/.test(sql)) return [[{ id: 1, name: 'IVA 16%', rate: 0.16, organization_id: 1, is_shared: 0 }]];
+    return [[]];
+  });
 });
 
 const resources = [

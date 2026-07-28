@@ -104,6 +104,30 @@ describe('GET /portal/privacy-notice — bundled templates', () => {
     expect(body.data.version).toBe('custom-1');
   });
 
+  it('never prints a dead placeholder when the org has no email or address', async () => {
+    // Found on the live demo after the redeploy: an org with no contact email
+    // produced "exercise your ARCO rights by writing to **—**", and claimed the
+    // responsable was "located at —". A privacy notice whose legally-required
+    // contact is an em-dash is a broken legal document, not a cosmetic gap.
+    wirePortal({ org: { name: 'Bare Org', locale: 'MX', privacy_notice: null, privacy_notice_version: null } });
+    const { body } = await getNotice();
+    const { content } = body.data;
+    expect(content).not.toMatch(/—/);
+    expect(content).not.toMatch(/\{\{/);          // no unreplaced template vars either
+    // The portal is always a real channel — the subscriber is reading this in it.
+    expect(content).toMatch(/abra un ticket desde este portal/);
+    // And no dangling "con domicilio en ," from the omitted address.
+    expect(content).toMatch(/\*\*Bare Org\*\* \(el "Responsable"\) es responsable/);
+  });
+
+  it('uses the real contact channels when the org has them', async () => {
+    wirePortal({ org: MX_ORG });
+    const { body } = await getNotice();
+    expect(body.data.content).toMatch(/privacidad@fibranorte\.mx/);
+    expect(body.data.content).toMatch(/6641234567/);
+    expect(body.data.content).toMatch(/con domicilio en Av\. Revolución 100, Tijuana/);
+  });
+
   it('reports accepted with the acceptance date when a matching consent exists', async () => {
     wirePortal({ consents: [{ id: 4, given_at: '2026-07-01T00:00:00.000Z' }] });
     const { body } = await getNotice();
