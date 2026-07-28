@@ -312,18 +312,48 @@ describe('handleTrap()', () => {
 // start / stop lifecycle
 // ---------------------------------------------------------------------------
 
+// These three tests were the repo's longest-running flake: ~1 full-suite run in
+// 4 failed here, while the file ALONE passed 12/12. Every failure looked the
+// same — snmp.createReceiver with ZERO calls, i.e. start() took its
+// `if (receiver) return receiver` early-return because the module-level
+// `receiver` was still set from a previous test.
+//
+// The old setup depended on that module-level variable being correctly cleared
+// by a stop() in beforeEach, which is exactly the state the tests are trying to
+// assert about. Rather than chase the residue, each test now gets a FRESH copy
+// of the module (resetModules + re-require), so `receiver` is provably null at
+// the start of every one and there is no cross-test residue to leak. afterEach
+// stops whatever the test started, so nothing survives the block either.
 describe('start() / stop()', () => {
+  let mod;
+  let freshSnmp;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    // Reset the module-level `receiver` reference between tests
-    stop(); // Ensure stopped before each test
+    jest.resetModules();
+    // Re-require BOTH: the fresh service closes over a fresh net-snmp mock, and
+    // asserting on the old one would silently observe zero calls forever — the
+    // precise shape of the flake this replaces.
+    freshSnmp = require('net-snmp');
+    mod = require('../src/services/snmpTrapReceiver');
+  });
+
+  afterEach(() => {
+    try { mod.stop(); } catch { /* the test may already have stopped it */ }
+  });
+
+  test('receiver starts out null — no residue from a previous test', () => {
+    // The guard that makes the other three deterministic. If this ever fails,
+    // the isolation is broken and the rest are meaningless.
+    freshSnmp.createReceiver.mockReturnValue({ close: jest.fn() });
+    mod.start();
+    expect(freshSnmp.createReceiver).toHaveBeenCalledTimes(1);
   });
 
   test('start() calls snmp.createReceiver', () => {
-    const mockReceiver = { close: jest.fn() };
-    snmp.createReceiver.mockReturnValue(mockReceiver);
-    start();
-    expect(snmp.createReceiver).toHaveBeenCalledWith(
+    freshSnmp.createReceiver.mockReturnValue({ close: jest.fn() });
+    mod.start();
+    expect(freshSnmp.createReceiver).toHaveBeenCalledWith(
       expect.objectContaining({ disableAuthorization: true }),
       expect.any(Function),
     );
@@ -331,20 +361,18 @@ describe('start() / stop()', () => {
 
   test('stop() closes the receiver and sets it to null', () => {
     const mockReceiver = { close: jest.fn() };
-    snmp.createReceiver.mockReturnValue(mockReceiver);
-    start();
-    stop();
+    freshSnmp.createReceiver.mockReturnValue(mockReceiver);
+    mod.start();
+    mod.stop();
     expect(mockReceiver.close).toHaveBeenCalled();
     // Second stop should be a no-op (no error)
-    expect(() => stop()).not.toThrow();
+    expect(() => mod.stop()).not.toThrow();
   });
 
   test('start() is idempotent — only creates one receiver', () => {
-    const mockReceiver = { close: jest.fn() };
-    snmp.createReceiver.mockReturnValue(mockReceiver);
-    start();
-    start(); // second call should be a no-op
-    expect(snmp.createReceiver).toHaveBeenCalledTimes(1);
-    stop();
+    freshSnmp.createReceiver.mockReturnValue({ close: jest.fn() });
+    mod.start();
+    mod.start(); // second call should be a no-op
+    expect(freshSnmp.createReceiver).toHaveBeenCalledTimes(1);
   });
 });

@@ -44,6 +44,16 @@ describe('snmpPoller', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks does NOT drain a mockResolvedValueOnce queue — it only
+    // clears calls/results. Every test here wires db.query as an ordered
+    // once-chain, so a single unconsumed entry (which happens whenever a code
+    // path issues fewer queries than the test queued) is inherited by the NEXT
+    // test, which then reads someone else's row as its device list and sees
+    // polled: 0. That is the shape of the flake this file had: ~2 full-suite
+    // runs in 10, never reproducible when the file ran alone, because whether
+    // the queue drains depends on async timing under parallel load.
+    // mockReset drops the queue as well as the calls.
+    db.query.mockReset();
     mockSession = {
       get: jest.fn(),
       subtree: jest.fn(),

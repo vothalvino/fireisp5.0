@@ -54,6 +54,34 @@ function installGets({ settings = SETTINGS, runs = [RUN], files = [{ filename: '
   });
 }
 
+/**
+ * Wait until the form has actually been hydrated from the fetched settings.
+ *
+ * The save tests used to wait only for the bucket input to show its value. That
+ * flaked on CI — never locally: 15 isolated runs and 6 full-suite runs here were
+ * clean, while GitHub's slower runners failed it repeatedly (it cost a main
+ * rerun on #527 and again on #564). The recorded failure was always the same
+ * shape: the PUT body carried `remote_enabled: false`, the INITIAL form state,
+ * even though SETTINGS says true — i.e. Save fired against a form the hydrating
+ * effect had not finished populating.
+ *
+ * Rather than wait on one field and hope the rest of the commit landed with it,
+ * assert the field the failure actually reported. remote_enabled starts false
+ * and the fixture sets it true, so a checked box proves the hydration effect ran
+ * — the bucket value alone never did, because '' → 'fireisp-backups' can be
+ * observed from a different commit than the checkbox flip.
+ *
+ * NOTE: this is a hardening of the wait, not a root-cause fix. I could not
+ * reproduce the failure locally, so the exact interleaving that lets the click
+ * see a stale form is still unidentified.
+ */
+async function waitForFormHydrated() {
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('fireisp-backups')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { checked: true })).toBeInTheDocument();
+  });
+}
+
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -86,7 +114,7 @@ describe('BackupSettings page', () => {
   it('masks the saved secret and OMITS secret_key when saving with the field blank', async () => {
     mockApiPut.mockResolvedValue({ data: { data: SETTINGS }, error: undefined });
     renderPage();
-    await waitFor(() => expect(screen.getByDisplayValue('fireisp-backups')).toBeInTheDocument());
+    await waitForFormHydrated();
 
     const secretInput = screen.getByPlaceholderText(/saved — leave blank to keep/);
     expect(secretInput).toHaveValue('');
@@ -101,7 +129,7 @@ describe('BackupSettings page', () => {
   it('sends a typed secret on save', async () => {
     mockApiPut.mockResolvedValue({ data: { data: SETTINGS }, error: undefined });
     renderPage();
-    await waitFor(() => expect(screen.getByDisplayValue('fireisp-backups')).toBeInTheDocument());
+    await waitForFormHydrated();
 
     fireEvent.change(screen.getByPlaceholderText(/saved — leave blank to keep/), { target: { value: 'new-secret' } });
     fireEvent.click(screen.getByText('Save'));
