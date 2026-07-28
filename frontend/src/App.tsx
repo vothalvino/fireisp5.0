@@ -111,6 +111,7 @@ import { ConfigBackupScheduleList } from '@/pages/ConfigBackupScheduleList';
 import { ConfigComplianceRuleList } from '@/pages/ConfigComplianceRuleList';
 import { SuspensionRuleList } from '@/pages/SuspensionRuleList';
 import { SuspensionConsole } from '@/pages/SuspensionConsole';
+import { TechnicianMap } from '@/pages/TechnicianMap';
 import { Reports } from '@/pages/Reports';
 import { AnalyticsDashboard } from '@/pages/AnalyticsDashboard';
 import { TaxReports } from '@/pages/TaxReports';
@@ -291,6 +292,7 @@ export function App() {
                 <Route path="config-compliance-rules" element={<ConfigComplianceRuleList />} />
                 <Route path="suspension-rules" element={<SuspensionRuleList />} />
                 <Route path="suspension-console" element={<SuspensionConsole />} />
+                <Route path="technician-map" element={<TechnicianMap />} />
                 <Route path="dhcp-servers" element={<DhcpServerList />} />
                 <Route path="nat-management" element={<NatManagementList />} />
                 <Route path="ptr-records" element={<PtrRecordList />} />

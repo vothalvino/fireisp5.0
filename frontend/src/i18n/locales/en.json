@@ -318,7 +318,8 @@
       "noc": "NOC workspace"
     },
     "dataImport": "CSV import",
-    "suspensionConsole": "Suspension console"
+    "suspensionConsole": "Suspension console",
+    "technicianMap": "Technician map"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4809,5 +4810,27 @@
     "restored": "Restored",
     "bySystem": "Automatic (engine)",
     "byManual": "Manual"
+  },
+  "technicianMap": {
+    "title": "Technician map",
+    "description": "Live positions of technicians in the field. Technicians share their own location from this page — no app install needed.",
+    "startSharing": "Share my location",
+    "stopSharing": "Stop sharing",
+    "sharingSince": "Sharing — last sent {{time}}",
+    "waitingForFix": "Waiting for a GPS fix…",
+    "noGeolocation": "This browser cannot provide a location.",
+    "permissionDenied": "Location permission was denied, so nothing is being shared.",
+    "positionError": "Could not get a location fix.",
+    "sendError": "Got a fix but could not send it.",
+    "autoRefresh": "Refreshes every 30 seconds",
+    "loadError": "Positions could not be loaded.",
+    "noPositions": "No technician has reported a position yet.",
+    "lastSeen": "Last report {{minutes}} min ago",
+    "stale": "stale",
+    "staleWarning": "This is a last-known position, not a live one.",
+    "accuracy": "Accurate to about {{m}} m",
+    "technician": "Technician",
+    "lastReport": "Last report",
+    "accuracyCol": "Accuracy"
   }
 }

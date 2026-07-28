@@ -245,6 +245,11 @@ export const ROUTES: RouteDef[] = [
   // which technician holds; the run button is separately gated on
   // contracts.update inside the page.
   { path: '/suspension-console', keywords: ['suspension', 'corte', 'suspender', 'reconectar'], labelKey: 'nav.suspensionConsole', section: 'network', guard: 'technician', card: 'accessProvisioning', roles: ['technician'] },
+  // Both halves of GPS tracking: dispatch sees positions, the technician posts
+  // them from browser geolocation. technician holds BOTH .view and .ingest
+  // (migration 298); support holds .view only, so the share button is gated
+  // separately inside the page.
+  { path: '/technician-map', keywords: ['gps', 'mapa', 'tecnicos', 'ubicacion', 'dispatch'], labelKey: 'nav.technicianMap', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
 
   // --- Inventory ---------------------------------------------------------------
   { path: '/inventory', labelKey: 'nav.inventory', section: 'inventory', guard: 'technician', sub: 'stock', rail: true, roles: ['technician'] },

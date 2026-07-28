@@ -318,7 +318,8 @@
       "noc": "Espacio NOC"
     },
     "dataImport": "Importar CSV",
-    "suspensionConsole": "Consola de suspensión"
+    "suspensionConsole": "Consola de suspensión",
+    "technicianMap": "Mapa de técnicos"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4809,5 +4810,27 @@
     "restored": "Restaurado",
     "bySystem": "Automático (motor)",
     "byManual": "Manual"
+  },
+  "technicianMap": {
+    "title": "Mapa de técnicos",
+    "description": "Posiciones en vivo de los técnicos en campo. Los técnicos comparten su ubicación desde esta misma página — no hace falta instalar ninguna app.",
+    "startSharing": "Compartir mi ubicación",
+    "stopSharing": "Dejar de compartir",
+    "sharingSince": "Compartiendo — último envío {{time}}",
+    "waitingForFix": "Esperando señal GPS…",
+    "noGeolocation": "Este navegador no puede dar una ubicación.",
+    "permissionDenied": "Se denegó el permiso de ubicación, así que no se está compartiendo nada.",
+    "positionError": "No se pudo obtener la ubicación.",
+    "sendError": "Se obtuvo la ubicación pero no se pudo enviar.",
+    "autoRefresh": "Se actualiza cada 30 segundos",
+    "loadError": "No se pudieron cargar las posiciones.",
+    "noPositions": "Ningún técnico ha reportado su posición todavía.",
+    "lastSeen": "Último reporte hace {{minutes}} min",
+    "stale": "desactualizado",
+    "staleWarning": "Esta es la última posición conocida, no una en vivo.",
+    "accuracy": "Precisión aproximada de {{m}} m",
+    "technician": "Técnico",
+    "lastReport": "Último reporte",
+    "accuracyCol": "Precisión"
   }
 }
