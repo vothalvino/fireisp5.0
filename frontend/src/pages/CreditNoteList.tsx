@@ -137,6 +137,60 @@ async function deleteCreditNote(id: number): Promise<void> {
   if (res.error) throw new Error('Failed to delete credit note');
 }
 
+interface CreditedInvoice {
+  id: number;
+  invoice_number: string | null;
+  subtotal: string | number | null;
+  tax_rate: string | number | null;
+  tax_amount: string | number | null;
+  total: string | number | null;
+  currency: string | null;
+  client_id: number;
+}
+
+async function fetchInvoice(id: number): Promise<CreditedInvoice | null> {
+  const res = await api.GET('/invoices/{id}', { params: { path: { id } } });
+  if (res.error) return null;
+  return (res.data as unknown as { data: CreditedInvoice }).data ?? null;
+}
+
+const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
+
+/**
+ * Split a credit AMOUNT at an invoice's tax rate.
+ *
+ * The amount an operator thinks in is the tax-INCLUSIVE figure the client is
+ * being credited — crediting a 1160 invoice in full is 1160, not 1000.
+ *
+ * The tax is taken out of the gross and the subtotal is then derived FROM the
+ * tax, which makes subtotal + tax === total true by construction at any rate.
+ * Rounding each independently is NOT equivalent in general — it disagrees at
+ * 12% on a 0.14 credit, for instance — though I could find no divergence at
+ * the rates FireISP actually uses (16%, 8%, 0%) for any amount up to 20,000.
+ * The construction is kept because the backend rejects an inconsistent triple
+ * outright (#530), so "correct by construction" beats "correct at the rates we
+ * happen to use today". The invariant is swept in the tests rather than left
+ * as a claim here.
+ */
+// Local, not added to the shared crudStyles.modalStyles — this box exists only
+// on the credit-note modal.
+const prefillBox: React.CSSProperties = {
+  padding: '0.6rem 0.75rem',
+  marginBottom: '0.75rem',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-subtle)',
+  fontSize: '0.85rem',
+};
+
+export function splitCreditAmount(grossAmount: number, taxRate: number) {
+  const gross = Math.round(grossAmount * 100) / 100;
+  const rate = taxRate > 1 ? taxRate / 100 : taxRate;      // tolerate "16" for 16%
+  const tax = Math.round((gross - gross / (1 + rate)) * 100) / 100;
+  const subtotal = Math.round((gross - tax) * 100) / 100;
+  return { subtotal, tax, total: gross, rate };
+}
+
 interface StampResult {
   cfdi_document_id: number;
   uuid: string | null;
@@ -214,6 +268,54 @@ export function CreditNoteModal({ creditNote, clients, onClose, onSaved, lockedC
     setForm(prev => ({ ...prev, [name]: value }));
   }
 
+  // ---- Prefill from the credited invoice ---------------------------------
+  // The amounts used to start EMPTY and be hand-typed, which is exactly how a
+  // zero-tax credit note got created against a 16%-IVA invoice. The backend
+  // rejects that since #558, so the operator now gets a 422 with no idea what
+  // numbers were expected — the form invited the mistake and then punished it.
+  //
+  // The rate comes from the CREDITED INVOICE, not from the client's current tax
+  // context: an egreso credits a document that already exists, so it must mirror
+  // THAT document's tax treatment. An 8% frontera invoice credited after the org
+  // moved to 16% is still credited at 8%. This is the same rule the refund path
+  // follows (#563) — the two must not disagree.
+  const invoiceId = Number(form.invoice_id) || null;
+  const invoiceQ = useQuery({
+    queryKey: ['credit-note-source-invoice', invoiceId],
+    queryFn: () => fetchInvoice(invoiceId as number),
+    enabled: invoiceId != null && !isEdit,
+    staleTime: 60_000,
+  });
+  const sourceInvoice = invoiceQ.data ?? null;
+  const invoiceRate = sourceInvoice ? (Number(sourceInvoice.tax_rate) || 0) : 0;
+
+  /** Credit the whole invoice. */
+  function fillFromInvoice() {
+    if (!sourceInvoice) return;
+    setForm(prev => ({
+      ...prev,
+      subtotal: money(Number(sourceInvoice.subtotal) || 0),
+      tax_rate: String(invoiceRate),
+      tax_amount: money(Number(sourceInvoice.tax_amount) || 0),
+      total: money(Number(sourceInvoice.total) || 0),
+    }));
+  }
+
+  /** Credit PART of it: type the amount the client gets, the split follows. */
+  const [partialAmount, setPartialAmount] = useState('');
+  function fillPartial() {
+    const gross = Number(partialAmount);
+    if (!Number.isFinite(gross) || gross <= 0) return;
+    const s = splitCreditAmount(gross, invoiceRate);
+    setForm(prev => ({
+      ...prev,
+      subtotal: money(s.subtotal),
+      tax_rate: String(s.rate),
+      tax_amount: money(s.tax),
+      total: money(s.total),
+    }));
+  }
+
   const mutation = useMutation({
     mutationFn: () => {
       // client_id is immutable on the update schema; only include it on create.
@@ -289,6 +391,36 @@ export function CreditNoteModal({ creditNote, clients, onClose, onSaved, lockedC
               {REASONS.map(r => <option key={r} value={r}>{reasonLabel(r)}</option>)}
             </select>
           </label>
+
+          {!isEdit && sourceInvoice && (
+            <div style={prefillBox}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                Crediting {sourceInvoice.invoice_number ?? `invoice #${sourceInvoice.id}`}
+                {' — '}
+                {fmtMoney(sourceInvoice.total, sourceInvoice.currency ?? 'MXN')}
+                {invoiceRate > 0 && ` (tax ${(invoiceRate * 100).toFixed(2).replace(/\.00$/, '')}%)`}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" style={styles.btnSecondary} onClick={fillFromInvoice}>
+                  Credit the full amount
+                </button>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>or</span>
+                <input
+                  style={{ ...modalStyles.input, width: 120, margin: 0 }}
+                  type="number" min={0} step="0.01" placeholder="amount"
+                  aria-label="Partial credit amount"
+                  value={partialAmount}
+                  onChange={e => setPartialAmount(e.target.value)}
+                />
+                <button type="button" style={styles.btnSecondary} onClick={fillPartial}>
+                  Credit part of it
+                </button>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: 6 }}>
+                The amount is tax-inclusive — the split below is filled at this invoice's rate.
+              </div>
+            </div>
+          )}
 
           <label style={modalStyles.label}>
             Subtotal
