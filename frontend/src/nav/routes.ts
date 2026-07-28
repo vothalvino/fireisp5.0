@@ -154,6 +154,11 @@ export const ROUTES: RouteDef[] = [
   { path: '/tax-rules', keywords: ['iva', 'impuestos'], labelKey: 'nav.taxRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/tax-rates', keywords: ['iva', 'impuestos'], labelKey: 'nav.taxRates', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/invoice-settings', labelKey: 'nav.invoiceSettings', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
+  // Day-one migration off the previous billing system. Billing rather than
+  // Administration because the backend guards each importer on the ENTITY's own
+  // create permission (invoices.create, payments.create, ...), not on an admin
+  // slug — a nav home implying admin-only would misdescribe who can use it.
+  { path: '/data-import', keywords: ['csv', 'importar', 'migracion', 'migration'], labelKey: 'nav.dataImport', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/late-fee-rules', keywords: ['mora', 'morosos', 'recargos'], labelKey: 'nav.lateFeeRules', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
   { path: '/payment-reminder-settings', labelKey: 'nav.paymentReminderSettings', section: 'billing', guard: 'billing', card: 'configuration', roles: ['billing'] },
 
