@@ -1638,8 +1638,40 @@ async function enrichRelatedDocumentsWithTaxes(relatedDocuments, organizationId)
     const orig = origRows[0];
     const subtotal = Number(orig?.subtotal || 0);
     const impuestos = Number(orig?.total_impuestos || 0);
+
+    // EXEMPT is not the same as NOT-AN-OBJECT-OF-TAX, and a zero tax total
+    // cannot tell them apart. An IVA-exempt client's invoice CFDI correctly
+    // says ObjetoImp='02' + TipoFactor='Exento' (a telecom service IS an object
+    // of IVA; the client is exempt from it) — but its total_impuestos is 0, so
+    // deriving from that alone made the REP say '01' and tell SAT the same
+    // service was not an object of tax. Both documents are filed, so they
+    // contradicted each other on the record.
+    //
+    // Ask the original CFDI what it actually declared instead of inferring it.
+    if (orig) {
+      const [exRows] = await db.query(
+        `SELECT 1 FROM cfdi_concepto_impuestos cci
+           JOIN cfdi_conceptos cc ON cc.id = cci.cfdi_concepto_id
+           JOIN cfdi_documents cd ON cd.id = cc.cfdi_document_id
+          WHERE cd.uuid = ? AND cd.organization_id = ?
+            AND cci.tax_type = 'traslado' AND cci.tipo_factor = 'Exento'
+          LIMIT 1`,
+        [rd.related_cfdi_uuid, organizationId],
+      );
+      if (exRows.length > 0) {
+        // Object of tax, exempt: BaseDR carries the parcialidad, and — exactly
+        // like the invoice-level Exento traslado — NO TasaOCuotaDR/ImporteDR.
+        out.push({
+          ...rd,
+          objeto_imp_dr: '02',
+          traslado_dr: { exento: true, base: Number(rd.imp_pagado) },
+        });
+        continue;
+      }
+    }
+
     if (!orig || subtotal <= 0 || impuestos <= 0) {
-      // No original on file / no transferred tax → not object of tax.
+      // No original on file / genuinely no transferred tax → not object of tax.
       out.push({ ...rd, objeto_imp_dr: '01' });
       continue;
     }
@@ -1753,11 +1785,18 @@ function buildPaymentComplementXml(doc, complement, items) {
     let traslado = null;
     if (objeto === '02') {
       const t = rd.traslado_dr || {};
-      const tasa = Number(t.tasa);
       const base = Number(t.base);
-      const importe = Number(t.importe);
-      if ([tasa, base, importe].every(Number.isFinite)) traslado = { tasa, base, importe };
-      else objeto = '03';
+      if (t.exento) {
+        // An Exento traslado carries a base and nothing else — asserting a
+        // TasaOCuotaDR/ImporteDR on it is what SAT rejects.
+        if (Number.isFinite(base)) traslado = { exento: true, base };
+        else objeto = '03';
+      } else {
+        const tasa = Number(t.tasa);
+        const importe = Number(t.importe);
+        if ([tasa, base, importe].every(Number.isFinite)) traslado = { tasa, base, importe };
+        else objeto = '03';
+      }
     }
     return { rd, sameCurrency, eq, objeto, traslado };
   });
@@ -1770,10 +1809,13 @@ function buildPaymentComplementXml(doc, complement, items) {
     const eqVal = sameCurrency ? '1' : eq.toFixed(4);
     const head = `        <pago20:DoctoRelacionado IdDocumento="${escapeXml(rd.related_cfdi_uuid)}"${serieAttr}${folioAttr} MonedaDR="${escapeXml(rd.moneda_dr || 'MXN')}" EquivalenciaDR="${eqVal}" NumParcialidad="${rd.num_parcialidad || 1}" ImpSaldoAnt="${Number(rd.imp_saldo_ant).toFixed(2)}" ImpPagado="${Number(rd.imp_pagado).toFixed(2)}" ImpSaldoInsoluto="${Number(rd.imp_saldo_insoluto).toFixed(2)}" ObjetoImpDR="${objeto}"`;
     if (!traslado) return `${head} />`;
+    const trasladoXml = traslado.exento
+      ? `<pago20:TrasladoDR BaseDR="${traslado.base.toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Exento" />`
+      : `<pago20:TrasladoDR BaseDR="${traslado.base.toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="${traslado.tasa.toFixed(6)}" ImporteDR="${traslado.importe.toFixed(2)}" />`;
     return `${head}>
           <pago20:ImpuestosDR>
             <pago20:TrasladosDR>
-              <pago20:TrasladoDR BaseDR="${traslado.base.toFixed(2)}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="${traslado.tasa.toFixed(6)}" ImporteDR="${traslado.importe.toFixed(2)}" />
+              ${trasladoXml}
             </pago20:TrasladosDR>
           </pago20:ImpuestosDR>
         </pago20:DoctoRelacionado>`;
@@ -1784,21 +1826,37 @@ function buildPaymentComplementXml(doc, complement, items) {
   // the per-rate TotalTraslados{Base,Impuesto}IVA{16,8,0} attribute pairs.
   // SAT wants these amounts in MonedaP: docto amounts are in MonedaDR, so
   // divide by eq (MonedaDR units per 1 MonedaP) when the currencies differ.
+  // Exento is aggregated SEPARATELY from the rated traslados: it has no
+  // TasaOCuota to key on and no Importe to sum, and folding it into byRate
+  // would emit a "0.000000" rate it never declared. Same split the invoice
+  // builder makes.
   const byRate = new Map();
+  let exentoBase = 0;
+  let hasExento = false;
   for (const { eq, traslado } of normItems) {
     if (!traslado) continue;
+    if (traslado.exento) {
+      hasExento = true;
+      exentoBase += traslado.base / eq;
+      continue;
+    }
     const key = traslado.tasa.toFixed(6);
     const agg = byRate.get(key) || { base: 0, importe: 0 };
     agg.base += traslado.base / eq;
     agg.importe += traslado.importe / eq;
     byRate.set(key, agg);
   }
-  const impuestosPXml = byRate.size === 0 ? '' : `
+  const trasladosPXml = [
+    ...[...byRate.entries()].map(([tasa, agg]) =>
+      `            <pago20:TrasladoP BaseP="${agg.base.toFixed(2)}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="${tasa}" ImporteP="${agg.importe.toFixed(2)}" />`),
+    ...(hasExento
+      ? [`            <pago20:TrasladoP BaseP="${exentoBase.toFixed(2)}" ImpuestoP="002" TipoFactorP="Exento" />`]
+      : []),
+  ].join('\n');
+  const impuestosPXml = (byRate.size === 0 && !hasExento) ? '' : `
         <pago20:ImpuestosP>
           <pago20:TrasladosP>
-${[...byRate.entries()].map(([tasa, agg]) =>
-    `            <pago20:TrasladoP BaseP="${agg.base.toFixed(2)}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="${tasa}" ImporteP="${agg.importe.toFixed(2)}" />`,
-  ).join('\n')}
+${trasladosPXml}
           </pago20:TrasladosP>
         </pago20:ImpuestosP>`;
   const TOTALES_ATTR_BY_RATE = {
@@ -1809,7 +1867,10 @@ ${[...byRate.entries()].map(([tasa, agg]) =>
   const totalesAttrs = [...byRate.entries()].map(([tasa, agg]) => {
     const names = TOTALES_ATTR_BY_RATE[tasa];
     return names ? ` ${names[0]}="${agg.base.toFixed(2)}" ${names[1]}="${agg.importe.toFixed(2)}"` : '';
-  }).join('');
+  }).join('')
+    // Exento gets a BASE-only total (there is no TotalTrasladosImpuestoIVAExento
+    // in the Pagos 2.0 schema — an exempt operation transfers no tax).
+    + (hasExento ? ` TotalTrasladosBaseIVAExento="${exentoBase.toFixed(2)}"` : '');
 
   // Serie/Folio are optional attributes with non-empty XSD patterns — an empty
   // value is a schema violation, so omit them entirely when absent

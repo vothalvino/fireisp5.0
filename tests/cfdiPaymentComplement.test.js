@@ -575,6 +575,21 @@ describe('buildPaymentComplementXml — sandbox-verified Pagos 2.0 shape', () =>
 // ===========================================================================
 // enrichRelatedDocumentsWithTaxes — derives the desglose from the original CFDI
 // ===========================================================================
+// The enrichment now issues TWO different SELECTs per related document: the
+// totals lookup, and an Exento probe against the original's concepto taxes
+// (an exempt invoice has a zero tax total but is NOT "no object of tax").
+// A blanket mockResolvedValue answers BOTH, which would make every fixture
+// look exempt — dispatch on the SQL instead.
+function mockOriginal(totals, { exento = false } = {}) {
+  db.query.mockImplementation(async (sql) => {
+    if (/tipo_factor = 'Exento'/.test(sql)) return [exento ? [{ 1: 1 }] : []];
+    if (/SELECT subtotal, total_impuestos, total FROM cfdi_documents/.test(sql)) {
+      return [totals ? [totals] : []];
+    }
+    return [[]];
+  });
+}
+
 describe('enrichRelatedDocumentsWithTaxes()', () => {
   beforeEach(() => jest.resetAllMocks());
 
@@ -584,34 +599,34 @@ describe('enrichRelatedDocumentsWithTaxes()', () => {
   };
 
   test('IVA-16 original → ObjetoImpDR 02 with proportional base/importe', async () => {
-    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]]);
+    mockOriginal({ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' });
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
     expect(out.objeto_imp_dr).toBe('02');
     expect(out.traslado_dr).toEqual({ base: 100, tasa: '0.160000', importe: 16 });
   });
 
   test('partial payment splits proportionally at the invoice rate', async () => {
-    db.query.mockResolvedValue([[{ subtotal: '500.00', total_impuestos: '80.00', total: '580.00' }]]);
+    mockOriginal({ subtotal: '500.00', total_impuestos: '80.00', total: '580.00' });
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, imp_pagado: 300 }], 5);
     expect(out.traslado_dr.base).toBeCloseTo(258.62, 2); // 300 / 1.16
     expect(out.traslado_dr.importe).toBeCloseTo(41.38, 2);
   });
 
   test('untaxed original → ObjetoImpDR 01, no desglose', async () => {
-    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '0.00', total: '100.00' }]]);
+    mockOriginal({ subtotal: '100.00', total_impuestos: '0.00', total: '100.00' });
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
     expect(out.objeto_imp_dr).toBe('01');
     expect(out.traslado_dr).toBeUndefined();
   });
 
   test('no original CFDI on file → ObjetoImpDR 01 (never invents a rate)', async () => {
-    db.query.mockResolvedValue([[]]);
+    mockOriginal(null);
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
     expect(out.objeto_imp_dr).toBe('01');
   });
 
   test('non-catalog effective rate → ObjetoImpDR 03 (sí objeto, sin desglose)', async () => {
-    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '11.00', total: '111.00' }]]);
+    mockOriginal({ subtotal: '100.00', total_impuestos: '11.00', total: '111.00' });
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
     expect(out.objeto_imp_dr).toBe('03');
     expect(out.traslado_dr).toBeUndefined();
@@ -737,7 +752,7 @@ describe('enrichRelatedDocumentsWithTaxes — default-02 healing', () => {
   };
 
   test("an '02' claim WITHOUT a desglose is re-derived (the items-table column default)", async () => {
-    db.query.mockResolvedValue([[{ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' }]]);
+    mockOriginal({ subtotal: '100.00', total_impuestos: '16.00', total: '116.00' });
     const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, objeto_imp_dr: '02' }], 5);
     expect(db.query).toHaveBeenCalled();
     expect(out.objeto_imp_dr).toBe('02');
@@ -758,5 +773,121 @@ describe('enrichRelatedDocumentsWithTaxes — default-02 healing', () => {
       expect(out.objeto_imp_dr).toBe(objeto);
       expect(db.query).not.toHaveBeenCalled();
     }
+  });
+});
+
+// ===========================================================================
+// IVA-exempt related documents (j18)
+// ===========================================================================
+// An exempt client's invoice CFDI correctly declares ObjetoImp='02' +
+// TipoFactor='Exento' — a telecom service IS an object of IVA, the client is
+// exempt from it. Its total_impuestos is nonetheless 0, and the REP used to
+// derive ObjetoImpDR from that zero alone, so it told SAT the same service was
+// '01' (NOT an object of tax). Both documents are filed, so they contradicted
+// each other on the record.
+describe('exempt related documents (j18)', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  const rd = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    moneda_dr: 'MXN', equivalencia_dr: 1,
+    num_parcialidad: 1, imp_saldo_ant: 500, imp_pagado: 500, imp_saldo_insoluto: 0,
+  };
+
+  test("an EXEMPT original is '02' + Exento, not '01'", async () => {
+    // Zero tax total, but the original declared an Exento traslado.
+    mockOriginal({ subtotal: '500.00', total_impuestos: '0.00', total: '500.00' }, { exento: true });
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('02');
+    expect(out.traslado_dr).toEqual({ exento: true, base: 500 });
+  });
+
+  test("a genuinely untaxed original is still '01'", async () => {
+    // Same zero tax total, but NO Exento row — the two cases the old code
+    // could not tell apart, and the whole point of the fix.
+    mockOriginal({ subtotal: '500.00', total_impuestos: '0.00', total: '500.00' }, { exento: false });
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([rd], 5);
+    expect(out.objeto_imp_dr).toBe('01');
+    expect(out.traslado_dr).toBeUndefined();
+  });
+
+  test('the exempt base is the PARCIALIDAD, not the invoice total', async () => {
+    mockOriginal({ subtotal: '500.00', total_impuestos: '0.00', total: '500.00' }, { exento: true });
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, imp_pagado: 200 }], 5);
+    expect(out.traslado_dr).toEqual({ exento: true, base: 200 });
+  });
+
+  test('a TAXED original is unaffected by the exempt probe', async () => {
+    mockOriginal({ subtotal: '500.00', total_impuestos: '80.00', total: '580.00' }, { exento: false });
+    const [out] = await cfdiService.enrichRelatedDocumentsWithTaxes([{ ...rd, imp_pagado: 580 }], 5);
+    expect(out.objeto_imp_dr).toBe('02');
+    expect(out.traslado_dr.tasa).toBe('0.160000');
+  });
+});
+
+describe('exempt REP XML (j18)', () => {
+  const doc = {
+    serie: 'P', folio: 9, fecha_emision: '2026-07-28T10:00:00', lugar_expedicion: '22000',
+    emisor_rfc: 'EKU9003173C9', emisor_nombre: 'ISP', emisor_regimen_fiscal: '601',
+    receptor_rfc: 'XAXX010101000', receptor_nombre: 'Cliente Exento',
+    receptor_domicilio_fiscal: '22000', receptor_regimen_fiscal: '616',
+  };
+  const complement = { payment_date: '2026-07-28', forma_pago: '03', moneda: 'MXN', amount: 500 };
+  const exemptItem = {
+    related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+    moneda_dr: 'MXN', equivalencia_dr: 1, num_parcialidad: 1,
+    imp_saldo_ant: 500, imp_pagado: 500, imp_saldo_insoluto: 0,
+    objeto_imp_dr: '02', traslado_dr: { exento: true, base: 500 },
+  };
+
+  test('emits TipoFactorDR="Exento" with NO TasaOCuotaDR/ImporteDR', () => {
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [exemptItem]);
+    expect(xml).toContain('ObjetoImpDR="02"');
+    expect(xml).toContain('TipoFactorDR="Exento"');
+    expect(xml).toContain('BaseDR="500.00"');
+    // SAT rejects an Exento traslado that carries either of these.
+    expect(xml).not.toMatch(/TipoFactorDR="Exento"[^>]*TasaOCuotaDR/);
+    expect(xml).not.toMatch(/TipoFactorDR="Exento"[^>]*ImporteDR/);
+  });
+
+  test('does NOT degrade to 03 — the desglose is present and valid', () => {
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [exemptItem]);
+    expect(xml).not.toContain('ObjetoImpDR="03"');
+    expect(xml).toContain('<pago20:ImpuestosDR>');
+  });
+
+  test('Pago level carries an Exento TrasladoP and a BASE-ONLY total', () => {
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [exemptItem]);
+    expect(xml).toContain('TipoFactorP="Exento"');
+    expect(xml).toContain('BaseP="500.00"');
+    expect(xml).toContain('TotalTrasladosBaseIVAExento="500.00"');
+    // There is no ...ImpuestoIVAExento attribute in Pagos 2.0 — an exempt
+    // operation transfers no tax — and the exempt base must never be folded
+    // into a rated bucket it never declared.
+    expect(xml).not.toContain('ImpuestoIVAExento');
+    expect(xml).not.toContain('TotalTrasladosBaseIVA0');
+    expect(xml).not.toMatch(/TipoFactorP="Exento"[^>]*TasaOCuotaP/);
+  });
+
+  test('a mixed payment keeps the rated and exempt buckets separate', () => {
+    const ratedItem = {
+      ...exemptItem,
+      related_cfdi_uuid: 'aaaabbbb-1111-2222-3333-ccccddddeeee',
+      imp_pagado: 116, imp_saldo_ant: 116,
+      traslado_dr: { base: 100, tasa: '0.160000', importe: 16 },
+    };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [exemptItem, ratedItem]);
+    expect(xml).toContain('TotalTrasladosBaseIVAExento="500.00"');
+    expect(xml).toContain('TotalTrasladosBaseIVA16="100.00"');
+    expect(xml).toContain('TotalTrasladosImpuestoIVA16="16.00"');
+    // Two distinct TrasladoP nodes, not one merged bucket.
+    expect((xml.match(/<pago20:TrasladoP /g) || []).length).toBe(2);
+  });
+
+  test('an exempt traslado with a non-numeric base degrades to 03 rather than emitting junk', () => {
+    const bad = { ...exemptItem, traslado_dr: { exento: true, base: 'not-a-number' } };
+    const xml = cfdiService.buildPaymentComplementXml(doc, complement, [bad]);
+    expect(xml).toContain('ObjetoImpDR="03"');
+    expect(xml).not.toContain('ImpuestosDR');
   });
 });
