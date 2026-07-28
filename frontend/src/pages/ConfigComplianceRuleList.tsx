@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 interface ConfigComplianceRule {
   id: number;
@@ -272,7 +273,7 @@ export function ConfigComplianceRuleList() {
 
       <div style={styles.tableCard}>
         {rulesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : rulesQ.error ? (
           <p style={styles.msgError}>{t('config_compliance.error')}</p>
         ) : rules.length === 0 ? (

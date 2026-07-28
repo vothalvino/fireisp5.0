@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -244,7 +245,7 @@ export function DevicePollingConfigList() {
 
       <div style={styles.tableCard}>
         {configsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : configsQ.error ? (
           <p style={styles.msgError}>{t('device_polling_configs.error', 'Failed to load polling configs.')}</p>
         ) : configs.length === 0 ? (

@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,7 +280,7 @@ function RaGuardTab() {
 
       <div style={styles.tableCard}>
         {raQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : raQ.error ? (
           <p style={styles.msgError}>{t('ipv6_management.ra_guard_error', 'Failed to load RA Guard policies.')}</p>
         ) : policies.length === 0 ? (
@@ -480,7 +481,7 @@ function ConflictsTab({ active }: { active: boolean }) {
   return (
     <div style={styles.tableCard}>
       {conflictsQ.isLoading ? (
-        <p style={styles.msg}>Loading...</p>
+        <LoadingState />
       ) : conflictsQ.error ? (
         <p style={styles.msgError}>{t('ipv6_management.conflicts_error', 'Failed to check conflicts.')}</p>
       ) : !conflicts || conflicts.length === 0 ? (

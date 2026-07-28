@@ -25,7 +25,8 @@
     "select": "select",
     "all": "All",
     "actions": "Actions",
-    "error": "Something went wrong"
+    "error": "Something went wrong",
+    "retry": "Retry"
   },
   "clientPicker": {
     "label": "Client",

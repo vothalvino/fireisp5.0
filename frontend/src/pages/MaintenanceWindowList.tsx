@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 interface MaintenanceWindow {
   id: number;
@@ -262,7 +263,7 @@ export function MaintenanceWindowList() {
 
       <div style={styles.tableCard}>
         {windowsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : windowsQ.error ? (
           <p style={styles.msgError}>{t('maintenance_windows.error', 'Failed to load maintenance windows.')}</p>
         ) : windows.length === 0 ? (

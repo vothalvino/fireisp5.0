@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,7 +251,7 @@ export function DiscoveryScanList() {
 
       <div style={styles.tableCard}>
         {scansQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : scansQ.error ? (
           <p style={styles.msgError}>{t('discovery_scans.error', 'Failed to load discovery scans.')}</p>
         ) : scans.length === 0 ? (

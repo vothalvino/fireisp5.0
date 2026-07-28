@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -271,7 +272,7 @@ export function PtrRecordList() {
 
       <div style={styles.tableCard}>
         {recordsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : recordsQ.error ? (
           <p style={styles.msgError}>{t('ptr_records.error', 'Failed to load PTR records.')}</p>
         ) : records.length === 0 ? (

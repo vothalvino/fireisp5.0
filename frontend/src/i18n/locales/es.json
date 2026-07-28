@@ -25,7 +25,8 @@
     "select": "seleccionar",
     "all": "Todos",
     "actions": "Acciones",
-    "error": "Ocurrió un error"
+    "error": "Ocurrió un error",
+    "retry": "Reintentar"
   },
   "clientPicker": {
     "label": "Cliente",

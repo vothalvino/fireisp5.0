@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -216,7 +217,7 @@ function AuthFailuresTab() {
 
       <div style={styles.tableCard}>
         {q.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : q.error ? (
           <p style={styles.msgError}>{t('pppoe_diagnostics.auth_failures_error', 'Failed to load auth failures.')}</p>
         ) : !data || data.failures.length === 0 ? (
@@ -292,7 +293,7 @@ function EventLogTab() {
 
       <div style={styles.tableCard}>
         {q.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : q.error ? (
           <p style={styles.msgError}>{t('pppoe_diagnostics.event_log_error', 'Failed to load events.')}</p>
         ) : events.length === 0 ? (
@@ -360,7 +361,7 @@ function MacMovesTab() {
   return (
     <div style={styles.tableCard}>
       {q.isLoading ? (
-        <p style={styles.msg}>Loading...</p>
+        <LoadingState />
       ) : q.error ? (
         <p style={styles.msgError}>Failed to load MAC move events.</p>
       ) : events.length === 0 ? (
@@ -424,7 +425,7 @@ function MtuIssuesTab() {
       </div>
       <div style={styles.tableCard}>
         {q.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : q.error ? (
           <p style={styles.msgError}>{t('pppoe_diagnostics.mtu_issues_error', 'Failed to load MTU advisories.')}</p>
         ) : advisories.length === 0 ? (

@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,7 +256,7 @@ export function PollerNodeList() {
 
       <div style={styles.tableCard}>
         {nodesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : nodesQ.error ? (
           <p style={styles.msgError}>{t('poller_nodes.error', 'Failed to load poller nodes.')}</p>
         ) : nodes.length === 0 ? (

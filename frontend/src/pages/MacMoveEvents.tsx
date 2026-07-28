@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,7 +74,7 @@ export function MacMoveEvents() {
 
       <div style={styles.tableCard}>
         {eventsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : eventsQ.error ? (
           <p style={styles.msgError}>{t('mac_move_events.error', 'Failed to load MAC move events.')}</p>
         ) : events.length === 0 ? (
