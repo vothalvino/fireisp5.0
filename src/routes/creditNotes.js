@@ -48,8 +48,12 @@ function assertTotalsConsistent({ subtotal, tax_amount, total }) {
  * 'draft' counts: a draft CFDI has already snapshotted its conceptos and is
  * waiting on a stamp retry.
  */
-async function assertNoLiveCfdi(creditNoteId, orgId, remedy) {
-  const [rows] = await db.query(
+// `exec` runs this on the caller's transaction. Under transactionalUpdate a
+// db.query here would acquire a SECOND pooled connection while the first is
+// held — the nested-acquire hang fixed in #584 — and would also be reading
+// outside the lock, which defeats the guard.
+async function assertNoLiveCfdi(creditNoteId, orgId, remedy, exec = db.query) {
+  const [rows] = await exec(
     `SELECT id, sat_status FROM cfdi_documents
       WHERE credit_note_id = ? AND organization_id = ?
         AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1`,
@@ -79,7 +83,13 @@ const router = Router();
 // PUT that changes only one amount can't sneak the note inconsistent (or can
 // deliberately FIX an inconsistent legacy note).
 const ctrl = crudController(CreditNote, {
-  beforeUpdate: async (old, req) => {
+  // The guards below decide from rows a concurrent request can change — above
+  // all whether a live CFDI exists. Without the lock they are advisory: a stamp
+  // landing between the check and the UPDATE means the edit applies to a
+  // document already filed with SAT. Credit notes had NO lock at all, so the
+  // stamper was not serialized against the editor even in principle.
+  transactionalUpdate: true,
+  beforeUpdate: async (old, req, exec) => {
     assertTotalsConsistent({
       subtotal: req.body.subtotal ?? old.subtotal,
       tax_amount: req.body.tax_amount ?? old.tax_amount,
@@ -92,7 +102,7 @@ const ctrl = crudController(CreditNote, {
     if (changed.length === 0) return;
 
     await assertNoLiveCfdi(old.id, req.orgId,
-      'Cancel or substitute the CFDI before changing this credit note.');
+      'Cancel or substitute the CFDI before changing this credit note.', exec);
 
     // An edit that STRIPS the tax is the tipo-E twin of the invoice hole closed
     // in #551: a zero-tax egreso stamps ObjetoImp='01' with no impuestos, so it
@@ -103,7 +113,8 @@ const ctrl = crudController(CreditNote, {
     const taxAmount = Number(req.body.tax_amount ?? old.tax_amount ?? 0);
     const removesTax = Number(old.tax_amount ?? 0) > 0.005 && taxAmount <= 0.005;
     if (removesTax && old.client_id) {
-      await billingService.assertTaxCoherent(db.query.bind(db), {
+      // exec, not db.query: see the note on assertNoLiveCfdi above.
+      await billingService.assertTaxCoherent(exec, {
         orgId: req.orgId, clientId: old.client_id, taxAmount, docType: 'credit note',
       });
     }

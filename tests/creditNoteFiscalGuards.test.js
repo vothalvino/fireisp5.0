@@ -31,6 +31,7 @@ jest.mock('../src/services/billingService', () => ({
 
 const config = require('../src/config');
 const db = require('../src/config/database');
+const { mockTxConnection, txSql, pooledSqlDuringTx } = require('./fixtures/mockTxConnection');
 const billingService = require('../src/services/billingService');
 const { AppError } = require('../src/utils/errors');
 const app = require('../src/app');
@@ -58,7 +59,19 @@ function wireDb({ liveCfdi = false, stored = STORED } = {}) {
   db.execute.mockImplementation(db.query.getMockImplementation());
 }
 
-beforeEach(() => { jest.clearAllMocks(); billingService.assertTaxCoherent.mockResolvedValue(undefined); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  // The stand-in USES the executor it is handed, rather than just resolving.
+  // The real assertTaxCoherent fans out to clients, tax_rules and organizations,
+  // so it is the single biggest nested-acquire risk on this path — and a mock
+  // that issues no SQL makes a leak there invisible: reverting the route to
+  // db.query left every test green. Now the pool-leak assertion sees it.
+  billingService.assertTaxCoherent.mockImplementation(
+    async (exec) => { await exec('SELECT id FROM tax_rates WHERE 1=0', []); },
+  );
+  // Credit-note PUT/PATCH now runs transactionally (j49).
+  mockTxConnection(db);
+});
 
 describe('create consults the tax resolver', () => {
   it('passes the tax figure that is about to be written', async () => {
@@ -162,5 +175,66 @@ describe('an edit cannot strip the tax off a credit note', () => {
     await auth(request(app).put('/api/v1/credit-notes/5'))
       .send({ subtotal: 500, tax_amount: 80, total: 580 });
     expect(billingService.assertTaxCoherent).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// j49 — the update guards run INSIDE the transaction
+// =============================================================================
+// Credit-note edits took no row lock at all, so the stamper was not serialized
+// against the editor even in principle. Now they do — and every guard read must
+// go through the transaction: one left on db.query acquires a SECOND pooled
+// connection while the first is held, and enough concurrent edits deadlock the
+// pool against itself (the hang fixed in #584).
+describe('credit-note updates are check-then-write under a row lock', () => {
+  it('locks the row, then runs the CFDI guard on that same connection', async () => {
+    const conn = mockTxConnection(db);
+    wireDb();
+    const res = await auth(request(app).put('/api/v1/credit-notes/5'))
+      .send({ subtotal: 500, tax_amount: 80, total: 580 });
+
+    expect(res.status).toBe(200);
+    expect(conn.beginTransaction).toHaveBeenCalled();
+    const tx = txSql(conn);
+    const lockAt = tx.findIndex(s => /FOR UPDATE/.test(s));
+    const cfdiAt = tx.findIndex(s => /cfdi_documents/i.test(s));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(cfdiAt).toBeGreaterThan(lockAt);
+  });
+
+  // BOTH guard branches. The tax-removal one matters most: it is the only
+  // path that reaches assertTaxCoherent, whose real implementation fans out to
+  // clients, tax_rules and organizations — the biggest nested-acquire risk
+  // here. An edit that RAISES tax never calls it, so a leak-check that only
+  // sends higher amounts cannot see a leak there at all.
+  it.each([
+    ['raises tax', { subtotal: 500, tax_amount: 80, total: 580 }],
+    ['REMOVES tax (assertTaxCoherent branch)', { subtotal: 580, tax_amount: 0, total: 580 }],
+  ])('%s — nothing leaks onto the pool while the transaction is open', async (_label, body) => {
+    const conn = mockTxConnection(db);
+    wireDb();
+    const res = await auth(request(app).put('/api/v1/credit-notes/5')).send(body);
+
+    // Paired with positive assertions: an absence check alone passes trivially
+    // when the request never reaches the guard at all.
+    expect(res.status).toBe(200);
+    expect(txSql(conn).some(s => /cfdi_documents/i.test(s))).toBe(true);
+    // audit_logs is ignored because crudController writes it AFTER commit and
+    // release — it is legitimately not inside the transaction. The helper
+    // diffs totals and cannot tell "during" from "after" on its own.
+    expect(pooledSqlDuringTx(db, conn, /`users`|audit_logs/)).toEqual([]);
+  });
+
+  it('a live CFDI still blocks the edit, and nothing is written', async () => {
+    const conn = mockTxConnection(db);
+    wireDb({ liveCfdi: true });
+    const res = await auth(request(app).put('/api/v1/credit-notes/5'))
+      .send({ subtotal: 500, tax_amount: 80, total: 580 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CFDI_STAMPED');
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([s]) => /^UPDATE `?credit_notes`?/i.test(s))).toBe(false);
   });
 });
