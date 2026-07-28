@@ -53,17 +53,25 @@ async function nextCfdiFolio(conn, organizationId) {
 }
 
 /**
- * Convert + stamp an invoice. Returns { cfdi_document_id, uuid, sat_status,
- * serie, folio, stamped } — `stamped: false` with `stamp_error` when the doc
- * was created (sat_status 'draft', XML stored) but the PAC call failed; the
- * operator can retry from the CFDI page without re-converting.
+ * Everything the CFDI is built FROM, resolved through one executor.
  *
- * @param {number|string} invoiceId
- * @param {number}        orgId
- * @param {object}        opts  { uso_cfdi?, forma_pago?, userId? }
+ * Split out so it can run twice: once before the lock, to fail fast with an
+ * actionable message rather than while holding a row lock, and once INSIDE the
+ * transaction after SELECT ... FOR UPDATE, which is the authoritative read.
+ *
+ * It must be the second one that reaches the INSERTs. Everything here is
+ * invoice-derived and a concurrent edit can change all of it — amounts, line
+ * items, even client_id, which swaps the entire receptor. Reading it before the
+ * lock and writing it after means an edit committing in that window is filed at
+ * SAT from a stale snapshot: the CFDI then disagrees with the invoice row, and
+ * only a cancellation can undo it.
+ *
+ * `exec` MUST be the transaction connection on the second call. db.query there
+ * would acquire a second pooled connection while this one is held — the
+ * nested-acquire hang fixed in #584.
  */
-async function stampInvoice(invoiceId, orgId, opts = {}) {
-  const invoice = await Invoice.findByIdOrFail(invoiceId, orgId);
+async function resolveStampInputs(exec, invoiceId, orgId, opts) {
+  const invoice = await Invoice.findByIdOrFail(invoiceId, orgId, { exec });
 
   if (!STAMPABLE_STATUSES.includes(invoice.status)) {
     throw new AppError(
@@ -85,7 +93,7 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   // One CFDI per invoice — fast-path check with the actionable draft-vs-live
   // message. NOT authoritative: the same guard re-runs inside the transaction
   // under a row lock (below) to close the concurrent-stamp race.
-  const [existing] = await db.query(
+  const [existing] = await exec(
     "SELECT id, sat_status FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [invoiceId, orgId],
   );
@@ -98,11 +106,10 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     );
   }
 
-  // Emisor gate (throws 422 ORG_MX_PROFILE_MISSING with guidance).
-  const emisor = await cfdiService.getEmisorProfile(orgId);
-
-  // Receptor: the client's MX fiscal profile.
-  const [profiles] = await db.query(
+  // Receptor: the client's MX fiscal profile. Re-resolved from the CURRENT
+  // client_id — an edit that re-points the invoice at another client changes
+  // who the CFDI is filed against.
+  const [profiles] = await exec(
     `SELECT p.rfc, p.razon_social, p.regimen_fiscal, p.codigo_postal_fiscal, p.uso_cfdi_default,
             c.tax_exempt
        FROM client_mx_profiles p
@@ -118,7 +125,7 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     );
   }
 
-  const [items] = await db.query(
+  const [items] = await exec(
     'SELECT * FROM invoice_items WHERE invoice_id = ? AND deleted_at IS NULL ORDER BY id',
     [invoiceId],
   );
@@ -136,7 +143,7 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   const isPaid = invoice.status === 'paid';
   let formaPago;
   if (isPaid || isPublico) {
-    const [payRows] = await db.query(
+    const [payRows] = await exec(
       `SELECT p.sat_forma_pago
          FROM payment_allocations pa
          JOIN payments p ON p.id = pa.payment_id AND p.deleted_at IS NULL
@@ -165,8 +172,36 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
   const taxAmount = Number(invoice.tax_amount || 0);
   const total = Number(invoice.total || 0);
 
+  return {
+    invoice, receptor, items, isPublico, formaPago, metodoPago, usoCfdi,
+    taxRate, clientExempt, subtotal, taxAmount, total,
+  };
+}
+
+/**
+ * Convert + stamp an invoice. Returns { cfdi_document_id, uuid, sat_status,
+ * serie, folio, stamped } — `stamped: false` with `stamp_error` when the doc
+ * was created (sat_status 'draft', XML stored) but the PAC call failed; the
+ * operator can retry from the CFDI page without re-converting.
+ *
+ * @param {number|string} invoiceId
+ * @param {number}        orgId
+ * @param {object}        opts  { uso_cfdi?, forma_pago?, userId? }
+ */
+async function stampInvoice(invoiceId, orgId, opts = {}) {
+  // Pre-flight, on the pool. Its job is to reject bad requests BEFORE a row
+  // lock is taken — an unstampable status, a missing fiscal profile, no line
+  // items. Its VALUES are deliberately discarded; only the post-lock read
+  // below may reach the INSERTs.
+  await resolveStampInputs(db.query, invoiceId, orgId, opts);
+
+  // Emisor gate (throws 422 ORG_MX_PROFILE_MISSING with guidance). Org-level
+  // configuration, not invoice-derived, so it is not part of the re-read.
+  const emisor = await cfdiService.getEmisorProfile(orgId);
+
   const conn = await db.getConnection();
   let docId;
+  let resolved;
   try {
     await conn.beginTransaction();
 
@@ -178,6 +213,20 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
       'SELECT id FROM invoices WHERE id = ? AND organization_id = ? FOR UPDATE',
       [invoiceId, orgId],
     );
+
+    // THE re-read. Everything written below comes from here, not from the
+    // pre-flight above: an edit that committed between the two — new amounts,
+    // changed line items, a different client_id — is now visible, and the CFDI
+    // is built from what the invoice ACTUALLY says at the moment it is filed.
+    // Reading before the lock and writing after is how a CFDI ends up
+    // disagreeing with its own invoice, which only a cancellation can undo.
+    const exec = conn.execute.bind(conn);
+    resolved = await resolveStampInputs(exec, invoiceId, orgId, opts);
+    const {
+      invoice, receptor, items, formaPago, metodoPago, usoCfdi,
+      taxRate, clientExempt, subtotal, taxAmount, total,
+    } = resolved;
+
     const [locked] = await conn.execute(
       "SELECT id FROM cfdi_documents WHERE invoice_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
       [invoiceId, orgId],
@@ -255,10 +304,12 @@ async function stampInvoice(invoiceId, orgId, opts = {}) {
     conn.release();
   }
 
+  // From the post-lock read, so the audit line describes what was actually
+  // filed rather than the pre-flight snapshot.
   await auditLog.log({
     userId: opts.userId ?? null, organizationId: orgId, action: 'stamp_request',
     tableName: 'cfdi_documents', recordId: docId,
-    summary: `Invoice ${invoice.invoice_number || invoiceId} converted to CFDI #${docId} (${metodoPago})`,
+    summary: `Invoice ${resolved.invoice.invoice_number || invoiceId} converted to CFDI #${docId} (${resolved.metodoPago})`,
   });
 
   // Generate XML, then stamp via the org's PAC. A PAC failure leaves the doc

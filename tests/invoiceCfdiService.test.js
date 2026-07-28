@@ -44,6 +44,11 @@ function makeConn() {
       conn.executed.push([sql, params]);
       if (sql.includes('INSERT INTO cfdi_documents')) return [{ insertId: 900 }];
       if (sql.includes('INSERT INTO cfdi_conceptos')) return [{ insertId: 1000 + conn.executed.length }];
+      // The authoritative re-read runs the SAME selects on this connection
+      // after the row lock. Delegate them to the suite's db.query dispatcher so
+      // one set of fixtures serves both channels — otherwise every test would
+      // need a parallel set, and they would drift.
+      if (/^\s*SELECT/i.test(sql)) return db.query(sql, params);
       return [{ affectedRows: 1 }];
     },
     async query() { return [[{ folio: 42 }]]; },
@@ -207,16 +212,138 @@ describe('stampInvoice — conversion', () => {
 
   test('a DB failure mid-conversion rolls back (no orphan conceptos)', async () => {
     const conn = makeConn();
-    conn.execute = async (sql) => {
+    const passthrough = conn.execute;
+    conn.execute = async (sql, params) => {
       if (sql.includes('INSERT INTO cfdi_conceptos')) throw new Error('boom');
-      if (sql.includes('INSERT INTO cfdi_documents')) return [{ insertId: 900 }];
-      return [{ affectedRows: 1 }];
+      // Delegate everything else, so the post-lock re-read still resolves —
+      // otherwise this test fails on a missing fiscal profile and never
+      // reaches the concepto insert it is actually about.
+      return passthrough(sql, params);
     };
     db.getConnection.mockResolvedValue(conn);
     await expect(invoiceCfdiService.stampInvoice(60, 1)).rejects.toThrow('boom');
     expect(conn.rollback).toHaveBeenCalled();
     expect(conn.release).toHaveBeenCalled();
     expect(cfdiService.generateXml).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// j48 — the CFDI is built from what the invoice says AFTER the lock
+// =============================================================================
+// The stamper used to read the invoice, its items and the receptor BEFORE
+// db.getConnection(), then write from that snapshot inside the transaction. An
+// edit committing in that window was invisible, so the CFDI filed at SAT could
+// disagree with the invoice row — and once filed, only a cancellation undoes it.
+//
+// These drive the interleaving directly: the second read (the one on the
+// transaction connection) returns DIFFERENT data from the first, and the
+// assertions are that the written values follow the second.
+describe('stampInvoice — an edit committing before the lock is not stamped stale', () => {
+  const EDITED = { ...INVOICE, subtotal: '2000.00', tax_amount: '320.00', total: '2320.00' };
+  const EDITED_ITEMS = [
+    { id: 1, description: 'Internet 100M', quantity: '1.00', unit_price: '2000.00', amount: '2000.00', clave_prod_serv: null, clave_unidad: null },
+  ];
+
+  /** First call returns `before`, every later call returns `after`. */
+  const shifting = (before, after) => {
+    let first = true;
+    return async () => { const v = first ? before : after; first = false; return v; };
+  };
+
+  test('amounts come from the post-lock read, not the pre-flight snapshot', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    Invoice.findByIdOrFail.mockImplementation(shifting({ ...INVOICE }, { ...EDITED }));
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM invoice_items/.test(sql)) return [EDITED_ITEMS.map(i => ({ ...i }))];
+      if (/FROM payment_allocations/.test(sql)) return [[{ sat_forma_pago: '03' }]];
+      return [[]];
+    });
+
+    await invoiceCfdiService.stampInvoice(60, 1);
+
+    const insert = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_documents'));
+    expect(insert).toBeDefined();
+    // subtotal / total_impuestos / total are the last three bound params.
+    const [subtotal, totalImpuestos, total] = insert[1].slice(-3);
+    expect(Number(subtotal)).toBe(2000);
+    expect(Number(totalImpuestos)).toBe(320);
+    expect(Number(total)).toBe(2320);
+    // The pre-flight values must appear nowhere in the filed document.
+    expect(Number(subtotal)).not.toBe(800);
+  });
+
+  test('a client_id change before the lock re-points the RECEPTOR', async () => {
+    // The worst version: the CFDI would otherwise be filed against the wrong
+    // taxpayer entirely.
+    const OTHER = { rfc: 'XAXX010101001', razon_social: 'OTRO CLIENTE', regimen_fiscal: '601', codigo_postal_fiscal: '99999', uso_cfdi_default: null };
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    Invoice.findByIdOrFail.mockImplementation(shifting({ ...INVOICE }, { ...INVOICE, client_id: 99 }));
+    db.query.mockImplementation(async (sql, params) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) {
+        return [[params[1] === 99 ? { ...OTHER } : { ...RECEPTOR }]];
+      }
+      if (/FROM invoice_items/.test(sql)) return [ITEMS.map(i => ({ ...i }))];
+      if (/FROM payment_allocations/.test(sql)) return [[{ sat_forma_pago: '03' }]];
+      return [[]];
+    });
+
+    await invoiceCfdiService.stampInvoice(60, 1);
+
+    const insert = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_documents'));
+    expect(insert[1]).toContain('XAXX010101001');
+    expect(insert[1]).not.toContain(RECEPTOR.rfc);
+  });
+
+  test('conceptos are built from the post-lock line items', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    Invoice.findByIdOrFail.mockImplementation(shifting({ ...INVOICE }, { ...EDITED }));
+    let firstItems = true;
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM invoice_items/.test(sql)) {
+        const v = firstItems ? ITEMS.map(i => ({ ...i })) : EDITED_ITEMS.map(i => ({ ...i }));
+        firstItems = false;
+        return [v];
+      }
+      if (/FROM payment_allocations/.test(sql)) return [[{ sat_forma_pago: '03' }]];
+      return [[]];
+    });
+
+    await invoiceCfdiService.stampInvoice(60, 1);
+
+    const conceptos = conn.executed.filter(([sql]) => sql.includes('INSERT INTO cfdi_conceptos'));
+    // The pre-flight snapshot had TWO items; the committed edit left one.
+    expect(conceptos).toHaveLength(1);
+    expect(Number(conceptos[0][1][6])).toBe(2000); // importe
+  });
+
+  test('the re-read runs on the TRANSACTION, never on the pool', async () => {
+    // A db.query here would acquire a second pooled connection while this one
+    // is held — the nested-acquire hang fixed in #584.
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    Invoice.findByIdOrFail.mockResolvedValue({ ...INVOICE });
+
+    await invoiceCfdiService.stampInvoice(60, 1);
+
+    const lockAt = conn.executed.findIndex(([sql]) => /FOR UPDATE/.test(sql));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    for (const table of [/client_mx_profiles/, /invoice_items/]) {
+      const at = conn.executed.findIndex(([sql]) => table.test(sql));
+      expect(at).toBeGreaterThan(lockAt);
+    }
+    // Invoice.findByIdOrFail must be handed the transaction executor the
+    // second time, or the invoice itself is still read off the pool.
+    const lastCall = Invoice.findByIdOrFail.mock.calls.at(-1);
+    expect(typeof lastCall[2]?.exec).toBe('function');
   });
 });
 
