@@ -93,9 +93,13 @@ SET @val = NULL;
 SELECT setting_value INTO @val FROM settings WHERE setting_key = 'default_currency';
 CALL assert_true(@val IS NULL, 'D2: Setting "default_currency" removed (migration 405)');
 
+-- Note: `default_tax_rate` was removed by migration 431 — it had ZERO readers
+-- while still rendering as an editable field on the org Settings tab, so an
+-- operator could set it and see no effect. The rate that actually applies comes
+-- from tax_rates / tax_rules via resolveTaxContext. Assert its ABSENCE.
 SET @val = NULL;
 SELECT setting_value INTO @val FROM settings WHERE setting_key = 'default_tax_rate';
-CALL assert_true(@val IS NOT NULL, 'D3: Setting "default_tax_rate" exists');
+CALL assert_true(@val IS NULL, 'D3: Setting "default_tax_rate" removed (migration 431)');
 
 SET @val = NULL;
 SELECT setting_value INTO @val FROM settings WHERE setting_key = 'invoice_prefix';

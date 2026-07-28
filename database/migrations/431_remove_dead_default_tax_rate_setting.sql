@@ -1,0 +1,26 @@
+-- =============================================================================
+-- Migration 431 — remove the dead settings.default_tax_rate row
+-- =============================================================================
+-- Migration 120 seeded settings.default_tax_rate = '0.00', described as the
+-- "default tax rate percentage applied to new invoices when no tax_rate_id is
+-- selected". Nothing has ever read it: a repo-wide search finds only the seed
+-- itself, the schema.sql mirror, and a seed-data assertion.
+--
+-- It is worse than merely unused, because the org Settings tab renders the
+-- whole settings map (Organization.getSettings returns key → value and DROPS
+-- the description). So an operator sees a `default_tax_rate` field, sets it to
+-- 16, saves successfully, and nothing happens — while the rate that actually
+-- applies comes from tax_rates / tax_rules via resolveTaxContext.
+--
+-- The sharper risk is the other direction: someone "fixing" the dead setting by
+-- wiring it up would default MX orgs to 0% IVA, because the seeded value is
+-- 0.00. A comment in migration 120 cannot prevent either failure — nobody reads
+-- migrations while clicking a settings form. Deleting the row does.
+--
+-- Exactly the treatment migration 405 gave settings.default_currency, for the
+-- same reason (currency lives on organizations.currency).
+--
+-- Safe by construction: zero readers means no behaviour depends on the value.
+-- =============================================================================
+
+DELETE FROM settings WHERE setting_key = 'default_tax_rate';
