@@ -317,7 +317,8 @@
       "support": "Espaço de suporte",
       "noc": "Espaço NOC"
     },
-    "dataImport": "Importar CSV"
+    "dataImport": "Importar CSV",
+    "suspensionConsole": "Console de suspensão"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4759,5 +4760,39 @@
     "partialWarning": "As linhas que deram certo JÁ foram salvas — não são revertidas. Corrija apenas as linhas listadas abaixo e importe um arquivo somente com elas, ou você criará duplicatas.",
     "lineNumber": "Linha do arquivo",
     "errorCol": "O que deu errado"
+  },
+  "suspensionConsole": {
+    "title": "Console de suspensão",
+    "description": "Veja quem as regras de suspensão automática afetariam, execute-as quando quiser e confira o que fizeram.",
+    "manageRules": "Gerenciar as regras →",
+    "preview": "Prever quem seria afetado",
+    "previewing": "Avaliando…",
+    "previewTitle": "Prévia",
+    "previewEmpty": "Nenhum contrato corresponde a uma regra de suspensão no momento.",
+    "previewSummary": "{{total}} correspondências, das quais {{acting}} seriam realmente suspensas ou limitadas.",
+    "previewError": "Não foi possível executar a prévia.",
+    "noDisconnect": "(apenas alerta — sem corte)",
+    "run": "Executar as regras agora",
+    "running": "Executando…",
+    "confirmRun": "Isto agirá sobre {{count}} contrato(s) de verdade.",
+    "confirmRunYes": "Sim, executar",
+    "runError": "A execução falhou.",
+    "ranSummary": "{{evaluated}} contrato(s) avaliados; {{suspended}} sofreram ação.",
+    "contract": "Contrato",
+    "client": "Cliente",
+    "ruleAction": "Ação da regra",
+    "daysOverdue": "Dias em atraso",
+    "invoice": "Fatura",
+    "historyTitle": "Histórico",
+    "historyEmpty": "Nada foi suspenso ou reconectado ainda.",
+    "historyError": "Não foi possível carregar o histórico.",
+    "when": "Quando",
+    "action": "Ação",
+    "by": "Por",
+    "rule": "Regra",
+    "coa": "CoA RADIUS enviado",
+    "restored": "Restaurado",
+    "bySystem": "Automático (motor)",
+    "byManual": "Manual"
   }
 }

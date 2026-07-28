@@ -9251,6 +9251,32 @@
         }
       }
     },
+    "/suspension/logs": {
+      "get": {
+        "tags": [
+          "Suspension"
+        ],
+        "summary": "Suspension/reconnection history (who the engine acted on, and why)",
+        "operationId": "suspensionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SuspensionLog[] + meta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/suspension/evaluate": {
       "post": {
         "tags": [

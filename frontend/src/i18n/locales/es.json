@@ -317,7 +317,8 @@
       "support": "Espacio de soporte",
       "noc": "Espacio NOC"
     },
-    "dataImport": "Importar CSV"
+    "dataImport": "Importar CSV",
+    "suspensionConsole": "Consola de suspensión"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4759,5 +4760,39 @@
     "partialWarning": "Las filas correctas YA quedaron guardadas — no se revierten. Corrige solo las líneas listadas abajo e importa un archivo únicamente con esas, o crearás duplicados.",
     "lineNumber": "Línea del archivo",
     "errorCol": "Qué salió mal"
+  },
+  "suspensionConsole": {
+    "title": "Consola de suspensión",
+    "description": "Previsualiza a quién afectarían las reglas de suspensión automática, ejecútalas cuando quieras y revisa lo que hicieron.",
+    "manageRules": "Administrar las reglas →",
+    "preview": "Previsualizar a quién afectaría",
+    "previewing": "Evaluando…",
+    "previewTitle": "Previsualización",
+    "previewEmpty": "Ningún contrato coincide actualmente con una regla de suspensión.",
+    "previewSummary": "{{total}} coincidencias, de las cuales {{acting}} realmente se suspenderían o limitarían.",
+    "previewError": "No se pudo ejecutar la previsualización.",
+    "noDisconnect": "(solo alerta — sin corte)",
+    "run": "Ejecutar las reglas ahora",
+    "running": "Ejecutando…",
+    "confirmRun": "Esto actuará sobre {{count}} contrato(s) de verdad.",
+    "confirmRunYes": "Sí, ejecutar",
+    "runError": "La ejecución falló.",
+    "ranSummary": "Se evaluaron {{evaluated}} contrato(s); se actuó sobre {{suspended}}.",
+    "contract": "Contrato",
+    "client": "Cliente",
+    "ruleAction": "Acción de la regla",
+    "daysOverdue": "Días de atraso",
+    "invoice": "Factura",
+    "historyTitle": "Historial",
+    "historyEmpty": "Aún no se ha suspendido ni reconectado nada.",
+    "historyError": "No se pudo cargar el historial.",
+    "when": "Cuándo",
+    "action": "Acción",
+    "by": "Por",
+    "rule": "Regla",
+    "coa": "CoA RADIUS enviado",
+    "restored": "Restaurado",
+    "bySystem": "Automático (motor)",
+    "byManual": "Manual"
   }
 }

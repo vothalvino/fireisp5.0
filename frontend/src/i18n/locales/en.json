@@ -317,7 +317,8 @@
       "support": "Support workspace",
       "noc": "NOC workspace"
     },
-    "dataImport": "CSV import"
+    "dataImport": "CSV import",
+    "suspensionConsole": "Suspension console"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4759,5 +4760,39 @@
     "partialWarning": "The rows that succeeded are already saved — they are not rolled back. Fix only the lines listed below and import a file containing just those, or you will create duplicates.",
     "lineNumber": "Line in file",
     "errorCol": "What went wrong"
+  },
+  "suspensionConsole": {
+    "title": "Suspension console",
+    "description": "Preview who the auto-suspension rules would act on, run them on demand, and see what they did.",
+    "manageRules": "Manage the rules →",
+    "preview": "Preview who would be affected",
+    "previewing": "Evaluating…",
+    "previewTitle": "Preview",
+    "previewEmpty": "No contract currently matches any suspension rule.",
+    "previewSummary": "{{total}} matching, of which {{acting}} would actually be disconnected or throttled.",
+    "previewError": "The preview could not be run.",
+    "noDisconnect": "(alert only — no disconnection)",
+    "run": "Run the rules now",
+    "running": "Running…",
+    "confirmRun": "This will act on {{count}} contract(s) for real.",
+    "confirmRunYes": "Yes, run it",
+    "runError": "The run failed.",
+    "ranSummary": "Evaluated {{evaluated}} contract(s); {{suspended}} were acted on.",
+    "contract": "Contract",
+    "client": "Client",
+    "ruleAction": "Rule action",
+    "daysOverdue": "Days overdue",
+    "invoice": "Invoice",
+    "historyTitle": "History",
+    "historyEmpty": "Nothing has been suspended or reconnected yet.",
+    "historyError": "The history could not be loaded.",
+    "when": "When",
+    "action": "Action",
+    "by": "By",
+    "rule": "Rule",
+    "coa": "RADIUS CoA sent",
+    "restored": "Restored",
+    "bySystem": "Automatic (engine)",
+    "byManual": "Manual"
   }
 }
