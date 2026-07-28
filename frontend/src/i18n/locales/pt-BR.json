@@ -316,7 +316,8 @@
       "field": "Espaço de campo",
       "support": "Espaço de suporte",
       "noc": "Espaço NOC"
-    }
+    },
+    "dataImport": "Importar CSV"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4728,5 +4729,35 @@
     "acceptButton": "Aceito o aviso de privacidade",
     "acceptError": "Não foi possível salvar sua aceitação. Tente novamente.",
     "versionLabel": "Versão do aviso: {{version}}"
+  },
+  "dataImport": {
+    "title": "Importar CSV",
+    "description": "Traga clientes, contratos, faturas e pagamentos do seu sistema anterior. Cada linha é importada separadamente, e qualquer linha com erro é reportada com o número da linha.",
+    "whatToImport": "O que você vai importar?",
+    "entities": {
+      "clients": "Clientes",
+      "contracts": "Contratos",
+      "invoices": "Faturas",
+      "payments": "Pagamentos",
+      "devices": "Dispositivos"
+    },
+    "expectedColumns": "Colunas esperadas",
+    "required": "Obrigatórias",
+    "optional": "Opcionais",
+    "chooseFile": "Arquivo CSV",
+    "fileHint": "A primeira linha deve ser o cabeçalho das colunas. Baixe o modelo para tê-las na ordem certa.",
+    "importBtn": "Importar",
+    "importing": "Importando…",
+    "downloadTemplate": "Baixar modelo",
+    "noFile": "Selecione primeiro um arquivo CSV.",
+    "noPermission": "Você não tem permissão para importar nenhum destes tipos de registro.",
+    "resultTitle": "Resultado da importação",
+    "imported": "Importadas",
+    "totalRows": "Linhas no arquivo",
+    "failed": "Com erro",
+    "allImported": "Todas as linhas foram importadas com sucesso.",
+    "partialWarning": "As linhas que deram certo JÁ foram salvas — não são revertidas. Corrija apenas as linhas listadas abaixo e importe um arquivo somente com elas, ou você criará duplicatas.",
+    "lineNumber": "Linha do arquivo",
+    "errorCol": "O que deu errado"
   }
 }

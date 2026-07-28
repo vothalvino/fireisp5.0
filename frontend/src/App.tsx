@@ -87,6 +87,7 @@ import { TransitionMechanismsPage } from '@/pages/TransitionMechanismsPage';
 import { DeviceGroupList } from '@/pages/DeviceGroupList';
 import { DiscoveryScanList } from '@/pages/DiscoveryScanList';
 import { DeviceImport } from '@/pages/DeviceImport';
+import { DataImport } from '@/pages/DataImport';
 import { TrapForwardingRuleList } from '@/pages/TrapForwardingRuleList';
 import { PollerNodeList } from '@/pages/PollerNodeList';
 import { DevicePollingConfigList } from '@/pages/DevicePollingConfigList';
@@ -357,6 +358,7 @@ export function App() {
                 <Route path="analytics-dashboard" element={<AnalyticsDashboard />} />
                 <Route path="tax-reports" element={<TaxReports />} />
                 <Route path="invoice-settings" element={<InvoiceSettings />} />
+                <Route path="data-import" element={<DataImport />} />
                 <Route path="late-fee-rules" element={<LateFeeRuleList />} />
                 <Route path="payment-reminder-settings" element={<PaymentReminderSettings />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />

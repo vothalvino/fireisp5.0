@@ -316,7 +316,8 @@
       "field": "Field workspace",
       "support": "Support workspace",
       "noc": "NOC workspace"
-    }
+    },
+    "dataImport": "CSV import"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -4728,5 +4729,35 @@
     "acceptButton": "I accept the privacy notice",
     "acceptError": "Your acceptance could not be saved. Please try again.",
     "versionLabel": "Notice version: {{version}}"
+  },
+  "dataImport": {
+    "title": "CSV import",
+    "description": "Bring clients, contracts, invoices and payments over from your previous system. Each row is imported on its own, and any row that fails is reported with its line number.",
+    "whatToImport": "What are you importing?",
+    "entities": {
+      "clients": "Clients",
+      "contracts": "Contracts",
+      "invoices": "Invoices",
+      "payments": "Payments",
+      "devices": "Devices"
+    },
+    "expectedColumns": "Expected columns",
+    "required": "Required",
+    "optional": "Optional",
+    "chooseFile": "CSV file",
+    "fileHint": "The first line must be the column headers. Download the template below to get them in the right order.",
+    "importBtn": "Import",
+    "importing": "Importing…",
+    "downloadTemplate": "Download template",
+    "noFile": "Choose a CSV file first.",
+    "noPermission": "You do not have permission to import any of these record types.",
+    "resultTitle": "Import result",
+    "imported": "Imported",
+    "totalRows": "Rows in file",
+    "failed": "Failed",
+    "allImported": "Every row imported successfully.",
+    "partialWarning": "The rows that succeeded are already saved — they are not rolled back. Fix only the lines listed below and import a file containing just those, or you will create duplicates.",
+    "lineNumber": "Line in file",
+    "errorCol": "What went wrong"
   }
 }
