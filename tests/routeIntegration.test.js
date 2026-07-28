@@ -551,6 +551,9 @@ describe('Billing Routes — /api/billing', () => {
       const conn = mockConnection();
       conn.execute
         .mockResolvedValueOnce([[{ id: 50, status: 'pending' }]])  // FOR UPDATE lock
+        // The labels here were off by one before: this entry is consumed by
+        // resolveTaxContext's CLIENT lookup, not by tax_rates.
+        .mockResolvedValueOnce([[]])           // clients — resolveTaxContext
         .mockResolvedValueOnce([[]])           // tax_rates — none, so the resolver
         // falls through to Organization.getLocale, which now runs on THIS
         // connection. It used to take a second pooled connection while this

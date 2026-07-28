@@ -183,6 +183,27 @@ describe('crudController transactionalUpdate', () => {
     expect(conn.release).not.toHaveBeenCalled();
   });
 
+  it('a destroy() that itself throws still does not release, and keeps the real error', async () => {
+    // If `disposed` were set AFTER the destroy call, a throwing destroy would
+    // skip the flag, fall into finally, and release the wedged connection
+    // anyway — the exact outcome the destroy branch exists to prevent — while
+    // replacing the caller's 422 with an opaque 500.
+    const conn = mockTxConnection(db);
+    conn.rollback.mockRejectedValue(new Error('connection wedged'));
+    conn.destroy.mockImplementation(() => { throw new Error('destroy blew up'); });
+    db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
+    const { AppError } = require('../src/utils/errors');
+    const app = buildApp({
+      transactionalUpdate: true,
+      beforeUpdate: async () => { throw new AppError('nope', 422, 'GUARD'); },
+    });
+
+    const res = await request(app).put('/w/1').send({ name: 'b' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('GUARD');
+    expect(conn.release).not.toHaveBeenCalled();
+  });
+
   it('without the flag, takes no connection at all — unchanged behaviour', async () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
     const app = buildApp({ beforeUpdate: async () => {} });
@@ -246,7 +267,12 @@ describe('every guard read runs ON the transaction, never on the pool', () => {
   ])('%s — nothing leaks onto the pool', async (_label, body) => {
     const conn = mockTxConnection(db);
     wire();
-    await patch(body);
+    const res = await patch(body);
+    // Without these two, the assertion below passes VACUOUSLY: a request that
+    // 404s before reaching the guard runs no pooled SQL either. Breaking the
+    // dispatcher regex is enough to trigger exactly that.
+    expect(res.status).toBe(200);
+    expect(txSql(conn).some(s => /cfdi_documents/i.test(s))).toBe(true);
     expect(pooledSqlDuringTx(db, conn)).toEqual([]);
   });
 });

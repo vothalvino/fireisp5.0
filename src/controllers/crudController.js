@@ -182,14 +182,24 @@ function crudController(Model, _options = {}) {
         // Releasing a connection whose ROLLBACK failed hands the next borrower
         // one with an open transaction and its locks still held. Destroy it
         // instead and let the pool open a clean one.
+        //
+        // disposed is set BEFORE the call, and the call cannot throw out of
+        // here: otherwise a destroy() that throws would skip the flag, fall
+        // into finally, and release the wedged connection anyway — the exact
+        // outcome this branch exists to prevent — while replacing the real
+        // error with its own.
         if (typeof conn.destroy === 'function') {
-          conn.destroy();
           disposed = true;
+          try { conn.destroy(); } catch { /* already gone; the pool drops it */ }
         }
       }
       throw err;
     } finally {
-      if (!disposed) conn.release();
+      // A release() that throws here would REPLACE the error being propagated,
+      // turning a 422 guard rejection into an opaque 500.
+      if (!disposed) {
+        try { conn.release(); } catch { /* pool already dropped it */ }
+      }
     }
   }
 
