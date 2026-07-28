@@ -81,6 +81,49 @@ describe('CreditNoteList page', () => {
     expect(screen.getAllByText('🧾 Stamp CFDI')).toHaveLength(1);
   });
 
+  it('replaces Stamp with a link to the CFDI once one exists (j6)', async () => {
+    // The list now carries the note's live-CFDI state. Before it did, the
+    // button kept rendering on a stamped note and the click came back 409.
+    const stamped = {
+      ...note1, id: 4, credit_note_number: 'CN-000004', status: 'issued',
+      cfdi_document_id: 31, cfdi_uuid: 'AAAA-BBBB', cfdi_sat_status: 'vigente',
+    };
+    const unstamped = {
+      ...note1, id: 5, credit_note_number: 'CN-000005', status: 'issued',
+      cfdi_document_id: null, cfdi_uuid: null, cfdi_sat_status: null,
+    };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/credit-notes')
+        return Promise.resolve({ data: { data: [stamped, unstamped], meta: { total: 2, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderCreditNoteList();
+    await waitFor(() => expect(screen.getByText('CN-000004')).toBeInTheDocument());
+    // Only the UNSTAMPED row still offers a stamp.
+    expect(screen.getAllByText('🧾 Stamp CFDI')).toHaveLength(1);
+    expect(screen.getByText('🧾 View CFDI')).toBeInTheDocument();
+  });
+
+  it('labels a draft CFDI as a draft — it is live, so no re-stamp (j6)', async () => {
+    const draft = {
+      ...note1, id: 6, credit_note_number: 'CN-000006', status: 'issued',
+      cfdi_document_id: 32, cfdi_uuid: null, cfdi_sat_status: 'draft',
+    };
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/credit-notes')
+        return Promise.resolve({ data: { data: [draft], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+      if (path === '/clients')
+        return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderCreditNoteList();
+    await waitFor(() => expect(screen.getByText('CN-000006')).toBeInTheDocument());
+    expect(screen.getByText('🧾 CFDI draft')).toBeInTheDocument();
+    expect(screen.queryByText('🧾 Stamp CFDI')).not.toBeInTheDocument();
+  });
+
   it('stamps via POST /credit-notes/:id/stamp after confirmation and reports the UUID', async () => {
     const issued = { ...note1, id: 2, credit_note_number: 'CN-000002', status: 'issued' };
     mockApiGet.mockImplementation((path: string) => {
