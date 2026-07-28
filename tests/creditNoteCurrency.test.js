@@ -111,7 +111,12 @@ describe('POST /api/v1/credit-notes — currency defaulting', () => {
 
     expect(res.status).toBe(201);
     expect(db.query.mock.calls.some((c) => c[0].includes('FROM invoices WHERE id'))).toBe(false);
-    expect(db.query.mock.calls.some((c) => c[0].includes('FROM organizations'))).toBe(false);
+    // Narrowed from 'FROM organizations' to the CURRENCY read specifically.
+    // The create path now also resolves tax coherence, and that reads
+    // 'SELECT locale FROM organizations' for the error wording — a different
+    // question against the same table. The assertion here is about currency
+    // defaulting being short-circuited, not about the table being untouched.
+    expect(db.query.mock.calls.some((c) => c[0].includes('SELECT currency FROM organizations'))).toBe(false);
     const ledgerInsert = db.query.mock.calls.find((c) => c[0].includes('INSERT INTO client_balance_ledger'));
     expect(ledgerInsert[1]).toContain('EUR');
   });
