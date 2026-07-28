@@ -557,8 +557,11 @@ async function stamp(cfdiDocumentId) {
 
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
-  if (!doc) throw new CfdiStampingError('CFDI document not found', { cfdiDocumentId });
-  if (!doc.xml_content) throw new CfdiStampingError('XML not generated yet — call generateXml first', { cfdiDocumentId });
+  // Same reasoning as cancel(): these reject the request, so they are 4xx. The
+  // circuit-breaker check above stays a 502 because it IS transient — retrying
+  // it later genuinely can succeed.
+  if (!doc) throw new AppError('CFDI document not found', 404, 'CFDI_NOT_FOUND');
+  if (!doc.xml_content) throw new AppError('XML not generated yet — call generateXml first', 422, 'CFDI_XML_NOT_GENERATED');
 
   // Backstop: never register a CFDI at SAT for an invoice that was voided or
   // cancelled after this draft was created (the void guard blocks the common
@@ -588,9 +591,9 @@ async function stamp(cfdiDocumentId) {
     [doc.organization_id, pacEnv],
   );
   if (pacs.length === 0) {
-    throw new CfdiStampingError(
+    throw new AppError(
       `No active PAC provider configured for this organization in ${pacEnv} mode — add or activate a ${pacEnv} PAC, or change the fiscal environment under Organization → Fiscal (SAT).`,
-      { cfdiDocumentId, orgId: doc.organization_id },
+      422, 'CFDI_NO_ACTIVE_PAC',
     );
   }
 
@@ -957,22 +960,29 @@ async function syncInvoiceCancelled(cfdiDocumentId) {
 async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
   logger.info({ cfdiDocumentId, reason, replacementUuid }, 'Cancelling CFDI document');
 
+  // The guards below reject the REQUEST; only a real PAC/SAT failure is a 502.
+  // CfdiCancellationError is hardcoded to 502, so using it here told the caller
+  // "the gateway is broken, retry later" for mistakes an identical retry can
+  // never fix — and made every operator typo look like a PAC outage in
+  // monitoring. The discriminator is simply: could the same request ever
+  // succeed unchanged? If no, it is a 4xx. The live-REP guard below already
+  // got this right; these did not.
   const VALID_MOTIVOS = ['01', '02', '03', '04'];
   if (!VALID_MOTIVOS.includes(reason)) {
-    throw new CfdiCancellationError(`Invalid cancellation reason "${reason}" — must be one of: ${VALID_MOTIVOS.join(', ')}`, { cfdiDocumentId, reason });
+    throw new AppError(`Invalid cancellation reason "${reason}" — must be one of: ${VALID_MOTIVOS.join(', ')}`, 422, 'CFDI_INVALID_MOTIVO');
   }
 
   const [docs] = await db.query('SELECT * FROM cfdi_documents WHERE id = ?', [cfdiDocumentId]);
   const doc = docs[0];
-  if (!doc) throw new CfdiCancellationError('CFDI document not found', { cfdiDocumentId });
+  if (!doc) throw new AppError('CFDI document not found', 404, 'CFDI_NOT_FOUND');
   if (doc.sat_status !== 'vigente') {
-    throw new CfdiCancellationError('Can only cancel vigente documents', { cfdiDocumentId, currentStatus: doc.sat_status });
+    throw new AppError(`Can only cancel vigente documents — this one is ${doc.sat_status}.`, 409, 'CFDI_NOT_VIGENTE');
   }
   if (!doc.uuid) {
-    throw new CfdiCancellationError('CFDI document has no UUID — it must be stamped before cancellation', { cfdiDocumentId });
+    throw new AppError('CFDI document has no UUID — it must be stamped before cancellation', 422, 'CFDI_NOT_STAMPED');
   }
   if (reason === '01' && !replacementUuid) {
-    throw new CfdiCancellationError('Motivo 01 requires a replacement UUID (folio_sustitucion)', { cfdiDocumentId });
+    throw new AppError('Motivo 01 requires a replacement UUID (folio_sustitucion)', 422, 'CFDI_SUSTITUCION_REQUIRED');
   }
 
   // SAT rule: a CFDI cannot be cancelled while a vigente payment complement
@@ -1010,9 +1020,11 @@ async function cancel(cfdiDocumentId, reason, replacementUuid = null) {
     [doc.organization_id, pacEnv],
   );
   if (pacs.length === 0) {
-    throw new CfdiCancellationError(
+    // Misconfiguration, not an outage: retrying changes nothing until someone
+    // activates a PAC, so it must not read as a transient gateway error.
+    throw new AppError(
       `No active PAC provider configured for this organization in ${pacEnv} mode — activate a ${pacEnv} PAC, or change the fiscal environment under Organization → Fiscal (SAT).`,
-      { cfdiDocumentId, orgId: doc.organization_id },
+      422, 'CFDI_NO_ACTIVE_PAC',
     );
   }
 
@@ -1277,7 +1289,7 @@ async function getCancellationStatus(cancellationId) {
 
   const [rows] = await db.query('SELECT * FROM cfdi_cancellations WHERE id = ?', [cancellationId]);
   const cancellation = rows[0];
-  if (!cancellation) throw new CfdiCancellationError('Cancellation record not found', { cancellationId });
+  if (!cancellation) throw new AppError('Cancellation record not found', 404, 'CFDI_CANCELLATION_NOT_FOUND');
 
   // If already resolved, return immediately
   if (cancellation.cancellation_status !== 'pending') {

@@ -586,8 +586,14 @@ describe('CFDI Cancellation Flow', () => {
         return [{ affectedRows: 1 }];
       });
 
-      // callPacCancel fails (httpRequest has no network in the test env)
-      await expect(cfdiService.cancel(1, '02')).rejects.toThrow('PAC cancellation failed');
+      // callPacCancel fails (httpRequest has no network in the test env).
+      // This is the ONE cancel failure that is genuinely a gateway problem, so
+      // it must stay a 502 even though every request-rejection guard is now 4xx
+      // — otherwise a real PAC outage stops looking like an outage.
+      const err = await cfdiService.cancel(1, '02').catch(e => e);
+      expect(err.message).toMatch(/PAC cancellation failed/);
+      expect(err.statusCode).toBe(502);
+      expect(err.code).toBe('CFDI_CANCELLATION_FAILED');
 
       // Error recorded on the cancellation row (found by content, not index)
       const errorUpdateCall = db.query.mock.calls.find(
@@ -600,17 +606,72 @@ describe('CFDI Cancellation Flow', () => {
   // ===========================================================================
   // CfdiCancellationError
   // ===========================================================================
-  describe('CfdiCancellationError', () => {
-    test('is thrown with correct properties', async () => {
+  describe('a rejected REQUEST is a 4xx; only a failed PAC call is a 502', () => {
+    // Every guard below used to throw CfdiCancellationError, which is hardcoded
+    // to 502. That told the caller "the gateway is broken, retry later" for
+    // mistakes no identical retry can ever fix, and made an operator typo look
+    // like a PAC outage in monitoring. The rule: could this exact request ever
+    // succeed unchanged? If no, it is a 4xx.
+    //
+    // NOTE the old version of this test wrapped its assertions in a bare
+    // try/catch with no expect.assertions(), so it also passed when cancel()
+    // did not throw at all. These use rejects.toMatchObject, which cannot.
+
+    const vigente = { id: 5, organization_id: 42, sat_status: 'vigente', uuid: 'U-5', emisor_rfc: 'RFC' };
+
+    test('unknown document → 404, not 502', async () => {
       db.query.mockResolvedValueOnce([[]]);
-      try {
-        await cfdiService.cancel(999, '02');
-      } catch (err) {
-        expect(err.name).toBe('AppError');
-        expect(err.code).toBe('CFDI_CANCELLATION_FAILED');
-        expect(err.statusCode).toBe(502);
-      }
+      await expect(cfdiService.cancel(999, '02')).rejects.toMatchObject({
+        statusCode: 404, code: 'CFDI_NOT_FOUND',
+      });
     });
+
+    test('already cancelled → 409, and says what state it is actually in', async () => {
+      db.query.mockResolvedValueOnce([[{ ...vigente, sat_status: 'cancelado' }]]);
+      const err = await cfdiService.cancel(5, '02').catch(e => e);
+      expect(err.statusCode).toBe(409);
+      expect(err.code).toBe('CFDI_NOT_VIGENTE');
+      // The operator should not have to guess which terminal state blocked them.
+      expect(err.message).toContain('cancelado');
+    });
+
+    test('never stamped → 422', async () => {
+      db.query.mockResolvedValueOnce([[{ ...vigente, uuid: null }]]);
+      await expect(cfdiService.cancel(5, '02')).rejects.toMatchObject({
+        statusCode: 422, code: 'CFDI_NOT_STAMPED',
+      });
+    });
+
+    test('motivo 01 without a replacement UUID → 422', async () => {
+      db.query.mockResolvedValueOnce([[vigente]]);
+      await expect(cfdiService.cancel(5, '01')).rejects.toMatchObject({
+        statusCode: 422, code: 'CFDI_SUSTITUCION_REQUIRED',
+      });
+    });
+
+    test('invalid motivo → 422, before any DB read', async () => {
+      await expect(cfdiService.cancel(5, '99')).rejects.toMatchObject({
+        statusCode: 422, code: 'CFDI_INVALID_MOTIVO',
+      });
+      expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('no active PAC is a 422 misconfiguration, not a 502 outage', async () => {
+      db.query
+        .mockResolvedValueOnce([[vigente]])
+        .mockResolvedValueOnce([[]])                                // REP guard
+        .mockResolvedValueOnce([[{ pac_environment: 'sandbox' }]])
+        .mockResolvedValueOnce([[]]);                               // no PACs
+      await expect(cfdiService.cancel(5, '02')).rejects.toMatchObject({
+        statusCode: 422, code: 'CFDI_NO_ACTIVE_PAC',
+      });
+    });
+
+    // The inverse regression — "a real PAC failure is STILL a 502" — is asserted
+    // in 'records error message on PAC failure' above, which already drives that
+    // path with a SQL-dispatched mock. Re-mocking it here with an ordered queue
+    // left a persistent default implementation that broke three later tests, so
+    // the assertion lives there instead of being duplicated.
   });
 
   // ===========================================================================
