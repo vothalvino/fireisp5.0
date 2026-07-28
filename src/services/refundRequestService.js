@@ -12,6 +12,8 @@ const billingAdjustmentService = require('./billingAdjustmentService');
 const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'refundRequest' });
 const paymentGatewayService = require('./paymentGatewayService');
+const billingService = require('./billingService');
+const Organization = require('../models/Organization');
 
 // ---------------------------------------------------------------------------
 // Create
@@ -84,6 +86,68 @@ async function reviewRequest(orgId, id, { status, review_notes }, reviewedByUser
   logger.info({ refundRequestId: id, status, orgId }, 'Refund request reviewed');
 
   return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Refund credit-note tax
+// ---------------------------------------------------------------------------
+
+/**
+ * Decompose a refund's GROSS amount into the subtotal/tax a credit note must
+ * carry, at the tax rate of the thing being refunded.
+ *
+ * refund_requests.amount is what the subscriber actually gets back, so it is
+ * tax-inclusive: a full refund of a 1160 invoice (1000 + 16% IVA) is 1160.
+ * Writing that as subtotal 1160 / tax 0 — which is what this service did —
+ * stamps a CFDI de Egreso declaring the credited operation was not taxable,
+ * while the ingreso it relates to (TipoRelacion 01) declared IVA on the same
+ * money. The two documents then contradict each other at SAT.
+ *
+ * The rate comes from the ORIGINAL INVOICE when there is one: that is the rate
+ * the money was actually taxed at, and it can legitimately differ from what the
+ * client would be charged today (an 8%-frontera invoice credited after the org
+ * moved to 16%, or a rate change between issue and refund). Only when the
+ * refund is not tied to an invoice do we fall back to resolving the client's
+ * current context — same resolver the credit-note route uses.
+ *
+ * @param {number|null} orgId
+ * @param {{ amount: number|string, invoice_id: number|null, client_id: number }} refund
+ * @returns {Promise<{subtotal: number, taxAmount: number, taxRate: number, currency: string}>}
+ */
+async function resolveRefundCreditNoteTax(orgId, refund) {
+  const gross = Math.round((parseFloat(refund.amount) || 0) * 100) / 100;
+  let rate = 0;
+  let currency = null;
+
+  if (refund.invoice_id) {
+    const [rows] = await db.query(
+      `SELECT tax_rate, currency FROM invoices
+        WHERE id = ? AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL))
+          AND deleted_at IS NULL LIMIT 1`,
+      [refund.invoice_id, orgId, orgId],
+    );
+    if (rows[0]) {
+      rate = billingService.invoiceTaxFraction(rows[0].tax_rate);
+      currency = rows[0].currency || null;
+    }
+  }
+
+  if (!refund.invoice_id) {
+    const ctx = await billingService.resolveTaxContext(db.query.bind(db), {
+      orgId, clientId: refund.client_id,
+    });
+    rate = billingService.invoiceTaxFraction(ctx.rate);
+  }
+
+  if (!currency) currency = await Organization.getCurrency(orgId);
+
+  // Tax-INCLUSIVE decomposition, and the subtotal is derived from the tax so
+  // subtotal + tax === gross exactly. Deriving both independently lets a
+  // half-cent land in the gap, and credit_notes.total is checked against
+  // subtotal + tax_amount at create and at stamp time.
+  const taxAmount = Math.round((gross - gross / (1 + rate)) * 100) / 100;
+  const subtotal = Math.round((gross - taxAmount) * 100) / 100;
+  return { subtotal, taxAmount, taxRate: rate, currency };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,32 +259,39 @@ async function processRequest(orgId, id, { refund_method, gateway_refund_referen
   }
 
   // --- refund_method: credit_note ---
+  // No try/catch: this used to swallow any failure as a warn, which left the
+  // request marked 'processed' (the status write is below) with no credit note
+  // anywhere — the subscriber is told they were refunded and no document
+  // exists. The three refund_method branches are mutually exclusive, so no
+  // gateway money has moved on this path; throwing leaves the request
+  // 'approved' and retryable, which is the recoverable failure.
   if (refund_method === 'credit_note') {
-    try {
-      const cnNumber = `RCN-${existing.id}-${Date.now()}`;
-      const [cnResult] = await db.query(
-        `INSERT INTO credit_notes
-           (client_id, invoice_id, credit_note_number, issue_date, reason,
-            subtotal, tax_amount, total, status, created_by)
-         VALUES (?, ?, ?, CURDATE(), 'other', ?, 0, ?, 'issued', ?)`,
-        [
-          existing.client_id,
-          existing.invoice_id || null,
-          cnNumber,
-          existing.amount,
-          existing.amount,
-          processedByUserId || null,
-        ],
-      );
+    const cnNumber = `RCN-${existing.id}-${Date.now()}`;
+    const { subtotal, taxAmount, taxRate, currency } = await resolveRefundCreditNoteTax(orgId, existing);
+    const [cnResult] = await db.query(
+      `INSERT INTO credit_notes
+         (organization_id, client_id, invoice_id, credit_note_number, issue_date, reason,
+          subtotal, tax_rate, tax_amount, total, currency, status, created_by)
+       VALUES (?, ?, ?, ?, CURDATE(), 'other', ?, ?, ?, ?, ?, 'issued', ?)`,
+      [
+        orgId || null,
+        existing.client_id,
+        existing.invoice_id || null,
+        cnNumber,
+        subtotal,
+        taxRate,
+        taxAmount,
+        existing.amount,
+        currency,
+        processedByUserId || null,
+      ],
+    );
 
-      // Link the credit note back to the refund request
-      await db.query(
-        'UPDATE refund_requests SET resulting_credit_note_id = ? WHERE id = ?',
-        [cnResult.insertId, existing.id],
-      );
-    } catch (err) {
-      logger.warn({ err }, 'Could not create credit note for refund');
-    }
+    // Link the credit note back to the refund request
+    await db.query(
+      'UPDATE refund_requests SET resulting_credit_note_id = ? WHERE id = ?',
+      [cnResult.insertId, existing.id],
+    );
   }
 
   // Always record a billing adjustment
