@@ -113,11 +113,13 @@ describe('POST /api/v1/cfdi-documents/:id/cancel', () => {
   });
 
   test('propagates a service-level rejection (e.g. document not vigente) as an error response, not a fabricated success', async () => {
-    // Same AppError subclass, same propagation path as POST /cfdi/cancel
-    // (cfdiController.cancel) — CfdiCancellationError is a 502 by design.
-    const { CfdiCancellationError } = require('../src/utils/errors');
+    // Same AppError propagation path as POST /cfdi/cancel (cfdiController.cancel).
+    // "Not vigente" is a 409: the caller's request conflicts with the document's
+    // current state, and no identical retry will ever succeed. It used to be a
+    // 502, which told the operator the PAC was down.
+    const { AppError } = require('../src/utils/errors');
     cfdiService.cancel.mockRejectedValueOnce(
-      new CfdiCancellationError('Can only cancel vigente documents', { cfdiDocumentId: 5, currentStatus: 'cancel_pending' }),
+      new AppError('Can only cancel vigente documents — this one is cancel_pending.', 409, 'CFDI_NOT_VIGENTE'),
     );
 
     const res = await request(app)
@@ -126,7 +128,9 @@ describe('POST /api/v1/cfdi-documents/:id/cancel', () => {
       .set('X-Org-Id', '1')
       .send({ cancellation_reason: '02' });
 
-    expect(res.status).toBe(502);
-    expect(res.body.error.code).toBe('CFDI_CANCELLATION_FAILED');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CFDI_NOT_VIGENTE');
+    // The point of the test is that the route does NOT invent a success.
+    expect(res.body.data).toBeUndefined();
   });
 });
