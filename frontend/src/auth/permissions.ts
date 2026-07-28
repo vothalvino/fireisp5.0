@@ -33,6 +33,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'nas.health',
     'interactions.view', 'follow_ups.view', 'follow_ups.update', 'escalations.view',
     'campaigns.view', 'dnd.view',
+    'subscriber_consents.view',
   ],
   billing: [
     // Invoicing + payments (mirrors the backend billing role seed — migration 119)
@@ -44,8 +45,11 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'interactions.view', 'follow_ups.view', 'surveys.view',
     'campaigns.view', 'campaigns.create', 'campaigns.update', 'campaigns.delete',
     'dnd.view', 'dnd.update',
+    // §16 compliance (migration 321) — view + create, NOT manage: only admin
+    // may withdraw a consent.
+    'subscriber_consents.view', 'subscriber_consents.create',
   ],
-  readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health'],
+  readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health', 'subscriber_consents.view'],
 };
 
 /** The minimal shape `can()` needs from the auth user — kept separate from

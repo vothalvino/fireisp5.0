@@ -12,6 +12,7 @@ class Organization extends BaseModel {
       'name', 'legal_name', 'email', 'phone', 'website',
       'address', 'city', 'state', 'zip_code', 'country', 'currency', 'locale',
       'tax_id', 'logo_url', 'status',
+      'privacy_notice', 'privacy_notice_version',
     ];
   }
 

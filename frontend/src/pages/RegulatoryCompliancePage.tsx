@@ -20,6 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { readCsrfCookie } from '@/api/csrf';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,9 +32,14 @@ interface ConsentRecord {
   id: number;
   client_id: number;
   purpose: string;
+  channel: string | null;
+  consent_version: string | null;
   given_at: string | null;
   withdrawn_at: string | null;
 }
+
+const CONSENT_PURPOSES = ['service_delivery', 'marketing', 'analytics', 'third_party_sharing', 'lawful_retention'] as const;
+const CONSENT_CHANNELS = ['paper', 'phone', 'email', 'web', 'app'] as const;
 
 interface DsarRequest {
   id: number;
@@ -168,20 +174,103 @@ export default function RegulatoryCompliancePage() {
 
 function ConsentTab() {
   const { t } = useTranslation();
+  // PrivateRoute lets readonly and technician onto this page as well as the
+  // intended billing role, and migration 321 grants those two only
+  // subscriber_consents.view. Withdraw needs .manage, which ONLY admin has —
+  // so an ungated button 403s for every non-admin who can see this tab.
+  const { user } = useAuth();
+  const canCreate = can(user, 'subscriber_consents.create');
+  const canManage = can(user, 'subscriber_consents.manage');
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  // In-person / phone signups get recorded by staff — the portal only covers
+  // channel 'web'. Defaults match that: paper + service_delivery.
+  const [form, setForm] = useState({ client_id: '', purpose: 'service_delivery', channel: 'paper', consent_version: '', notes: '' });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  function load() {
     setLoading(true);
     apiFetch<{ data: ConsentRecord[] }>('/regulatory-compliance/consent')
       .then(r => setConsents(r.data || []))
       .catch(() => setConsents([]))
       .finally(() => setLoading(false));
-  }, []);
+  }
+  useEffect(load, []);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    setBusy(true);
+    try {
+      await apiFetch('/regulatory-compliance/consent', {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: Number(form.client_id),
+          purpose: form.purpose,
+          channel: form.channel,
+          consent_version: form.consent_version.trim(),
+          ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
+        }),
+      });
+      setMsg({ ok: true, text: t('regulatoryCompliance.consent.created') });
+      setForm(f => ({ ...f, client_id: '', notes: '' }));
+      load();
+    } catch {
+      setMsg({ ok: false, text: t('regulatoryCompliance.consent.createError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function withdraw(id: number) {
+    setMsg(null);
+    try {
+      await apiFetch(`/regulatory-compliance/consent/${id}/withdraw`, { method: 'PUT' });
+      load();
+    } catch {
+      setMsg({ ok: false, text: t('regulatoryCompliance.consent.withdrawError') });
+    }
+  }
+
+  const fld: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 };
+  const inp: React.CSSProperties = { padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4 };
 
   return (
     <div>
       <h2>{t('regulatoryCompliance.tabs.consent')}</h2>
+
+      {canCreate && (
+      <form onSubmit={create} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}>
+        <label style={fld}>{t('regulatoryCompliance.consent.clientId')}
+          <input style={inp} type="number" min={1} required value={form.client_id}
+            onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} />
+        </label>
+        <label style={fld}>{t('regulatoryCompliance.consent.purpose')}
+          <select style={inp} value={form.purpose} onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}>
+            {CONSENT_PURPOSES.map(p => <option key={p} value={p}>{t(`regulatoryCompliance.consent.purposes.${p}`)}</option>)}
+          </select>
+        </label>
+        <label style={fld}>{t('regulatoryCompliance.consent.channel')}
+          <select style={inp} value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))}>
+            {CONSENT_CHANNELS.map(c => <option key={c} value={c}>{t(`regulatoryCompliance.consent.channels.${c}`)}</option>)}
+          </select>
+        </label>
+        <label style={fld}>{t('regulatoryCompliance.consent.version')}
+          <input style={inp} required maxLength={20} value={form.consent_version}
+            onChange={e => setForm(f => ({ ...f, consent_version: e.target.value }))} />
+        </label>
+        <label style={{ ...fld, flexGrow: 1 }}>{t('regulatoryCompliance.consent.notes')}
+          <input style={inp} maxLength={2000} value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        </label>
+        <button type="submit" disabled={busy} style={{ padding: '7px 16px', background: '#4a90e2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          {t('regulatoryCompliance.consent.create')}
+        </button>
+        {msg && <span style={{ color: msg.ok ? '#2e7d32' : '#c62828', fontSize: 13 }}>{msg.text}</span>}
+      </form>
+      )}
+
       {loading ? (
         <p>{t('common.loading')}</p>
       ) : (
@@ -191,8 +280,11 @@ function ConsentTab() {
               <th style={thStyle}>ID</th>
               <th style={thStyle}>{t('regulatoryCompliance.consent.clientId')}</th>
               <th style={thStyle}>{t('regulatoryCompliance.consent.purpose')}</th>
+              <th style={thStyle}>{t('regulatoryCompliance.consent.channel')}</th>
+              <th style={thStyle}>{t('regulatoryCompliance.consent.version')}</th>
               <th style={thStyle}>{t('regulatoryCompliance.consent.givenAt')}</th>
               <th style={thStyle}>{t('regulatoryCompliance.consent.status')}</th>
+              <th style={thStyle}></th>
             </tr>
           </thead>
           <tbody>
@@ -201,17 +293,26 @@ function ConsentTab() {
                 <td style={tdStyle}>{c.id}</td>
                 <td style={tdStyle}>{c.client_id}</td>
                 <td style={tdStyle}>{c.purpose}</td>
+                <td style={tdStyle}>{c.channel ?? '-'}</td>
+                <td style={tdStyle}>{c.consent_version ?? '-'}</td>
                 <td style={tdStyle}>{c.given_at ? new Date(c.given_at).toLocaleDateString() : '-'}</td>
                 <td style={tdStyle}>
                   {c.withdrawn_at
                     ? t('regulatoryCompliance.consent.withdrawn')
                     : t('regulatoryCompliance.consent.active')}
                 </td>
+                <td style={tdStyle}>
+                  {canManage && !c.withdrawn_at && (
+                    <button onClick={() => withdraw(c.id)} style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #c62828', color: '#c62828', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
+                      {t('regulatoryCompliance.consent.withdraw')}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {consents.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: '#999' }}>
+                <td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: '#999' }}>
                   {t('common.noResults')}
                 </td>
               </tr>

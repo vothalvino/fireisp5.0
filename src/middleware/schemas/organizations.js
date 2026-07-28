@@ -18,6 +18,10 @@ const createOrganization = {
   tax_id: { type: 'string', max: 50 },
   logo_url: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
+  // Subscriber-facing privacy notice (markdown). Empty string clears back to
+  // the bundled template. 200k cap ≪ MEDIUMTEXT but far above any real aviso.
+  privacy_notice: { type: 'string', max: 200000 },
+  privacy_notice_version: { type: 'string', max: 20 },
 };
 
 const updateOrganization = {
@@ -36,6 +40,8 @@ const updateOrganization = {
   tax_id: { type: 'string', max: 50 },
   logo_url: { type: 'string', max: 500 },
   status: { type: 'string', enum: ['active', 'inactive'] },
+  privacy_notice: { type: 'string', max: 200000 },
+  privacy_notice_version: { type: 'string', max: 20 },
 };
 
 const updateSetting = {

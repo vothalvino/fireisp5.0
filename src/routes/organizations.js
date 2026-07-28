@@ -32,8 +32,25 @@ router.use(authenticate);
 router.get('/', requirePermission('organizations.view'), ctrl.list);
 router.get('/:id', requirePermission('organizations.view'), ctrl.get);
 router.post('/', requirePermission('organizations.create'), validate(createOrganization), ctrl.create);
-router.put('/:id', requirePermission('organizations.update'), validate(updateOrganization), ctrl.update);
-router.patch('/:id', requirePermission('organizations.update'), validate(patchOrganization), ctrl.partialUpdate);
+// Organization.hasOrgScope is false, so BaseModel.update SILENTLY omits the
+// tenant predicate: `UPDATE organizations SET ... WHERE id = ?` with no
+// organization_id. organizations.update is granted to the `admin` MEMBERSHIP
+// role (migration 119) and requirePermission resolves against the CALLER's
+// active org, never the target — so before this guard, any org's admin could
+// overwrite any other org's row by id, and GET / is equally unscoped so the
+// ids were listed for them. This is the same hole assertCallerCanManageOrgFiscal
+// (below) was added for on the mx-profile sub-routes; it applies just as much
+// to name, status, locale — and now to privacy_notice, which is served to the
+// target org's subscribers and hashed into their consent records.
+function assertCallerCanManageOrg(req, _res, next) {
+  try {
+    assertCallerCanManageOrgFiscal(req, 'settings');
+    next();
+  } catch (err) { next(err); }
+}
+
+router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(updateOrganization), ctrl.update);
+router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(patchOrganization), ctrl.partialUpdate);
 router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('organizations.update'), ctrl.restore);
 
@@ -186,10 +203,10 @@ async function assertTargetOrgIsMx(orgId) {
 // manage other orgs' fiscal identity. orgScope (mounted on these two routes
 // only — the rest of this router is platform-ops surface without it) supplies
 // req.orgId as the caller's ACTIVE org.
-function assertCallerCanManageOrgFiscal(req) {
+function assertCallerCanManageOrgFiscal(req, what = 'fiscal identity') {
   if (Number(req.params.id) === Number(req.orgId)) return;
   if (req.user?.role === 'admin') return;
-  throw new AppError('You can only manage your own organization\'s fiscal identity.', 403, 'FORBIDDEN');
+  throw new AppError(`You can only manage your own organization's ${what}.`, 403, 'FORBIDDEN');
 }
 
 router.get('/:id/mx-profile', orgScope, requirePermission('organizations.view'), async (req, res, next) => {

@@ -330,7 +330,10 @@
     "navHome": "🏠 Início",
     "navInvoices": "🧾 Faturas",
     "navSupport": "🎫 Suporte",
-    "footer": "© {{year}} FireISP"
+    "footer": "© {{year}} FireISP",
+    "privacyBanner": "Revise nosso aviso de privacidade.",
+    "privacyBannerLink": "Revisar e aceitar",
+    "privacyLink": "Aviso de privacidade"
   },
   "dashboard": {
     "title": "Painel",
@@ -1399,7 +1402,13 @@
     "fiscalError": "Não foi possível salvar o perfil fiscal.",
     "fiscalLoadError": "Não foi possível carregar o perfil fiscal.",
     "fiscalRfcInvalid": "O RFC deve ter 12–13 caracteres (letras, dígitos, Ñ, &).",
-    "fiscalIncomplete": "Razão social, regime (3 dígitos) e C.P. (5 dígitos) são obrigatórios."
+    "fiscalIncomplete": "Razão social, regime (3 dígitos) e C.P. (5 dígitos) são obrigatórios.",
+    "tabPrivacy": "Aviso de privacidade",
+    "privacyHint": "Este texto é exibido aos assinantes no portal, em Aviso de privacidade. Deixe vazio para usar o modelo integrado com o nome e os contatos desta organização.",
+    "privacyVersion": "Versão do aviso",
+    "privacyVersionHint": "Alterar a versão pede que cada assinante aceite o aviso novamente.",
+    "privacyNotice": "Texto do aviso (markdown)",
+    "privacyPlaceholder": "Vazio = modelo integrado"
   },
   "emailSettings": {
     "title": "Configurações de E-mail Saliente (SMTP)",
@@ -3522,7 +3531,29 @@
       "givenAt": "Consentimento Fornecido",
       "status": "Status",
       "withdrawn": "Retirado",
-      "active": "Ativo"
+      "active": "Ativo",
+      "channel": "Canal",
+      "version": "Versão do aviso",
+      "notes": "Notas",
+      "create": "Registrar consentimento",
+      "created": "Consentimento registrado",
+      "createError": "Não foi possível registrar o consentimento. Verifique o ID do cliente e os campos.",
+      "withdraw": "Revogar",
+      "withdrawError": "Não foi possível revogar o consentimento.",
+      "purposes": {
+        "service_delivery": "Prestação do serviço",
+        "marketing": "Marketing",
+        "analytics": "Análises",
+        "third_party_sharing": "Compartilhamento com terceiros",
+        "lawful_retention": "Retenção legal"
+      },
+      "channels": {
+        "paper": "Papel",
+        "phone": "Telefone",
+        "email": "E-mail",
+        "web": "Web",
+        "app": "App"
+      }
     },
     "dsar": {
       "requestType": "Tipo de Solicitacao",
@@ -4689,5 +4720,13 @@
       "hoursAgo": "há {{count}}h",
       "daysAgo": "há {{count}}d"
     }
+  },
+  "portalPrivacy": {
+    "loadError": "Não foi possível carregar o aviso de privacidade. Tente novamente.",
+    "acceptedOn": "Você aceitou este aviso de privacidade em {{date}}.",
+    "pendingPrompt": "Leia o aviso abaixo e aceite ao terminar.",
+    "acceptButton": "Aceito o aviso de privacidade",
+    "acceptError": "Não foi possível salvar sua aceitação. Tente novamente.",
+    "versionLabel": "Versão do aviso: {{version}}"
   }
 }

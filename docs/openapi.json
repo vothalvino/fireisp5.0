@@ -38064,6 +38064,68 @@
         }
       }
     },
+    "/portal/privacy-notice": {
+      "get": {
+        "tags": [
+          "Portal"
+        ],
+        "summary": "Privacy notice text + whether the current version is accepted",
+        "operationId": "portalGetPrivacyNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ version, content, accepted, accepted_at }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portal/privacy-notice/accept": {
+      "post": {
+        "tags": [
+          "Portal"
+        ],
+        "summary": "Record acceptance of the current privacy notice (idempotent per version)",
+        "operationId": "portalAcceptPrivacyNotice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Already accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "{ accepted, accepted_at }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal/auth/login": {
       "post": {
         "tags": [
@@ -62247,6 +62309,14 @@
               "active",
               "inactive"
             ]
+          },
+          "privacy_notice": {
+            "type": "string",
+            "maximum": 200000
+          },
+          "privacy_notice_version": {
+            "type": "string",
+            "maximum": 20
           }
         },
         "required": [
@@ -62323,6 +62393,14 @@
               "active",
               "inactive"
             ]
+          },
+          "privacy_notice": {
+            "type": "string",
+            "maximum": 200000
+          },
+          "privacy_notice_version": {
+            "type": "string",
+            "maximum": 20
           }
         }
       },
@@ -62396,6 +62474,14 @@
               "active",
               "inactive"
             ]
+          },
+          "privacy_notice": {
+            "type": "string",
+            "maximum": 200000
+          },
+          "privacy_notice_version": {
+            "type": "string",
+            "maximum": 20
           }
         }
       },
@@ -65889,6 +65975,54 @@
         },
         "required": [
           "refund_method"
+        ]
+      },
+      "regulatoryCompliance_createConsent": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "consent_version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "service_delivery",
+              "marketing",
+              "analytics",
+              "third_party_sharing",
+              "lawful_retention"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "web",
+              "app",
+              "paper",
+              "phone",
+              "email"
+            ]
+          },
+          "document_hash": {
+            "type": "string",
+            "maximum": 64
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "client_id",
+          "consent_version",
+          "purpose",
+          "channel"
         ]
       },
       "regulatoryFilings_createRegulatoryFiling": {

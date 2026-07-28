@@ -10,6 +10,9 @@ const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validate } = require('../middleware/validate');
+const { createConsent } = require('../middleware/schemas/regulatoryCompliance');
+const { NotFoundError } = require('../utils/errors');
 
 const router = Router();
 
@@ -66,9 +69,17 @@ router.get('/consent', requirePermission('subscriber_consents.view'), async (req
   }
 });
 
-router.post('/consent', requirePermission('subscriber_consents.create'), async (req, res, next) => {
+router.post('/consent', requirePermission('subscriber_consents.create'), validate(createConsent), async (req, res, next) => {
   try {
     const { client_id, consent_version, purpose, channel, document_hash, notes } = req.body;
+
+    // client_id is caller-supplied: without this check a staff user could file
+    // a consent row against ANOTHER org's client (cross-tenant write).
+    const [clientRows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL LIMIT 1',
+      [client_id, req.orgId],
+    );
+    if (clientRows.length === 0) throw new NotFoundError('Client not found');
 
     const [result] = await db.query(
       `INSERT INTO subscriber_consents (organization_id, client_id, consent_version, purpose, channel, document_hash, notes, given_at)

@@ -7,7 +7,8 @@
 
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { usePortalAuth } from '@/auth/PortalAuthContext';
+import { useQuery } from '@tanstack/react-query';
+import { usePortalAuth, portalTokenStore } from '@/auth/PortalAuthContext';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
@@ -15,6 +16,22 @@ export function PortalLayout() {
   const { client, logout } = usePortalAuth();
   const { t } = useTranslation();
   const { effectiveTheme, toggleTheme } = useDarkMode();
+
+  // LFPDPPP: nag (never block) until the current notice version is accepted.
+  // Same query key as PortalPrivacy, so accepting there clears this banner.
+  const notice = useQuery({
+    queryKey: ['portal-privacy-notice'],
+    queryFn: async () => {
+      const token = portalTokenStore.getAccess();
+      const res = await fetch('/api/v1/portal/privacy-notice', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('privacy notice fetch failed');
+      return res.json() as Promise<{ data: { accepted: boolean; version: string; content: string; accepted_at: string | null } }>;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const needsAcceptance = notice.data ? !notice.data.data.accepted : false;
 
   async function handleLogout() {
     await logout();
@@ -75,11 +92,21 @@ export function PortalLayout() {
 
       {/* Page content */}
       <main style={styles.main}>
+        {needsAcceptance && (
+          <div style={styles.privacyBanner} role="status">
+            <span>{t('portalLayout.privacyBanner')}</span>
+            <Link to="/portal/privacy" style={styles.privacyBannerLink}>
+              {t('portalLayout.privacyBannerLink')}
+            </Link>
+          </div>
+        )}
         <Outlet />
       </main>
 
       <footer style={styles.footer}>
         {t('portalLayout.footer', { year: new Date().getFullYear() })}
+        {' · '}
+        <Link to="/portal/privacy" style={styles.footerLink}>{t('portalLayout.privacyLink')}</Link>
       </footer>
     </div>
   );
@@ -147,5 +174,26 @@ const styles = {
     fontSize: '0.8rem',
     color: 'var(--text-dimmed)',
     borderTop: '1px solid var(--border)',
+  },
+  footerLink: {
+    color: 'var(--text-dimmed)',
+    textDecoration: 'underline',
+  },
+  privacyBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap' as const,
+    padding: '0.6rem 1rem',
+    marginBottom: '1rem',
+    borderRadius: 6,
+    border: '1px solid var(--warning-border, #e6c200)',
+    background: 'var(--warning-bg, #fff8dc)',
+    color: 'var(--text-primary)',
+    fontSize: '0.9rem',
+  },
+  privacyBannerLink: {
+    color: 'var(--accent)',
+    fontWeight: 600,
   },
 };

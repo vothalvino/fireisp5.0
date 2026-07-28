@@ -2014,6 +2014,14 @@ function generateSpec() {
         get: { tags: ['Data Rollover'], summary: 'Effective total data allowance for the authenticated subscriber', operationId: 'portalGetUsageAllowance', security: [{ bearerAuth: [] }], responses: r200('EffectiveAllowance') },
       },
 
+      // ---- Portal Privacy Notice (LFPDPPP §16) ----
+      '/portal/privacy-notice': {
+        get: { tags: ['Portal'], summary: 'Privacy notice text + whether the current version is accepted', operationId: 'portalGetPrivacyNotice', security: [{ bearerAuth: [] }], responses: r200('{ version, content, accepted, accepted_at }') },
+      },
+      '/portal/privacy-notice/accept': {
+        post: { tags: ['Portal'], summary: 'Record acceptance of the current privacy notice (idempotent per version)', operationId: 'portalAcceptPrivacyNotice', security: [{ bearerAuth: [] }], responses: { ...r201('{ accepted, accepted_at }'), ...r200('Already accepted') } },
+      },
+
       // ---- Portal Auth §11 ----
       '/portal/auth/login': {
         post: { tags: ['Portal Auth'], summary: 'Client portal login', operationId: 'portalLogin', requestBody: jsonBody('email + password'), responses: r200('AccessToken + RefreshToken') },
