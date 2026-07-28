@@ -59,12 +59,79 @@ async function balanceText(orgId, clientId) {
   );
   if (Number(balance) > 0.005) {
     const due = next_due ? ` Your next payment is due ${ymd(next_due)}.` : '';
-    return `💳 Your account balance is *${money(balance)} ${currency}*.${due}`;
+    const base = `💳 Your account balance is *${money(balance)} ${currency}*.${due}`;
+
+    // Owing money and being told only the number is a dead end. Offer the link
+    // for the OLDEST unpaid invoice — the one that triggers suspension.
+    const invoice = await payableInvoice(orgId, clientId);
+    const url = await payNowUrl({ orgId, clientId, invoice });
+    if (!url) return base;
+    return `${base}\n\n💳 Pay invoice *${invoice.invoice_number}* `
+      + `(${money(invoice.total)} ${invoice.currency}) securely here:\n${url}\n\n`
+      + '_The link is personal to you — please do not forward it._';
   }
   if (Number(balance) < -0.005) {
     return `✅ You're all paid up — you have a credit of *${money(balance)} ${currency}*.`;
   }
   return `✅ You're all paid up. Balance: *0.00 ${currency}*.`;
+}
+
+/**
+ * The oldest unpaid invoice, and a hosted checkout link for it.
+ *
+ * The bot could tell a subscriber they owed money and then leave them to find
+ * the portal themselves — the balance answer was a dead end on the channel most
+ * Mexican customers actually use. #523 shipped hosted checkout; this is the
+ * link.
+ *
+ * OLDEST FIRST, deliberately: it is the one about to trigger suspension, and
+ * paying it is what stops the disconnection. Offering the newest would let
+ * someone pay while still getting cut off.
+ *
+ * Returns null rather than throwing when there is nothing to pay or no gateway
+ * is configured — a bot must degrade to "here is your balance" rather than
+ * apologise for an internal error at a customer.
+ */
+async function payableInvoice(orgId, clientId) {
+  const [rows] = await db.query(
+    `SELECT id, invoice_number, total, currency, due_date
+       FROM invoices
+      WHERE client_id = ? AND organization_id <=> ?
+        AND status IN ('issued', 'sent', 'overdue')
+        AND deleted_at IS NULL
+      ORDER BY due_date ASC, id ASC
+      LIMIT 1`,
+    [clientId, orgId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Build a checkout link for the given invoice, or null if we cannot.
+ *
+ * Every failure here is non-fatal on purpose. A missing gateway, a Stripe
+ * outage, an invoice that turned out not to be payable — none of those should
+ * turn "you owe 580 MXN" into an error message. The subscriber still gets
+ * their balance; they just do not get a link.
+ */
+async function payNowUrl({ orgId, clientId, invoice }) {
+  if (!invoice) return null;
+  try {
+    // Required lazily: checkoutService pulls in the payment SDKs, and the bot
+    // path should not carry that cost on every inbound message.
+    const checkoutService = require('./checkoutService');
+    const session = await checkoutService.createCheckoutSession({
+      organizationId: orgId,
+      invoiceId: invoice.id,
+      clientId,
+      returnUrl: null,
+    });
+    return session?.payment_url || null;
+  } catch (err) {
+    logger.warn({ err: err.message, clientId, invoiceId: invoice.id },
+      'WhatsApp pay-now link could not be created — replying with balance only');
+    return null;
+  }
 }
 
 /** Plan(s) + service status. */
@@ -257,6 +324,8 @@ async function scheduleVisit({ orgId, clientId, contract, preferredDate, slot, n
 module.exports = {
   getActiveContracts,
   balanceText,
+  payableInvoice,
+  payNowUrl,
   planText,
   invoicesText,
   createProblemTicket,

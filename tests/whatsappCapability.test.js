@@ -6,6 +6,9 @@ jest.mock('../src/config/database', () => ({ query: jest.fn() }));
 jest.mock('../src/services/clientBalanceService', () => ({ computeClientBalance: jest.fn() }));
 jest.mock('../src/services/portalServiceRequestService', () => ({ queueWifiPasswordCpeTask: jest.fn() }));
 jest.mock('../src/services/emailTransport', () => ({ sendEmail: jest.fn().mockResolvedValue({ success: true }) }));
+// Mocked because the pay-now branch requires it lazily — the real module pulls
+// in the payment SDKs, which the bot path should not carry per inbound message.
+jest.mock('../src/services/checkoutService', () => ({ createCheckoutSession: jest.fn() }));
 jest.mock('../src/utils/logger', () => {
   const m = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), child: jest.fn(() => m) };
   return m;
@@ -15,6 +18,7 @@ const db = require('../src/config/database');
 const { computeClientBalance } = require('../src/services/clientBalanceService');
 const portalSR = require('../src/services/portalServiceRequestService');
 const emailTransport = require('../src/services/emailTransport');
+const checkoutService = require('../src/services/checkoutService');
 const cap = require('../src/services/whatsappCapabilityService');
 
 beforeEach(() => jest.clearAllMocks());
@@ -99,22 +103,102 @@ describe('write actions', () => {
 });
 
 describe('balanceText', () => {
+  // SQL-DISPATCHED, not an ordered once-queue: owing money now also looks up
+  // the oldest payable invoice to offer a checkout link, and an ordered queue
+  // breaks every time a query is added. `invoice` null = nothing to pay.
+  function wire({ nextDue = null, invoice = null } = {}) {
+    db.query.mockImplementation(async (sql) => {
+      if (/MIN\(due_date\)/.test(sql)) return [[{ next_due: nextDue }]];
+      if (/FROM invoices/.test(sql)) return [invoice ? [invoice] : []];
+      return [[]];
+    });
+  }
+  const INV = { id: 5, invoice_number: 'INV-000005', total: '150.50', currency: 'MXN', due_date: '2026-08-01' };
+
   it('reports an amount owed with the next due date', async () => {
     computeClientBalance.mockResolvedValue({ balance: 150.5, currency: 'MXN' });
-    db.query.mockResolvedValueOnce([[{ next_due: '2026-08-01' }]]);
+    wire({ nextDue: '2026-08-01' });
     const t = await cap.balanceText(3, 7);
     expect(t).toMatch(/150\.50 MXN/);
     expect(t).toMatch(/due 2026-08-01/);
   });
   it('reports a credit when the balance is negative', async () => {
     computeClientBalance.mockResolvedValue({ balance: -30, currency: 'MXN' });
-    db.query.mockResolvedValueOnce([[{ next_due: null }]]);
+    wire();
     expect(await cap.balanceText(3, 7)).toMatch(/credit of \*30\.00 MXN\*/);
   });
   it('reports paid-up at zero', async () => {
     computeClientBalance.mockResolvedValue({ balance: 0, currency: 'MXN' });
-    db.query.mockResolvedValueOnce([[{ next_due: null }]]);
+    wire();
     expect(await cap.balanceText(3, 7)).toMatch(/all paid up/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Pay-now link (j1). Telling a subscriber they owe money and stopping there
+  // is a dead end on the channel most Mexican customers actually use.
+  // -------------------------------------------------------------------------
+  it('offers a checkout link for the invoice when money is owed', async () => {
+    computeClientBalance.mockResolvedValue({ balance: 150.5, currency: 'MXN' });
+    wire({ nextDue: '2026-08-01', invoice: INV });
+    checkoutService.createCheckoutSession.mockResolvedValue({ payment_url: 'https://checkout.stripe.com/c/pay/abc123' });
+    const t = await cap.balanceText(3, 7);
+    expect(t).toMatch(/INV-000005/);
+    expect(t).toContain('https://checkout.stripe.com/c/pay/abc123');
+    // The link is personal — say so, because WhatsApp messages get forwarded.
+    expect(t).toMatch(/do not forward/i);
+  });
+
+  it('degrades to the balance alone when checkout FAILS', async () => {
+    // A missing gateway or a Stripe outage must not turn "you owe 150.50" into
+    // an apology for an internal error.
+    computeClientBalance.mockResolvedValue({ balance: 150.5, currency: 'MXN' });
+    wire({ nextDue: '2026-08-01', invoice: INV });
+    checkoutService.createCheckoutSession.mockRejectedValue(new Error('No active payment gateway'));
+    const t = await cap.balanceText(3, 7);
+    expect(t).toMatch(/150\.50 MXN/);
+    expect(t).not.toMatch(/https?:\/\//);
+    expect(t).not.toMatch(/error|sorry/i);
+  });
+
+  it('offers no link when there is nothing payable', async () => {
+    computeClientBalance.mockResolvedValue({ balance: 150.5, currency: 'MXN' });
+    wire({ nextDue: '2026-08-01', invoice: null });
+    const t = await cap.balanceText(3, 7);
+    expect(t).toMatch(/150\.50 MXN/);
+    expect(checkoutService.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('never offers a link to someone in credit', async () => {
+    computeClientBalance.mockResolvedValue({ balance: -30, currency: 'MXN' });
+    wire({ invoice: INV });
+    const t = await cap.balanceText(3, 7);
+    expect(t).not.toMatch(/https?:\/\//);
+    expect(checkoutService.createCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('payableInvoice picks the invoice that matters', () => {
+  it('takes the OLDEST unpaid — the one that triggers suspension', async () => {
+    db.query.mockResolvedValue([[{ id: 5 }]]);
+    await cap.payableInvoice(3, 7);
+    const sql = db.query.mock.calls[0][0];
+    expect(sql).toMatch(/ORDER BY due_date ASC/);
+    // Paying the newest while the oldest still cuts you off is not paying.
+    expect(sql).not.toMatch(/due_date DESC/);
+  });
+
+  it('only considers invoices that can actually be settled', async () => {
+    db.query.mockResolvedValue([[]]);
+    await cap.payableInvoice(3, 7);
+    const sql = db.query.mock.calls[0][0];
+    expect(sql).toMatch(/status IN \('issued', 'sent', 'overdue'\)/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+  });
+
+  it('is org-scoped with <=> so single-tenant installs still match', async () => {
+    db.query.mockResolvedValue([[]]);
+    await cap.payableInvoice(null, 7);
+    expect(db.query.mock.calls[0][0]).toMatch(/organization_id <=> \?/);
   });
 });
 
