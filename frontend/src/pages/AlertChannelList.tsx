@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 interface AlertChannel {
   id: number;
@@ -165,7 +166,7 @@ export function AlertChannelList() {
 
       <div style={styles.tableCard}>
         {channelsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : channelsQ.error ? (
           <p style={styles.msgError}>{t('alert_channels.error', 'Failed to load notification channels.')}</p>
         ) : channels.length === 0 ? (

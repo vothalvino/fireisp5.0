@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -267,7 +268,7 @@ export function TrapForwardingRuleList() {
 
       <div style={styles.tableCard}>
         {rulesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : rulesQ.error ? (
           <p style={styles.msgError}>{t('trap_forwarding_rules.error', 'Failed to load trap forwarding rules.')}</p>
         ) : rules.length === 0 ? (

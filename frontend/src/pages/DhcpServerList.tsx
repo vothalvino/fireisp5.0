@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,7 +280,7 @@ export function DhcpServerList() {
 
       <div style={styles.tableCard}>
         {serversQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : serversQ.error ? (
           <p style={styles.msgError}>{t('dhcp_servers.error', 'Failed to load DHCP servers.')}</p>
         ) : servers.length === 0 ? (

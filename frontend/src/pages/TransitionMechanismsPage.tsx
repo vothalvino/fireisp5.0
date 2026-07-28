@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -269,7 +270,7 @@ function SixRdTab() {
       </div>
       {feedback && <div style={{ padding: '0.6rem 1rem', borderRadius: 6, marginBottom: '1rem', background: feedback.type === 'ok' ? '#d1fae5' : '#fee2e2', color: feedback.type === 'ok' ? '#065f46' : '#991b1b', fontSize: '0.85rem' }}>{feedback.msg}</div>}
       <div style={styles.tableCard}>
-        {q.isLoading ? <p style={styles.msg}>Loading...</p>
+        {q.isLoading ? <LoadingState />
           : q.error ? <p style={styles.msgError}>{t('transition_mechanisms.error', 'Failed to load configurations.')}</p>
           : items.length === 0 ? <p style={styles.msg}>{t('transition_mechanisms.empty', 'No configurations found.')}</p>
           : (
@@ -469,7 +470,7 @@ function DsLiteTab() {
       </div>
       {feedback && <div style={{ padding: '0.6rem 1rem', borderRadius: 6, marginBottom: '1rem', background: feedback.type === 'ok' ? '#d1fae5' : '#fee2e2', color: feedback.type === 'ok' ? '#065f46' : '#991b1b', fontSize: '0.85rem' }}>{feedback.msg}</div>}
       <div style={styles.tableCard}>
-        {q.isLoading ? <p style={styles.msg}>Loading...</p>
+        {q.isLoading ? <LoadingState />
           : q.error ? <p style={styles.msgError}>{t('transition_mechanisms.error', 'Failed to load configurations.')}</p>
           : items.length === 0 ? <p style={styles.msg}>{t('transition_mechanisms.empty', 'No configurations found.')}</p>
           : (
@@ -687,7 +688,7 @@ function MapRulesTab() {
       </div>
       {feedback && <div style={{ padding: '0.6rem 1rem', borderRadius: 6, marginBottom: '1rem', background: feedback.type === 'ok' ? '#d1fae5' : '#fee2e2', color: feedback.type === 'ok' ? '#065f46' : '#991b1b', fontSize: '0.85rem' }}>{feedback.msg}</div>}
       <div style={styles.tableCard}>
-        {q.isLoading ? <p style={styles.msg}>Loading...</p>
+        {q.isLoading ? <LoadingState />
           : q.error ? <p style={styles.msgError}>{t('transition_mechanisms.error', 'Failed to load configurations.')}</p>
           : items.length === 0 ? <p style={styles.msg}>{t('transition_mechanisms.empty', 'No configurations found.')}</p>
           : (
@@ -891,7 +892,7 @@ function XlatTab() {
       </div>
       {feedback && <div style={{ padding: '0.6rem 1rem', borderRadius: 6, marginBottom: '1rem', background: feedback.type === 'ok' ? '#d1fae5' : '#fee2e2', color: feedback.type === 'ok' ? '#065f46' : '#991b1b', fontSize: '0.85rem' }}>{feedback.msg}</div>}
       <div style={styles.tableCard}>
-        {q.isLoading ? <p style={styles.msg}>Loading...</p>
+        {q.isLoading ? <LoadingState />
           : q.error ? <p style={styles.msgError}>{t('transition_mechanisms.error', 'Failed to load configurations.')}</p>
           : items.length === 0 ? <p style={styles.msg}>{t('transition_mechanisms.empty', 'No configurations found.')}</p>
           : (

@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 import { Pagination } from '@/components/Pagination';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1108,7 +1109,7 @@ export function NasList() {
 
       <div style={styles.tableCard}>
         {nasQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : nasQ.error ? (
           <p style={styles.msgError}>Failed to load NAS devices.</p>
         ) : devices.length === 0 ? (

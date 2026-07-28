@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -444,7 +445,7 @@ export function PppoeServiceProfileList() {
 
       <div style={styles.tableCard}>
         {profilesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : profilesQ.error ? (
           <p style={styles.msgError}>{t('pppoe_service_profiles.error', 'Failed to load profiles.')}</p>
         ) : profiles.length === 0 ? (

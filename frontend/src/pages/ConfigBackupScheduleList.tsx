@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 interface ConfigBackupSchedule {
   id: number;
@@ -171,7 +172,7 @@ export function ConfigBackupScheduleList() {
 
       <div style={styles.tableCard}>
         {schedulesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : schedulesQ.error ? (
           <p style={styles.msgError}>{t('config_backup_schedules.error')}</p>
         ) : schedules.length === 0 ? (

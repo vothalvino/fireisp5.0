@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 interface ConfigTemplate {
   id: number;
@@ -254,7 +255,7 @@ export function ConfigTemplateList() {
 
       <div style={styles.tableCard}>
         {templatesQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : templatesQ.error ? (
           <p style={styles.msgError}>{t('config_templates.error')}</p>
         ) : templates.length === 0 ? (

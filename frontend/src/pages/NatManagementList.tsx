@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -303,7 +304,7 @@ export function NatManagementList() {
 
       <div style={styles.tableCard}>
         {poolsQ.isLoading ? (
-          <p style={styles.msg}>Loading...</p>
+          <LoadingState />
         ) : poolsQ.error ? (
           <p style={styles.msgError}>{t('nat_management.error', 'Failed to load NAT pools.')}</p>
         ) : pools.length === 0 ? (

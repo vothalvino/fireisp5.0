@@ -62,7 +62,11 @@ describe('MacMoveEvents page', () => {
     // Return a promise that never resolves so the loading state persists.
     mockApiGet.mockImplementation(() => new Promise(() => undefined));
     renderPage();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    // Was asserting the literal English 'Loading...' — i.e. pinning the very
+    // defect j23 fixes. Assert the ROLE instead of the string: it tests that a
+    // loading state is announced, and does not depend on how this suite's i18n
+    // mock happens to resolve keys.
+    expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
   it('shows empty state when no events are returned', async () => {

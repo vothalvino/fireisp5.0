@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
+import { LoadingState } from '@/components/FetchStates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,7 +104,7 @@ export function PollerPerformanceDashboard() {
         </div>
       </div>
 
-      {dashQ.isLoading && <p style={styles.msg}>Loading...</p>}
+      {dashQ.isLoading && <LoadingState />}
       {dashQ.error && <p style={styles.msgError}>{t('poller_performance.error', 'Failed to load performance data.')}</p>}
 
       {dashboard && (
