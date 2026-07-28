@@ -100,12 +100,18 @@ router.post('/route-optimize', requirePermission('technician_tracking.view'), as
 router.get('/:userId/history', requirePermission('technician_tracking.view'), async (req, res, next) => {
   try {
     const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit) || 200));
+    // Org-scoped through users. technician_gps_breadcrumbs has no
+    // organization_id of its own, so the JOIN is the only way to scope it — and
+    // without it this route returned ANY technician's movement history to ANY
+    // tenant that guessed a user id. A day of GPS breadcrumbs is where a rival
+    // ISP's crew went, which customers they visited and when.
     const [rows] = await db.query(
-      `SELECT id, user_id, latitude, longitude, accuracy_m, recorded_at
-       FROM technician_gps_breadcrumbs
-       WHERE user_id = ?
-       ORDER BY recorded_at DESC LIMIT ${limit}`,
-      [req.params.userId],
+      `SELECT b.id, b.user_id, b.latitude, b.longitude, b.accuracy_m, b.recorded_at
+       FROM technician_gps_breadcrumbs b
+       JOIN users u ON u.id = b.user_id AND u.organization_id = ?
+       WHERE b.user_id = ?
+       ORDER BY b.recorded_at DESC LIMIT ${limit}`,
+      [req.orgId, req.params.userId],
     );
     res.json({ data: rows });
   } catch (err) { next(err); }
