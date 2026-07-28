@@ -18,7 +18,8 @@ const { pubsub } = require('../services/pubsub');
 const jobQueue = require('../services/jobQueueService');
 const logger = require('../utils/logger').child({ service: 'routes/tickets' });
 const aiReplyService = require('../services/aiReplyService');
-const { attachmentStorage, resolveStoredPath, STORAGE_ROOT } = require('../middleware/upload');
+const { attachmentStorage, resolveStoredPath, STORAGE_ROOT,
+  attachmentFileFilter, attachmentMimeType, contentDispositionAttachment } = require('../middleware/upload');
 
 // ---------------------------------------------------------------------------
 // Multer — ticket attachments (disk storage, 20 MB limit)
@@ -30,6 +31,9 @@ const { attachmentStorage, resolveStoredPath, STORAGE_ROOT } = require('../middl
 // destroyed by every redeploy.
 const ticketAttachUpload = multer({
   storage: attachmentStorage('tickets'),
+  // Was absent: this path accepted ANY extension and ANY mime type, with
+  // the 20 MB cap as the only restriction (j35).
+  fileFilter: attachmentFileFilter,
   limits: { fileSize: 20 * 1024 * 1024 },
 }).single('file');
 
@@ -450,7 +454,7 @@ router.post('/:id/attachments', requireTicketPermission('ticket_attachments.crea
       // path would break the moment the install root differs from the one that
       // wrote it — /app under Docker, /opt/fireisp from install.sh, or a backup
       // restored onto another host.
-      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size,
+      [req.params.id, req.file.filename, req.file.originalname, attachmentMimeType(req.file.originalname), req.file.size,
         path.relative(STORAGE_ROOT, req.file.path), req.user.id, req.orgId],
     );
     const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM ticket_attachments WHERE id = ?', [result.insertId]);
@@ -481,7 +485,7 @@ router.get('/:ticketId/attachments/:attachmentId/download', requireTicketPermiss
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
     const abs = resolveStoredPath(row.storage_path);
     if (!abs) return res.status(404).json({ error: 'Attachment file not found' });
-    res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
+    res.setHeader('Content-Disposition', contentDispositionAttachment(row.original_filename));
     res.setHeader('Content-Type', row.mime_type);
     res.sendFile(abs);
   } catch (err) { next(err); }

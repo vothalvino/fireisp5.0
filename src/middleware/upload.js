@@ -42,6 +42,101 @@ const ALLOWED_EXTENSIONS = new Set([
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
+// ---------------------------------------------------------------------------
+// Ticket / work-order attachments
+// ---------------------------------------------------------------------------
+// A DELIBERATELY DIFFERENT allowlist from ALLOWED_EXTENSIONS above. That set
+// exists for CSD certificates and generic document uploads; reusing it here
+// would start rejecting the uploads field staff actually make every day — it
+// has no .heic (every modern iPhone photo), no .docx, no video at all.
+//
+// What this covers: the evidence a technician or support agent attaches to a
+// job — install photos, a short clip of a fault, a signed work order, a
+// spreadsheet of readings.
+//
+// ARCHIVES AND SCRIPTS ARE DELIBERATELY EXCLUDED. An attachment is handed back
+// to another user of the same org on download, and an archive is the classic
+// carrier for something that should never have been stored. If an operator
+// genuinely needs .zip on tickets, this one Set is the knob — but it should be
+// a decision someone makes, not a default nobody chose.
+const ATTACHMENT_EXTENSIONS = new Set([
+  // Photos — heic/heif matter: iPhones shoot heic by default.
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+  // Documents
+  '.pdf', '.txt', '.csv', '.doc', '.docx', '.xls', '.xlsx',
+  // Short video evidence of a fault
+  '.mp4', '.mov',
+]);
+
+// The Content-Type a download is served with, derived from the EXTENSION.
+// req.file.mimetype comes from the client's multipart headers — it is caller
+// input, and it was being stored verbatim and echoed straight back as the
+// download's Content-Type. Deriving it here means the served type can only ever
+// be one of these, whatever the uploader claimed.
+const ATTACHMENT_MIME_BY_EXT = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.gif': 'image/gif', '.webp': 'image/webp',
+  '.heic': 'image/heic', '.heif': 'image/heif',
+  '.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime',
+};
+
+/**
+ * Build a rejection whose message actually reaches the caller.
+ *
+ * `new multer.MulterError(code, field)` takes a FIELD NAME as its second
+ * argument and derives `.message` from the code alone — so every rejection in
+ * this file has been surfacing multer's canned "Unexpected field" and throwing
+ * away the explanation, in the existing fileFilter as well as here. The routes
+ * respond with `err.message`, so an operator uploading a .exe was told
+ * "Unexpected field". Keep the MulterError type (callers may test for it) and
+ * set a message worth reading.
+ */
+function uploadRejection(message) {
+  const err = new multer.MulterError('LIMIT_UNEXPECTED_FILE');
+  err.message = message;
+  return err;
+}
+
+/** multer fileFilter for ticket / work-order attachments. */
+function attachmentFileFilter(_req, file, cb) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (!ATTACHMENT_EXTENSIONS.has(ext)) {
+    return cb(uploadRejection(
+      `File type "${ext || 'unknown'}" is not allowed. Accepted: ${[...ATTACHMENT_EXTENSIONS].join(', ')}`,
+    ));
+  }
+  cb(null, true);
+}
+
+/** The mime type to STORE for an upload — from the extension, never the client. */
+function attachmentMimeType(originalname) {
+  const ext = path.extname(originalname || '').toLowerCase();
+  return ATTACHMENT_MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
+/**
+ * Build a safe `Content-Disposition: attachment` header value.
+ *
+ * original_filename is caller-controlled and was being interpolated raw into
+ * `attachment; filename="..."`. A name containing a double quote closes the
+ * quoted-string early and lets the rest be read as further header parameters.
+ * Node itself rejects CR/LF in a header value, so this is parameter injection
+ * rather than response splitting — but it is still caller input steering a
+ * header. Quotes and backslashes are stripped for the legacy `filename`, and
+ * RFC 5987 `filename*` carries the real name (including non-ASCII, which the
+ * bare form cannot represent at all).
+ */
+function contentDispositionAttachment(originalname) {
+  const name = String(originalname || 'download');
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 /**
  * Map entity_type to storage subdirectory.
  */
@@ -73,11 +168,13 @@ function fileFilter(_req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (!ALLOWED_TYPES.has(file.mimetype)) {
-    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'File type not allowed'));
+    return cb(uploadRejection(`File type "${file.mimetype}" is not allowed.`));
   }
 
   if (!ALLOWED_EXTENSIONS.has(ext)) {
-    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'File extension not allowed'));
+    return cb(uploadRejection(
+      `File extension "${ext || 'unknown'}" is not allowed. Accepted: ${[...ALLOWED_EXTENSIONS].join(', ')}`,
+    ));
   }
 
   cb(null, true);
@@ -176,4 +273,6 @@ module.exports = {
   uploadSingle, uploadMultiple, uploadClientDocument,
   STORAGE_ROOT, entityDir, ALLOWED_EXTENSIONS,
   attachmentStorage, resolveStoredPath,
+  ATTACHMENT_EXTENSIONS, attachmentFileFilter, attachmentMimeType,
+  contentDispositionAttachment,
 };
