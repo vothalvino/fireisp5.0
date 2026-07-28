@@ -61,7 +61,14 @@ function wireDb({ liveCfdi = false, stored = STORED } = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  billingService.assertTaxCoherent.mockResolvedValue(undefined);
+  // The stand-in USES the executor it is handed, rather than just resolving.
+  // The real assertTaxCoherent fans out to clients, tax_rules and organizations,
+  // so it is the single biggest nested-acquire risk on this path — and a mock
+  // that issues no SQL makes a leak there invisible: reverting the route to
+  // db.query left every test green. Now the pool-leak assertion sees it.
+  billingService.assertTaxCoherent.mockImplementation(
+    async (exec) => { await exec('SELECT id FROM tax_rates WHERE 1=0', []); },
+  );
   // Credit-note PUT/PATCH now runs transactionally (j49).
   mockTxConnection(db);
 });
@@ -195,14 +202,21 @@ describe('credit-note updates are check-then-write under a row lock', () => {
     expect(cfdiAt).toBeGreaterThan(lockAt);
   });
 
-  it('nothing leaks onto the pool while the transaction is open', async () => {
-    // Paired with a positive assertion: an absence check alone passes
-    // trivially when the request never reaches the guard at all.
+  // BOTH guard branches. The tax-removal one matters most: it is the only
+  // path that reaches assertTaxCoherent, whose real implementation fans out to
+  // clients, tax_rules and organizations — the biggest nested-acquire risk
+  // here. An edit that RAISES tax never calls it, so a leak-check that only
+  // sends higher amounts cannot see a leak there at all.
+  it.each([
+    ['raises tax', { subtotal: 500, tax_amount: 80, total: 580 }],
+    ['REMOVES tax (assertTaxCoherent branch)', { subtotal: 580, tax_amount: 0, total: 580 }],
+  ])('%s — nothing leaks onto the pool while the transaction is open', async (_label, body) => {
     const conn = mockTxConnection(db);
     wireDb();
-    const res = await auth(request(app).put('/api/v1/credit-notes/5'))
-      .send({ subtotal: 500, tax_amount: 80, total: 580 });
+    const res = await auth(request(app).put('/api/v1/credit-notes/5')).send(body);
 
+    // Paired with positive assertions: an absence check alone passes trivially
+    // when the request never reaches the guard at all.
     expect(res.status).toBe(200);
     expect(txSql(conn).some(s => /cfdi_documents/i.test(s))).toBe(true);
     // audit_logs is ignored because crudController writes it AFTER commit and
