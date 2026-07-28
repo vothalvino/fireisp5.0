@@ -4332,6 +4332,8 @@ CREATE TABLE IF NOT EXISTS coverage_zones (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sla_definitions (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED  NULL
+                                     COMMENT 'Owning org, denormalised from plans; NULL = single-tenant (migration 429)',
     plan_id                 BIGINT UNSIGNED  NOT NULL COMMENT 'Plan this SLA applies to',
     name                    VARCHAR(255)     NOT NULL COMMENT 'Human-readable SLA name, e.g. "Gold SLA", "Enterprise 99.99%"',
     description             TEXT             NULL     COMMENT 'Detailed SLA terms and conditions',
@@ -4358,6 +4360,9 @@ CREATE TABLE IF NOT EXISTS sla_definitions (
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_sla_definitions_org (organization_id, plan_id),
+    CONSTRAINT fk_sla_definitions_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     KEY idx_sla_definitions_plan_id (plan_id),
     KEY idx_sla_definitions_status (status),
     KEY idx_sla_definitions_deleted_at (deleted_at),

@@ -30,11 +30,13 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const DeviceConfigBackup = require('../src/models/DeviceConfigBackup');
 const RecurringPaymentProfile = require('../src/models/RecurringPaymentProfile');
 const Radius = require('../src/models/Radius');
+const SlaDefinition = require('../src/models/SlaDefinition');
 
 const SCOPED = [
   ['DeviceConfigBackup', DeviceConfigBackup, 'device_config_backups'],
   ['RecurringPaymentProfile', RecurringPaymentProfile, 'recurring_payment_profiles'],
   ['Radius', Radius, 'radius'],
+  ['SlaDefinition', SlaDefinition, 'sla_definitions'],
 ];
 
 describe('the formerly-unscoped models now scope by organization', () => {
@@ -73,7 +75,8 @@ describe('the formerly-unscoped models now scope by organization', () => {
     expect(ddl).not.toMatch(/organization_id\s+BIGINT UNSIGNED\s+NOT NULL/);
   });
 
-  it.each(['425_org_scope_config_backups_and_autopay_profiles', '426_org_scope_radius'])(
+  it.each(['425_org_scope_config_backups_and_autopay_profiles', '426_org_scope_radius',
+    '429_org_scope_sla_definitions'])(
     'migration %s deletes no rows', (name) => {
       // The specific line that would have caused it:
       //   DELETE FROM device_config_backups WHERE organization_id IS NULL;
@@ -220,5 +223,36 @@ describe('radius — the one that LOOKED already fixed (migration 426)', () => {
     const ins = src.slice(src.indexOf('INSERT INTO radius'));
     expect(ins.slice(0, ins.indexOf('`,'))).toMatch(/organization_id/);
     expect(src).toMatch(/\[organizationId, contract\.client_id, contract\.id/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Raw SQL the model flag cannot reach: technician GPS history
+// ---------------------------------------------------------------------------
+// technician_gps_breadcrumbs has no organization_id of its own, so a JOIN on
+// users is the only way to scope it. Without one, GET /:userId/history returned
+// ANY technician's movement history to ANY tenant that guessed a user id — a
+// day of breadcrumbs is where a rival ISP's crew went, which customers they
+// visited and when.
+describe('technician GPS history is org-scoped through users', () => {
+  const src = read('src/routes/technicianTracking.js');
+  const history = src.slice(src.indexOf("router.get('/:userId/history'"));
+  const handler = history.slice(0, history.indexOf('});'));
+
+  it('joins users and filters on the caller org', () => {
+    expect(handler).toMatch(/JOIN users u ON u\.id = b\.user_id AND u\.organization_id = \?/);
+    expect(handler).toMatch(/req\.orgId/);
+  });
+
+  it('binds the org BEFORE the user id, matching the placeholder order', () => {
+    // The JOIN's placeholder comes first in the statement; swapping the binds
+    // would scope by user id and filter by org — silently returning nothing,
+    // or the wrong rows.
+    expect(handler).toMatch(/\[req\.orgId, req\.params\.userId\]/);
+  });
+
+  it('the sibling /positions route is scoped too', () => {
+    const pos = src.slice(src.indexOf("router.get('/positions'"));
+    expect(pos.slice(0, pos.indexOf('});'))).toMatch(/u\.organization_id = \?/);
   });
 });
