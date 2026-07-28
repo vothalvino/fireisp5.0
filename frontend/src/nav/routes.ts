@@ -239,6 +239,12 @@ export const ROUTES: RouteDef[] = [
   { path: '/wireless-metrics', labelKey: 'nav.wirelessMetrics', section: 'network', guard: 'technician', card: 'wirelessQos', roles: ['technician'] },
   { path: '/qos-bandwidth', labelKey: 'nav.qosBandwidth', section: 'network', guard: 'technician', card: 'wirelessQos', roles: ['technician'] },
   { path: '/suspension-rules', labelKey: 'nav.suspensionRules', section: 'network', guard: 'technician', card: 'accessProvisioning', roles: ['technician'] },
+  // The OPERATIONS side of the same feature: preview who a rule would hit, run
+  // it on demand, and see what it did. Sits beside the rule authoring page.
+  // roles mirrors suspension-rules exactly — evaluate needs contracts.view,
+  // which technician holds; the run button is separately gated on
+  // contracts.update inside the page.
+  { path: '/suspension-console', keywords: ['suspension', 'corte', 'suspender', 'reconectar'], labelKey: 'nav.suspensionConsole', section: 'network', guard: 'technician', card: 'accessProvisioning', roles: ['technician'] },
 
   // --- Inventory ---------------------------------------------------------------
   { path: '/inventory', labelKey: 'nav.inventory', section: 'inventory', guard: 'technician', sub: 'stock', rail: true, roles: ['technician'] },

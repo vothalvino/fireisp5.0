@@ -587,6 +587,7 @@ function generateSpec() {
       ...crudPaths('pac-providers', 'PAC Providers', 'PacProvider'),
 
       // ---- Suspension ----
+      '/suspension/logs': { get: { tags: ['Suspension'], summary: 'Suspension/reconnection history (who the engine acted on, and why)', operationId: 'suspensionLogs', security: [{ bearerAuth: [] }], responses: r200('SuspensionLog[] + meta') } },
       '/suspension/evaluate': { post: { tags: ['Suspension'], summary: 'Evaluate suspension rules', operationId: 'suspensionEvaluate', security: [{ bearerAuth: [] }], responses: r200('Contracts') } },
       '/suspension/suspend': { post: { tags: ['Suspension'], summary: 'Suspend a contract', operationId: 'suspensionSuspend', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r200('Status') } },
       '/suspension/reconnect': { post: { tags: ['Suspension'], summary: 'Reconnect a suspended contract', operationId: 'suspensionReconnect', security: [{ bearerAuth: [] }], requestBody: jsonBody('contract_id'), responses: r200('Status') } },
