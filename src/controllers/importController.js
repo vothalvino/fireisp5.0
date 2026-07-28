@@ -9,6 +9,7 @@
 
 const db = require('../config/database');
 const billingService = require('../services/billingService');
+const Organization = require('../models/Organization');
 const provisioningService = require('../services/subscriberProvisioningService');
 const Client = require('../models/Client');
 const { assertPlanSelectable } = require('../services/planAvailability');
@@ -489,7 +490,7 @@ const VALID_INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue', 'can
  * Insert one invoice row from a parsed row object.
  * Returns null on success, or an error message string.
  */
-async function insertInvoiceRow(row, orgId) {
+async function insertInvoiceRow(row, orgId, ctx = {}) {
   if (!row.client_id) return 'client_id is required';
   if (!row.invoice_number) return 'invoice_number is required';
   if (!row.issue_date) return 'issue_date is required';
@@ -522,9 +523,26 @@ async function insertInvoiceRow(row, orgId) {
     taxRate = 0;
     taxAmount = 0;
   } else if (rowHasTax) {
-    taxRate = parseFloat(row.tax_rate) || 0;
+    // invoiceTaxFraction, not parseFloat. invoices.tax_rate is a DECIMAL(5,4)
+    // FRACTION (max 9.9999), and a CSV written by a human says "16", not
+    // "0.16" — which overflowed the column. Every other create path normalizes;
+    // this one did not.
+    taxRate = billingService.invoiceTaxFraction(row.tax_rate);
     taxAmount = parseFloat(row.tax_amount) || parseFloat((subtotal * taxRate).toFixed(2));
     deriveTotal = false; // caller supplied the tax figures → honor their total
+
+    // A row that CARRIES a tax column skipped the resolver entirely, so
+    // "tax_rate,0" — or an unparseable "N/A", which parseFloat turns into 0 —
+    // wrote a 0%-IVA invoice for a non-exempt MX client without a word. The
+    // guard only fires when the figure is actually zero and a rate applies, so
+    // a legitimate reduced or foreign rate imports unchanged.
+    try {
+      await billingService.assertTaxCoherent(db.query, {
+        orgId, clientId: row.client_id, taxAmount, docType: 'invoice',
+      });
+    } catch (taxErr) {
+      return taxErr.message;
+    }
   } else {
     // No tax in the CSV → apply the org's default (16% IVA for MX orgs). Pass
     // the already-loaded client row so the resolver skips its own client read.
@@ -540,11 +558,21 @@ async function insertInvoiceRow(row, orgId) {
     ? parseFloat((subtotal + taxAmount).toFixed(2))
     : (parseFloat(row.total) || parseFloat((subtotal + taxAmount).toFixed(2)));
 
+  // currency was omitted from this INSERT, so every imported invoice fell to the
+  // column default of 'USD' — including on a Mexican install, where it then
+  // failed to stamp with CFDI_UNSUPPORTED_CURRENCY. Resolved once per import
+  // and cached on ctx, not per row: a 10,000-row file would otherwise issue
+  // 10,000 identical org lookups.
+  if (ctx.currency === undefined) {
+    ctx.currency = await Organization.getCurrency(orgId);
+  }
+  const currency = row.currency || ctx.currency;
+
   await db.query(
     `INSERT INTO invoices
        (organization_id, client_id, contract_id, invoice_number,
-        issue_date, due_date, subtotal, tax_rate, tax_amount, total, notes, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        issue_date, due_date, subtotal, tax_rate, tax_amount, total, currency, notes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       orgId,
       row.client_id,
@@ -556,6 +584,7 @@ async function insertInvoiceRow(row, orgId) {
       taxRate,
       taxAmount,
       total,
+      currency,
       row.notes || null,
       status,
     ],
@@ -576,6 +605,7 @@ async function importInvoices(req, res, next) {
     }
 
     const rows = parseCsv(req.body.csv);
+    const ctx = {};   // per-import cache (org currency), see insertInvoiceRow
     let imported = 0;
     const errors = [];
     const rowCount = rows.length;
@@ -583,7 +613,7 @@ async function importInvoices(req, res, next) {
     for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
-        const err = await insertInvoiceRow(row, req.orgId);
+        const err = await insertInvoiceRow(row, req.orgId, ctx);
         if (err) {
           errors.push({ row: i + 2, error: err });
         } else {
@@ -611,6 +641,7 @@ async function importInvoicesFile(req, res, next) {
     }
 
     const rows = parseUploadedFile(req.file.buffer);
+    const ctx = {};   // per-import cache (org currency), see insertInvoiceRow
     let imported = 0;
     const errors = [];
     const rowCount = rows.length;
@@ -618,7 +649,7 @@ async function importInvoicesFile(req, res, next) {
     for (let i = 0; i < rowCount; i++) {
       const row = rows[i];
       try {
-        const err = await insertInvoiceRow(row, req.orgId);
+        const err = await insertInvoiceRow(row, req.orgId, ctx);
         if (err) {
           errors.push({ row: i + 2, error: err });
         } else {
