@@ -1093,7 +1093,14 @@ describe('Quote Routes — /api/quotes', () => {
   describe('POST /api/quotes/:id/items', () => {
     test('success — adds a line item', async () => {
       mockAuthUser();
-      Quote.addItem.mockResolvedValue({ id: 2, description: 'New Item', amount: '100.00' });
+      // The route runs on a transaction now: it loads the quote (org-scoped)
+      // and folds the line into the header, so both must be wired.
+      const conn = mockConnection();
+      conn.execute.mockImplementation((sql) => {
+        if (sql.includes('FROM quotes WHERE id')) return Promise.resolve([[{ id: 1, tax_rate: '0.16' }]]);
+        return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
+      });
+      Quote.addItem.mockResolvedValue({ id: 2, description: 'New Item', total: '100.00' });
 
       const res = await request(app)
         .post('/api/quotes/1/items')
@@ -1101,6 +1108,7 @@ describe('Quote Routes — /api/quotes', () => {
         .send({ description: 'New Item', quantity: 1, unit_price: 100, amount: 100 });
 
       expect(res.status).toBe(201);
+      expect(conn.commit).toHaveBeenCalled();
     });
   });
 
