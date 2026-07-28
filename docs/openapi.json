@@ -38090,6 +38090,32 @@
         }
       }
     },
+    "/map-config": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Map tile URL + attribution (any authenticated user)",
+        "operationId": "getMapConfig",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ tile_url, attribution, is_default }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal/privacy-notice": {
       "get": {
         "tags": [

@@ -13,8 +13,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Tooltip } from 'react-leaflet';
+import { MapContainer, CircleMarker, Polyline, Popup, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { MapTiles } from '@/components/MapTiles';
 import { api } from '@/api/client';
 import { styles } from './crudStyles';
 import { NetworkFabricTab } from './topology/NetworkFabricTab';
@@ -182,10 +183,7 @@ function NetworkTopologyTab() {
       {isLoading && <p>{t('topologyMap.loading')}</p>}
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} style={{ height: 500, borderRadius: 8 }}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        />
+        <MapTiles />
 
         {edges.map(edge => {
           const posA = nodePos.get(edge.source);
@@ -286,10 +284,7 @@ function GeographicMapTab() {
   return (
     <div>
       <MapContainer center={center} zoom={DEFAULT_ZOOM} style={{ height: 520, borderRadius: 8 }}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        />
+        <MapTiles />
 
         {(customers ?? []).map(c => (
           <CircleMarker
