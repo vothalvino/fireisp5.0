@@ -61,8 +61,16 @@ const baseParams = {
 // inserts and the xml UPDATE, and ordered queues break every time a query is
 // added. `original` controls what that SELECT sees (default: no original on
 // file → ObjetoImpDR="01").
-function mockSuccessfulInserts({ original = null } = {}) {
-  db.query.mockImplementation(async (sql) => {
+function mockSuccessfulInserts({ original = null, exento = false } = {}) {
+  db.query.mockImplementation(async (sql, params) => {
+    // mysql2's execute() THROWS on an undefined bind — reproduce that here, or
+    // an end-to-end test happily "passes" against a statement that would abort
+    // generation in production. This is exactly the gap that let an exempt REP
+    // crash while 62 unit tests stayed green.
+    if (Array.isArray(params) && params.some(v => v === undefined)) {
+      throw new TypeError('Bind parameters must not contain undefined');
+    }
+    if (/tipo_factor = 'Exento'/.test(sql)) return [exento ? [{ 1: 1 }] : []];
     if (/INSERT INTO cfdi_documents/.test(sql)) return [{ insertId: 10 }];
     if (/INSERT INTO cfdi_payment_complement_item_taxes/.test(sql)) return [{ affectedRows: 1 }];
     if (/INSERT INTO cfdi_payment_complement_items/.test(sql)) return [{ insertId: 30, affectedRows: 1 }];
@@ -725,11 +733,42 @@ describe('generatePaymentComplement — persists the enriched desglose', () => {
     expect(itemInsert[1][itemInsert[1].length - 1]).toBe('02');
     const taxInsert = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_item_taxes/.test(c[0]));
     expect(taxInsert).toBeDefined();
-    // linked to the item's insertId, IVA 16 on the full 580 payment
+    // linked to the item's insertId, IVA 16 on the full 580 payment.
+    // tipo_factor is now BOUND rather than hardcoded 'Tasa', so it occupies
+    // position 1 and the desglose shifts right.
     expect(taxInsert[1][0]).toBe(30);
-    expect(taxInsert[1][1]).toBe('0.160000');
-    expect(taxInsert[1][2]).toBeCloseTo(500, 2);   // 580 / 1.16
-    expect(taxInsert[1][3]).toBeCloseTo(80, 2);
+    expect(taxInsert[1][1]).toBe('Tasa');
+    expect(taxInsert[1][2]).toBe('0.160000');
+    expect(taxInsert[1][3]).toBeCloseTo(500, 2);   // 580 / 1.16
+    expect(taxInsert[1][4]).toBeCloseTo(80, 2);
+  });
+
+  test('EXEMPT original: generation completes and stores tipo_factor=Exento with NULL rate/importe', async () => {
+    // THE REGRESSION THIS PINS. The exempt desglose is { exento, base } — no
+    // tasa, no importe — and the INSERT used to bind those undefineds while
+    // hardcoding 'Tasa'. mysql2's execute() rejects an undefined bind, so
+    // generation ABORTED for exactly the case the exempt path exists to serve,
+    // after the document and item rows were already committed. Four independent
+    // review lenses found this; not one of the 62 unit tests did, because they
+    // all stopped at the two pure functions.
+    mockSuccessfulInserts({
+      original: { subtotal: '500.00', total_impuestos: '0.00', total: '580.00' },
+      exento: true,
+    });
+
+    const result = await cfdiService.generatePaymentComplement(baseParams);
+    expect(result.xml).toContain('TipoFactorDR="Exento"');
+
+    const taxInsert = db.query.mock.calls.find(c => /INSERT INTO cfdi_payment_complement_item_taxes/.test(c[0]));
+    expect(taxInsert).toBeDefined();
+    expect(taxInsert[1][1]).toBe('Exento');
+    expect(taxInsert[1][2]).toBeNull();             // tasa_o_cuota NULL when Exento
+    expect(taxInsert[1][3]).toBeCloseTo(580, 2);    // base = the parcialidad
+    expect(taxInsert[1][4]).toBeNull();             // importe NULL when Exento
+    // And nothing anywhere in the run may bind an undefined.
+    for (const [, params] of db.query.mock.calls) {
+      if (Array.isArray(params)) expect(params).not.toContain(undefined);
+    }
   });
 
   test('untaxed original: stores objeto_imp_dr=01 and writes NO tax row', async () => {
@@ -889,5 +928,82 @@ describe('exempt REP XML (j18)', () => {
     const xml = cfdiService.buildPaymentComplementXml(doc, complement, [bad]);
     expect(xml).toContain('ObjetoImpDR="03"');
     expect(xml).not.toContain('ImpuestosDR');
+  });
+});
+
+// ===========================================================================
+// REP rebuild from persisted rows (j18)
+// ===========================================================================
+// The review panel raised — and its verifier REFUTED — several claims that the
+// rebuild path turns a stored Exento back into a rated 0% traslado. The
+// refutation was correct only because the storage write was CRASHING, so no
+// Exento row ever existed to rebuild. Once storage works, that concern becomes
+// live: reconstructing { tasa: null, importe: Number(null) } hands the builder
+// tasa 0 / importe 0 — both finite — and it emits TasaOCuotaDR="0.000000",
+// which is a RATED claim, not an exempt one. This pins the correct round-trip.
+describe('a persisted Exento row rebuilds AS Exento', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  function wireRebuild(taxRow) {
+    db.query.mockImplementation(async (sql, params) => {
+      if (Array.isArray(params) && params.some(v => v === undefined)) {
+        throw new TypeError('Bind parameters must not contain undefined');
+      }
+      if (/FROM cfdi_payment_complement_item_taxes/.test(sql)) return [[taxRow]];
+      if (/FROM cfdi_payment_complement_items/.test(sql)) {
+        return [[{
+          id: 30, complement_id: 20, related_cfdi_uuid: '60432946-1429-43b3-898c-051770dd7d3a',
+          moneda_dr: 'MXN', equivalencia_dr: 1, num_parcialidad: 1,
+          imp_saldo_ant: 580, imp_pagado: 580, imp_saldo_insoluto: 0, objeto_imp_dr: '02',
+        }]];
+      }
+      if (/FROM cfdi_payment_complements/.test(sql)) {
+        return [[{ id: 20, payment_date: '2026-01-15', forma_pago: '03', moneda: 'MXN', tipo_cambio: null, amount: 580 }]];
+      }
+      if (/FROM organization_mx_profiles/.test(sql)) {
+        return [[{
+          rfc: 'EKU9003173C9', razon_social: 'ISP SA DE CV',
+          regimen_fiscal: '601', codigo_postal_fiscal: '64000',
+        }]];
+      }
+      if (/FROM cfdi_documents/.test(sql)) {
+        return [[{
+          id: 10, tipo_comprobante: 'P', sat_status: 'draft', serie: 'P', folio: 1,
+          fecha_emision: '2026-01-15T12:00:00', lugar_expedicion: '64000',
+          emisor_rfc: 'XAXX010101000', emisor_nombre: 'ISP', emisor_regimen_fiscal: '601',
+          receptor_rfc: 'XBXX020202001', receptor_nombre: 'Cliente',
+          receptor_cp: '64000', receptor_regimen: '616',
+          organization_id: 1,
+        }]];
+      }
+      return [{ affectedRows: 1 }];
+    });
+  }
+
+  test('Exento survives the round-trip — not a rated 0%', async () => {
+    wireRebuild({
+      complement_item_id: 30, tax_type: 'traslado', impuesto: '002',
+      tipo_factor: 'Exento', tasa_o_cuota: null, base: '580.0000', importe: null,
+    });
+    const { xml } = await cfdiService.generateXml(10);
+    expect(xml).toContain('TipoFactorDR="Exento"');
+    expect(xml).toContain('ObjetoImpDR="02"');
+    // The failure this guards: Number(null) === 0 is finite, so a naive rebuild
+    // emits a rated zero — a different declaration to SAT than "exempt".
+    expect(xml).not.toContain('TasaOCuotaDR="0.000000"');
+    expect(xml).not.toMatch(/TipoFactorDR="Exento"[^>]*ImporteDR/);
+    expect(xml).toContain('TotalTrasladosBaseIVAExento=');
+  });
+
+  test('a rated row still rebuilds as Tasa with its rate intact', async () => {
+    wireRebuild({
+      complement_item_id: 30, tax_type: 'traslado', impuesto: '002',
+      tipo_factor: 'Tasa', tasa_o_cuota: '0.160000', base: '500.0000', importe: '80.0000',
+    });
+    const { xml } = await cfdiService.generateXml(10);
+    expect(xml).toContain('TipoFactorDR="Tasa"');
+    expect(xml).toContain('TasaOCuotaDR="0.160000"');
+    expect(xml).toContain('ImporteDR="80.00"');
+    expect(xml).not.toContain('Exento');
   });
 });

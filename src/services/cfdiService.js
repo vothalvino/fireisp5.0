@@ -232,9 +232,16 @@ async function generateXml(cfdiDocumentId) {
     const taxByItem = new Map(taxRows.map(t => [t.complement_item_id, t]));
     const itemsWithTaxes = items.map(it => {
       const t = taxByItem.get(it.id);
-      return t
-        ? { ...it, traslado_dr: { base: Number(t.base), tasa: t.tasa_o_cuota, importe: Number(t.importe) } }
-        : it;
+      if (!t) return it;
+      // A stored Exento row must rebuild AS Exento. Reconstructing it as
+      // { tasa: null, importe: Number(null) } would hand the builder tasa 0 /
+      // importe 0 — both finite — so it would emit TasaOCuotaDR="0.000000"
+      // ImporteDR="0.00": a RATED 0% traslado, which is a different claim to
+      // SAT than "exempt" and reintroduces the contradiction on every rebuild.
+      if (t.tipo_factor === 'Exento') {
+        return { ...it, traslado_dr: { exento: true, base: Number(t.base) } };
+      }
+      return { ...it, traslado_dr: { base: Number(t.base), tasa: t.tasa_o_cuota, importe: Number(t.importe) } };
     });
     // payment_date is a DATE column (mysql2 → Date object); the builder wants
     // the plain day string.
@@ -1582,11 +1589,28 @@ async function generatePaymentComplement(params) {
       ],
     );
     if (rd.traslado_dr) {
+      // tipo_factor is BOUND, not hardcoded 'Tasa'. An exempt desglose carries
+      // only a base — no tasa, no importe — and binding those undefineds throws
+      // `Bind parameters must not contain undefined` under mysql2's execute(),
+      // which would abort generation ENTIRELY for exactly the exempt case this
+      // path exists to serve, after the document and item rows had already been
+      // committed (these run on the pool with no enclosing transaction).
+      //
+      // The schema already models it: tipo_factor ENUM('Tasa','Cuota','Exento')
+      // with tasa_o_cuota and importe both documented NULL-when-Exento. Same
+      // shape invoiceCfdiService writes for the invoice-side Exento concepto.
+      const exento = Boolean(rd.traslado_dr.exento);
       await db.query(
         `INSERT INTO cfdi_payment_complement_item_taxes
            (complement_item_id, tax_type, impuesto, tipo_factor, tasa_o_cuota, base, importe)
-         VALUES (?, 'traslado', '002', 'Tasa', ?, ?, ?)`,
-        [itemResult.insertId, rd.traslado_dr.tasa, rd.traslado_dr.base, rd.traslado_dr.importe],
+         VALUES (?, 'traslado', '002', ?, ?, ?, ?)`,
+        [
+          itemResult.insertId,
+          exento ? 'Exento' : 'Tasa',
+          exento ? null : rd.traslado_dr.tasa,
+          rd.traslado_dr.base,
+          exento ? null : rd.traslado_dr.importe,
+        ],
       );
     }
   }
