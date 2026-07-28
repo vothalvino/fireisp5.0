@@ -13,6 +13,7 @@ import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 import { extractApiError, errorBox, inputStyle, labelStyle, submitBtn, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,17 @@ interface GroupRow { id: number; name: string; }
 
 export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // Was `user?.role === 'admin'` — the LEGACY users.role, not the resolved
+  // permission set. An ORG-MEMBERSHIP admin (whose users.role is something else
+  // entirely) could not see the tax-exemption or VIP controls at all, even
+  // though the backend would have accepted their write: PUT/PATCH /clients/:id
+  // requires only `clients.update`. Gate on what the API actually enforces.
+  //
+  // This deliberately does NOT change who HOLDS clients.update. Billing still
+  // lacks it, so the controls stay hidden for them — correctly, since they
+  // would 403. Whether billing should own the IVA exemption is a product
+  // decision and is still open on the board (j13).
+  const canEditProtectedFields = can(user, 'clients.update');
   // "IVA"/"Exento" are Mexican. This tab is shown to EVERY org, so the tax
   // vocabulary follows the org's locale rather than assuming Mexico — a US or
   // Canadian operator was being asked about a tax that does not exist there.
@@ -189,7 +200,7 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
             </td>
           </tr>
 
-          {isAdmin && canEdit && (
+          {canEditProtectedFields && canEdit && (
             <>
               <tr>
                 <td style={{ ...cell, color: 'var(--text-secondary)' }}>Exempt from automatic suspension (VIP)</td>
@@ -286,7 +297,7 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
             </>
           )}
 
-          {isAdmin && !canEdit && Boolean(client.suspension_exempt) && (
+          {canEditProtectedFields && !canEdit && Boolean(client.suspension_exempt) && (
             <tr>
               <td style={{ ...cell, color: 'var(--text-secondary)' }}>Suspension exemption</td>
               <td style={cell}>
