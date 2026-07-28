@@ -252,8 +252,11 @@ async function assertTaxCoherent(exec, {
 
   if (ctx.exempt) {
     if (carriesTax) {
+      // Neutral wording. "IVA" is Mexican; this guard fires for ANY org whose
+      // client is flagged tax-exempt, so a US or Canadian operator was being
+      // told about a tax that does not exist in their country.
       throw new AppError(
-        `This client is IVA-exempt — the ${docType} must carry no tax (subtotal = total, tax_amount 0).`,
+        `This client is tax-exempt — the ${docType} must carry no tax (subtotal = total, tax_amount 0).`,
         422, 'CLIENT_TAX_EXEMPT',
       );
     }

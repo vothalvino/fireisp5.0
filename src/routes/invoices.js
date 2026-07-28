@@ -163,7 +163,8 @@ async function assertUpdateFiscallySafe(old, req) {
     );
     if (crows[0] && (crows[0].tax_exempt === 1 || crows[0].tax_exempt === true)) {
       throw new AppError(
-        'This client is IVA-exempt — the invoice must carry no tax (subtotal = total, tax_amount 0).',
+        // Neutral: this path is not MX-only, so it must not name a Mexican tax.
+        'This client is tax-exempt — the invoice must carry no tax (subtotal = total, tax_amount 0).',
         422, 'CLIENT_TAX_EXEMPT',
       );
     }

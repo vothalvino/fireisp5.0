@@ -159,3 +159,62 @@ describe('postalSpecMatch', () => {
     expect(postalSpecMatch('22999-21000', '22000')).toBe(2000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A GLOBAL (non-MX) org gets the same machinery, with none of the Mexican rules
+// ---------------------------------------------------------------------------
+// tax_rules is region-based tax, not Mexican tax. The border seeds are MX-only
+// (migration 428 seeds per MX-locale org), but the MECHANISM is locale-agnostic
+// — a US org can carve out a state rate exactly the same way. What must NOT
+// follow a global org is any Mexican RULE: no 16% fallback, no assumption that
+// an unconfigured org owes IVA.
+describe('a global org: tax rules work, Mexican rules do not', () => {
+  beforeEach(() => Organization.getLocale.mockResolvedValue('US'));
+
+  const usExec = ({ zip, rules, defaultRate }) => jest.fn(async (sql) => {
+    if (/FROM clients/.test(sql)) return [[{ tax_exempt: 0, locale: 'US', zip_code: zip }]];
+    if (/FROM tax_rules/.test(sql)) return [rules || []];
+    if (/FROM tax_rates/.test(sql)) return [defaultRate === null ? [] : [{ id: 9, rate: defaultRate }]];
+    return [[]];
+  });
+
+  it('a region rule applies to a US org just as it does to an MX one', async () => {
+    // "California 8.25%" by ZIP — nothing Mexican about it.
+    const r = await resolveTaxContext(
+      usExec({ zip: '90210', rules: [{ id: 4, rate: '0.0825', postal_codes: '90000-90999' }], defaultRate: '0.0600' }),
+      { orgId: 2, clientId: 5 },
+    );
+    expect(r.rate).toBe(0.0825);
+  });
+
+  it('falls through to the org default when no rule matches', async () => {
+    const r = await resolveTaxContext(
+      usExec({ zip: '10001', rules: [{ id: 4, rate: '0.0825', postal_codes: '90000-90999' }], defaultRate: '0.0600' }),
+      { orgId: 2, clientId: 5 },
+    );
+    expect(r.rate).toBe(0.06);
+  });
+
+  it('gets 0% — never 16% — with no rule and no default', async () => {
+    // THE MEXICAN RULE THAT MUST NOT LEAK. The 16% IVA safety net exists so a
+    // Mexican invoice is never silently untaxed; applying it to a US org would
+    // invent a tax that does not exist in their country.
+    const r = await resolveTaxContext(
+      usExec({ zip: '10001', rules: [], defaultRate: null }),
+      { orgId: 2, clientId: 5 },
+    );
+    expect(r).toEqual({ rate: 0, taxRateId: null, exempt: false });
+  });
+
+  it('says "tax-exempt", not "IVA-exempt", when rejecting tax on an exempt client', async () => {
+    const { assertTaxCoherent } = require('../src/services/billingService');
+    const exec = jest.fn(async (sql) => {
+      if (/FROM clients/.test(sql)) return [[{ tax_exempt: 1, locale: 'US', zip_code: '10001' }]];
+      return [[]];
+    });
+    let msg = '';
+    await assertTaxCoherent(exec, { orgId: 2, clientId: 5, taxAmount: 16 }).catch((e) => { msg = e.message; });
+    expect(msg).toMatch(/tax-exempt/);
+    expect(msg).not.toMatch(/IVA|CFDI|SAT/);
+  });
+});

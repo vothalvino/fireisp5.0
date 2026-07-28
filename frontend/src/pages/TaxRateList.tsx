@@ -185,7 +185,7 @@ function TaxRateModal({ taxRate, onClose, onSaved }: TaxRateModalProps) {
               maxLength={100}
               value={form.name}
               onChange={e => setField('name', e.target.value)}
-              placeholder='e.g. "IVA 16%", "Exempt"'
+              placeholder='e.g. "VAT 20%", "IVA 16%", "GST 5%"'
               required
             />
           </label>
