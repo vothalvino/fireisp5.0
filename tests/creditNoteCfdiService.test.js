@@ -47,6 +47,10 @@ function makeConn() {
       conn.executed.push([sql, params]);
       if (sql.includes('INSERT INTO cfdi_documents')) return [{ insertId: 950 }];
       if (sql.includes('INSERT INTO cfdi_conceptos')) return [{ insertId: 2000 + conn.executed.length }];
+      // The authoritative re-read runs the SAME selects on this connection
+      // after the row lock — delegate them to the suite's db.query dispatcher
+      // so one set of fixtures serves both channels instead of drifting.
+      if (/^\s*SELECT/i.test(sql)) return db.query(sql, params);
       return [{ affectedRows: 1 }];
     },
     async query() { return [[{ folio: 77 }]]; },
@@ -223,14 +227,102 @@ describe('stampCreditNote — conversion', () => {
 
   test('concurrent stamper loses on the locked re-check (409 CFDI_EXISTS)', async () => {
     const conn = makeConn();
+    const passthrough = conn.execute;
     conn.execute = async (sql, params) => {
-      conn.executed.push([sql, params]);
-      if (/FROM cfdi_documents WHERE credit_note_id/.test(sql)) return [[{ id: 5 }]];
-      return [{ affectedRows: 1 }];
+      // Only the post-lock existence check sees the winner's row; everything
+      // else must still resolve, or this fails on an earlier guard and never
+      // reaches the race it is about.
+      if (/FROM cfdi_documents WHERE credit_note_id/.test(sql)) {
+        conn.executed.push([sql, params]);
+        return [[{ id: 5, sat_status: 'vigente' }]];
+      }
+      return passthrough(sql, params);
     };
     db.getConnection.mockResolvedValue(conn);
     await expect(creditNoteCfdiService.stampCreditNote(30, 1))
       .rejects.toMatchObject({ statusCode: 409, code: 'CFDI_EXISTS' });
     expect(conn.rollback).toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// j49 — the egreso is built from what the note says AFTER the lock
+// =============================================================================
+// Mirror of j48/#585 for credit notes, and this side was more exposed: the
+// credit-note editor took NO row lock at all until this change, so the stamper
+// was not serialized against it even in principle.
+describe('stampCreditNote — an edit committing before the lock is not stamped stale', () => {
+  /** First call returns `before`, every later call returns `after`. */
+  const shifting = (before, after) => {
+    let first = true;
+    return () => { const v = first ? before : after; first = false; return v; };
+  };
+
+  test('amounts come from the post-lock read, not the pre-flight snapshot', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    const pick = shifting({ ...CN }, { ...CN, subtotal: '100.00', tax_amount: '16.00', total: '116.00' });
+    // Header and items shift TOGETHER — a real edit changes both, and the
+    // consistency gate would reject a mismatched pair on the pre-flight before
+    // the race under test was ever reached.
+    const pickItems = shifting(
+      ITEMS.map(i => ({ ...i })),
+      [{ id: 1, credit_note_id: 30, description: 'Crédito', quantity: '1.00', unit_price: '100.00' }],
+    );
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM credit_notes cn/.test(sql)) return [[pick()]];
+      if (/FROM cfdi_documents WHERE credit_note_id/.test(sql)) return [[]];
+      if (/FROM cfdi_documents\s+WHERE invoice_id/.test(sql)) return [[{ ...RELATED_CFDI }]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM credit_note_items/.test(sql)) return [pickItems()];
+      return [[]];
+    });
+
+    await creditNoteCfdiService.stampCreditNote(30, 1);
+
+    const insert = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_documents'));
+    const [subtotal, totalImpuestos, total] = insert[1].slice(-3);
+    expect(Number(subtotal)).toBe(100);
+    expect(Number(totalImpuestos)).toBe(16);
+    expect(Number(total)).toBe(116);
+    expect(Number(total)).not.toBe(232); // the pre-flight figure
+  });
+
+  test('an invoice_id change re-points the RELATED ingreso (TipoRelacion 01)', async () => {
+    // The relation IS the fiscal point of an egreso — relating it to the wrong
+    // ingreso credits an invoice that was never credited.
+    const OTHER_REL = { id: 901, uuid: 'BBBB1111-2222-3333-4444-555566667777', forma_pago: '03' };
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    const pick = shifting({ ...CN }, { ...CN, invoice_id: 61 });
+    db.query.mockImplementation(async (sql, params) => {
+      if (/FROM credit_notes cn/.test(sql)) return [[pick()]];
+      if (/FROM cfdi_documents WHERE credit_note_id/.test(sql)) return [[]];
+      if (/FROM cfdi_documents\s+WHERE invoice_id/.test(sql)) {
+        return [[params[0] === 61 ? { ...OTHER_REL } : { ...RELATED_CFDI }]];
+      }
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM credit_note_items/.test(sql)) return [ITEMS.map(i => ({ ...i }))];
+      return [[]];
+    });
+
+    await creditNoteCfdiService.stampCreditNote(30, 1);
+
+    const rel = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_related_documents'));
+    expect(rel[1]).toContain(OTHER_REL.uuid);
+    expect(rel[1]).not.toContain(RELATED_CFDI.uuid);
+  });
+
+  test('the re-read runs on the TRANSACTION, after the lock', async () => {
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    await creditNoteCfdiService.stampCreditNote(30, 1);
+
+    const lockAt = conn.executed.findIndex(([sql]) => /FOR UPDATE/.test(sql));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    for (const table of [/FROM credit_notes cn/, /client_mx_profiles/, /credit_note_items/]) {
+      expect(conn.executed.findIndex(([sql]) => table.test(sql))).toBeGreaterThan(lockAt);
+    }
   });
 });

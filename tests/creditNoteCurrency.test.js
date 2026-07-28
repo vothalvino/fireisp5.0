@@ -28,6 +28,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const app = require('../src/app');
 
 function adminToken(orgId = 1) {
@@ -43,7 +44,11 @@ function isUserLookup(sql) {
 }
 const ADMIN_USER_ROW = { id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Credit-note PUT/PATCH now runs transactionally (j49).
+  mockTxConnection(db);
+});
 
 describe('POST /api/v1/credit-notes — currency defaulting', () => {
   test('defaults to the linked invoice\'s own currency when invoice_id is given', async () => {

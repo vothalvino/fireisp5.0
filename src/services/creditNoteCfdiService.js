@@ -37,20 +37,26 @@ const DEFAULT_CLAVE_UNIDAD = 'E48';         // Unidad de servicio
 const STAMPABLE_STATUSES = ['issued', 'applied'];
 
 /**
- * Convert + stamp a credit note as a CFDI de Egreso. Returns
- * { cfdi_document_id, uuid, sat_status, serie, folio, stamped } —
- * `stamped: false` + `stamp_error` when the doc was created (draft, XML stored)
- * but the PAC call failed; retryable from the CFDI page.
+ * Everything the egreso is built FROM, resolved through one executor.
  *
- * @param {number|string} creditNoteId
- * @param {number}        orgId
- * @param {object}        opts  { uso_cfdi?, forma_pago?, userId? }
+ * Mirrors resolveStampInputs in invoiceCfdiService (j48/#585) and exists for
+ * the same reason: read before the lock and write after, and an edit
+ * committing in that window is filed at SAT from a stale snapshot — a tipo-E
+ * CFDI that disagrees with the credit note, undoable only by cancellation.
+ *
+ * All of it is note-derived and a concurrent edit can change any of it:
+ * amounts, line items, client_id (which swaps the receptor) and invoice_id
+ * (which swaps the RELATED ingreso — the entire fiscal point of the document).
+ *
+ * `exec` MUST be the transaction connection on the second call. db.query there
+ * would acquire a second pooled connection while this one is held — the
+ * nested-acquire hang fixed in #584.
  */
-async function stampCreditNote(creditNoteId, orgId, opts = {}) {
+async function resolveEgresoInputs(exec, creditNoteId, orgId, opts) {
   // Resolve through the CLIENT's org: refund-created credit notes are inserted
   // without organization_id (NULL), so a direct org filter would miss them; the
   // client join is the tenant-safe path either way.
-  const [cnRows] = await db.query(
+  const [cnRows] = await exec(
     `SELECT cn.*, c.tax_exempt
        FROM credit_notes cn
        JOIN clients c ON c.id = cn.client_id AND c.organization_id = ? AND c.deleted_at IS NULL
@@ -76,7 +82,7 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
   }
 
   // One CFDI per credit note — fast-path; re-checked under lock below.
-  const [existing] = await db.query(
+  const [existing] = await exec(
     "SELECT id, sat_status FROM cfdi_documents WHERE credit_note_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
     [creditNoteId, orgId],
   );
@@ -97,7 +103,7 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
       422, 'CFDI_EGRESO_NO_RELATED',
     );
   }
-  const [relRows] = await db.query(
+  const [relRows] = await exec(
     `SELECT id, uuid, forma_pago FROM cfdi_documents
       WHERE invoice_id = ? AND organization_id = ? AND sat_status = 'vigente' AND tipo_comprobante = 'I'
       LIMIT 1`,
@@ -111,11 +117,10 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
     );
   }
 
-  // Emisor gate (throws 422 ORG_MX_PROFILE_MISSING with guidance).
-  const emisor = await cfdiService.getEmisorProfile(orgId);
-
-  // Receptor: the client's MX fiscal profile.
-  const [profiles] = await db.query(
+  // Receptor: the client's MX fiscal profile. Re-resolved from the CURRENT
+  // client_id — an edit re-pointing the note at another client changes who the
+  // egreso is filed against.
+  const [profiles] = await exec(
     `SELECT p.rfc, p.razon_social, p.regimen_fiscal, p.codigo_postal_fiscal, p.uso_cfdi_default
        FROM client_mx_profiles p
       WHERE p.client_id = ? AND p.deleted_at IS NULL`,
@@ -129,7 +134,7 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
     );
   }
 
-  const [items] = await db.query(
+  const [items] = await exec(
     'SELECT * FROM credit_note_items WHERE credit_note_id = ? AND deleted_at IS NULL ORDER BY id',
     [creditNoteId],
   );
@@ -173,21 +178,70 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
     || (relatedCfdi.forma_pago && relatedCfdi.forma_pago !== '99' ? relatedCfdi.forma_pago : '15');
   const usoCfdi = opts.uso_cfdi || 'G02'; // Devoluciones, descuentos o bonificaciones
 
+  return {
+    cn, receptor, items, relatedCfdi, formaPago, usoCfdi,
+    taxRate, clientExempt, subtotal, taxAmount, total,
+  };
+}
+
+/**
+ * Convert + stamp a credit note as a CFDI de Egreso. Returns
+ * { cfdi_document_id, uuid, sat_status, serie, folio, stamped } —
+ * `stamped: false` + `stamp_error` when the doc was created (draft, XML stored)
+ * but the PAC call failed; retryable from the CFDI page.
+ *
+ * @param {number|string} creditNoteId
+ * @param {number}        orgId
+ * @param {object}        opts  { uso_cfdi?, forma_pago?, userId? }
+ */
+async function stampCreditNote(creditNoteId, orgId, opts = {}) {
+  // Emisor gate FIRST (throws 422 ORG_MX_PROFILE_MISSING with guidance).
+  // Org-level configuration, not note-derived, so it is not part of the
+  // re-read — and checked before the note-level pre-flight so a brand-new MX
+  // org with an unfilled fiscal profile is told THAT, rather than being sent
+  // to fix a client profile or an invoice relation first.
+  const emisor = await cfdiService.getEmisorProfile(orgId);
+
+  // Pre-flight, on the pool: reject bad requests BEFORE a row lock is taken.
+  // Its VALUES are deliberately discarded — only the post-lock read may reach
+  // the INSERTs.
+  await resolveEgresoInputs(db.query, creditNoteId, orgId, opts);
+
   const conn = await db.getConnection();
   let docId;
+  // Captured from the POST-LOCK read for the audit line, so it describes what
+  // was actually filed. Plain values rather than reaching into an object after
+  // the try, which would become a TypeError on a fiscal path if a future catch
+  // ever swallowed.
+  let filedNoteNumber;
+  let filedRelatedUuid;
   try {
     await conn.beginTransaction();
 
-    // Serialize concurrent stampers of the same credit note (authoritative
-    // re-check under the row lock — the check above is only a fast path).
+    // ORDERING INVARIANT — DO NOT PUT A PLAIN SELECT BETWEEN HERE AND THE
+    // `FOR UPDATE` BELOW. Under REPEATABLE READ, InnoDB establishes the
+    // consistent read view at the first NON-LOCKING read; FOR UPDATE is a
+    // locking read and creates none, so the view is established after the lock
+    // is granted. Slip a plain SELECT in and the view snaps early, the re-read
+    // returns pre-edit data, and this fix silently reverts WITHOUT failing a
+    // test — the suite mocks mysql2 and cannot model MVCC. Same invariant as
+    // invoiceCfdiService.
     await conn.execute('SELECT id FROM credit_notes WHERE id = ? FOR UPDATE', [creditNoteId]);
-    const [locked] = await conn.execute(
-      "SELECT id FROM cfdi_documents WHERE credit_note_id = ? AND organization_id = ? AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1",
-      [creditNoteId, orgId],
-    );
-    if (locked[0]) {
-      throw new AppError(`This credit note already has a CFDI (#${locked[0].id}).`, 409, 'CFDI_EXISTS');
-    }
+
+    // THE re-read. Everything written below comes from here, not the
+    // pre-flight: an edit that committed in between — new amounts, changed
+    // items, a different client or credited invoice — is now visible, and the
+    // egreso is built from what the note ACTUALLY says as it is filed.
+    // It also re-runs the already-has-a-CFDI check on this connection under
+    // this lock, which is what the old post-lock guard here was for, and with
+    // the better draft-vs-live message.
+    const exec = conn.execute.bind(conn);
+    const {
+      cn, receptor, items, relatedCfdi, formaPago, usoCfdi,
+      taxRate, clientExempt, subtotal, taxAmount, total,
+    } = await resolveEgresoInputs(exec, creditNoteId, orgId, opts);
+    filedNoteNumber = cn.credit_note_number || creditNoteId;
+    filedRelatedUuid = relatedCfdi.uuid;
 
     const folio = await nextCfdiFolio(conn, orgId);
     const serie = emisor.cfdi_serie_egreso || 'E';
@@ -276,7 +330,7 @@ async function stampCreditNote(creditNoteId, orgId, opts = {}) {
   await auditLog.log({
     userId: opts.userId ?? null, organizationId: orgId, action: 'stamp_request',
     tableName: 'cfdi_documents', recordId: docId,
-    summary: `Credit note ${cn.credit_note_number || creditNoteId} converted to CFDI de Egreso #${docId} (rel ${relatedCfdi.uuid})`,
+    summary: `Credit note ${filedNoteNumber} converted to CFDI de Egreso #${docId} (rel ${filedRelatedUuid})`,
   });
 
   // Generate XML, then stamp via the org's PAC. A PAC failure leaves the doc
