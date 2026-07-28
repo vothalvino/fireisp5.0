@@ -26,7 +26,7 @@ jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(
 
 const db = require('../src/config/database');
 const config = require('../src/config');
-const { mockTxConnection } = require('./fixtures/mockTxConnection');
+const { mockTxConnection, txSql, pooledSqlDuringTx } = require('./fixtures/mockTxConnection');
 const BaseModel = require('../src/models/BaseModel');
 const { crudController } = require('../src/controllers/crudController');
 // Required at module scope on purpose: resetModules() inside a test would hand
@@ -164,6 +164,25 @@ describe('crudController transactionalUpdate', () => {
     expect(conn.release).toHaveBeenCalled();
   });
 
+  it('destroys, rather than releases, a connection whose ROLLBACK failed', async () => {
+    // Returning it to the pool would hand the next borrower a connection with
+    // an open transaction and its locks still held — the failure spreads to
+    // unrelated requests.
+    const conn = mockTxConnection(db);
+    conn.rollback.mockRejectedValue(new Error('connection wedged'));
+    db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
+    const { AppError } = require('../src/utils/errors');
+    const app = buildApp({
+      transactionalUpdate: true,
+      beforeUpdate: async () => { throw new AppError('nope', 422, 'GUARD'); },
+    });
+
+    const res = await request(app).put('/w/1').send({ name: 'b' });
+    expect(res.status).toBe(422);
+    expect(conn.destroy).toHaveBeenCalled();
+    expect(conn.release).not.toHaveBeenCalled();
+  });
+
   it('without the flag, takes no connection at all — unchanged behaviour', async () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
     const app = buildApp({ beforeUpdate: async () => {} });
@@ -177,39 +196,57 @@ describe('crudController transactionalUpdate', () => {
 // ---------------------------------------------------------------------------
 // 3. The actual j17 case, end to end through the invoice route
 // ---------------------------------------------------------------------------
-describe('the invoice fiscal guard now reads inside the lock', () => {
+describe('every guard read runs ON the transaction, never on the pool', () => {
   const token = () => jwt.sign({ sub: 1, email: 'a@b.c', role: 'admin', orgId: 7 }, config.jwt.secret, { expiresIn: '1h' });
+  const INVOICE = {
+    id: 5, organization_id: 7, client_id: 3, status: 'issued',
+    subtotal: '100.00', tax_amount: '16.00', total: '116.00', tax_rate: '0.1600',
+  };
 
-  it('the no-live-CFDI check runs on the transaction, not a pooled connection', async () => {
+  const wire = () => db.query.mockImplementation(async (sql) => {
+    if (/`users`/.test(sql)) return [[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active', organization_id: 7 }]];
+    // BaseModel backticks the table name, so a dispatcher written as
+    // /FROM invoices WHERE id/ silently matches nothing and the route 404s.
+    if (/FROM `?invoices`?\s+WHERE id/.test(sql)) return [[INVOICE]];
+    if (/cfdi_documents/i.test(sql)) return [[]];            // no live CFDI
+    if (/FROM clients/i.test(sql)) return [[{ id: 3, tax_exempt: 0 }]];
+    if (/^UPDATE/i.test(sql)) return [{ affectedRows: 1 }];
+    return [[]];
+  });
+
+  const patch = (body) => request(realApp)
+    .patch('/api/v1/invoices/5')
+    .set('Authorization', `Bearer ${token()}`)
+    .send(body);
+
+  it('takes the lock before the CFDI check, and the check runs on the tx', async () => {
     const conn = mockTxConnection(db);
-    const INVOICE = {
-      id: 5, organization_id: 7, client_id: 3, status: 'issued',
-      subtotal: '100.00', tax_amount: '16.00', total: '116.00', tax_rate: '0.1600',
-    };
-    db.query.mockImplementation(async (sql) => {
-      if (/`users`/.test(sql)) return [[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active', organization_id: 7 }]];
-      // BaseModel backticks the table name, so a dispatcher written as
-      // /FROM invoices WHERE id/ silently matches nothing and the route 404s.
-      if (/FROM `?invoices`?\s+WHERE id/.test(sql)) return [[INVOICE]];
-      if (/cfdi_documents/i.test(sql)) return [[]];           // no live CFDI
-      if (/^UPDATE/i.test(sql)) return [{ affectedRows: 1 }];
-      return [[]];
-    });
-
-    const res = await request(realApp)
-      .patch('/api/v1/invoices/5')
-      .set('Authorization', `Bearer ${token()}`)
-      .send({ subtotal: 200, tax_amount: 32, total: 232 });
-
+    wire();
+    const res = await patch({ subtotal: 200, tax_amount: 32, total: 232 });
     expect([200, 422]).toContain(res.status);
-    // The CFDI lookup must have gone through the transaction. Because the mock
-    // connection delegates to db.query we cannot tell them apart by target, so
-    // assert the lock was taken and the CFDI read happened within it.
-    const sqls = db.query.mock.calls.map(([s]) => s);
-    expect(sqls.some(s => /FOR UPDATE/.test(s))).toBe(true);
+
     expect(conn.beginTransaction).toHaveBeenCalled();
-    const lockAt = sqls.findIndex(s => /FOR UPDATE/.test(s));
-    const cfdiAt = sqls.findIndex(s => /cfdi_documents/i.test(s));
+    const tx = txSql(conn);
+    const lockAt = tx.findIndex(s => /FOR UPDATE/.test(s));
+    const cfdiAt = tx.findIndex(s => /cfdi_documents/i.test(s));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
     expect(cfdiAt).toBeGreaterThan(lockAt);
+  });
+
+  // THE regression guard. Every statement between BEGIN and COMMIT must run on
+  // the checked-out connection. One left on db.query acquires a SECOND
+  // connection from the same pool while holding the first; with
+  // waitForConnections and no acquire timeout, enough concurrent edits
+  // deadlock the pool against itself and the process hangs until restarted.
+  // The earlier version of this fixture could not see this at all.
+  it.each([
+    ['raises tax (exempt-client branch)', { subtotal: 200, tax_amount: 32, total: 232 }],
+    ['REMOVES tax (assertTaxCoherent branch)', { tax_amount: 0, total: 100 }],
+    ['changes client (ownership branch)', { client_id: 9 }],
+  ])('%s — nothing leaks onto the pool', async (_label, body) => {
+    const conn = mockTxConnection(db);
+    wire();
+    await patch(body);
+    expect(pooledSqlDuringTx(db, conn)).toEqual([]);
   });
 });

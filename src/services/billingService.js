@@ -216,7 +216,7 @@ async function resolveTaxContext(exec, { orgId, clientId = null, contractTaxRate
   // itself is MX. The client signal must NOT override a resolvable non-MX org
   // that deliberately runs at 0% (it may legitimately have MX-locale clients).
   const orgUnresolved = orgId === undefined || orgId === null;
-  const orgIsMx = !orgUnresolved && (await Organization.getLocale(orgId)) === 'MX';
+  const orgIsMx = !orgUnresolved && (await Organization.getLocale(orgId, exec)) === 'MX';
   if (orgIsMx || (orgUnresolved && clientIsMx)) {
     logger.warn({ orgId, clientIsMx }, 'No active default tax rate for an MX billing context — applying 16% IVA fallback; configure a default rate in Settings → Taxes');
     return { rate: 0.16, taxRateId: null, exempt: false };
@@ -320,7 +320,7 @@ async function assertTaxCoherent(exec, {
     // no extra query.
     let mxNote = '';
     try {
-      if (orgId !== null && orgId !== undefined && (await Organization.getLocale(orgId)) === 'MX') {
+      if (orgId !== null && orgId !== undefined && (await Organization.getLocale(orgId, exec)) === 'MX') {
         mxNote = ' A zero-tax CFDI declares to SAT that the sale was not taxable.';
       }
     } catch { /* locale unavailable — fall back to the neutral wording */ }

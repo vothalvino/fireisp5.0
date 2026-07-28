@@ -59,11 +59,53 @@ function crudController(Model, _options = {}) {
   // no-live-CFDI guard cleared it, and the edit then applies to a stamped,
   // fiscally-registered document.
   //
+  // It makes THIS side of such a race atomic. It cannot fix a counterpart that
+  // reads its own snapshot before taking a lock — that has to be fixed there.
+  //
+  // Every statement a hook runs must go through the executor it is handed. One
+  // left on db.query acquires a second pooled connection while this one is
+  // still checked out, and enough concurrent requests doing that exhaust the
+  // pool and hang, since acquisition waits without a timeout.
+  //
   // Left opt-in rather than made the default: it takes a pooled connection for
   // the duration of the update, and most resources have no cross-row invariant
   // worth that cost. Turn it on where a beforeUpdate hook is enforcing
   // something that a concurrent write could falsify.
   const transactionalUpdate = _options.transactionalUpdate === true;
+
+  // A model that OVERRIDES update/findById drops `opts` unless it deliberately
+  // forwards it, and the failure is severe and invisible:
+  //   * overridden update  → the lock is taken on connection A while the UPDATE
+  //     runs on connection B, which then blocks on A's own lock. Guaranteed
+  //     self-deadlock until innodb_lock_wait_timeout, or forever if the pool is
+  //     saturated.
+  //   * overridden findById → the post-write read-back runs on another
+  //     connection, cannot see the uncommitted row, and the API returns
+  //     PRE-UPDATE values on a successful update.
+  //
+  // Detected by identity, NOT by arity: Function.length stops counting at the
+  // first defaulted parameter, so BaseModel.update(id, data, orgId = null,
+  // opts = {}) reports 2 and an arity check rejects the very implementation it
+  // is meant to accept. Inheriting BaseModel's method is the safe case; any
+  // override is unverifiable from here and must opt in explicitly by setting
+  // `forwardsExecutor = true` on the model.
+  if (transactionalUpdate) {
+    const BaseModel = require('../models/BaseModel');
+    // A jest-mocked model replaces these by definition, and the check has
+    // nothing to say about a stand-in that never touches a real connection.
+    const mocked = Boolean(Model.update?._isMockFunction || Model.findById?._isMockFunction);
+    const overrides = [];
+    if (Model.update !== BaseModel.update) overrides.push('update');
+    if (Model.findById !== BaseModel.findById) overrides.push('findById');
+    if (!mocked && overrides.length && Model.forwardsExecutor !== true) {
+      throw new Error(
+        `${Model.name} overrides ${overrides.join(' and ')} and is used with transactionalUpdate. `
+        + 'An override that ignores the trailing opts argument runs outside the transaction — a self-deadlock '
+        + 'for update, stale reads for findById. Accept opts, pass it through, then set '
+        + '`static get forwardsExecutor() { return true; }` on the model.',
+      );
+    }
+  }
   // Optional pre-create hook — called with (req) after organization_id has been
   // injected and BEFORE the row is inserted. Like beforeUpdate it MAY throw to
   // reject the create, and it may mutate req.body. Needed for invariants that
@@ -121,6 +163,9 @@ function crudController(Model, _options = {}) {
     }
 
     const conn = await db.getConnection();
+    // Tracked so the connection is handed back exactly once on every path — a
+    // double release corrupts the pool as surely as a leak does.
+    let disposed = false;
     try {
       await conn.beginTransaction();
       const exec = conn.execute.bind(conn);
@@ -131,10 +176,20 @@ function crudController(Model, _options = {}) {
       return { old, record };
     } catch (err) {
       // A guard that threw must leave the row untouched.
-      try { await conn.rollback(); } catch { /* connection already gone */ }
+      try {
+        await conn.rollback();
+      } catch {
+        // Releasing a connection whose ROLLBACK failed hands the next borrower
+        // one with an open transaction and its locks still held. Destroy it
+        // instead and let the pool open a clean one.
+        if (typeof conn.destroy === 'function') {
+          conn.destroy();
+          disposed = true;
+        }
+      }
       throw err;
     } finally {
-      conn.release();
+      if (!disposed) conn.release();
     }
   }
 

@@ -42,12 +42,14 @@ class Organization extends BaseModel {
    * @param {number|string} orgId
    * @returns {Promise<'global'|'MX'>}
    */
-  static async getLocale(orgId) {
+  static async getLocale(orgId, exec = null) {
     const db = require('../config/database');
-    const [rows] = await db.query(
-      'SELECT locale FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-      [orgId],
-    );
+    const sql = 'SELECT locale FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1';
+    // `exec` lets a caller inside an open transaction run this on its own
+    // connection. Without it, a call made while a transaction is held acquires
+    // a SECOND connection from the same pool — and enough of those at once
+    // exhaust the pool and hang, because acquisition has no timeout.
+    const [rows] = exec ? await exec(sql, [orgId]) : await db.query(sql, [orgId]);
     return rows[0]?.locale || 'global';
   }
 

@@ -162,7 +162,7 @@ async function assertUpdateFiscallySafe(old, req, exec = db.query) {
   const addsTax = taxAmount > Number(old.tax_amount ?? 0) + 0.005;
   const clientId = body.client_id ?? old.client_id;
   if (taxAmount > 0 && (addsTax || clientChanged) && clientId !== null && clientId !== undefined) {
-    const [crows] = await db.query(
+    const [crows] = await exec(
       'SELECT tax_exempt FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
       [clientId, req.orgId],
     );
@@ -195,9 +195,15 @@ async function assertUpdateFiscallySafe(old, req, exec = db.query) {
   //   * an exempt client still passes, because the resolver reports exempt and
   //     zero tax is then correct. That is the "zero the tax for an exempt
   //     client" repair the comment above worries about, and it still works.
+  // `exec`, not db.query: under transactionalUpdate this runs while a pooled
+  // connection is already checked out with an open transaction. Calling
+  // db.query here acquires a SECOND connection from the same pool, and
+  // assertTaxCoherent's resolver chain acquires more. With waitForConnections
+  // and no acquire timeout, enough concurrent edits deadlock the pool against
+  // itself and hang until the process restarts.
   const removesTax = Number(old.tax_amount ?? 0) > 0.005 && taxAmount <= 0.005;
   if (removesTax && clientId !== null && clientId !== undefined) {
-    await billingService.assertTaxCoherent(db.query.bind(db), {
+    await billingService.assertTaxCoherent(exec, {
       orgId: req.orgId,
       clientId,
       taxAmount,
@@ -212,6 +218,12 @@ const ctrl = crudController(Invoice, {
   // transaction and they are advisory: a stamp landing between the check and
   // the UPDATE means the edit applies to a document already filed with SAT.
   // With the row locked, the guard's answer is still true when the write lands.
+  //
+  // This closes the EDIT side only. The stamper (invoiceCfdiService) still
+  // reads the invoice and its items BEFORE taking its own FOR UPDATE, so an
+  // edit committing in that window is stamped from the pre-read snapshot and
+  // the CFDI can still disagree with the row. Fixing that means re-reading
+  // after the lock, on the stamper's side — tracked separately.
   transactionalUpdate: true,
   beforeUpdate: async (old, req, exec) => {
     assertInvoiceNotTerminal(old.status);
