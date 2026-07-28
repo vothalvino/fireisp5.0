@@ -3560,7 +3560,22 @@
       "requestType": "Request Type",
       "status": "Status",
       "dueAt": "Due By",
-      "legalHold": "Legal Hold"
+      "legalHold": "Legal Hold",
+      "created": "DSAR request logged",
+      "createError": "The request could not be logged. Check the client ID and fields.",
+      "resolveError": "The request could not be updated.",
+      "clientId": "Client ID",
+      "notes": "Notes",
+      "create": "Log request",
+      "fulfill": "Mark fulfilled",
+      "reject": "Reject",
+      "types": {
+        "access": "Access",
+        "erasure": "Erasure",
+        "portability": "Portability",
+        "rectification": "Rectification",
+        "restriction": "Restriction"
+      }
     },
     "identity": {
       "clientId": "Client ID",

@@ -40,6 +40,8 @@ interface ConsentRecord {
 
 const CONSENT_PURPOSES = ['service_delivery', 'marketing', 'analytics', 'third_party_sharing', 'lawful_retention'] as const;
 const CONSENT_CHANNELS = ['paper', 'phone', 'email', 'web', 'app'] as const;
+// Mirrors dsar_requests.request_type ENUM exactly — a value outside it is a 422.
+const DSAR_REQUEST_TYPES = ['access', 'erasure', 'portability', 'rectification', 'restriction'] as const;
 
 interface DsarRequest {
   id: number;
@@ -330,20 +332,95 @@ function ConsentTab() {
 
 function DsarTab() {
   const { t } = useTranslation();
+  // The tab was read-only: the fulfil/reject routes existed with no UI at all,
+  // so a DSAR could be logged and never closed while its 30-day statutory clock
+  // ran. Migration 432 gives billing .manage; without these controls that grant
+  // would be a permission with nowhere to use it.
+  const { user } = useAuth();
+  const canCreate = can(user, 'dsar_requests.create');
+  const canManage = can(user, 'dsar_requests.manage');
+
   const [requests, setRequests] = useState<DsarRequest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({ client_id: '', request_type: 'access', notes: '' });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  function load() {
     setLoading(true);
     apiFetch<{ data: DsarRequest[] }>('/regulatory-compliance/dsar-requests')
       .then(r => setRequests(r.data || []))
       .catch(() => setRequests([]))
       .finally(() => setLoading(false));
-  }, []);
+  }
+  useEffect(load, []);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    setBusy(true);
+    try {
+      await apiFetch('/regulatory-compliance/dsar-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: Number(form.client_id),
+          request_type: form.request_type,
+          ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
+        }),
+      });
+      setMsg({ ok: true, text: t('regulatoryCompliance.dsar.created') });
+      setForm(f => ({ ...f, client_id: '', notes: '' }));
+      load();
+    } catch {
+      setMsg({ ok: false, text: t('regulatoryCompliance.dsar.createError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolve(id: number, action: 'fulfill' | 'reject') {
+    setMsg(null);
+    try {
+      await apiFetch(`/regulatory-compliance/dsar-requests/${id}/${action}`, { method: 'PUT' });
+      load();
+    } catch {
+      setMsg({ ok: false, text: t('regulatoryCompliance.dsar.resolveError') });
+    }
+  }
+
+  const fld: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 };
+  const inp: React.CSSProperties = { padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4 };
+  // A request already closed one way must not offer either action again.
+  const isOpen = (s: string) => s === 'pending' || s === 'in_review' || s === 'legal_hold';
 
   return (
     <div>
       <h2>{t('regulatoryCompliance.tabs.dsar')}</h2>
+
+      {canCreate && (
+        <form onSubmit={create} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}>
+          <label style={fld}>{t('regulatoryCompliance.dsar.clientId')}
+            <input style={inp} type="number" min={1} required value={form.client_id}
+              onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} />
+          </label>
+          <label style={fld}>{t('regulatoryCompliance.dsar.requestType')}
+            <select style={inp} value={form.request_type} onChange={e => setForm(f => ({ ...f, request_type: e.target.value }))}>
+              {DSAR_REQUEST_TYPES.map(rt => (
+                <option key={rt} value={rt}>{t(`regulatoryCompliance.dsar.types.${rt}`)}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ ...fld, flexGrow: 1 }}>{t('regulatoryCompliance.dsar.notes')}
+            <input style={inp} maxLength={2000} value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          </label>
+          <button type="submit" disabled={busy} style={{ padding: '7px 16px', background: '#4a90e2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+            {t('regulatoryCompliance.dsar.create')}
+          </button>
+          {msg && <span style={{ color: msg.ok ? '#2e7d32' : '#c62828', fontSize: 13 }}>{msg.text}</span>}
+        </form>
+      )}
+
       {loading ? (
         <p>{t('common.loading')}</p>
       ) : (
@@ -355,6 +432,7 @@ function DsarTab() {
               <th style={thStyle}>{t('regulatoryCompliance.dsar.status')}</th>
               <th style={thStyle}>{t('regulatoryCompliance.dsar.dueAt')}</th>
               <th style={thStyle}>{t('regulatoryCompliance.dsar.legalHold')}</th>
+              <th style={thStyle}></th>
             </tr>
           </thead>
           <tbody>
@@ -365,11 +443,23 @@ function DsarTab() {
                 <td style={tdStyle}>{r.status}</td>
                 <td style={tdStyle}>{r.due_at ? new Date(r.due_at).toLocaleDateString() : '-'}</td>
                 <td style={tdStyle}>{r.legal_hold ? t('common.yes') : t('common.no')}</td>
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                  {canManage && isOpen(r.status) && (
+                    <>
+                      <button onClick={() => resolve(r.id, 'fulfill')} style={{ padding: '3px 10px', fontSize: 12, marginRight: 6, border: '1px solid #2e7d32', color: '#2e7d32', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
+                        {t('regulatoryCompliance.dsar.fulfill')}
+                      </button>
+                      <button onClick={() => resolve(r.id, 'reject')} style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #c62828', color: '#c62828', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
+                        {t('regulatoryCompliance.dsar.reject')}
+                      </button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
             {requests.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: '#999' }}>
+                <td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#999' }}>
                   {t('common.noResults')}
                 </td>
               </tr>

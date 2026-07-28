@@ -3560,7 +3560,22 @@
       "requestType": "Tipo de Solicitacao",
       "status": "Status",
       "dueAt": "Vencimento",
-      "legalHold": "Retencao Legal"
+      "legalHold": "Retencao Legal",
+      "created": "Solicitação DSAR registrada",
+      "createError": "Não foi possível registrar a solicitação. Verifique o ID do cliente e os campos.",
+      "resolveError": "Não foi possível atualizar a solicitação.",
+      "clientId": "ID do cliente",
+      "notes": "Notas",
+      "create": "Registrar solicitação",
+      "fulfill": "Marcar atendida",
+      "reject": "Rejeitar",
+      "types": {
+        "access": "Acesso",
+        "erasure": "Exclusão",
+        "portability": "Portabilidade",
+        "rectification": "Retificação",
+        "restriction": "Restrição"
+      }
     },
     "identity": {
       "clientId": "ID do Cliente",

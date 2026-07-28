@@ -11,7 +11,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createConsent } = require('../middleware/schemas/regulatoryCompliance');
+const { createConsent, createDsarRequest, resolveDsarRequest } = require('../middleware/schemas/regulatoryCompliance');
 const { NotFoundError } = require('../utils/errors');
 
 const router = Router();
@@ -155,9 +155,17 @@ router.get('/dsar-requests', requirePermission('dsar_requests.view'), async (req
   }
 });
 
-router.post('/dsar-requests', requirePermission('dsar_requests.create'), async (req, res, next) => {
+router.post('/dsar-requests', requirePermission('dsar_requests.create'), validate(createDsarRequest), async (req, res, next) => {
   try {
     const { client_id, request_type, notes } = req.body;
+
+    // client_id is caller-supplied: without this a staff user could open a DSAR
+    // against ANOTHER org's client. Same check the consent route got.
+    const [clientRows] = await db.query(
+      'SELECT id FROM clients WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL LIMIT 1',
+      [client_id, req.orgId],
+    );
+    if (clientRows.length === 0) throw new NotFoundError('Client not found');
 
     const [result] = await db.query(
       `INSERT INTO dsar_requests (organization_id, client_id, request_type, notes, due_at)
@@ -187,7 +195,7 @@ router.get('/dsar-requests/:id', requirePermission('dsar_requests.view'), async 
   }
 });
 
-router.put('/dsar-requests/:id/fulfill', requirePermission('dsar_requests.manage'), async (req, res, next) => {
+router.put('/dsar-requests/:id/fulfill', requirePermission('dsar_requests.manage'), validate(resolveDsarRequest), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes } = req.body;
@@ -203,7 +211,7 @@ router.put('/dsar-requests/:id/fulfill', requirePermission('dsar_requests.manage
   }
 });
 
-router.put('/dsar-requests/:id/reject', requirePermission('dsar_requests.manage'), async (req, res, next) => {
+router.put('/dsar-requests/:id/reject', requirePermission('dsar_requests.manage'), validate(resolveDsarRequest), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes } = req.body;

@@ -45,9 +45,12 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'interactions.view', 'follow_ups.view', 'surveys.view',
     'campaigns.view', 'campaigns.create', 'campaigns.update', 'campaigns.delete',
     'dnd.view', 'dnd.update',
-    // §16 compliance (migration 321) — view + create, NOT manage: only admin
-    // may withdraw a consent.
-    'subscriber_consents.view', 'subscriber_consents.create',
+    // §16 compliance. 321 granted view + create; 432 added .manage on both, so
+    // the role the Regulatory Compliance page is scoped to can actually FINISH
+    // what it starts — withdraw a consent, close a DSAR before its 30-day
+    // deadline. Fallback map only; the server-resolved permissions win.
+    'subscriber_consents.view', 'subscriber_consents.create', 'subscriber_consents.manage',
+    'dsar_requests.view', 'dsar_requests.create', 'dsar_requests.manage',
   ],
   readonly: ['winback.view', 'lifecycle.view', 'interactions.view', 'follow_ups.view', 'surveys.view', 'escalations.view', 'campaigns.view', 'dnd.view', 'nas.health', 'subscriber_consents.view'],
 };

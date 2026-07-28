@@ -21,4 +21,21 @@ const createConsent = {
   notes: { type: 'string', max: 2000 },
 };
 
-module.exports = { createConsent };
+// Same two holes the consent route had: no schema meant an invalid request_type
+// went straight at the ENUM column and 500'd, and a missing client_id inserted
+// NULL into a NOT NULL column.
+const createDsarRequest = {
+  client_id: { type: 'number', required: true, min: 1 },
+  request_type: {
+    type: 'string', required: true,
+    enum: ['access', 'erasure', 'portability', 'rectification', 'restriction'],
+  },
+  notes: { type: 'string', max: 2000 },
+};
+
+// fulfill / reject both take only an optional note.
+const resolveDsarRequest = {
+  notes: { type: 'string', max: 2000 },
+};
+
+module.exports = { createConsent, createDsarRequest, resolveDsarRequest };

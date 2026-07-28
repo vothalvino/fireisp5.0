@@ -66025,6 +66025,42 @@
           "channel"
         ]
       },
+      "regulatoryCompliance_createDsarRequest": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "request_type": {
+            "type": "string",
+            "enum": [
+              "access",
+              "erasure",
+              "portability",
+              "rectification",
+              "restriction"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "client_id",
+          "request_type"
+        ]
+      },
+      "regulatoryCompliance_resolveDsarRequest": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        }
+      },
       "regulatoryFilings_createRegulatoryFiling": {
         "type": "object",
         "properties": {

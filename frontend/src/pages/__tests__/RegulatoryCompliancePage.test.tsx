@@ -2,7 +2,7 @@
 // FireISP 5.0 — RegulatoryCompliancePage tests (§16)
 // =============================================================================
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RegulatoryCompliancePage from '../RegulatoryCompliancePage';
 
 vi.mock('react-i18next', () => ({
@@ -82,6 +82,77 @@ describe('RegulatoryCompliancePage', () => {
 // and migration 321 grants those two only subscriber_consents.view. Withdraw
 // needs .manage, which ONLY admin has.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// DSAR tab — migration 432 gives billing .manage, which is what makes the
+// fulfil/reject controls reachable by the role the page is scoped to. Before
+// 432 the tab was read-only for everyone and the routes had no UI at all.
+// ---------------------------------------------------------------------------
+
+describe('DsarTab permission gating', () => {
+  const OPEN_DSAR = {
+    id: 7, request_type: 'access', status: 'pending',
+    due_at: '2026-08-27T00:00:00.000Z', legal_hold: 0,
+  };
+
+  const renderDsar = async (u: MockUser, rows = [OPEN_DSAR]) => {
+    mockUser.current = { organization_locale: 'MX', ...u };
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ data: rows }),
+    } as unknown as Response));
+    render(<RegulatoryCompliancePage />);
+    // Switch off the default consent tab.
+    fireEvent.click(screen.getAllByText('regulatoryCompliance.tabs.dsar')[0]);
+    await screen.findByText('access');
+  };
+
+  afterEach(() => {
+    mockUser.current = { organization_locale: 'MX', role: 'admin' };
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ data: [] }),
+    } as unknown as Response));
+  });
+
+  it('billing can now log AND close a request (migration 432)', async () => {
+    await renderDsar({ role: 'billing', permissions: ['dsar_requests.view', 'dsar_requests.create', 'dsar_requests.manage'] });
+    expect(screen.getByText('regulatoryCompliance.dsar.create')).toBeDefined();
+    expect(screen.getByText('regulatoryCompliance.dsar.fulfill')).toBeDefined();
+    expect(screen.getByText('regulatoryCompliance.dsar.reject')).toBeDefined();
+  });
+
+  it('a view-only role sees neither the form nor the actions', async () => {
+    await renderDsar({ role: 'readonly', permissions: ['dsar_requests.view'] });
+    expect(screen.queryByText('regulatoryCompliance.dsar.create')).toBeNull();
+    expect(screen.queryByText('regulatoryCompliance.dsar.fulfill')).toBeNull();
+  });
+
+  it('an ALREADY-CLOSED request offers no actions, even to a manager', async () => {
+    // Fulfilling a rejected request (or vice versa) is not a thing.
+    await renderDsar(
+      { role: 'billing', permissions: ['dsar_requests.view', 'dsar_requests.manage'] },
+      [{ ...OPEN_DSAR, status: 'fulfilled' }],
+    );
+    expect(screen.queryByText('regulatoryCompliance.dsar.fulfill')).toBeNull();
+    expect(screen.queryByText('regulatoryCompliance.dsar.reject')).toBeNull();
+  });
+
+  it('a legal-hold request stays actionable — the hold is not a closure', async () => {
+    await renderDsar(
+      { role: 'billing', permissions: ['dsar_requests.view', 'dsar_requests.manage'] },
+      [{ ...OPEN_DSAR, status: 'legal_hold', legal_hold: 1 }],
+    );
+    expect(screen.getByText('regulatoryCompliance.dsar.fulfill')).toBeDefined();
+  });
+
+  it('fulfil PUTs to the resolve endpoint', async () => {
+    await renderDsar({ role: 'billing', permissions: ['dsar_requests.view', 'dsar_requests.manage'] });
+    fireEvent.click(screen.getByText('regulatoryCompliance.dsar.fulfill'));
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/regulatory-compliance/dsar-requests/7/fulfill',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+  });
+});
 
 describe('ConsentTab permission gating', () => {
   // The list MUST come back non-empty. With the default {data: []} stub no row
