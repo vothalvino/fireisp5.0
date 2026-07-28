@@ -20,6 +20,7 @@ jest.mock('../src/services/cfdiService', () => ({
 }));
 
 const db = require('../src/config/database');
+const { AppError } = require('../src/utils/errors');
 const Invoice = require('../src/models/Invoice');
 const cfdiService = require('../src/services/cfdiService');
 const invoiceCfdiService = require('../src/services/invoiceCfdiService');
@@ -76,6 +77,19 @@ beforeEach(() => {
 });
 
 describe('stampInvoice — preconditions', () => {
+  test('a missing ORG fiscal profile is reported before any client-level problem', async () => {
+    // The most common first-run failure: a brand-new MX org whose Organization
+    // → Fiscal (SAT) page was never filled in. If the invoice-level pre-flight
+    // ran first, the operator would be told to fix the CLIENT profile, fix it,
+    // retry, and only then learn the org profile was the real blocker.
+    cfdiService.getEmisorProfile.mockRejectedValue(
+      new AppError('Organization MX profile missing', 422, 'ORG_MX_PROFILE_MISSING'),
+    );
+    db.query.mockImplementation(async () => [[]]);  // client profile + items also absent
+    await expect(invoiceCfdiService.stampInvoice(60, 1))
+      .rejects.toMatchObject({ code: 'ORG_MX_PROFILE_MISSING' });
+  });
+
   test('rejects a draft invoice (422 INVOICE_NOT_STAMPABLE)', async () => {
     Invoice.findByIdOrFail.mockResolvedValue({ ...INVOICE, status: 'draft' });
     await expect(invoiceCfdiService.stampInvoice(60, 1))
@@ -323,6 +337,33 @@ describe('stampInvoice — an edit committing before the lock is not stamped sta
     // The pre-flight snapshot had TWO items; the committed edit left one.
     expect(conceptos).toHaveLength(1);
     expect(Number(conceptos[0][1][6])).toBe(2000); // importe
+  });
+
+  test('a payment landing before the lock flips PPD/99 to PUE with the real forma', async () => {
+    // The likeliest interleaving of all — payments land constantly. metodo_pago
+    // and forma_pago are fiscal fields: filing PPD/99 for an invoice that is
+    // actually settled misstates the payment method to SAT and leaves the
+    // system expecting a REP that will never come.
+    const conn = makeConn();
+    db.getConnection.mockResolvedValue(conn);
+    Invoice.findByIdOrFail.mockImplementation(
+      shifting({ ...INVOICE, status: 'issued' }, { ...INVOICE, status: 'paid' }),
+    );
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM cfdi_documents/.test(sql)) return [[]];
+      if (/FROM client_mx_profiles/.test(sql)) return [[{ ...RECEPTOR }]];
+      if (/FROM invoice_items/.test(sql)) return [ITEMS.map(i => ({ ...i }))];
+      if (/FROM payment_allocations/.test(sql)) return [[{ sat_forma_pago: '03' }]];
+      return [[]];
+    });
+
+    await invoiceCfdiService.stampInvoice(60, 1);
+
+    const insert = conn.executed.find(([sql]) => sql.includes('INSERT INTO cfdi_documents'));
+    expect(insert[1]).toContain('PUE');
+    expect(insert[1]).toContain('03');
+    expect(insert[1]).not.toContain('PPD');
+    expect(insert[1]).not.toContain('99');
   });
 
   test('the re-read runs on the TRANSACTION, never on the pool', async () => {
