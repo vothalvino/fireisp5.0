@@ -18,7 +18,8 @@ const inventorySerialService = require('../services/inventorySerialService');
 const eventBus = require('../services/eventBus');
 const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/workOrders' });
-const { attachmentStorage, resolveStoredPath, STORAGE_ROOT } = require('../middleware/upload');
+const { attachmentStorage, resolveStoredPath, STORAGE_ROOT,
+  attachmentFileFilter, attachmentMimeType, contentDispositionAttachment } = require('../middleware/upload');
 
 // Fire-and-forget: notifies the assignee (in-app + email via notificationHooks)
 // without ever delaying or failing the HTTP response.
@@ -54,6 +55,9 @@ async function assigneeAuthError(assignedTo, orgId) {
 // writable layer and were destroyed by every redeploy.
 const workOrderAttachUpload = multer({
   storage: attachmentStorage('work-orders'),
+  // Was absent: this path accepted ANY extension and ANY mime type, with
+  // the 20 MB cap as the only restriction (j35).
+  fileFilter: attachmentFileFilter,
   limits: { fileSize: 20 * 1024 * 1024 },
 }).single('file');
 
@@ -396,7 +400,7 @@ router.post('/:id/attachments', requirePermission('work_order_attachments.create
       'INSERT INTO work_order_attachments (work_order_id, filename, original_filename, mime_type, file_size, storage_path, uploaded_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       // Relative to STORAGE_ROOT, matching clients.js and files.js — see the
       // note on the ticket-attachment insert.
-      [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size,
+      [req.params.id, req.file.filename, req.file.originalname, attachmentMimeType(req.file.originalname), req.file.size,
         path.relative(STORAGE_ROOT, req.file.path), req.user.id, req.orgId],
     );
     const [[row]] = await db.query('SELECT id, filename, original_filename, mime_type, file_size, uploaded_by, created_at FROM work_order_attachments WHERE id = ?', [result.insertId]);
@@ -427,7 +431,7 @@ router.get('/:id/attachments/:attachmentId/download', requirePermission('work_or
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
     const abs = resolveStoredPath(row.storage_path);
     if (!abs) return res.status(404).json({ error: 'Attachment file not found' });
-    res.setHeader('Content-Disposition', `attachment; filename="${row.original_filename}"`);
+    res.setHeader('Content-Disposition', contentDispositionAttachment(row.original_filename));
     res.setHeader('Content-Type', row.mime_type);
     res.sendFile(abs);
   } catch (err) { next(err); }
