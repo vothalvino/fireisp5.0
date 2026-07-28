@@ -31,7 +31,7 @@ const CUSTOM_FALLBACK_VERSION = 'custom-1';
 
 const MX_TEMPLATE = `# Aviso de Privacidad
 
-**{{legal_name}}** (el "Responsable"), con domicilio en {{address}}, es responsable del tratamiento de sus datos personales conforme a la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP) y su Reglamento.
+**{{legal_name}}** (el "Responsable"){{address_clause_es}} es responsable del tratamiento de sus datos personales conforme a la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP) y su Reglamento.
 
 ## Datos personales que recabamos
 
@@ -58,7 +58,7 @@ Sus datos pueden compartirse con: proveedores autorizados de certificación fisc
 
 ## Derechos ARCO y revocación del consentimiento
 
-Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse al tratamiento de sus datos (derechos ARCO), así como a revocar el consentimiento otorgado. Para ejercerlos, envíe una solicitud a **{{email}}**{{phone_clause_es}} indicando su nombre completo, el derecho que desea ejercer y los datos de contacto para responderle. Responderemos en los plazos que establece la LFPDPPP.
+Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse al tratamiento de sus datos (derechos ARCO), así como a revocar el consentimiento otorgado. Para ejercerlos, {{contact_clause_es}}, indicando su nombre completo, el derecho que desea ejercer y los datos de contacto para responderle. Responderemos en los plazos que establece la LFPDPPP.
 
 ## Cambios a este aviso
 
@@ -67,7 +67,7 @@ Cualquier modificación a este aviso se publicará en este portal. Versión: **{
 
 const GLOBAL_TEMPLATE = `# Privacy Notice
 
-**{{legal_name}}** ("we"), located at {{address}}, is responsible for the personal data collected to provide your internet service.
+**{{legal_name}}** ("we"){{address_clause_en}} is responsible for the personal data collected to provide your internet service.
 
 ## Data we collect
 
@@ -92,7 +92,7 @@ Your data may be shared with payment processors, with tax or invoicing providers
 
 ## Your rights
 
-You may request access to, correction of, or deletion of your personal data, and withdraw any consent you have given, by writing to **{{email}}**{{phone_clause_en}}. Include your full name, the right you wish to exercise, and how to reach you.
+You may request access to, correction of, or deletion of your personal data, and withdraw any consent you have given — {{contact_clause_en}}. Include your full name, the right you wish to exercise, and how to reach you.
 
 ## Changes
 
@@ -100,14 +100,36 @@ Any change to this notice will be published on this portal. Version: **{{version
 `;
 
 function fill(template, org, version) {
+  // Never render a dead placeholder into a legal document. An org with no
+  // address or no contact email is normal on a fresh install, and the old
+  // template printed an em-dash — so the notice told subscribers to exercise
+  // their ARCO rights by writing to "—", and stated the responsable was
+  // "located at —". Both clauses are now built from what actually exists and
+  // omitted entirely when nothing does; the portal itself is always a valid
+  // channel, because the subscriber is reading this inside it.
   const addressParts = [org.address, org.city, org.state, org.zip_code, org.country]
     .filter(Boolean).join(', ');
+
+  const channelsEs = [];
+  const channelsEn = [];
+  if (org.email) {
+    channelsEs.push(`envíe una solicitud a **${org.email}**`);
+    channelsEn.push(`write to **${org.email}**`);
+  }
+  if (org.phone) {
+    channelsEs.push(`comuníquese al **${org.phone}**`);
+    channelsEn.push(`call **${org.phone}**`);
+  }
+  // Last resort, and always true: they are logged into the portal right now.
+  channelsEs.push('abra un ticket desde este portal de clientes');
+  channelsEn.push('open a ticket from this customer portal');
+
   const vars = {
     legal_name: org.legal_name || org.name,
-    address: addressParts || '—',
-    email: org.email || '—',
-    phone_clause_es: org.phone ? ` o al teléfono **${org.phone}**` : '',
-    phone_clause_en: org.phone ? ` or by calling **${org.phone}**` : '',
+    address_clause_es: addressParts ? `, con domicilio en ${addressParts},` : '',
+    address_clause_en: addressParts ? `, located at ${addressParts},` : '',
+    contact_clause_es: channelsEs.join(' o '),
+    contact_clause_en: channelsEn.join(', or '),
     version,
   };
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');

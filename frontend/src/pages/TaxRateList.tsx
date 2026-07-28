@@ -23,6 +23,9 @@ interface TaxRate {
   description: string | null;
   is_default: number | boolean;
   status: string;
+  // 1 when this is an install-wide shared rate (organization_id NULL) viewed
+  // from an org context. Shared rates are read-only: the backend 403s writes.
+  is_shared?: number | boolean;
 }
 
 interface TaxRateResponse {
@@ -371,22 +374,40 @@ export function TaxRateList() {
                   {taxRates.map(t => (
                     <tr key={t.id} style={styles.tr}>
                       <td style={styles.td}>#{t.id}</td>
-                      <td style={{ ...styles.td, fontWeight: 500 }}>{t.name}</td>
+                      <td style={{ ...styles.td, fontWeight: 500 }}>
+                        {t.name}
+                        {Boolean(t.is_shared) && (
+                          <span
+                            style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 8, fontSize: '0.7rem', background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                            title="Shared across every organization on this install — read-only. Create your own rate to customize."
+                          >
+                            shared
+                          </span>
+                        )}
+                      </td>
                       <td style={styles.td}>{formatRate(t.rate)}</td>
                       <td style={{ ...styles.td, maxWidth: 320, overflowWrap: 'anywhere' }}>{t.description ?? '—'}</td>
                       <td style={styles.td}>{t.is_default ? '⭐' : '—'}</td>
                       <td style={styles.td}><StatusBadge status={t.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button style={styles.actionBtn} onClick={() => setEditTaxRate(t)} title="Edit this tax rate">
-                          ✏️ Edit
-                        </button>
-                        <button
-                          style={{ ...styles.actionBtn, color: '#991b1b' }}
-                          onClick={() => setDeleteId(t.id)}
-                          title="Delete this tax rate"
-                        >
-                          🗑 Delete
-                        </button>
+                        {Boolean(t.is_shared) ? (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }} title="Shared rates cannot be edited or deleted from one organization.">
+                            read-only
+                          </span>
+                        ) : (
+                          <>
+                            <button style={styles.actionBtn} onClick={() => setEditTaxRate(t)} title="Edit this tax rate">
+                              ✏️ Edit
+                            </button>
+                            <button
+                              style={{ ...styles.actionBtn, color: '#991b1b' }}
+                              onClick={() => setDeleteId(t.id)}
+                              title="Delete this tax rate"
+                            >
+                              🗑 Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
