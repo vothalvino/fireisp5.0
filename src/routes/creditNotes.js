@@ -13,6 +13,7 @@ const { requireMxLocale } = require('../middleware/orgLocale');
 const { validate } = require('../middleware/validate');
 const { createCreditNote, updateCreditNote, createCreditNoteItem, stampCreditNote } = require('../middleware/schemas/creditNotes');
 const creditNoteCfdiService = require('../services/creditNoteCfdiService');
+const billingService = require('../services/billingService');
 const { AppError } = require('../utils/errors');
 const db = require('../config/database');
 
@@ -37,16 +38,87 @@ function assertTotalsConsistent({ subtotal, tax_amount, total }) {
   }
 }
 
+/**
+ * A credit note whose CFDI de Egreso is live at SAT is fiscally frozen. The
+ * filed XML snapshots the amounts, the receptor and the folio, so letting the
+ * row drift afterwards makes it disagree with what SAT and the client both
+ * hold — unfixable after the fact. Same guard invoices got in #532; the credit
+ * note paths never had one.
+ *
+ * 'draft' counts: a draft CFDI has already snapshotted its conceptos and is
+ * waiting on a stamp retry.
+ */
+async function assertNoLiveCfdi(creditNoteId, orgId, remedy) {
+  const [rows] = await db.query(
+    `SELECT id, sat_status FROM cfdi_documents
+      WHERE credit_note_id = ? AND organization_id = ?
+        AND sat_status IN ('draft', 'vigente', 'cancel_pending') LIMIT 1`,
+    [creditNoteId, orgId],
+  );
+  if (rows[0]) {
+    throw new AppError(
+      `This credit note has a ${rows[0].sat_status} CFDI (#${rows[0].id}) — its amounts are fiscally frozen. ${remedy}`,
+      422, 'CFDI_STAMPED',
+    );
+  }
+}
+
+// Every field the CFDI de Egreso freezes. Compared by VALUE, not presence: the
+// edit modal re-sends the amounts on every save, so a presence check would 422
+// a note-text edit on any stamped credit note.
+const FROZEN_FIELDS = ['subtotal', 'tax_amount', 'total', 'tax_rate', 'invoice_id', 'credit_note_number'];
+function sameValue(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) return a === b;
+  const na = Number(a); const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return Math.abs(na - nb) < 0.005;
+  return String(a) === String(b);
+}
+
 const router = Router();
 // The update guard merges the incoming partial body over the existing row so a
 // PUT that changes only one amount can't sneak the note inconsistent (or can
 // deliberately FIX an inconsistent legacy note).
 const ctrl = crudController(CreditNote, {
-  beforeUpdate: (old, req) => assertTotalsConsistent({
-    subtotal: req.body.subtotal ?? old.subtotal,
-    tax_amount: req.body.tax_amount ?? old.tax_amount,
-    total: req.body.total ?? old.total,
-  }),
+  beforeUpdate: async (old, req) => {
+    assertTotalsConsistent({
+      subtotal: req.body.subtotal ?? old.subtotal,
+      tax_amount: req.body.tax_amount ?? old.tax_amount,
+      total: req.body.total ?? old.total,
+    });
+
+    const changed = FROZEN_FIELDS.filter(
+      (f) => req.body[f] !== undefined && !sameValue(req.body[f], old[f]),
+    );
+    if (changed.length === 0) return;
+
+    await assertNoLiveCfdi(old.id, req.orgId,
+      'Cancel or substitute the CFDI before changing this credit note.');
+
+    // An edit that STRIPS the tax is the tipo-E twin of the invoice hole closed
+    // in #551: a zero-tax egreso stamps ObjetoImp='01' with no impuestos, so it
+    // declares the credited operation was not taxable while the ingreso it
+    // relates to (TipoRelacion 01) declared tax on the same money. Fires only
+    // when the edit REMOVES tax, so an already-untaxed note is never
+    // re-examined and an exempt client's zero stays legal.
+    const taxAmount = Number(req.body.tax_amount ?? old.tax_amount ?? 0);
+    const removesTax = Number(old.tax_amount ?? 0) > 0.005 && taxAmount <= 0.005;
+    if (removesTax && old.client_id) {
+      await billingService.assertTaxCoherent(db.query.bind(db), {
+        orgId: req.orgId, clientId: old.client_id, taxAmount, docType: 'credit note',
+      });
+    }
+  },
+
+  // Delete and restore were as open as update was — a credit note with a live
+  // CFDI could be soft-deleted while the egreso stayed filed at SAT.
+  beforeDelete: async (old, req) => {
+    await assertNoLiveCfdi(old.id, req.orgId,
+      'Cancel the CFDI before deleting this credit note.');
+  },
+  beforeRestore: async (req) => {
+    await assertNoLiveCfdi(req.params.id, req.orgId,
+      'This credit note has a live CFDI; restoring it would resurrect a row that disagrees with the filed document.');
+  },
 });
 
 router.use(authenticate);
@@ -58,6 +130,19 @@ router.post('/', requirePermission('credit_notes.create'), validate(createCredit
   try {
     assertTotalsConsistent(req.body);
     req.body.organization_id = req.orgId;
+
+    // The resolver was never consulted here. A credit note for a non-exempt MX
+    // client with tax 0 satisfied the consistency check above (1160 + 0 = 1160)
+    // and stamped as a tipo-E CFDI with ObjetoImp='01' and no impuestos —
+    // telling SAT the credited operation was not taxable, while the ingreso it
+    // relates to declared IVA on the same money. Both directions, same helper
+    // the invoice and quote paths use.
+    await billingService.assertTaxCoherent(db.query.bind(db), {
+      orgId: req.orgId,
+      clientId: req.body.client_id,
+      taxAmount: req.body.tax_amount ?? 0,
+      docType: 'credit note',
+    });
     // Default currency when the caller omits one: prefer the linked
     // invoice's own currency (a credit note against an invoice should be
     // denominated the same way that invoice is), otherwise the org's
