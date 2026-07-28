@@ -21,6 +21,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const User = require('../src/models/User');
 const app = require('../src/app');
 
@@ -52,6 +53,9 @@ function mockAuthUser() {
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   jest.resetAllMocks();
+  // resetAllMocks strips implementations, so this must be re-wired per test,
+  // not once at module scope. Invoice PUT/PATCH runs transactionally.
+  mockTxConnection(db);
 });
 
 // =============================================================================

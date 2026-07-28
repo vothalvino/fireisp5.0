@@ -71,7 +71,12 @@ function sameValue(a, b) {
   return String(a) === String(b);
 }
 
-async function assertUpdateFiscallySafe(old, req) {
+// `exec` runs this guard's own reads on the caller's transaction. crudController
+// passes the locked connection (transactionalUpdate below); it defaults to
+// db.query so direct callers and tests are unaffected. Reading outside the lock
+// would defeat the point — the guard would still be checking a row that another
+// connection is free to change before the UPDATE lands.
+async function assertUpdateFiscallySafe(old, req, exec = db.query) {
   const body = req.body || {};
 
   // organization_id is fillable but undeclared in the update schemas, so it
@@ -89,7 +94,7 @@ async function assertUpdateFiscallySafe(old, req) {
   // Re-pointing an invoice at another tenant's client is the same hole #514
   // closed on create; the update path was still open.
   if (clientChanged) {
-    const [owned] = await db.query(
+    const [owned] = await exec(
       'SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
       [body.client_id, req.orgId],
     );
@@ -109,7 +114,7 @@ async function assertUpdateFiscallySafe(old, req) {
   const changed = FROZEN_FIELDS.filter((f) => body[f] !== undefined && !sameValue(body[f], old[f]));
   if (changed.length === 0) return;
 
-  await assertNoLiveCfdi(db.query, old.id,
+  await assertNoLiveCfdi(exec, old.id,
     "Cancel or substitute the CFDI before changing this invoice's amounts, client or folio.");
 
   // Validate the patch MERGED over the stored row, so changing one amount
@@ -202,9 +207,15 @@ async function assertUpdateFiscallySafe(old, req) {
 }
 
 const ctrl = crudController(Invoice, {
-  beforeUpdate: async (old, req) => {
+  // The fiscal guards below decide based on rows a concurrent request can
+  // change — above all whether a live CFDI exists. Run them outside a
+  // transaction and they are advisory: a stamp landing between the check and
+  // the UPDATE means the edit applies to a document already filed with SAT.
+  // With the row locked, the guard's answer is still true when the write lands.
+  transactionalUpdate: true,
+  beforeUpdate: async (old, req, exec) => {
     assertInvoiceNotTerminal(old.status);
-    await assertUpdateFiscallySafe(old, req);
+    await assertUpdateFiscallySafe(old, req, exec);
   },
 
   // DELETE and restore went straight to the generic controller with no fiscal

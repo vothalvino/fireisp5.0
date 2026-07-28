@@ -5,6 +5,7 @@
 // Controllers can override or extend these defaults.
 // =============================================================================
 
+const db = require('../config/database');
 const auditLog = require('../services/auditLog');
 const { bustCache } = require('../middleware/httpCache');
 const logger = require('../utils/logger').child({ service: 'crudController' });
@@ -48,6 +49,21 @@ function crudController(Model, _options = {}) {
   // the error propagates to the error handler. Reuses the existing fetch, so it
   // adds no extra query. Useful for terminal-state guards (e.g. voided invoices).
   const beforeUpdateHook = typeof _options.beforeUpdate === 'function' ? _options.beforeUpdate : null;
+  // Opt-in: run fetch → beforeUpdate → update inside ONE transaction with the
+  // row locked by SELECT ... FOR UPDATE.
+  //
+  // Without it, beforeUpdate is a guard but not a guarantee: it reads on one
+  // pooled connection and the UPDATE lands on another, so a concurrent writer
+  // can slip between them and invalidate whatever the guard just checked. For
+  // invoices that means an invoice can be stamped microseconds after the
+  // no-live-CFDI guard cleared it, and the edit then applies to a stamped,
+  // fiscally-registered document.
+  //
+  // Left opt-in rather than made the default: it takes a pooled connection for
+  // the duration of the update, and most resources have no cross-row invariant
+  // worth that cost. Turn it on where a beforeUpdate hook is enforcing
+  // something that a concurrent write could falsify.
+  const transactionalUpdate = _options.transactionalUpdate === true;
   // Optional pre-create hook — called with (req) after organization_id has been
   // injected and BEFORE the row is inserted. Like beforeUpdate it MAY throw to
   // reject the create, and it may mutate req.body. Needed for invariants that
@@ -80,6 +96,47 @@ function crudController(Model, _options = {}) {
   // Note the primary row change has already been applied and audit-logged at
   // hook time — the error tells the caller to retry the dependent sync.
   const fatalAfterHooks = _options.fatalAfterHooks === true;
+
+  /**
+   * Shared by PUT and PATCH: fetch the row, run the guard, apply the update.
+   *
+   * With transactionalUpdate the three steps share one connection and the row
+   * is locked for the whole sequence, so nothing can change it between the
+   * guard passing and the write landing. Without it, this is the original
+   * behaviour, unchanged.
+   *
+   * beforeUpdate receives the executor as a third argument so a hook can run
+   * ITS OWN reads on the same transaction. A hook that ignores it (all the
+   * existing ones do) behaves exactly as before — but a hook that queries
+   * related rows to make its decision, like the invoice no-live-CFDI guard,
+   * MUST use it or it is still reading outside the lock and the transaction
+   * buys nothing.
+   */
+  async function applyUpdate(req) {
+    if (!transactionalUpdate) {
+      const old = await Model.findByIdOrFail(req.params.id, req.orgId);
+      if (beforeUpdateHook) await beforeUpdateHook(old, req, db.query);
+      const record = await Model.update(req.params.id, req.body, req.orgId);
+      return { old, record };
+    }
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      const exec = conn.execute.bind(conn);
+      const old = await Model.findByIdOrFail(req.params.id, req.orgId, { exec, forUpdate: true });
+      if (beforeUpdateHook) await beforeUpdateHook(old, req, exec);
+      const record = await Model.update(req.params.id, req.body, req.orgId, { exec });
+      await conn.commit();
+      return { old, record };
+    } catch (err) {
+      // A guard that threw must leave the row untouched.
+      try { await conn.rollback(); } catch { /* connection already gone */ }
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
 
   return {
     /**
@@ -189,9 +246,7 @@ function crudController(Model, _options = {}) {
      */
     async update(req, res, next) {
       try {
-        const old = await Model.findByIdOrFail(req.params.id, req.orgId);
-        if (beforeUpdateHook) await beforeUpdateHook(old, req);
-        const record = await Model.update(req.params.id, req.body, req.orgId);
+        const { old, record } = await applyUpdate(req);
 
         await auditLog.log({
           userId: req.user?.id,
@@ -231,9 +286,7 @@ function crudController(Model, _options = {}) {
      */
     async partialUpdate(req, res, next) {
       try {
-        const old = await Model.findByIdOrFail(req.params.id, req.orgId);
-        if (beforeUpdateHook) await beforeUpdateHook(old, req);
-        const record = await Model.update(req.params.id, req.body, req.orgId);
+        const { old, record } = await applyUpdate(req);
 
         await auditLog.log({
           userId: req.user?.id,

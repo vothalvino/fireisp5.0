@@ -21,6 +21,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const User = require('../src/models/User');
 const auditLog = require('../src/services/auditLog');
 const app = require('../src/app');
@@ -51,6 +52,8 @@ function mockAuthUser() {
 beforeEach(() => {
   jest.resetAllMocks();
   auditLog.log.mockResolvedValue();
+  // resetAllMocks strips implementations — re-wire per test.
+  mockTxConnection(db);
 });
 
 // =============================================================================
