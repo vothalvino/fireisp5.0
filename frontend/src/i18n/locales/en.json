@@ -330,7 +330,10 @@
     "navHome": "🏠 Home",
     "navInvoices": "🧾 Invoices",
     "navSupport": "🎫 Support",
-    "footer": "© {{year}} FireISP"
+    "footer": "© {{year}} FireISP",
+    "privacyBanner": "Please review our privacy notice.",
+    "privacyBannerLink": "Review and accept",
+    "privacyLink": "Privacy notice"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1399,7 +1402,13 @@
     "fiscalError": "Could not save the fiscal profile.",
     "fiscalLoadError": "Could not load the fiscal profile.",
     "fiscalRfcInvalid": "RFC must be 12–13 characters (letters, digits, Ñ, &).",
-    "fiscalIncomplete": "Razón social, régimen (3 digits) and C.P. (5 digits) are required."
+    "fiscalIncomplete": "Razón social, régimen (3 digits) and C.P. (5 digits) are required.",
+    "tabPrivacy": "Privacy notice",
+    "privacyHint": "This text is shown to subscribers in the portal under Privacy notice. Leave it empty to use the built-in template filled with this organization’s name and contact details.",
+    "privacyVersion": "Notice version",
+    "privacyVersionHint": "Changing the version asks every subscriber to accept the notice again.",
+    "privacyNotice": "Notice text (markdown)",
+    "privacyPlaceholder": "Empty = built-in template"
   },
   "emailSettings": {
     "title": "Outbound Email (SMTP) Settings",
@@ -3522,7 +3531,29 @@
       "givenAt": "Consent Given",
       "status": "Status",
       "withdrawn": "Withdrawn",
-      "active": "Active"
+      "active": "Active",
+      "channel": "Channel",
+      "version": "Notice version",
+      "notes": "Notes",
+      "create": "Record consent",
+      "created": "Consent recorded",
+      "createError": "The consent could not be recorded. Check the client ID and fields.",
+      "withdraw": "Withdraw",
+      "withdrawError": "The consent could not be withdrawn.",
+      "purposes": {
+        "service_delivery": "Service delivery",
+        "marketing": "Marketing",
+        "analytics": "Analytics",
+        "third_party_sharing": "Third-party sharing",
+        "lawful_retention": "Lawful retention"
+      },
+      "channels": {
+        "paper": "Paper",
+        "phone": "Phone",
+        "email": "Email",
+        "web": "Web",
+        "app": "App"
+      }
     },
     "dsar": {
       "requestType": "Request Type",
@@ -4689,5 +4720,13 @@
       "hoursAgo": "{{count}}h ago",
       "daysAgo": "{{count}}d ago"
     }
+  },
+  "portalPrivacy": {
+    "loadError": "The privacy notice could not be loaded. Please try again.",
+    "acceptedOn": "You accepted this privacy notice on {{date}}.",
+    "pendingPrompt": "Please read the notice below and accept it.",
+    "acceptButton": "I accept the privacy notice",
+    "acceptError": "Your acceptance could not be saved. Please try again.",
+    "versionLabel": "Notice version: {{version}}"
   }
 }

@@ -37,6 +37,8 @@ interface Organization {
   tax_id: string | null;
   logo_url: string | null;
   status: string | null;
+  privacy_notice: string | null;
+  privacy_notice_version: string | null;
 }
 
 interface EmailIdentity {
@@ -71,7 +73,7 @@ const QUOTA_FIELDS: { key: keyof NonNullable<QuotaResponse['limits']>; usageKey:
   { key: 'max_scheduled_tasks', usageKey: 'scheduled_tasks' },
 ];
 
-type TabId = 'edit' | 'settings' | 'quota' | 'mail' | 'fiscal';
+type TabId = 'edit' | 'settings' | 'quota' | 'mail' | 'privacy' | 'fiscal';
 
 // ---------------------------------------------------------------------------
 // Shared field styles
@@ -210,6 +212,64 @@ function SettingsTab({ id }: { id: number }) {
           <input style={input} type="text" value={form[k] ?? ''} onChange={e => setForm(prev => ({ ...prev, [k]: e.target.value }))} />
         </label>
       ))}
+      <div style={{ marginTop: '1rem' }}>
+        <button style={styles.btnPrimary} onClick={() => { setMsg(null); save.mutate(); }} disabled={save.isPending}>
+          {save.isPending ? t('common.saving') : t('common.save')}
+        </button>
+      </div>
+      {msg && <p style={{ ...styles.msg, color: msg.ok ? '#065f46' : '#991b1b' }}>{msg.text}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Privacy notice tab (LFPDPPP)
+// ---------------------------------------------------------------------------
+// The text the subscriber portal renders at /portal/privacy. Empty = the
+// bundled template interpolated with this org's identity fields. Bumping the
+// version makes every subscriber's previous acceptance stale, so the portal
+// prompts them to accept again.
+
+function PrivacyTab({ org }: { org: Organization }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    privacy_notice: org.privacy_notice ?? '',
+    privacy_notice_version: org.privacy_notice_version ?? '',
+  });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await api.PUT('/organizations/{id}', {
+        params: { path: { id: org.id } },
+        body: {
+          privacy_notice: form.privacy_notice,
+          privacy_notice_version: form.privacy_notice_version.trim(),
+        } as never,
+      });
+      if (res.error) throw new Error('save failed');
+    },
+    onSuccess: () => { setMsg({ ok: true, text: t('orgDetail.saved') }); qc.invalidateQueries({ queryKey: ['organization', org.id] }); },
+    onError: () => setMsg({ ok: false, text: t('orgDetail.saveError') }),
+  });
+
+  return (
+    <div>
+      <p style={styles.msg}>{t('orgDetail.privacyHint')}</p>
+      <label style={label}>{t('orgDetail.privacyVersion')}
+        <input style={input} type="text" maxLength={20} value={form.privacy_notice_version}
+          onChange={e => setForm(f => ({ ...f, privacy_notice_version: e.target.value }))} />
+      </label>
+      <p style={{ ...styles.msg, fontSize: 12 }}>{t('orgDetail.privacyVersionHint')}</p>
+      <label style={label}>{t('orgDetail.privacyNotice')}
+        <textarea
+          style={{ ...input, minHeight: 320, fontFamily: 'var(--font-mono, monospace)', fontSize: 13 }}
+          value={form.privacy_notice}
+          onChange={e => setForm(f => ({ ...f, privacy_notice: e.target.value }))}
+          placeholder={t('orgDetail.privacyPlaceholder')}
+        />
+      </label>
       <div style={{ marginTop: '1rem' }}>
         <button style={styles.btnPrimary} onClick={() => { setMsg(null); save.mutate(); }} disabled={save.isPending}>
           {save.isPending ? t('common.saving') : t('common.save')}
@@ -649,6 +709,7 @@ export function OrganizationDetail() {
     { id: 'settings', labelKey: 'orgDetail.tabSettings' },
     { id: 'quota', labelKey: 'orgDetail.tabQuota' },
     { id: 'mail', labelKey: 'orgDetail.tabMail' },
+    { id: 'privacy', labelKey: 'orgDetail.tabPrivacy' },
     // Fiscal identity only applies to MX-locale orgs — gate on the VIEWED
     // org's locale (the backend 404s REGION_DISABLED for global orgs anyway).
     ...(orgQ.data?.locale === 'MX' ? [{ id: 'fiscal' as TabId, labelKey: 'orgDetail.tabFiscal' }] : []),
@@ -687,6 +748,7 @@ export function OrganizationDetail() {
             {tab === 'settings' && <SettingsTab id={id} />}
             {tab === 'quota' && <QuotaTab id={id} />}
             {tab === 'mail' && <MailTab id={id} />}
+            {tab === 'privacy' && <PrivacyTab org={orgQ.data} />}
             {tab === 'fiscal' && orgQ.data.locale === 'MX' && <FiscalTab id={id} />}
           </div>
         </>

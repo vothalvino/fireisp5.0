@@ -32,6 +32,7 @@ import { PortalAccount } from '@/pages/portal/PortalAccount';
 import { PortalKb } from '@/pages/portal/PortalKb';
 import { PortalSpeedTest } from '@/pages/portal/PortalSpeedTest';
 import { PortalChat } from '@/pages/portal/PortalChat';
+import { PortalPrivacy } from '@/pages/portal/PortalPrivacy';
 import { Dashboard } from '@/pages/Dashboard';
 import { ClientList } from '@/pages/ClientList';
 import { ClientDetail } from '@/pages/ClientDetail';
@@ -217,6 +218,7 @@ export function App() {
                   <Route path="/portal/kb" element={<PortalKb />} />
                   <Route path="/portal/speed-test" element={<PortalSpeedTest />} />
                   <Route path="/portal/chat" element={<PortalChat />} />
+                  <Route path="/portal/privacy" element={<PortalPrivacy />} />
                 </Route>
               </Route>
 
