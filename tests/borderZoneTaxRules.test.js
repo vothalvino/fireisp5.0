@@ -109,9 +109,20 @@ describe('postal code normalisation', () => {
     ['22000-1234', '22000'],
   ])('%s -> %s', (raw, want) => expect(normalizePostalCode(raw)).toBe(want));
 
-  it.each([null, undefined, '', 'n/a', '2200', '123'])('%s -> null', (raw) => {
+  it.each([null, undefined, '', 'n/a', 'unknown', '12'])('%s -> null', (raw) => {
+    // Junk and too-short input still yields nothing. Note '2200' and '123' were
+    // in this list while the matcher was 5-digit-only — they are VALID postal
+    // codes in Panama and Australia, and asserting them null was pinning a
+    // Mexican assumption as if it were correct.
     expect(normalizePostalCode(raw)).toBeNull();
   });
+
+  it.each([
+    ['0801', '0801', 'Panama — 4 digits'],
+    ['3000', '3000', 'Australia — 4 digits'],
+    ['K1A 0B1', 'K1A0B1', 'Canada — alphanumeric with a space'],
+    ['sw1a 1aa', 'SW1A1AA', 'UK — lowercase'],
+  ])('%s -> %s (%s)', (raw, want) => expect(normalizePostalCode(raw)).toBe(want));
 
   it('refuses an ambiguous string holding two unrelated codes', () => {
     // "22000 o 06000" must not silently pick the border one.
@@ -216,5 +227,46 @@ describe('a global org: tax rules work, Mexican rules do not', () => {
     await assertTaxCoherent(exec, { orgId: 2, clientId: 5, taxAmount: 16 }).catch((e) => { msg = e.message; });
     expect(msg).toMatch(/tax-exempt/);
     expect(msg).not.toMatch(/IVA|CFDI|SAT/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Postal systems that are not Mexican
+// ---------------------------------------------------------------------------
+// The first version of this matcher required exactly 5 digits, so an operator
+// in Panama (0801), Canada (K1A 0B1) or Australia (3000) could not match a rule
+// to their own addresses — and the validation schema would not even let them
+// save one. Found by invoicing in the demo's Panama org.
+describe('non-5-digit postal systems', () => {
+  it('matches a 4-digit range (Panama)', () => {
+    expect(postalSpecMatch('0801-0899', '0801')).toBe(99);
+    expect(postalSpecMatch('0801-0899', '0900')).toBeNull();
+  });
+
+  it('matches an alphanumeric prefix (Canada)', () => {
+    expect(postalSpecMatch('K1A*,M5V*', 'K1A0B1')).toBeGreaterThan(1);
+    expect(postalSpecMatch('K1A*', 'M5V3L9')).toBeNull();
+  });
+
+  it('an exact code always beats a prefix', () => {
+    const exact = postalSpecMatch('K1A0B1', 'K1A0B1');
+    const prefix = postalSpecMatch('K1A*', 'K1A0B1');
+    expect(exact).toBe(1);
+    expect(exact).toBeLessThan(prefix);
+  });
+
+  it('never compares codes of different lengths across a range', () => {
+    // A 4-digit code must not fall inside a 5-digit range: 0801 would sort
+    // inside "00001-99999" as a string and match another country's rule.
+    expect(postalSpecMatch('21000-22999', '0801')).toBeNull();
+    expect(postalSpecMatch('0801-0899', '08010')).toBeNull();
+  });
+
+  it('still matches Mexico exactly as before', () => {
+    // The live border behaviour must not shift under a generalisation.
+    expect(postalSpecMatch('21000-22999', '22000')).toBe(2000);
+    expect(normalizePostalCode('CP 22000')).toBe('22000');
+    expect(normalizePostalCode('22000-1234')).toBe('22000');
+    expect(normalizePostalCode('22000 o 06000')).toBeNull();
   });
 });

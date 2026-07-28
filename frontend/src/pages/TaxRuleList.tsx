@@ -222,9 +222,12 @@ function TaxRuleModal({ taxRule, onClose, onSaved }: TaxRuleModalProps) {
               placeholder="21000-22999,32000-32699,88000"
             />
             <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}>
-              5-digit codes and/or ranges, comma separated. A client whose service
+              Codes, ranges and prefixes, comma separated — e.g. 21000-22999 (MX),
+              0801-0899 (PA), 3000-3999 (AU), K1A* (CA). A client whose service
               address falls in one of these gets this rate instead of the org
-              default. Leave blank for a rule that is not postal-code based.
+              default. Ranges compare codes of the same length only; use a
+              trailing * for alphanumeric systems. Leave blank for a rule that is
+              not postal-code based.
             </span>
           </label>
 
