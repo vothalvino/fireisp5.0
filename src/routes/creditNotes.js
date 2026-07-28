@@ -124,7 +124,51 @@ const ctrl = crudController(CreditNote, {
 router.use(authenticate);
 router.use(orgScope);
 
-router.get('/', requirePermission('credit_notes.view'), ctrl.list);
+/**
+ * Attach each row's CFDI state to a page of credit notes.
+ *
+ * The list returned unaliased credit_notes columns and nothing else, so the UI
+ * had no way to know a note was already stamped — it kept offering Stamp, and
+ * the click came back 409. The same statuses assertNoLiveCfdi treats as live
+ * count here, so the button disappears exactly when the stamp route would
+ * refuse: `cfdi_sat_status` is null when there is no live CFDI.
+ *
+ * One query for the whole page, and the placeholders are built by hand —
+ * `IN (?)` does NOT expand to a list under this execute-backed db.query, it
+ * binds the array as a single value and silently matches nothing.
+ */
+async function attachCfdiState(orgId, rows) {
+  const ids = rows.map(r => r.id).filter(id => id !== null && id !== undefined);
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => '?').join(', ');
+  const [cfdis] = await db.query(
+    `SELECT credit_note_id, id, uuid, sat_status FROM cfdi_documents
+      WHERE organization_id = ? AND credit_note_id IN (${placeholders})
+        AND sat_status IN ('draft', 'vigente', 'cancel_pending')`,
+    [orgId, ...ids],
+  );
+  const byNote = new Map();
+  for (const c of cfdis) byNote.set(String(c.credit_note_id), c);
+  for (const row of rows) {
+    const c = byNote.get(String(row.id)) || null;
+    row.cfdi_document_id = c ? c.id : null;
+    row.cfdi_uuid = c ? c.uuid : null;
+    row.cfdi_sat_status = c ? c.sat_status : null;
+  }
+}
+
+router.get('/', requirePermission('credit_notes.view'), (req, res, next) => {
+  // ctrl.list owns the filtering, pagination and org scoping; intercept its
+  // payload rather than reimplementing all of that for one extra field.
+  const sendJson = res.json.bind(res);
+  res.json = (payload) => {
+    const rows = Array.isArray(payload?.data) ? payload.data : null;
+    if (!rows || rows.length === 0) return sendJson(payload);
+    attachCfdiState(req.orgId, rows).then(() => sendJson(payload)).catch(next);
+    return res;
+  };
+  return ctrl.list(req, res, next);
+});
 router.get('/:id', requirePermission('credit_notes.view'), ctrl.get);
 router.post('/', requirePermission('credit_notes.create'), validate(createCreditNote), async (req, res, next) => {
   try {

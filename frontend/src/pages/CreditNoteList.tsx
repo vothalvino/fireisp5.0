@@ -40,6 +40,11 @@ export interface CreditNote {
   notes: string | null;
   status: string;
   issue_date?: string | null;
+  // Set by the list endpoint when a LIVE CFDI (draft / vigente / cancel_pending)
+  // exists for this note — the same statuses that make the stamp route 409.
+  cfdi_document_id?: number | null;
+  cfdi_uuid?: string | null;
+  cfdi_sat_status?: string | null;
 }
 
 interface CreditNotesResponse {
@@ -477,7 +482,18 @@ export function CreditNoteList() {
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <button style={styles.actionBtn} onClick={() => setEditNote(n)} title="Edit this credit note">✏️ Edit</button>
-                        {isMxOrg && (n.status === 'issued' || n.status === 'applied') && n.invoice_id != null && (
+                        {/* Already stamped: show the CFDI instead of offering a
+                            stamp that comes back 409. */}
+                        {isMxOrg && n.cfdi_sat_status && (
+                          <Link
+                            to="/cfdi"
+                            style={{ ...styles.actionBtn, textDecoration: 'none', display: 'inline-block' }}
+                            title={n.cfdi_uuid ? `CFDI ${n.cfdi_sat_status} — UUID ${n.cfdi_uuid}` : `CFDI ${n.cfdi_sat_status}`}
+                          >
+                            🧾 {n.cfdi_sat_status === 'draft' ? 'CFDI draft' : 'View CFDI'}
+                          </Link>
+                        )}
+                        {isMxOrg && !n.cfdi_sat_status && (n.status === 'issued' || n.status === 'applied') && n.invoice_id != null && (
                           <button
                             style={styles.actionBtn}
                             onClick={() => setStampId(n.id)}
