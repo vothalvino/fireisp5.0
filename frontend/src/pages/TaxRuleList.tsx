@@ -194,7 +194,7 @@ function TaxRuleModal({ taxRule, onClose, onSaved }: TaxRuleModalProps) {
               maxLength={255}
               value={form.name}
               onChange={e => setField('name', e.target.value)}
-              placeholder='e.g. "IVA General"'
+              placeholder='e.g. "Standard rate", "IVA Frontera"'
               required
             />
           </label>

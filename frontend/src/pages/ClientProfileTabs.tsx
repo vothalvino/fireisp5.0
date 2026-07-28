@@ -46,6 +46,10 @@ interface GroupRow { id: number; name: string; }
 export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // "IVA"/"Exento" are Mexican. This tab is shown to EVERY org, so the tax
+  // vocabulary follows the org's locale rather than assuming Mexico — a US or
+  // Canadian operator was being asked about a tax that does not exist there.
+  const isMxOrg = user?.organization_locale === 'MX';
   const qc = useQueryClient();
   const [error, setError] = useState('');
 
@@ -111,10 +115,10 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
         params: { path: { id: clientId } },
         body: body as never,
       });
-      if (e) throw new Error(extractApiError(e, 'Failed to update IVA exemption'));
+      if (e) throw new Error(extractApiError(e, 'Failed to update tax exemption'));
     },
     onSuccess: () => { setError(''); refresh(); },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update IVA exemption'),
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to update tax exemption'),
   });
 
   const [exemptReason, setExemptReason] = useState<string | null>(null);
@@ -231,7 +235,9 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
                 </td>
               </tr>
               <tr>
-                <td style={{ ...cell, color: 'var(--text-secondary)' }}>IVA exempt (0% tax on invoices)</td>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>
+                  {isMxOrg ? 'IVA exempt (0% IVA on invoices)' : 'Tax exempt (0% tax on invoices)'}
+                </td>
                 <td style={cell}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                     <input
@@ -243,19 +249,23 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
                         tax_exempt_reason: currentTaxExemptReason || undefined,
                       })}
                     />
-                    {Boolean(client.tax_exempt) ? 'Exempt — invoices carry 0% / Exento' : 'Taxed at the org default IVA'}
+                    {Boolean(client.tax_exempt)
+                      ? (isMxOrg ? 'Exempt — invoices carry 0% / Exento' : 'Exempt — invoices carry 0% tax')
+                      : (isMxOrg ? 'Taxed at the org default IVA' : 'Taxed at the org default rate')}
                   </label>
                 </td>
               </tr>
               <tr>
-                <td style={{ ...cell, color: 'var(--text-secondary)' }}>IVA exemption reason</td>
+                <td style={{ ...cell, color: 'var(--text-secondary)' }}>
+                  {isMxOrg ? 'IVA exemption reason' : 'Tax exemption reason'}
+                </td>
                 <td style={cell}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
                       style={{ ...inputStyle, maxWidth: 320 }}
                       type="text"
                       value={currentTaxExemptReason}
-                      placeholder="Legal basis for the IVA exemption"
+                      placeholder={isMxOrg ? 'Legal basis for the IVA exemption' : 'Legal basis for the tax exemption'}
                       onChange={e => setTaxExemptReason(e.target.value)}
                       disabled={updateTaxExemption.isPending}
                     />
