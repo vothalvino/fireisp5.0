@@ -272,3 +272,116 @@ describe('remediation text is install-agnostic', () => {
     expect(body).toMatch(/docker compose/);
   });
 });
+
+// ===========================================================================
+// A monitor that cannot check anything must SAY SO (j30)
+// ===========================================================================
+// checkTlsExpiry returned { checked: false, error } when it could not reach the
+// endpoint and nothing escalated it. An install that can never reach its own
+// hostname — load balancer, split-horizon DNS, APP_URL not matching the
+// certificate SAN, a WAF — reported a clean run forever and never alerted.
+// The same silent failure the monitor exists to prevent, one level up.
+describe('checkTlsExpiry — the check itself failing', () => {
+  /** @param state what tls_monitor_state currently holds */
+  function wireState(state) {
+    mockQuery.mockImplementation(async (sql) => {
+      if (/FROM organizations/i.test(sql)) return [[{ id: 1 }]];
+      if (/FROM notifications/i.test(sql)) return [[]];
+      if (/FROM tls_monitor_state/i.test(sql)) return [[state]];
+      return [[]];
+    });
+  }
+  const unreachable = () => jest.spyOn(tls, 'connect').mockImplementation(() => {
+    throw new Error('ETIMEDOUT');
+  });
+
+  it('records the failure and increments the streak', async () => {
+    wireState({ last_success_at: new Date().toISOString(), consecutive_failures: 1 });
+    unreachable();
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.checked).toBe(false);
+    const upd = mockQuery.mock.calls.find(c => /UPDATE tls_monitor_state/i.test(c[0]) && /last_failure_at/.test(c[0]));
+    expect(upd).toBeDefined();
+    expect(upd[0]).toMatch(/consecutive_failures = consecutive_failures \+ 1/);
+  });
+
+  it('stays QUIET while the failure is recent — an outage is not an alarm', async () => {
+    // Succeeded an hour ago: one blip must not page anyone.
+    wireState({ last_success_at: new Date(Date.now() - 3600_000).toISOString(), consecutive_failures: 1 });
+    unreachable();
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.notifications_sent).toBe(0);
+    expect(mockNotificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('ALERTS once the check has not succeeded for a day', async () => {
+    wireState({ last_success_at: new Date(Date.now() - 2 * 86_400_000).toISOString(), consecutive_failures: 8 });
+    unreachable();
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.notifications_sent).toBe(1);
+    const n = mockNotificationCreate.mock.calls[0][0];
+    expect(n.type).toBe('error');
+    // The operator must learn the REAL consequence, not just "a check failed".
+    expect(n.body).toMatch(/NOTHING is currently watching that certificate/);
+    expect(n.body).toMatch(/ETIMEDOUT/);
+  });
+
+  it('escalates: the milestone is in the TITLE so a longer outage alerts again', async () => {
+    // The title is the dedupe key. Without the milestone, the first alert would
+    // suppress every escalation — the alarm about a silent monitor going silent.
+    wireState({ last_success_at: new Date(Date.now() - 9 * 86_400_000).toISOString(), consecutive_failures: 40 });
+    unreachable();
+    await svc.checkTlsExpiry(null);
+    expect(mockNotificationCreate.mock.calls[0][0].title).toMatch(/not succeeded for 7\+ days/);
+  });
+
+  it('a NEVER-succeeded install waits for 3 attempts before crying wolf', async () => {
+    wireState({ last_success_at: null, consecutive_failures: 1 });
+    unreachable();
+    expect((await svc.checkTlsExpiry(null)).notifications_sent).toBe(0);
+
+    jest.clearAllMocks();
+    wireState({ last_success_at: null, consecutive_failures: 3 });
+    unreachable();
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.notifications_sent).toBe(1);
+    expect(mockNotificationCreate.mock.calls[0][0].body).toMatch(/never succeeded/);
+  });
+
+  it('an unreadable certificate counts as a failure, not a quiet return', async () => {
+    // Reached the host but valid_to is garbage — still nothing watching it.
+    wireState({ last_success_at: new Date(Date.now() - 5 * 86_400_000).toISOString(), consecutive_failures: 20 });
+    jest.spyOn(tls, 'connect').mockImplementation((options, cb) => {
+      setImmediate(cb);
+      return {
+        getPeerCertificate: () => ({ valid_to: 'not-a-date', issuer: {} }),
+        authorized: true, authorizationError: null,
+        end: jest.fn(), destroy: jest.fn(), on: jest.fn(),
+      };
+    });
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.checked).toBe(false);
+    expect(r.notifications_sent).toBe(1);
+  });
+
+  it('a successful read CLEARS the streak', async () => {
+    wireState({ last_success_at: null, consecutive_failures: 9 });
+    stubPeerCert(90);
+    await svc.checkTlsExpiry(null);
+    const upd = mockQuery.mock.calls.find(c => /UPDATE tls_monitor_state/i.test(c[0]) && /consecutive_failures = 0/.test(c[0]));
+    expect(upd).toBeDefined();
+  });
+
+  it('bookkeeping failure never turns a healthy check into a failed task', async () => {
+    mockQuery.mockImplementation(async (sql) => {
+      if (/tls_monitor_state/i.test(sql)) throw new Error('table missing');
+      if (/FROM organizations/i.test(sql)) return [[{ id: 1 }]];
+      if (/FROM notifications/i.test(sql)) return [[]];
+      return [[]];
+    });
+    stubPeerCert(90);
+    const r = await svc.checkTlsExpiry(null);
+    expect(r.checked).toBe(true);
+    expect(r.days_left).toBeGreaterThan(60);
+  });
+});
