@@ -50,6 +50,7 @@ jest.mock('../src/services/billingService', () => ({
 jest.mock('../src/models/Organization', () => ({ getCurrency: jest.fn().mockResolvedValue('MXN') }));
 
 const db = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const app = require('../src/app');
 
 // A stored invoice: 1000 + 16% IVA = 1160, client 42, status 'issued'
@@ -94,7 +95,10 @@ function wireDb({ liveCfdi = false, exempt = false } = {}) {
   return updated;
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockTxConnection(db);
+});
 
 describe('PATCH /api/v1/invoices/:id — stamped invoices are fiscally frozen', () => {
   it('rejects an amount edit when a vigente CFDI exists (422 CFDI_STAMPED)', async () => {

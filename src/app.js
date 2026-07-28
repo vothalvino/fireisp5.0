@@ -880,6 +880,20 @@ app.use((err, req, res, _next) => {
     );
   }
 
+  // Row-lock contention. Reachable since guarded updates hold a row lock across
+  // several statements (crudController transactionalUpdate) and contend with
+  // stamping, REP and add-item on the same invoice. The loser is NOT a server
+  // fault and the request is safely retryable — reporting it as a raw 500
+  // buries a routine, self-resolving condition in the unhandled-error stream
+  // with no hint to the operator.
+  if (err.code === 'ER_LOCK_WAIT_TIMEOUT' || err.errno === 1205
+      || err.code === 'ER_LOCK_DEADLOCK' || err.errno === 1213) {
+    logger.warn({ err: err.code, requestId: req.id }, 'Row lock contention — client should retry');
+    return res.status(409).json(
+      errorBody('LOCK_CONTENTION', 'This record is being modified by another operation. Nothing was changed — try again.'),
+    );
+  }
+
   if (err instanceof AppError) {
     return res.status(err.statusCode).json(
       errorBody(err.code, err.message, err.details ? { details: err.details } : undefined),

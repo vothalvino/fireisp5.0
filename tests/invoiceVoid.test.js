@@ -35,6 +35,7 @@ jest.mock('../src/models/Invoice', () => ({
 }));
 
 const db = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const Invoice = require('../src/models/Invoice');
 const app = require('../src/app');
 
@@ -42,7 +43,10 @@ const ledgerInsert = () => db.query.mock.calls.find(c => /INSERT INTO client_bal
 const ledgerDeleteCredit = () => db.query.mock.calls.find(c => /DELETE FROM client_balance_ledger/.test(c[0]));
 const ledgerZero = () => db.query.mock.calls.find(c => /UPDATE client_balance_ledger\s+SET amount = 0/.test(c[0]));
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockTxConnection(db);
+});
 
 describe('PATCH /invoices/:id — void', () => {
   // Voiding never strips payments as a side effect: the operator must

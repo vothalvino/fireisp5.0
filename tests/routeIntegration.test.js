@@ -551,7 +551,15 @@ describe('Billing Routes — /api/billing', () => {
       const conn = mockConnection();
       conn.execute
         .mockResolvedValueOnce([[{ id: 50, status: 'pending' }]])  // FOR UPDATE lock
-        .mockResolvedValueOnce([[]])           // tax_rates
+        // The labels here were off by one before: this entry is consumed by
+        // resolveTaxContext's CLIENT lookup, not by tax_rates.
+        .mockResolvedValueOnce([[]])           // clients — resolveTaxContext
+        .mockResolvedValueOnce([[]])           // tax_rates — none, so the resolver
+        // falls through to Organization.getLocale, which now runs on THIS
+        // connection. It used to take a second pooled connection while this
+        // transaction was open, and silently ate the db.query value queued below
+        // for Invoice.findById — leaving that one to leak into later tests.
+        .mockResolvedValueOnce([[{ locale: 'global' }]])
         .mockResolvedValueOnce([{ affectedRows: 0 }]) // nextInvoiceNumber: INSERT IGNORE
         .mockResolvedValueOnce([{ affectedRows: 1 }]) // nextInvoiceNumber: UPDATE next_number
         .mockResolvedValueOnce([{ insertId: 1 }]) // insert invoice

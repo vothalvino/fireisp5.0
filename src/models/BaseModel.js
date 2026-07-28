@@ -26,8 +26,21 @@ class BaseModel {
 
   /**
    * Find a record by primary key.
+   *
+   * `opts` is strictly additive — omit it and this behaves exactly as before.
+   *   opts.exec       run the statement on a specific connection (e.g.
+   *                   conn.execute.bind(conn)) so the read joins a caller's
+   *                   transaction instead of taking its own pooled connection.
+   *   opts.forUpdate  append FOR UPDATE, locking the row until that
+   *                   transaction commits. Only meaningful with opts.exec:
+   *                   a lock taken outside a transaction is released
+   *                   immediately and guards nothing.
+   *
+   * This exists so a caller can do check-then-write atomically WITHOUT
+   * reimplementing org scoping, soft-delete and fillable filtering by hand —
+   * duplicating those inline is how they drift apart.
    */
-  static async findById(id, orgId = null) {
+  static async findById(id, orgId = null, opts = {}) {
     let sql = `SELECT * FROM \`${this.tableName}\` WHERE id = ?`;
     const params = [id];
     if (orgId !== null && this.hasOrgScope) {
@@ -37,15 +50,18 @@ class BaseModel {
     if (this.softDelete) {
       sql += ' AND deleted_at IS NULL';
     }
-    const [rows] = await db.query(sql, params);
+    if (opts.forUpdate) {
+      sql += ' FOR UPDATE';
+    }
+    const [rows] = opts.exec ? await opts.exec(sql, params) : await db.query(sql, params);
     return rows[0] || null;
   }
 
   /**
    * Find a record by ID or throw NotFoundError.
    */
-  static async findByIdOrFail(id, orgId = null) {
-    const record = await this.findById(id, orgId);
+  static async findByIdOrFail(id, orgId = null, opts = {}) {
+    const record = await this.findById(id, orgId, opts);
     if (!record) throw new NotFoundError(this.tableName);
     return record;
   }
@@ -189,14 +205,17 @@ class BaseModel {
   /**
    * Update a record by ID. Only `fillable` columns are accepted.
    */
-  static async update(id, data, orgId = null) {
+  static async update(id, data, orgId = null, opts = {}) {
     const filtered = {};
     for (const key of this.fillable) {
       if (data[key] !== undefined) filtered[key] = data[key];
     }
 
     const cols = Object.keys(filtered);
-    if (cols.length === 0) return this.findByIdOrFail(id, orgId);
+    // opts is threaded through every read below: inside a transaction the
+    // read-back MUST use the same connection, or it sees pre-commit state
+    // from a different pooled connection and returns stale values.
+    if (cols.length === 0) return this.findByIdOrFail(id, orgId, opts);
 
     const setClauses = cols.map(c => `\`${c}\` = ?`).join(', ');
     let sql = `UPDATE \`${this.tableName}\` SET ${setClauses} WHERE id = ?`;
@@ -211,10 +230,12 @@ class BaseModel {
       sql += ' AND deleted_at IS NULL';
     }
 
-    const [result] = await db.query(sql, params);
+    const [result] = opts.exec ? await opts.exec(sql, params) : await db.query(sql, params);
     if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
 
-    return this.findById(id, orgId);
+    // Never forUpdate here — the row is already locked by the caller's earlier
+    // SELECT ... FOR UPDATE, and re-locking on the read-back is noise.
+    return this.findById(id, orgId, { exec: opts.exec });
   }
 
   /**

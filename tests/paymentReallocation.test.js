@@ -23,6 +23,7 @@ const request  = require('supertest');
 const jwt      = require('jsonwebtoken');
 const config   = require('../src/config');
 const db       = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const Invoice  = require('../src/models/Invoice');
 const User     = require('../src/models/User');
 const app      = require('../src/app');
@@ -54,6 +55,11 @@ function makeConn(mocks = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Invoice PUT/PATCH runs transactionally. Every body here is
+  // {status:'void'}, which the route diverts to voidInvoice before the
+  // generic update, so this is not needed TODAY — but the first non-void
+  // body added to this file would die on beginTransaction of undefined.
+  mockTxConnection(db);
   // The REP auto-generation hook (repService.maybeGenerateRep) issues extra
   // best-effort db.query calls after allocations commit; give exhausted
   // queues an empty default so those (and trailing reads) don't shift into
