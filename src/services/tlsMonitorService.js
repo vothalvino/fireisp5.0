@@ -28,6 +28,18 @@ const logger = require('../utils/logger').child({ service: 'tlsMonitor' });
 // renewal window opening, so an alert at 30 means renewal has already had its
 // first chance and missed; 14 and 7 are increasingly urgent.
 const THRESHOLDS = [7, 14, 30];
+
+// How long the check may go WITHOUT SUCCEEDING before that itself is an alert.
+// The monitor returning { checked: false } forever is the same silent failure
+// it exists to prevent, one level up — an install that can never reach its own
+// hostname reported a clean run and never warned anyone.
+//
+// Days rather than run-counts: 5 consecutive failures means 5 hours or 5 days
+// depending on the cron, and staleness is what the operator actually cares
+// about. Escalating milestones so a persistent outage keeps nagging, while
+// each milestone alerts once (the title is the dedupe key).
+const STALE_DAY_MILESTONES = [1, 3, 7, 14, 30];
+
 const CONNECT_TIMEOUT_MS = 10_000;
 
 /**
@@ -184,6 +196,95 @@ async function notifyTlsInvalid({ hostname, reason, validTo, organizationId }) {
 }
 
 /**
+ * Record that the check could actually READ the certificate. Clears the streak.
+ *
+ * Best-effort: a failure to write monitor bookkeeping must never turn a healthy
+ * check into a failed task. Worst case the staleness clock is a run behind.
+ */
+async function recordCheckSuccess(hostname) {
+  try {
+    await db.query(
+      `UPDATE tls_monitor_state
+          SET hostname = ?, last_success_at = NOW(), consecutive_failures = 0, last_error = NULL
+        WHERE id = 1`,
+      [hostname],
+    );
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Could not record TLS check success');
+  }
+}
+
+/**
+ * Record that the check could not reach the endpoint, and alert if it has now
+ * been failing long enough to matter.
+ *
+ * Returns the number of notifications sent so the caller can report it.
+ */
+async function recordCheckFailure(hostname, errorMessage, organizationId) {
+  let row;
+  try {
+    await db.query(
+      `UPDATE tls_monitor_state
+          SET hostname = ?, last_failure_at = NOW(),
+              consecutive_failures = consecutive_failures + 1, last_error = ?
+        WHERE id = 1`,
+      [hostname, errorMessage],
+    );
+    const [rows] = await db.query(
+      'SELECT last_success_at, consecutive_failures FROM tls_monitor_state WHERE id = 1',
+    );
+    row = rows[0];
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Could not record TLS check failure');
+    return 0;
+  }
+  if (!row) return 0;
+
+  // A brand-new install has never succeeded. Counting "days since never" as
+  // infinite would alert on the very first blip, so fall back to the run
+  // streak and only speak up once it is clearly not a one-off.
+  let staleDays;
+  if (row.last_success_at) {
+    staleDays = Math.floor((Date.now() - new Date(row.last_success_at).getTime()) / 86_400_000);
+  } else {
+    staleDays = row.consecutive_failures >= 3 ? 1 : 0;
+  }
+
+  const milestone = [...STALE_DAY_MILESTONES].reverse().find(m => staleDays >= m);
+  if (milestone === undefined) return 0;
+
+  logger.warn({ hostname, staleDays, consecutive: row.consecutive_failures },
+    'TLS expiry check has been unable to read the certificate');
+
+  return notifyForAllOrgs(organizationId, (orgId) => notifyTlsCheckStale({
+    hostname, milestone, staleDays, lastSuccessAt: row.last_success_at,
+    consecutive: row.consecutive_failures, reason: errorMessage, organizationId: orgId,
+  }));
+}
+
+/** The monitor itself is broken — it has not been able to read the cert. */
+async function notifyTlsCheckStale({ hostname, milestone, lastSuccessAt, consecutive, reason, organizationId }) {
+  const since = lastSuccessAt
+    ? `since ${new Date(lastSuccessAt).toISOString().slice(0, 10)}`
+    : 'ever (it has never succeeded)';
+  // The milestone is in the title because the title is the dedupe key: without
+  // it, the first "check is failing" alert would suppress every escalation, and
+  // the alarm about a silent monitor would itself go silent.
+  return deliver({
+    organizationId,
+    type: 'error',
+    title: `TLS expiry check has not succeeded for ${milestone}+ days — ${hostname}`,
+    body: `The TLS certificate expiry monitor has been unable to read the certificate at ${hostname} `
+      + `for ${milestone}+ days (${consecutive} consecutive attempts, no success ${since}). `
+      + `Last error: ${reason}. `
+      + 'This means NOTHING is currently watching that certificate for expiry — the renewal could be '
+      + 'broken and no expiry warning would ever arrive. Common causes: APP_URL points somewhere the '
+      + 'app cannot reach itself (load balancer, split-horizon DNS), APP_URL does not match the '
+      + 'certificate hostname, or a WAF is blocking the connection.',
+  });
+}
+
+/**
  * Scheduled task entry point. Returns a result object the task log can render.
  * Never throws for an unreachable host — an outage is not a monitor failure,
  * and a throwing task would mark the scheduled run failed on every blip.
@@ -210,16 +311,23 @@ async function checkTlsExpiry(organizationId = null) {
     ({ cert, authorized, authorizationError } = await fetchPeerCertificate(hostname, port));
   } catch (err) {
     logger.warn({ err: err.message, hostname, port }, 'TLS expiry check could not reach the endpoint');
-    return { checked: false, hostname, error: err.message };
+    const sent = await recordCheckFailure(hostname, err.message, organizationId);
+    return { checked: false, hostname, error: err.message, notifications_sent: sent };
   }
 
   const validTo = new Date(cert.valid_to);
   if (Number.isNaN(validTo.getTime())) {
-    return { checked: false, hostname, error: `unparseable valid_to: ${cert.valid_to}` };
+    // Reached the host but the certificate is unreadable — still "nothing is
+    // watching this cert", so it counts as a failure, not a quiet return.
+    const reason = `unparseable valid_to: ${cert.valid_to}`;
+    const sent = await recordCheckFailure(hostname, reason, organizationId);
+    return { checked: false, hostname, error: reason, notifications_sent: sent };
   }
 
   const daysLeft = Math.ceil((validTo.getTime() - Date.now()) / 86_400_000);
   const threshold = daysLeft <= 0 ? 0 : THRESHOLDS.find(t => daysLeft <= t);
+
+  await recordCheckSuccess(hostname);
 
   const result = {
     checked: true,
@@ -258,4 +366,4 @@ async function checkTlsExpiry(organizationId = null) {
   return result;
 }
 
-module.exports = { checkTlsExpiry, fetchPeerCertificate, THRESHOLDS };
+module.exports = { checkTlsExpiry, fetchPeerCertificate, THRESHOLDS, STALE_DAY_MILESTONES };

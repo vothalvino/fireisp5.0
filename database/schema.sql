@@ -14024,3 +14024,18 @@ CREATE TABLE IF NOT EXISTS whatsapp_conversation_state (
   COMMENT='WhatsApp bot multi-turn conversation state (migration 419) — one in-flight flow per phone, short-lived.';
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- Table: tls_monitor_state (migration 434)
+CREATE TABLE IF NOT EXISTS tls_monitor_state (
+    id                   TINYINT UNSIGNED NOT NULL DEFAULT 1
+                             COMMENT 'Always 1 — the certificate is install-wide, so this is a single row',
+    hostname             VARCHAR(255)     NULL     COMMENT 'Host last checked, from APP_URL',
+    last_success_at      TIMESTAMP        NULL     COMMENT 'Last time the certificate was actually READ',
+    last_failure_at      TIMESTAMP        NULL     COMMENT 'Last time the check could not reach the endpoint',
+    consecutive_failures INT UNSIGNED     NOT NULL DEFAULT 0
+                             COMMENT 'Runs since the last successful read; 0 while healthy',
+    last_error           TEXT             NULL     COMMENT 'Why the last attempt failed',
+    updated_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
