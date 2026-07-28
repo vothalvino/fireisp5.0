@@ -952,6 +952,38 @@ async function applyLineItemToTotals(exec, invoiceId, taxRate, lineAmount) {
   return delta;
 }
 
+/**
+ * The quote twin of applyLineItemToTotals: fold ONE new line into a quote's
+ * stored money columns as a DELTA.
+ *
+ * Quotes had NO server-side equivalent at all — the recompute lived only in
+ * QuoteDetail.tsx, so any API-driven item add left the header stale. Approve
+ * that quote, convert it, and the invoice carries the OLD header while its
+ * items sum to something else: the stamped CFDI's SubTotal then disagrees with
+ * the sum of concepto Importe (SAT CFDI40108), or is silently understated.
+ *
+ * A DELTA, not a recompute-from-lines, for the same reason invoices use one:
+ * a quote generated with header amounts and no stored lines would collapse to
+ * just the added line. The arithmetic happens in SQL so DECIMAL math stays in
+ * MySQL rather than picking up JS float drift.
+ *
+ * @param {(sql: string, params: unknown[]) => Promise<[unknown, unknown]>} exec
+ * @param {number|string} quoteId
+ * @param {number|string} taxRate quotes.tax_rate (fraction; percent tolerated)
+ * @param {number} lineAmount the new line's amount
+ * @returns {Promise<number>} the delta applied to `total`
+ */
+async function applyQuoteLineItemToTotals(exec, quoteId, taxRate, lineAmount) {
+  const amt = Math.round((parseFloat(lineAmount) || 0) * 100) / 100;
+  const lineTax = Math.round(amt * invoiceTaxFraction(taxRate) * 100) / 100;
+  const delta = Math.round((amt + lineTax) * 100) / 100;
+  await exec(
+    'UPDATE quotes SET subtotal = subtotal + ?, tax_amount = tax_amount + ?, total = total + ? WHERE id = ?',
+    [amt, lineTax, delta, quoteId],
+  );
+  return delta;
+}
+
 async function refreshInvoicePaidStatus(invoiceId) {
   const [rows] = await db.query(
     `SELECT i.total,
@@ -1183,7 +1215,7 @@ async function settleInvoiceTerminal(invoiceId, orgId, userId, { status, action,
 module.exports = {
   generateBillingPeriod, generateInvoice, createOneOffInvoice, calculateProration,
   recordPaymentCredit, reversePaymentCredit,
-  reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals,
+  reversePaymentAllocations, restorePaymentAllocations, refreshInvoicePaidStatus, applyLineItemToTotals, applyQuoteLineItemToTotals,
   releaseInvoiceAllocations, invoiceTaxFraction, resolveTaxContext, assertTaxCoherent,
   normalizePostalCode, postalSpecMatch, resolveRegionRate,
   voidInvoiceById, cancelInvoiceForSat,

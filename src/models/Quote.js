@@ -28,8 +28,11 @@ class Quote extends BaseModel {
     return rows;
   }
 
-  static async addItem(data) {
+  static async addItem(data, exec = null) {
     const db = require('../config/database');
+    // Optional exec so the caller can run this on a transaction connection —
+    // the header-totals delta must commit or roll back WITH the line.
+    const run = exec || db.query.bind(db);
     // quote_items has NO writable `amount` column, and `total` is
     // `GENERATED ALWAYS AS (quantity * unit_price) STORED` (database/schema.sql)
     // — MySQL rejects any explicit value for a generated column
@@ -38,12 +41,12 @@ class Quote extends BaseModel {
     // for backward compatibility, but it is never persisted; `total` is always
     // computed by MySQL from quantity * unit_price and comes back on the SELECT
     // below.
-    const [result] = await db.query(
+    const [result] = await run(
       `INSERT INTO quote_items (quote_id, description, quantity, unit_price, tax_rate_id, inventory_item_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [data.quote_id, data.description, data.quantity, data.unit_price, data.tax_rate_id || null, data.inventory_item_id || null],
     );
-    const [rows] = await db.query('SELECT * FROM quote_items WHERE id = ?', [result.insertId]);
+    const [rows] = await run('SELECT * FROM quote_items WHERE id = ?', [result.insertId]);
     return rows[0];
   }
 }

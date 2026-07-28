@@ -17,7 +17,7 @@ const { resolveLineItemPricing } = require('../utils/lineItemPricing');
 const billingService = require('../services/billingService');
 const inventoryDrawdownService = require('../services/inventoryDrawdownService');
 const auditLog = require('../services/auditLog');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const router = Router();
 const ctrl = crudController(Quote);
@@ -140,7 +140,36 @@ router.post('/:id/items', requirePermission('quotes.update'), validate(createQuo
         );
       }
     }
-    const item = await Quote.addItem({ quote_id: req.params.id, ...req.body });
+    // The line and the header move TOGETHER or not at all. Adding an item
+    // without folding it into the header is what let a quote's stored total
+    // drift from its own lines — approve, convert, and the invoice carries the
+    // stale header while its items sum to something else, so the stamped CFDI's
+    // SubTotal disagrees with the sum of concepto Importe.
+    const conn = await db.getConnection();
+    let item;
+    try {
+      await conn.beginTransaction();
+      const [[quote]] = await conn.execute(
+        'SELECT id, tax_rate FROM quotes WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [req.params.id, req.orgId],
+      );
+      if (!quote) throw new NotFoundError('Quote');
+      item = await Quote.addItem({ quote_id: req.params.id, ...req.body }, conn.execute.bind(conn));
+      // The line's own STORED total, never req.body.amount. quote_items has no
+      // writable `amount` column and `total` is
+      // GENERATED ALWAYS AS (quantity * unit_price) — the API still accepts
+      // `amount` for backward compatibility but never persists it, so folding
+      // the request value would drift the header from the line it came from.
+      await billingService.applyQuoteLineItemToTotals(
+        conn.execute.bind(conn), quote.id, quote.tax_rate, item.total,
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
     res.status(201).json({ data: item });
   } catch (err) {
     next(err);

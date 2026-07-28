@@ -528,14 +528,20 @@ describe('POST /api/v1/quotes/:id/items — inventory_item_id', () => {
       if (typeof sql === 'string' && sql.includes('FROM inventory_items WHERE id')) {
         return Promise.resolve([[{ id: 7 }]]);
       }
-      if (typeof sql === 'string' && sql.includes('INSERT INTO quote_items')) {
-        return Promise.resolve([{ insertId: 61 }]);
-      }
-      if (typeof sql === 'string' && sql.includes('SELECT * FROM quote_items WHERE id')) {
-        return Promise.resolve([[{ id: 61, inventory_item_id: 7 }]]);
-      }
       return Promise.resolve([[]]);
     });
+    // The route now runs on a transaction: the line insert and the quote's
+    // header delta must commit together, so the item write moved to conn.execute.
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM quotes WHERE id')) return Promise.resolve([[{ id: 9, tax_rate: '0.16' }]]);
+      if (sql.includes('INSERT INTO quote_items')) return Promise.resolve([{ insertId: 61 }]);
+      if (sql.includes('SELECT * FROM quote_items WHERE id')) {
+        return Promise.resolve([[{ id: 61, inventory_item_id: 7, total: '500.00' }]]);
+      }
+      return Promise.resolve([{ affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
 
     const res = await request(app)
       .post('/api/v1/quotes/9/items')
@@ -544,10 +550,11 @@ describe('POST /api/v1/quotes/:id/items — inventory_item_id', () => {
       .send({ description: 'Router', quantity: 1, unit_price: 500, amount: 500, inventory_item_id: 7 });
 
     expect(res.status).toBe(201);
-    const insertCall = db.query.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO quote_items'));
+    const insertCall = conn.execute.mock.calls.find(c => c[0].includes('INSERT INTO quote_items'));
     // req.params.id is a route-param string, not a number.
     expect(insertCall[1]).toEqual(['9', 'Router', 1, 500, null, 7]);
-    expect(db.getConnection).not.toHaveBeenCalled();
+    // Still no inventory movement — a quote reserves nothing.
+    expect(conn.execute.mock.calls.some(c => c[0].includes('inventory_transactions'))).toBe(false);
   });
 
   it('returns 422 when inventory_item_id belongs to another organization', async () => {
@@ -588,14 +595,18 @@ describe('POST /api/v1/quotes/:id/items — inventory_item_id', () => {
   it('allows a fractional quantity on a free-text (non-inventory) line item', async () => {
     db.query.mockImplementation((sql) => {
       if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
-      if (typeof sql === 'string' && sql.includes('INSERT INTO quote_items')) {
-        return Promise.resolve([{ insertId: 62 }]);
-      }
-      if (typeof sql === 'string' && sql.includes('SELECT * FROM quote_items WHERE id')) {
-        return Promise.resolve([[{ id: 62, description: 'Labor (1.5 hrs)' }]]);
-      }
       return Promise.resolve([[]]);
     });
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM quotes WHERE id')) return Promise.resolve([[{ id: 9, tax_rate: '0.16' }]]);
+      if (sql.includes('INSERT INTO quote_items')) return Promise.resolve([{ insertId: 62 }]);
+      if (sql.includes('SELECT * FROM quote_items WHERE id')) {
+        return Promise.resolve([[{ id: 62, description: 'Labor (1.5 hrs)', total: '150.00' }]]);
+      }
+      return Promise.resolve([{ affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
 
     const res = await request(app)
       .post('/api/v1/quotes/9/items')
@@ -604,6 +615,70 @@ describe('POST /api/v1/quotes/:id/items — inventory_item_id', () => {
       .send({ description: 'Labor (1.5 hrs)', quantity: 1.5, unit_price: 100, amount: 150 });
 
     expect(res.status).toBe(201);
+    expect(conn.commit).toHaveBeenCalled();
+  });
+
+  it('folds the line into the quote header, using the GENERATED total', async () => {
+    // quote_items has no writable `amount` column and `total` is
+    // GENERATED ALWAYS AS (quantity * unit_price). The API still accepts
+    // `amount` for backward compatibility but never persists it, so folding the
+    // REQUEST value would drift the header from the line it came from — note
+    // the deliberately wrong amount:9999 below.
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM quotes WHERE id')) return Promise.resolve([[{ id: 9, tax_rate: '0.16' }]]);
+      if (sql.includes('INSERT INTO quote_items')) return Promise.resolve([{ insertId: 63 }]);
+      if (sql.includes('SELECT * FROM quote_items WHERE id')) {
+        return Promise.resolve([[{ id: 63, total: '1000.00' }]]);
+      }
+      return Promise.resolve([{ affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    await request(app).post('/api/v1/quotes/9/items')
+      .set('Authorization', `Bearer ${adminToken()}`).set('X-Org-Id', '10')
+      .send({ description: 'Install', quantity: 10, unit_price: 100, amount: 9999 });
+
+    const upd = conn.execute.mock.calls.find(c => c[0].includes('UPDATE quotes SET subtotal'));
+    // 1000 + 16% = 1160 delta, from the STORED total — not 9999.
+    expect(upd[1]).toEqual([1000, 160, 1160, 9]);
+  });
+
+  it('refuses to add a line to another organization\'s quote', async () => {
+    // The route previously took req.params.id straight to Quote.addItem with NO
+    // ownership check at all — POST /quotes/<their id>/items inserted a line
+    // into another tenant's quote. The lookup that makes the header delta
+    // possible closes that too.
+    db.query.mockImplementation((sql) => {
+      if (isUserLookup(sql)) return Promise.resolve([[ADMIN_USER_ROW]]);
+      return Promise.resolve([[]]);
+    });
+    const conn = buildConn();
+    conn.execute.mockImplementation((sql) => {
+      if (sql.includes('FROM quotes WHERE id')) return Promise.resolve([[]]);   // not this org's
+      return Promise.resolve([{ affectedRows: 1 }]);
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app).post('/api/v1/quotes/9/items')
+      .set('Authorization', `Bearer ${adminToken()}`).set('X-Org-Id', '10')
+      .send({ description: 'Install', quantity: 1, unit_price: 100, amount: 100 });
+
+    expect(res.status).toBe(404);
+    expect(conn.execute.mock.calls.some(c => c[0].includes('INSERT INTO quote_items'))).toBe(false);
+    expect(conn.commit).not.toHaveBeenCalled();
+
+    // Assert the QUERY is org-scoped, not just that this mock returned nothing.
+    // Returning [] for any SQL proves the 404 path works but says nothing about
+    // the predicate — dropping `organization_id = ?` left this test green until
+    // the bind list was checked too.
+    const lookup = conn.execute.mock.calls.find(c => c[0].includes('FROM quotes WHERE id'));
+    expect(lookup[0]).toMatch(/organization_id = \?/);
+    expect(lookup[1]).toEqual(['9', 10]);
   });
 });
 
