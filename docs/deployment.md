@@ -196,9 +196,15 @@ source tree.
 
 ##### Architecture
 
-The published image is **linux/amd64 only**. On ARM (Ampere, Graviton, Hetzner
-CAX) build from source with the override in "Building on the host anyway" below;
-`install.sh` detects this and does it for you.
+The image is published for **linux/amd64 and linux/arm64**, so Ampere, Graviton
+and Hetzner CAX boxes pull it like anything else — `docker` picks the right one
+automatically. CI builds each on a native runner rather than emulating arm64,
+and `:latest` / `:<sha>` are only created once *both* have been built and
+scanned, so a failure on one architecture never leaves the tag everyone pulls
+pointing at a half-finished release.
+
+Anything more exotic (32-bit ARM, RISC-V) has no published image; `install.sh`
+detects that and builds from source instead.
 
 ##### One-time: make the image pullable
 
