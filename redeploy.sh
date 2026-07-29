@@ -105,8 +105,9 @@ error: could not pull ${FIREISP_IMAGE}
 
          https://github.com/vothalvino/fireisp5.0/actions
 
-  3. 'no matching manifest for linux/arm64' — the published image is amd64
-     only. On an ARM host, build locally instead:
+  3. 'no matching manifest for <platform>' — images are published for
+     linux/amd64 and linux/arm64, which covers every mainstream VPS. If you
+     are on something else (32-bit ARM, RISC-V), build from source instead:
 
          cd ${APP_DIR} && docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
 
