@@ -320,3 +320,28 @@ describe('a fresh install can actually run the command it advertises', () => {
     expect(wrapper).toMatch(/"\\\$@"/);   // forwards the rollback argument
   });
 });
+
+describe('operator-facing guidance matches what CI actually publishes', () => {
+  // This drifted once already: #589 added arm64, but redeploy.sh's failure
+  // message still told ARM operators the image was "amd64 only" and to build
+  // from source — the exact 1.43 GB on-host build the whole change removed.
+  // Wrong guidance on a failure path is worse than none: it is read at the
+  // moment someone is least able to evaluate it.
+  const ci = yaml.load(read('.github/workflows/ci.yml'));
+  const published = ci.jobs['container-scan'].strategy.matrix.include.map(l => l.platform);
+
+  it.each([['redeploy.sh'], ['install.sh'], ['docs/deployment.md']])(
+    '%s does not claim a platform is unpublished when CI publishes it', (file) => {
+      const text = read(file);
+      for (const platform of published) {
+        const arch = platform.split('/')[1];
+        // "<arch> only" / "only <arch>" are the shapes this drift takes.
+        expect(text).not.toMatch(new RegExp(`${arch}\\s+only`, 'i'));
+      }
+    });
+
+  it('every published platform is mentioned somewhere in the deploy docs', () => {
+    const docs = read('docs/deployment.md');
+    for (const platform of published) expect(docs).toContain(platform);
+  });
+});
