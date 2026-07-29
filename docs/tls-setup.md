@@ -227,7 +227,7 @@ COMPOSE="docker compose -f docker-compose.prod.yml -f docker-compose.host-nginx.
 
 $COMPOSE logs -f          # tail all service logs
 $COMPOSE down             # stop all containers
-$COMPOSE up -d --build    # rebuild and restart
+$COMPOSE pull && $COMPOSE up -d   # fetch the published image and restart
 
 # nginx is managed by systemd, not Docker:
 sudo systemctl status nginx

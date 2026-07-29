@@ -512,8 +512,16 @@ else
   COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.prod.yml --env-file $ENV_FILE"
 fi
 
-info "Building and starting containers (first run may take a few minutes)..."
-$COMPOSE up -d --build
+# Pulls the published, Trivy-scanned image rather than compiling here. A first
+# install therefore needs no build toolchain headroom on the target box — which
+# matters, because the frontend build alone peaks around 1.43 GB RSS and the
+# documented minimum for this stack is 2 GB total.
+#
+# Air-gapped or building from an unmerged commit? Add the build override:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
+info "Pulling images and starting containers (first run downloads ~400 MB)..."
+$COMPOSE pull
+$COMPOSE up -d
 log "Containers started."
 
 # ── Wait for database ─────────────────────────────────────────────────────────
@@ -591,7 +599,7 @@ cat > "$FIREISP_BIN" <<WRAPEOF
 #   fireisp ps
 #   fireisp restart
 #   fireisp down
-#   fireisp up -d --build
+#   fireisp pull && fireisp up -d
 #   fireisp exec app bash
 exec ${_COMPOSE_CMD} "\$@"
 WRAPEOF
@@ -635,11 +643,11 @@ echo -e "   fireisp ps                    # show container status"
 echo -e "   fireisp stop                  # stop containers (keeps data volumes)"
 echo -e "   fireisp down                  # stop and remove containers"
 echo -e "   fireisp restart               # restart all containers"
-echo -e "   fireisp up -d --build         # rebuild and start (use after git pull)"
+echo -e "   fireisp pull && fireisp up -d # fetch the published image and start"
 echo -e "   fireisp exec app bash         # open a shell in the app container"
 echo ""
 echo -e "  ${BOLD}Update FireISP:${RESET}"
-echo -e "   git -C $INSTALL_DIR pull && fireisp up -d --build"
+echo -e "   sudo redeploy                 # pull main + the matching image, migrate, verify"
 echo ""
 echo -e "  ${YELLOW}${BOLD}⚠  Store $ENV_FILE securely — it contains all generated credentials.${RESET}"
 echo ""

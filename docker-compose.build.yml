@@ -1,0 +1,40 @@
+# =============================================================================
+# FireISP — build-locally override for the production stack
+# =============================================================================
+# docker-compose.prod.yml PULLS the app image (CI builds, scans and publishes
+# it). That is deliberate: compiling on the production host is what used to
+# exhaust memory and wedge the machine — see the comment on the `app` service
+# there, and docs/deployment.md → "Updating to a new version".
+#
+# Layer this file on top when you genuinely need a local build:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
+#
+# Legitimate reasons to want it:
+#   * running an unmerged commit on a staging box
+#   * an air-gapped install with no access to ghcr.io
+#   * reproducing a build problem locally
+#
+# NOT a reason: "a frontend change didn't reach the browser". `COPY frontend/`
+# is content-hashed, so a real frontend change cannot be served from a stale
+# cache. Confirm what is actually deployed with the bundle-hash check in
+# docs/deployment.md before reaching for a rebuild.
+#
+# Build on a machine with headroom. The frontend stage runs openapi-typescript
+# over a 1.6 MB spec, then a single-threaded whole-program `tsc --noEmit` across
+# 376 files, then Vite with sourcemaps — measured at ~1.43 GB peak RSS. On a
+# 2 GB VPS that is the whole problem this override exists to keep you away from.
+# =============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Bounds V8's old-space during the frontend build. If the typecheck ever
+        # exceeds this it dies as a clean "JavaScript heap out of memory" and
+        # the build fails loudly, instead of the kernel picking a victim and
+        # taking the host down with it. Raise it if a legitimately larger build
+        # needs the room; do not remove it.
+        FRONTEND_BUILD_HEAP_MB: ${FRONTEND_BUILD_HEAP_MB:-2048}

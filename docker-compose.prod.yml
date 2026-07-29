@@ -162,9 +162,22 @@ services:
 
   # ── FireISP application ───────────────────────────────────────────────────
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # PULLED, not built. Compiling here is what used to wedge the box: the
+    # in-image frontend build (gen:api + a whole-program `tsc --noEmit` over 376
+    # files + Vite) peaks around 1.43 GB RSS and `up -d --build` runs it while
+    # the whole stack is still resident, so the kernel evicted MySQL's buffer
+    # pools into swap. Those pages never came back, swap ratcheted up across
+    # deploys, and the machine eventually thrashed hard enough to lock out SSH.
+    #
+    # CI builds and scans the image, then publishes it (.github/workflows/ci.yml
+    # → container-scan). redeploy.sh pins FIREISP_IMAGE to the exact commit SHA,
+    # so what runs here always corresponds to a specific commit — and a rollback
+    # is a tag change rather than a rebuild.
+    #
+    # To build locally instead (dev boxes, air-gapped installs, testing an
+    # unmerged commit), add the override that restores the build block:
+    #   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
+    image: ${FIREISP_IMAGE:-ghcr.io/vothalvino/fireisp5.0:latest}
     restart: unless-stopped
     # WireGuard hub (ON by default in prod; endpoint derives from DOMAIN; set
     # WG_SERVER_ENABLED=false in .env.prod to opt out):

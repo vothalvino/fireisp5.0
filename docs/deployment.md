@@ -36,7 +36,7 @@ The script will interactively prompt for your domain name and email address, the
 3. Auto-generate strong random passwords and cryptographic secrets
 4. Write `/opt/fireisp/.env.prod` (mode `600`) with all generated values
 5. Obtain a TLS certificate via Let's Encrypt HTTP-01 challenge
-6. Build and start the full production stack (MySQL primary + replica, Redis, app, Nginx, Certbot)
+6. Pull the published app image and start the full production stack (MySQL primary + replica, Redis, app, Nginx, Certbot)
 7. Run database migrations (`node src/scripts/migrate.js`)
 8. Seed default data — roles, permissions, settings, tax rates (`node src/scripts/seed.js`)
 
@@ -80,9 +80,10 @@ docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.
 ### Updating to a new version
 
 For a standard redeploy, the repo ships **`redeploy.sh`** — it runs the whole
-flow (pull `main` → rebuild → migrate → verify) as one command and halts on the
-first failed step, so a rejected pull or a broken build never migrates a stale
-image. Install it once as a global command:
+flow (pull `main` → pull the matching image → migrate → verify) as one command
+and halts on the first failed step, so a rejected git pull or an image that CI
+has not published yet never goes on to migrate against a stale container.
+Install it once as a global command:
 
 ```bash
 sudo install -m 0755 /opt/fireisp/redeploy.sh /usr/local/bin/redeploy
@@ -106,41 +107,67 @@ sudo redeploy
 > receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior for
 > local testing only — never set it in production.
 
-For a non-standard install path, set `FIREISP_DIR=/your/path redeploy`. The
-manual steps below are the same flow broken out — reach for them when a
-**frontend** change isn't showing (the image caches the compiled bundle; see the
-heads-up) or when you need finer control.
+For a non-standard install path, set `FIREISP_DIR=/your/path redeploy`.
 
-> **Heads-up:** the `app` image bundles the **compiled React frontend**. A plain
-> `up -d` (no `--build`) reuses the existing image, and even `up -d --build` can
-> reuse a cached `frontend-build` layer — so a merged change may not actually
-> reach the browser. Use the flow below and verify the served bundle changed.
+#### Nothing is compiled on the server
+
+CI builds the image, scans it with Trivy, and publishes it to
+`ghcr.io/vothalvino/fireisp5.0` — see `.github/workflows/ci.yml` → `container-scan`.
+`redeploy` pulls that image. **The production host never runs a compiler.**
+
+This is not a nicety. The in-image frontend build (`gen:api` + a whole-program
+`tsc --noEmit` over 376 files + Vite with sourcemaps) peaks at roughly **1.43 GB
+RSS**, and `up -d --build` ran it *while the whole stack was still resident*. On a
+box whose floor already includes two 512 MB InnoDB buffer pools, the kernel
+evicted cold pages into swap to make room. Because the database is small those
+pages were never touched again, so swap ratcheted up with every deploy and never
+drained — until the machine thrashed hard enough to lock out SSH and need a
+reboot. A reboot zeroes swap, which is why it appeared to "fix" it, and why the
+interval shrank as retained images grew the daemons' resident metadata.
+
+`redeploy` pins the image to the **exact commit** it just checked out, so
+`docker ps` and `git rev-parse HEAD` can never disagree. Rollback is therefore a
+tag change, not a rebuild:
+
+```bash
+FIREISP_IMAGE_TAG=<older-commit-sha> sudo redeploy
+```
+
+If the pull fails, CI has usually not finished publishing that commit yet — the
+image is pushed only *after* the scan passes. Nothing on the host has changed at
+that point; the previous containers are still serving. Check
+[Actions](https://github.com/vothalvino/fireisp5.0/actions) and re-run.
+
+#### Verifying what is actually deployed
 
 ```bash
 COMPOSE="docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.env.prod"
 
-# 1. Pull the new code and confirm you're on the commit you expect
-git -C /opt/fireisp pull
-git -C /opt/fireisp log --oneline -1
+# Which commit is the running container built from?
+$COMPOSE images app
 
-# 2. Rebuild the image and recreate the app container
-$COMPOSE up -d --build --force-recreate app
-
-#    If a FRONTEND change still isn't visible, force a clean rebuild
-#    (bypasses Docker's cached frontend-build layer), then recreate:
-$COMPOSE build --no-cache app
-$COMPOSE up -d --force-recreate app
-
-# 3. Apply any new database migrations. NOTE: the production image strips npm to
-#    stay lean, so run the script with `node` directly (not `npm run migrate`).
-$COMPOSE exec app node src/scripts/migrate.js
-
-# 4. Verify the new frontend is actually being served — the hashed bundle
-#    filename changes after a real rebuild:
+# The hashed bundle name changes whenever the frontend really changed.
 curl -s https://<DOMAIN>/ | grep -o 'index-[^"]*\.js'
 #    (optional) confirm a specific change shipped:
 #    curl -s "https://<DOMAIN>/assets/<bundle>.js" | grep -c "<string from your change>"
 ```
+
+> There is no longer any such thing as a stale cached frontend layer on the
+> server, because the server does not build. If a merged change is not visible,
+> the question is *which image tag is running* — not whether to force a rebuild.
+> `--no-cache` is not the answer and no longer appears in these docs.
+
+#### Building on the host anyway
+
+Air-gapped, or testing an unmerged commit? Layer on the build override:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
+```
+
+Do that on a machine with headroom. `FRONTEND_BUILD_HEAP_MB` (default 2048)
+bounds V8's old space during the build so an oversized typecheck fails as a
+clean heap OOM instead of taking the host down with it.
 
 ---
 
@@ -316,18 +343,21 @@ docker compose logs -f app
 ### Updating
 
 ```bash
+sudo redeploy            # pull main, pull the matching image, migrate, verify
+```
+
+Broken out, if you want the steps:
+
+```bash
 git pull
-docker compose up -d --build --force-recreate app
-
-# If a frontend change doesn't appear, force a clean rebuild (skips the cached
-# frontend-build layer), then recreate the container:
-docker compose build --no-cache app && docker compose up -d --force-recreate app
-
+docker compose pull app                               # CI publishes; nothing builds here
+docker compose up -d
 docker compose exec app node src/scripts/migrate.js   # apply any new migrations
 ```
 
-See **[Updating to a new version](#updating-to-a-new-version)** for why `--build`
-alone can serve a stale frontend, plus how to verify the new bundle is live.
+See **[Updating to a new version](#updating-to-a-new-version)** for why the
+production host no longer compiles anything, how to roll back by tag, and how to
+verify which image is actually running.
 
 ### Custom Dockerfile (production optimized)
 
