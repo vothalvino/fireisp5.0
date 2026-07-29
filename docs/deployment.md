@@ -138,6 +138,33 @@ image is pushed only *after* the scan passes. Nothing on the host has changed at
 that point; the previous containers are still serving. Check
 [Actions](https://github.com/vothalvino/fireisp5.0/actions) and re-run.
 
+##### One-time: make the image pullable
+
+**A GitHub Container Registry package is PRIVATE by default, even when the
+source repository is public.** The first CI run creates the package; until its
+visibility is set, `docker compose pull` on the server fails with
+`denied` / `unauthorized` and no amount of re-running will help.
+
+Pick one:
+
+**Public image (simplest).** On GitHub → your profile → **Packages** →
+`fireisp5.0` → **Package settings** → **Change visibility** → Public. The
+repository is already public and `.dockerignore` excludes `.env*`, so the image
+contains nothing the source tree doesn't. Servers then pull anonymously with no
+credentials to manage or rotate.
+
+**Private image.** Keep it private and authenticate on each server with a
+classic PAT scoped to `read:packages` only:
+
+```bash
+echo "$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
+```
+
+Docker stores that in `/root/.docker/config.json`, so it survives reboots and
+`redeploy` needs no change. Remember the PAT's expiry — when it lapses, deploys
+start failing at the pull step, which (by design) leaves the running stack
+untouched.
+
 #### Verifying what is actually deployed
 
 ```bash

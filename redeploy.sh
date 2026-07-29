@@ -58,10 +58,22 @@ if ! dc pull app; then
 
 error: could not pull ${FIREISP_IMAGE}
 
-  The most likely reason is that CI has not finished publishing this commit
-  yet — the image is pushed only after the Trivy scan passes on main. Check:
+  Two likely reasons:
 
-      https://github.com/vothalvino/fireisp5.0/actions
+  1. CI has not finished publishing this commit yet — the image is pushed only
+     after the Trivy scan passes on main. Check:
+
+         https://github.com/vothalvino/fireisp5.0/actions
+
+  2. The ghcr package is PRIVATE and this host is not logged in. GitHub makes
+     container packages private by DEFAULT, even for a public repository, so
+     this bites once on a new install and never again. Either make the package
+     public (GitHub → Packages → fireisp5.0 → Package settings → Change
+     visibility), or authenticate here with a read:packages token:
+
+         echo "\$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
+
+     A 'denied' or 'unauthorized' in the error above means this one.
 
   Then re-run \`redeploy\`. Nothing has been changed on this host: the previous
   containers are still running and still serving.
