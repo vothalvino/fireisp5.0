@@ -32,6 +32,22 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA_FILE = path.join(REPO_ROOT, 'database', 'schema.sql');
+const MIGRATIONS_DIR = path.join(REPO_ROOT, 'database', 'migrations');
+
+// Migrations are HISTORICAL. Migration 210 legitimately inserts into a table as
+// it existed then; schema.sql is the CURRENT shape. Checking all of them would
+// flag hundreds of files that were correct when written and cannot be changed.
+//
+// So: everything at or below this number is grandfathered, and every migration
+// written from now on is checked. That catches the case that actually bites — a
+// migration written today against a mis-remembered column — without needing to
+// replay DDL to reconstruct the schema as of each file.
+//
+// Raise it ONLY to grandfather a genuine historical statement, never to silence
+// a new one. Migration 435 shipped inserting into permissions(`group`); that
+// column is `module`, and it passed eslint, 7416 jest tests, sql:check and
+// schema:parity before four real-MySQL CI jobs caught it.
+const MIGRATION_CHECK_FROM = 436;
 const SRC_DIR = path.join(REPO_ROOT, 'src');
 
 // Marker substituted for `${...}` template interpolations. Contains characters
@@ -1105,6 +1121,44 @@ function checkStatement(st, tables, errors, gaps) {
   return enumChecks;
 }
 
+/**
+ * Check DML in NEW migrations against schema.sql.
+ *
+ * A migration file is raw SQL, not JS, so there are no string literals to
+ * extract — the whole file is fed to the same statement parser the src/ scan
+ * uses, which keeps one set of rules for both.
+ *
+ * DDL is skipped deliberately: schema:parity already compares migration DDL to
+ * schema.sql. What was unguarded is the DML — the INSERT/UPDATE a seeding
+ * migration runs against columns it only THINKS exist.
+ */
+function checkMigrations(tables, errors, skipped, gaps) {
+  if (!fs.existsSync(MIGRATIONS_DIR)) return { checked: 0, grandfathered: 0 };
+  let checked = 0;
+  let grandfathered = 0;
+
+  for (const name of fs.readdirSync(MIGRATIONS_DIR).sort()) {
+    if (!name.endsWith('.sql')) continue;
+    const num = parseInt(name.slice(0, name.indexOf('_')), 10);
+    if (!Number.isFinite(num)) continue;
+    if (num < MIGRATION_CHECK_FROM) { grandfathered++; continue; }
+
+    const rel = path.join('database', 'migrations', name);
+    const text = fs.readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8');
+    const { statements, skipped: litSkipped } = extractFromLiteral(text, rel, 1);
+    skipped.push(...litSkipped);
+    for (const st of statements) {
+      // A migration may reference a table it CREATES in the same file, which
+      // is not yet in schema.sql if the mirror has not been updated — that is
+      // schema:parity's job to report, not a column error here.
+      if (new RegExp(`CREATE TABLE[^;]*\\b${st.table}\\b`, 'i').test(text)) continue;
+      checkStatement(st, tables, errors, gaps);
+    }
+    checked++;
+  }
+  return { checked, grandfathered };
+}
+
 function run({ verbose = false, log = console.log } = {}) {
   const tables = parseSchema(fs.readFileSync(SCHEMA_FILE, 'utf8'));
   const files = walk(SRC_DIR).sort();
@@ -1189,6 +1243,13 @@ function run({ verbose = false, log = console.log } = {}) {
     }
   }
 
+  // NEW migrations (see MIGRATION_CHECK_FROM) get the same column/ENUM checks.
+  const migrations = checkMigrations(tables, errors, skipped, gaps);
+  if (migrations.checked > 0 || verbose) {
+    log(`Migrations checked: ${migrations.checked} (>= ${MIGRATION_CHECK_FROM}); `
+      + `${migrations.grandfathered} older files grandfathered.`);
+  }
+
   if (errors.length > 0) {
     log('');
     for (const e of errors) log(`ERROR ${e}`);
@@ -1201,7 +1262,7 @@ function run({ verbose = false, log = console.log } = {}) {
 
   return {
     errors, skipped, notScanned, gaps, insertCount, updateCount, enumCount,
-    selectChecked, selectSkipped, selectRefCount, tables,
+    selectChecked, selectSkipped, selectRefCount, tables, migrations,
   };
 }
 
