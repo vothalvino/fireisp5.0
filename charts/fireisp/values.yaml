@@ -5,7 +5,10 @@
 replicaCount: 2
 
 image:
-  repository: fireisp/fireisp
+  ## What CI publishes, and what templates/cosign-policy.yaml verifies.
+  ## The old default (fireisp/fireisp) resolved to Docker Hub, a namespace
+  ## this project does not control, and never matched the signature policy.
+  repository: ghcr.io/vothalvino/fireisp5.0
   ## Defaults to the chart appVersion when blank.
   tag: ""
   pullPolicy: IfNotPresent

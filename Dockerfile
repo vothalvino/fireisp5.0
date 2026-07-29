@@ -12,7 +12,20 @@ RUN pnpm install --frozen-lockfile --filter fireisp-frontend
 
 COPY frontend/ ./frontend/
 COPY docs/openapi.json ./docs/openapi.json
-RUN pnpm --filter fireisp-frontend run build
+
+# `build` here is gen:api + a whole-program `tsc --noEmit` over 376 files + Vite
+# with sourcemaps — measured at ~1.43 GB peak RSS, and by default V8 will keep
+# growing until the machine says no. Bounding old-space turns "the host starts
+# swapping and stops responding" into "the build fails with a clean JavaScript
+# heap OOM", which is a far better failure: it is loud, it is attributable, and
+# it leaves the running stack untouched.
+#
+# CI builds on a 16 GB runner so this never binds there. It matters for anyone
+# building locally via docker-compose.build.yml, which is where a small host is
+# actually at risk.
+ARG FRONTEND_BUILD_HEAP_MB=2048
+RUN NODE_OPTIONS="--max-old-space-size=${FRONTEND_BUILD_HEAP_MB}" \
+    pnpm --filter fireisp-frontend run build
 
 # ── Stage 2: production API server ────────────────────────────────────────────
 FROM node:24-bookworm-slim

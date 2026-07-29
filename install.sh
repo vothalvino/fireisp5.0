@@ -512,8 +512,43 @@ else
   COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.prod.yml --env-file $ENV_FILE"
 fi
 
-info "Building and starting containers (first run may take a few minutes)..."
-$COMPOSE up -d --build
+# Pulls the published, Trivy-scanned image rather than compiling here. A first
+# install therefore needs no build toolchain headroom on the target box — which
+# matters, because the frontend build alone peaks around 1.43 GB RSS and the
+# documented minimum for this stack is 2 GB total.
+#
+# The published image is linux/amd64 ONLY. On any other architecture we build
+# from source instead, which is what this installer always used to do. Checked
+# BEFORE pulling, because at this point the TLS certificate has already been
+# issued — letting `set -e` abort here on an unmatched manifest would send the
+# operator into a retry loop that burns Let's Encrypt's duplicate-certificate
+# rate limit (5/week) for a problem no retry can fix.
+_ARCH="$(uname -m)"
+if [[ "$_ARCH" == "x86_64" || "$_ARCH" == "amd64" ]]; then
+  info "Pulling images and starting containers (first run downloads ~400 MB)..."
+  if ! $COMPOSE pull; then
+    warn ""
+    warn "Could not pull the application image."
+    warn ""
+    warn "If the error above says 'denied' or 'unauthorized', the GitHub package"
+    warn "is private — GitHub makes container packages private by DEFAULT, even"
+    warn "for a public repository. Either make it public:"
+    warn "  GitHub → Packages → fireisp5.0 → Package settings → Change visibility"
+    warn "or authenticate this host:"
+    warn "  echo \"\$GHCR_PAT\" | docker login ghcr.io -u <github-username> --password-stdin"
+    warn ""
+    warn "Then re-run this installer. Your .env.prod and TLS certificate are"
+    warn "already in place and will be reused — nothing is lost."
+    die "Image pull failed."
+  fi
+  $COMPOSE up -d
+else
+  warn "Architecture '${_ARCH}' detected — the published image is amd64 only."
+  warn "Building from source instead. This needs real memory (the frontend"
+  warn "build peaks around 1.43 GB) and will take several minutes."
+  COMPOSE="$COMPOSE -f $INSTALL_DIR/docker-compose.build.yml"
+  $COMPOSE up -d --build
+fi
 log "Containers started."
 
 # ── Wait for database ─────────────────────────────────────────────────────────
@@ -591,7 +626,7 @@ cat > "$FIREISP_BIN" <<WRAPEOF
 #   fireisp ps
 #   fireisp restart
 #   fireisp down
-#   fireisp up -d --build
+#   fireisp pull && fireisp up -d
 #   fireisp exec app bash
 exec ${_COMPOSE_CMD} "\$@"
 WRAPEOF
@@ -635,11 +670,11 @@ echo -e "   fireisp ps                    # show container status"
 echo -e "   fireisp stop                  # stop containers (keeps data volumes)"
 echo -e "   fireisp down                  # stop and remove containers"
 echo -e "   fireisp restart               # restart all containers"
-echo -e "   fireisp up -d --build         # rebuild and start (use after git pull)"
+echo -e "   fireisp pull && fireisp up -d # fetch the published image and start"
 echo -e "   fireisp exec app bash         # open a shell in the app container"
 echo ""
 echo -e "  ${BOLD}Update FireISP:${RESET}"
-echo -e "   git -C $INSTALL_DIR pull && fireisp up -d --build"
+echo -e "   sudo redeploy                 # pull main + the matching image, migrate, verify"
 echo ""
 echo -e "  ${YELLOW}${BOLD}⚠  Store $ENV_FILE securely — it contains all generated credentials.${RESET}"
 echo ""
