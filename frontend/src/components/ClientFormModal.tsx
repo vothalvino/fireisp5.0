@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import i18n from '@/i18n';
 import { api } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -76,9 +77,33 @@ export interface ClientFormInitial {
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function extractApiError(err: unknown, fallback: string): string {
+/**
+ * Turn an API error into something to show an operator.
+ *
+ * The server's own message wins whenever it sends one — that is the part that
+ * actually says WHY, and it is already localised server-side.
+ *
+ * When it does not, we fall back to a TRANSLATED generic rather than the
+ * caller's English string. 93 call sites across 36 files passed literals like
+ * 'Failed to load invoices', so a Spanish operator hit English mid-flow
+ * whenever the server returned a bare status. Those literals are deliberately
+ * ignored now (j47): the per-page wording is not worth ~180 translation keys,
+ * and it was rarely actionable anyway — "Failed to load invoices" tells nobody
+ * anything they cannot see from the empty invoice list.
+ *
+ * `fallback` is kept in the signature on purpose. Stripping it from 93 call
+ * sites would be a mechanical churn diff large enough to bury the one-line
+ * behaviour change, and the argument still documents intent at the call site.
+ * It is used only when i18n has not initialised (tests, SSR-less bootstrap),
+ * where t() would return the raw key and show an operator "common.error".
+ */
+export function extractApiError(err: unknown, fallback?: string): string {
   const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message || e?.message || fallback;
+  const serverMessage = e?.error?.message || e?.message;
+  if (serverMessage) return serverMessage;
+
+  const generic = i18n.isInitialized ? i18n.t('common.error') : null;
+  return generic && generic !== 'common.error' ? generic : (fallback ?? 'Something went wrong');
 }
 
 async function createClient(body: ClientSubmitBody): Promise<void> {
