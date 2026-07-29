@@ -400,3 +400,89 @@ describe('sql-column-check: the repository is clean', () => {
     });
   });
 });
+
+// =============================================================================
+// Migration DML (j51)
+// =============================================================================
+// Migration 435 shipped inserting into permissions(`group`). That column is
+// `module`. It passed eslint, 7416 jest tests, sql:check AND schema:parity —
+// every local gate — and was caught only by four real-MySQL CI jobs, each
+// costing a full round trip to learn one column name.
+//
+// The gap: sql:check parsed src/ only, schema:parity compares DDL rather than
+// DML, and the jest suite mocks the database. Nothing local read what a
+// MIGRATION inserts.
+describe('sql-column-check: new migrations are checked too', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const MIG_DIR = path.join(__dirname, '..', 'database', 'migrations');
+  const probes = [];
+
+  /** Drop a throwaway migration above the watermark, run the check, clean up. */
+  function withMigration(name, sql, fn) {
+    const file = path.join(MIG_DIR, name);
+    fs.writeFileSync(file, sql);
+    probes.push(file);
+    try {
+      return fn(run({ log: () => {} }));
+    } finally {
+      fs.unlinkSync(file);
+      probes.pop();
+    }
+  }
+
+  afterAll(() => { for (const f of probes) { try { fs.unlinkSync(f); } catch { /* gone */ } } });
+
+  test('the real migrations in the repo are clean', () => {
+    const result = run({ log: () => {} });
+    expect(result.errors).toEqual([]);
+    expect(result.migrations.checked).toBeGreaterThan(0);
+  });
+
+  test('history is grandfathered, not silently unchecked', () => {
+    // The distinction matters: 435 older files are DELIBERATELY skipped because
+    // they were written against the schema as it was then. A checked count of 0
+    // would mean the scan found nothing at all, which is the failure mode a
+    // green check hides.
+    const result = run({ log: () => {} });
+    expect(result.migrations.grandfathered).toBeGreaterThan(100);
+  });
+
+  test('catches the exact bug that cost four CI jobs', () => {
+    withMigration('999_probe_bad_column.sql',
+      "INSERT IGNORE INTO permissions (name, description, `group`)\nVALUES ('p','p','clients');\n",
+      (result) => {
+        expect(result.errors.join('\n')).toMatch(/permissions.*column "group" does not exist/);
+      });
+  });
+
+  test('catches a bad column in an UPDATE too, not just INSERT', () => {
+    withMigration('999_probe_bad_update.sql',
+      "UPDATE permissions SET nonexistent_col = 'x' WHERE name = 'p';\n",
+      (result) => {
+        expect(result.errors.join('\n')).toMatch(/nonexistent_col/);
+      });
+  });
+
+  test('does NOT flag a table the migration creates in the same file', () => {
+    // A new table is not in schema.sql until the mirror is updated, and that
+    // mismatch is schema:parity's job to report — flagging it here would make
+    // every table-creating migration fail its own seed data.
+    withMigration('999_probe_new_table.sql',
+      'CREATE TABLE IF NOT EXISTS probe_widgets (\n'
+      + '  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n'
+      + '  label VARCHAR(50) NULL,\n  PRIMARY KEY (id)\n) ENGINE=InnoDB;\n'
+      + "INSERT INTO probe_widgets (label) VALUES ('x');\n",
+      (result) => {
+        expect(result.errors).toEqual([]);
+      });
+  });
+
+  test('a correct new migration passes', () => {
+    withMigration('999_probe_good.sql',
+      "INSERT IGNORE INTO permissions (name, description, module)\nVALUES ('p','p','clients');\n",
+      (result) => {
+        expect(result.errors).toEqual([]);
+      });
+  });
+});
