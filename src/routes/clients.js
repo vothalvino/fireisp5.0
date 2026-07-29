@@ -8,11 +8,11 @@ const ClientBalanceLedger = require('../models/ClientBalanceLedger');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createClient, updateClient, patchClient, createContact, updateMxProfile, setCustomField, mergeClient, geocodeClient } = require('../middleware/schemas/clients');
 const { httpCache, bustCache } = require('../middleware/httpCache');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError, AppError } = require('../utils/errors');
 const { quotaCheck } = require('../middleware/checkQuota');
 const { uploadClientDocument, STORAGE_ROOT } = require('../middleware/upload');
 const paymentAllocationService = require('../services/paymentAllocationService');
@@ -22,7 +22,57 @@ const fs = require('fs');
 const db = require('../config/database');
 
 const router = Router();
-const ctrl = crudController(Client, { cacheResource: 'clients' });
+
+/**
+ * Setting a client's tax/IVA exemption needs `clients.tax_exemption`, not the
+ * broad `clients.update` (migration 435).
+ *
+ * The flag is not cosmetic: it changes what the CFDI declares — an exempt
+ * client stamps ObjetoImp='02' with a TipoFactor='Exento' traslado instead of a
+ * rated one — so a wrongly-set exemption files an incorrect fiscal document
+ * with SAT, correctable only by cancelling and re-issuing. Migration 119 grants
+ * `clients.update` to SUPPORT, so before this any support agent could do it.
+ *
+ * Compared by VALUE, not presence. The client form re-sends the whole record on
+ * save, so a presence check would 403 a support agent editing a phone number on
+ * any client that happens to be exempt.
+ *
+ * userHasPermission is used rather than requirePermission middleware because
+ * the check is conditional on the body actually changing the flag — a
+ * route-level guard would reject every ordinary client edit by anyone without
+ * the slug. It returns true for legacy users.role='admin', matching rbac.js.
+ */
+const TAX_EXEMPTION_FIELDS = ['tax_exempt', 'tax_exempt_reason'];
+
+function sameExemptionValue(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    // MySQL round-trips booleans as 0/1 and an unset reason as NULL; treat
+    // null/undefined/'' as equivalent so "no reason" never reads as a change.
+    return (a ?? '') === (b ?? '');
+  }
+  if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+  return String(a) === String(b);
+}
+
+async function assertMayChangeTaxExemption(old, req) {
+  const body = req.body || {};
+  const changed = TAX_EXEMPTION_FIELDS.filter(
+    f => body[f] !== undefined && !sameExemptionValue(body[f], old[f]),
+  );
+  if (changed.length === 0) return;
+
+  if (!await userHasPermission(req, 'clients.tax_exemption')) {
+    throw new AppError(
+      'Changing a client\'s tax exemption requires the clients.tax_exemption permission — it changes what the CFDI declares to SAT.',
+      403, 'TAX_EXEMPTION_FORBIDDEN',
+    );
+  }
+}
+
+const ctrl = crudController(Client, {
+  cacheResource: 'clients',
+  beforeUpdate: assertMayChangeTaxExemption,
+});
 
 router.use(authenticate);
 router.use(orgScope);
