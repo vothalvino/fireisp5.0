@@ -72,7 +72,7 @@ function sameValue(a, b) {
 }
 
 // `exec` runs this guard's own reads on the caller's transaction. crudController
-// passes the locked connection (transactionalUpdate below); it defaults to
+// passes the locked connection (transactionalWrites below); it defaults to
 // db.query so direct callers and tests are unaffected. Reading outside the lock
 // would defeat the point — the guard would still be checking a row that another
 // connection is free to change before the UPDATE lands.
@@ -195,7 +195,7 @@ async function assertUpdateFiscallySafe(old, req, exec = db.query) {
   //   * an exempt client still passes, because the resolver reports exempt and
   //     zero tax is then correct. That is the "zero the tax for an exempt
   //     client" repair the comment above worries about, and it still works.
-  // `exec`, not db.query: under transactionalUpdate this runs while a pooled
+  // `exec`, not db.query: under transactionalWrites this runs while a pooled
   // connection is already checked out with an open transaction. Calling
   // db.query here acquires a SECOND connection from the same pool, and
   // assertTaxCoherent's resolver chain acquires more. With waitForConnections
@@ -224,7 +224,7 @@ const ctrl = crudController(Invoice, {
   // edit committing in that window is stamped from the pre-read snapshot and
   // the CFDI can still disagree with the row. Fixing that means re-reading
   // after the lock, on the stamper's side — tracked separately.
-  transactionalUpdate: true,
+  transactionalWrites: true,
   beforeUpdate: async (old, req, exec) => {
     assertInvoiceNotTerminal(old.status);
     await assertUpdateFiscallySafe(old, req, exec);
@@ -241,12 +241,12 @@ const ctrl = crudController(Invoice, {
   // SAT-cancelled invoice carries no live CFDI, and archiving one is exactly
   // what an operator should be able to do — blocking it would make cancelled
   // invoices permanently undeletable.
-  beforeDelete: async (old) => {
-    await assertNoLiveCfdi(db.query, old.id,
+  beforeDelete: async (old, req, exec) => {
+    await assertNoLiveCfdi(exec, old.id,
       'Cancel or substitute the CFDI before deleting this invoice.');
   },
-  beforeRestore: async (req) => {
-    await assertNoLiveCfdi(db.query, req.params.id,
+  beforeRestore: async (req, exec) => {
+    await assertNoLiveCfdi(exec, req.params.id,
       'This invoice has a live CFDI; restoring it would resurrect a row that disagrees with the filed document.');
   },
 });

@@ -881,7 +881,7 @@ app.use((err, req, res, _next) => {
   }
 
   // Row-lock contention. Reachable since guarded updates hold a row lock across
-  // several statements (crudController transactionalUpdate) and contend with
+  // several statements (crudController transactionalWrites) and contend with
   // stamping, REP and add-item on the same invoice. The loser is NOT a server
   // fault and the request is safely retryable — reporting it as a raw 500
   // buries a routine, self-resolving condition in the unhandled-error stream

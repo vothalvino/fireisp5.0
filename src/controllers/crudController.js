@@ -71,7 +71,13 @@ function crudController(Model, _options = {}) {
   // the duration of the update, and most resources have no cross-row invariant
   // worth that cost. Turn it on where a beforeUpdate hook is enforcing
   // something that a concurrent write could falsify.
-  const transactionalUpdate = _options.transactionalUpdate === true;
+  // Covers UPDATE, DELETE and RESTORE. It was `transactionalWrites` when only
+  // the update path had it; delete and restore have exactly the same problem —
+  // their beforeDelete/beforeRestore guards read on one pooled connection while
+  // the write lands on another. For credit notes that meant a note could be
+  // soft-deleted moments after its egreso was filed at SAT, leaving a filed
+  // document pointing at a deleted row.
+  const transactionalWrites = _options.transactionalWrites === true;
 
   // A model that OVERRIDES update/findById drops `opts` unless it deliberately
   // forwards it, and the failure is severe and invisible:
@@ -89,7 +95,7 @@ function crudController(Model, _options = {}) {
   // is meant to accept. Inheriting BaseModel's method is the safe case; any
   // override is unverifiable from here and must opt in explicitly by setting
   // `forwardsExecutor = true` on the model.
-  if (transactionalUpdate) {
+  if (transactionalWrites) {
     const BaseModel = require('../models/BaseModel');
     // A jest-mocked model replaces these by definition, and the check has
     // nothing to say about a stand-in that never touches a real connection.
@@ -99,7 +105,7 @@ function crudController(Model, _options = {}) {
     if (Model.findById !== BaseModel.findById) overrides.push('findById');
     if (!mocked && overrides.length && Model.forwardsExecutor !== true) {
       throw new Error(
-        `${Model.name} overrides ${overrides.join(' and ')} and is used with transactionalUpdate. `
+        `${Model.name} overrides ${overrides.join(' and ')} and is used with transactionalWrites. `
         + 'An override that ignores the trailing opts argument runs outside the transaction — a self-deadlock '
         + 'for update, stale reads for findById. Accept opts, pass it through, then set '
         + '`static get forwardsExecutor() { return true; }` on the model.',
@@ -142,7 +148,7 @@ function crudController(Model, _options = {}) {
   /**
    * Shared by PUT and PATCH: fetch the row, run the guard, apply the update.
    *
-   * With transactionalUpdate the three steps share one connection and the row
+   * With transactionalWrites the three steps share one connection and the row
    * is locked for the whole sequence, so nothing can change it between the
    * guard passing and the write landing. Without it, this is the original
    * behaviour, unchanged.
@@ -154,8 +160,44 @@ function crudController(Model, _options = {}) {
    * MUST use it or it is still reading outside the lock and the transaction
    * buys nothing.
    */
+  /**
+   * Run `fn` with a locked row inside one transaction, or plainly when the
+   * resource has not opted in. Shared by update, delete and restore so the
+   * three cannot drift — the guard-then-write race is identical in all of them.
+   *
+   * `fn(exec, old)` receives the executor and the locked record.
+   */
+  async function inLockedTransaction(req, { needsRow = true }, fn) {
+    if (!transactionalWrites) {
+      const old = needsRow ? await Model.findByIdOrFail(req.params.id, req.orgId) : null;
+      return fn(db.query, old);
+    }
+
+    const conn = await db.getConnection();
+    let disposed = false;
+    try {
+      await conn.beginTransaction();
+      const exec = conn.execute.bind(conn);
+      const old = needsRow
+        ? await Model.findByIdOrFail(req.params.id, req.orgId, { exec, forUpdate: true })
+        : null;
+      const out = await fn(exec, old);
+      await conn.commit();
+      return out;
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        if (typeof conn.destroy === 'function') { disposed = true; try { conn.destroy(); } catch { /* gone */ } }
+      }
+      throw err;
+    } finally {
+      if (!disposed) { try { conn.release(); } catch { /* pool dropped it */ } }
+    }
+  }
+
   async function applyUpdate(req) {
-    if (!transactionalUpdate) {
+    if (!transactionalWrites) {
       const old = await Model.findByIdOrFail(req.params.id, req.orgId);
       if (beforeUpdateHook) await beforeUpdateHook(old, req, db.query);
       const record = await Model.update(req.params.id, req.body, req.orgId);
@@ -391,9 +433,15 @@ function crudController(Model, _options = {}) {
      */
     async destroy(req, res, next) {
       try {
-        const old = await Model.findByIdOrFail(req.params.id, req.orgId);
-        if (beforeDeleteHook) await beforeDeleteHook(old, req);
-        await Model.delete(req.params.id, req.orgId);
+        // Same race as update: beforeDelete decides from rows a concurrent
+        // request can change. For credit notes that guard is "does a live CFDI
+        // exist" — and a stamp landing between the check and the write leaves a
+        // soft-deleted row whose egreso is filed at SAT.
+        const { old } = await inLockedTransaction(req, {}, async (exec, locked) => {
+          if (beforeDeleteHook) await beforeDeleteHook(locked, req, exec);
+          await Model.delete(req.params.id, req.orgId, { exec });
+          return { old: locked };
+        });
 
         await auditLog.log({
           userId: req.user?.id,
@@ -431,8 +479,15 @@ function crudController(Model, _options = {}) {
      */
     async restore(req, res, next) {
       try {
-        if (beforeRestoreHook) await beforeRestoreHook(req);
-        const record = await Model.restore(req.params.id, req.orgId);
+        // needsRow:false — the row is soft-deleted, so findByIdOrFail (which
+        // filters deleted_at IS NULL) cannot fetch it. The lock therefore comes
+        // from Model.restore's own UPDATE; the guard still runs on the same
+        // connection, inside the same transaction, so a CFDI stamped in the
+        // window is visible to it.
+        const record = await inLockedTransaction(req, { needsRow: false }, async (exec) => {
+          if (beforeRestoreHook) await beforeRestoreHook(req, exec);
+          return Model.restore(req.params.id, req.orgId, { exec });
+        });
 
         await auditLog.log({
           userId: req.user?.id,

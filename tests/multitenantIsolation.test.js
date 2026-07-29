@@ -94,6 +94,7 @@ jest.mock('../src/utils/errorTracking', () => ({
 // Models under test
 // ---------------------------------------------------------------------------
 const db          = require('../src/config/database');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const Client      = require('../src/models/Client');
 const Contract    = require('../src/models/Contract');
 const Invoice     = require('../src/models/Invoice');
@@ -297,6 +298,8 @@ describe('Route-level cross-org isolation — GET /:id returns 404', () => {
   const RECORD_ID = 42;
 
   beforeEach(() => {
+  // Invoice delete/restore run transactionally (j50).
+  mockTxConnection(db);
     jest.clearAllMocks();
     ctx.orgId = ORG_A;
     // DB returns empty: the row exists in the DB but belongs to a different org

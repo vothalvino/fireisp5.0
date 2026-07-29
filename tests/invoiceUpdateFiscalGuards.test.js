@@ -365,13 +365,18 @@ describe('invoice delete and restore respect a live CFDI', () => {
     const src = require('node:fs').readFileSync(
       require('node:path').join(__dirname, '../src/controllers/crudController.js'), 'utf8',
     );
+    // Anchored on the ORDER of the calls, not their exact argument lists — the
+    // hooks gained an `exec` parameter when delete/restore became transactional,
+    // and a literal-text assertion broke on a change that preserved the very
+    // invariant it was written to protect.
+    //
     // beforeDelete fires between the fetch and the delete...
-    expect(src.indexOf('if (beforeDeleteHook) await beforeDeleteHook(old, req)'))
-      .toBeLessThan(src.indexOf('await Model.delete(req.params.id, req.orgId)'));
+    expect(src.indexOf('beforeDeleteHook(')).toBeGreaterThan(-1);
+    expect(src.indexOf('beforeDeleteHook(')).toBeLessThan(src.indexOf('Model.delete('));
     // ...and beforeRestore before the restore. An after* hook could not serve
     // either purpose: the row is already gone, and its errors are swallowed.
-    expect(src.indexOf('if (beforeRestoreHook) await beforeRestoreHook(req)'))
-      .toBeLessThan(src.indexOf('const record = await Model.restore(req.params.id, req.orgId)'));
+    expect(src.indexOf('beforeRestoreHook(')).toBeGreaterThan(-1);
+    expect(src.indexOf('beforeRestoreHook(')).toBeLessThan(src.indexOf('Model.restore('));
   });
 });
 

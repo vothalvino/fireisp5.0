@@ -2,7 +2,7 @@
 // =============================================================================
 // FireISP 5.0 — mock transaction connection
 // =============================================================================
-// crudController's transactionalUpdate path takes a real connection out of the
+// crudController's transactionalWrites path takes a real connection out of the
 // pool (db.getConnection) and runs the fetch, the guard and the UPDATE on it.
 // Suites mock db.getConnection as a bare jest.fn(), which resolves to undefined
 // and then dies on conn.beginTransaction().
