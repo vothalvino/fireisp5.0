@@ -48,7 +48,7 @@ function assertTotalsConsistent({ subtotal, tax_amount, total }) {
  * 'draft' counts: a draft CFDI has already snapshotted its conceptos and is
  * waiting on a stamp retry.
  */
-// `exec` runs this on the caller's transaction. Under transactionalUpdate a
+// `exec` runs this on the caller's transaction. Under transactionalWrites a
 // db.query here would acquire a SECOND pooled connection while the first is
 // held — the nested-acquire hang fixed in #584 — and would also be reading
 // outside the lock, which defeats the guard.
@@ -88,7 +88,7 @@ const ctrl = crudController(CreditNote, {
   // landing between the check and the UPDATE means the edit applies to a
   // document already filed with SAT. Credit notes had NO lock at all, so the
   // stamper was not serialized against the editor even in principle.
-  transactionalUpdate: true,
+  transactionalWrites: true,
   beforeUpdate: async (old, req, exec) => {
     assertTotalsConsistent({
       subtotal: req.body.subtotal ?? old.subtotal,
@@ -122,13 +122,16 @@ const ctrl = crudController(CreditNote, {
 
   // Delete and restore were as open as update was — a credit note with a live
   // CFDI could be soft-deleted while the egreso stayed filed at SAT.
-  beforeDelete: async (old, req) => {
+  beforeDelete: async (old, req, exec) => {
+    // exec, not the default: the guard must read inside the row lock, or a
+    // stamp landing between the check and the soft-delete leaves a deleted note
+    // whose egreso is vigente at SAT.
     await assertNoLiveCfdi(old.id, req.orgId,
-      'Cancel the CFDI before deleting this credit note.');
+      'Cancel the CFDI before deleting this credit note.', exec);
   },
-  beforeRestore: async (req) => {
+  beforeRestore: async (req, exec) => {
     await assertNoLiveCfdi(req.params.id, req.orgId,
-      'This credit note has a live CFDI; restoring it would resurrect a row that disagrees with the filed document.');
+      'This credit note has a live CFDI; restoring it would resurrect a row that disagrees with the filed document.', exec);
   },
 });
 

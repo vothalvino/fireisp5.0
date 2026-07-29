@@ -238,3 +238,64 @@ describe('credit-note updates are check-then-write under a row lock', () => {
     expect(db.query.mock.calls.some(([s]) => /^UPDATE `?credit_notes`?/i.test(s))).toBe(false);
   });
 });
+
+// =============================================================================
+// j50 — delete and restore are check-then-write under a row lock too
+// =============================================================================
+// #586 gave UPDATE the lock; delete and restore were left running their guards
+// on a pooled connection. Concrete failure that allowed: support issues DELETE
+// /credit-notes/30, the unlocked assertNoLiveCfdi clears, billing stamps the
+// note in that window, the stamper commits and the PAC returns a UUID — then
+// the DELETE proceeds and soft-deletes a note whose CFDI de Egreso is VIGENTE
+// at SAT. cfdi_documents.credit_note_id now points at a deleted row, and only a
+// formal cancellation undoes the filing.
+describe('credit-note delete and restore hold the row lock', () => {
+  it('DELETE locks the row and runs the CFDI guard on that connection', async () => {
+    const conn = mockTxConnection(db);
+    wireDb();
+    const res = await auth(request(app).delete('/api/v1/credit-notes/5')).send();
+
+    expect([200, 204]).toContain(res.status);
+    expect(conn.beginTransaction).toHaveBeenCalled();
+    const tx = txSql(conn);
+    const lockAt = tx.findIndex(s => /FOR UPDATE/.test(s));
+    const cfdiAt = tx.findIndex(s => /cfdi_documents/i.test(s));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(cfdiAt).toBeGreaterThan(lockAt);
+  });
+
+  it('a live CFDI blocks the DELETE, and nothing is written', async () => {
+    const conn = mockTxConnection(db);
+    wireDb({ liveCfdi: true });
+    const res = await auth(request(app).delete('/api/v1/credit-notes/5')).send();
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('CFDI_STAMPED');
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([s]) => /SET deleted_at = NOW\(\)/i.test(s))).toBe(false);
+  });
+
+  it('RESTORE runs its guard on the transaction as well', async () => {
+    // The row is soft-deleted, so there is no FOR UPDATE fetch to hang the lock
+    // on — the guard still has to run on the same connection as the un-delete,
+    // or a CFDI stamped in the window is invisible to it.
+    const conn = mockTxConnection(db);
+    wireDb({ liveCfdi: true });
+    const res = await auth(request(app).post('/api/v1/credit-notes/5/restore')).send();
+
+    expect(res.status).toBe(422);
+    expect(conn.beginTransaction).toHaveBeenCalled();
+    expect(txSql(conn).some(s => /cfdi_documents/i.test(s))).toBe(true);
+    expect(db.query.mock.calls.some(([s]) => /SET deleted_at = NULL/i.test(s))).toBe(false);
+  });
+
+  it('nothing leaks onto the pool during a delete', async () => {
+    const conn = mockTxConnection(db);
+    wireDb();
+    const res = await auth(request(app).delete('/api/v1/credit-notes/5')).send();
+    expect([200, 204]).toContain(res.status);
+    expect(txSql(conn).some(s => /cfdi_documents/i.test(s))).toBe(true);
+    expect(pooledSqlDuringTx(db, conn, /`users`|audit_logs/)).toEqual([]);
+  });
+});

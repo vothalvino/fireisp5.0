@@ -242,7 +242,7 @@ class BaseModel {
    * Delete a record by ID. Uses soft-delete (sets deleted_at) when the model
    * has softDelete enabled; otherwise performs a hard DELETE.
    */
-  static async delete(id, orgId = null) {
+  static async delete(id, orgId = null, opts = {}) {
     if (this.softDelete) {
       let sql = `UPDATE \`${this.tableName}\` SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`;
       const params = [id];
@@ -252,7 +252,7 @@ class BaseModel {
         params.push(orgId);
       }
 
-      const [result] = await db.query(sql, params);
+      const [result] = opts.exec ? await opts.exec(sql, params) : await db.query(sql, params);
       if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
       return true;
     }
@@ -265,7 +265,7 @@ class BaseModel {
       params.push(orgId);
     }
 
-    const [result] = await db.query(sql, params);
+    const [result] = opts.exec ? await opts.exec(sql, params) : await db.query(sql, params);
     if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
     return true;
   }
@@ -290,7 +290,7 @@ class BaseModel {
   /**
    * Restore a soft-deleted record by clearing its deleted_at timestamp.
    */
-  static async restore(id, orgId = null) {
+  static async restore(id, orgId = null, opts = {}) {
     if (!this.softDelete) {
       throw new Error(`${this.tableName} does not support soft-delete`);
     }
@@ -303,9 +303,11 @@ class BaseModel {
       params.push(orgId);
     }
 
-    const [result] = await db.query(sql, params);
+    const [result] = opts.exec ? await opts.exec(sql, params) : await db.query(sql, params);
     if (result.affectedRows === 0) throw new NotFoundError(this.tableName);
-    return this.findById(id, orgId);
+    // Same connection for the read-back: outside the transaction it cannot see
+    // the un-delete that has not committed yet.
+    return this.findById(id, orgId, { exec: opts.exec });
   }
 
   /** Whether this model's table has an organization_id column */

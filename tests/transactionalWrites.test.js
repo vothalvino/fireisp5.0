@@ -11,7 +11,7 @@
 // Two halves are tested here:
 //   1. BaseModel accepts an executor + FOR UPDATE, strictly additively — the
 //      no-opts path must stay byte-identical, because 171 models use it.
-//   2. crudController's transactionalUpdate wires fetch/guard/write onto one
+//   2. crudController's transactionalWrites wires fetch/guard/write onto one
 //      locked connection, and rolls back when the guard throws.
 // =============================================================================
 
@@ -102,7 +102,7 @@ describe('BaseModel accepts an executor without changing the default path', () =
 // ---------------------------------------------------------------------------
 // 2. crudController — the transaction
 // ---------------------------------------------------------------------------
-describe('crudController transactionalUpdate', () => {
+describe('crudController transactionalWrites', () => {
   const buildApp = (opts) => {
     const express = require('express');
     const app = express();
@@ -119,7 +119,7 @@ describe('crudController transactionalUpdate', () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7, name: 'a' }]]);
     const seen = [];
     const app = buildApp({
-      transactionalUpdate: true,
+      transactionalWrites: true,
       beforeUpdate: async (_old, _req, exec) => { seen.push(typeof exec); },
     });
 
@@ -141,7 +141,7 @@ describe('crudController transactionalUpdate', () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
     const { AppError } = require('../src/utils/errors');
     const app = buildApp({
-      transactionalUpdate: true,
+      transactionalWrites: true,
       beforeUpdate: async () => { throw new AppError('nope', 422, 'GUARD'); },
     });
 
@@ -158,7 +158,7 @@ describe('crudController transactionalUpdate', () => {
     // exhausts the pool and takes the whole app down, not one request.
     const conn = mockTxConnection(db);
     db.query.mockRejectedValue(new Error('boom'));
-    const app = buildApp({ transactionalUpdate: true });
+    const app = buildApp({ transactionalWrites: true });
     const res = await request(app).put('/w/1').send({ name: 'b' });
     expect(res.status).toBe(500);
     expect(conn.release).toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe('crudController transactionalUpdate', () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
     const { AppError } = require('../src/utils/errors');
     const app = buildApp({
-      transactionalUpdate: true,
+      transactionalWrites: true,
       beforeUpdate: async () => { throw new AppError('nope', 422, 'GUARD'); },
     });
 
@@ -194,7 +194,7 @@ describe('crudController transactionalUpdate', () => {
     db.query.mockResolvedValue([[{ id: 1, organization_id: 7 }]]);
     const { AppError } = require('../src/utils/errors');
     const app = buildApp({
-      transactionalUpdate: true,
+      transactionalWrites: true,
       beforeUpdate: async () => { throw new AppError('nope', 422, 'GUARD'); },
     });
 
