@@ -223,3 +223,30 @@ describe('k8s and Helm point at the image that is actually published', () => {
     }
   });
 });
+
+describe('a fresh install can actually run the command it advertises', () => {
+  const install = read('install.sh');
+
+  it('installs `redeploy` — the summary tells the operator to use it', () => {
+    // The closing summary says "sudo redeploy". Before this, install.sh never
+    // created it, so every fresh install ended with a command-not-found the
+    // first time the operator tried to update.
+    expect(install).toMatch(/REDEPLOY_BIN=/);
+    expect(install).toMatch(/chmod \+x "\$REDEPLOY_BIN"/);
+  });
+
+  it('installs it as a WRAPPER, so it cannot go stale', () => {
+    // A copy keeps running the old logic after `git pull`, silently. The
+    // wrapper execs whatever shipped with the installed code.
+    expect(install).toMatch(/exec env FIREISP_DIR=.*redeploy\.sh/);
+    expect(install).not.toMatch(/install -m 0755 "\$INSTALL_DIR\/redeploy\.sh"/);
+  });
+
+  it('pins FIREISP_DIR in the wrapper, because sudo strips it', () => {
+    // `FIREISP_DIR=/srv/x sudo redeploy` is discarded by `Defaults env_reset`,
+    // so a non-default install directory could not be reached at all.
+    const wrapper = install.split('REDEPLOYEOF')[1] || '';
+    expect(wrapper).toMatch(/FIREISP_DIR="\$INSTALL_DIR"/);
+    expect(wrapper).toMatch(/"\\\$@"/);   // forwards the rollback argument
+  });
+});
