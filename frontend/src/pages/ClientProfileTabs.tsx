@@ -57,6 +57,11 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
   // would 403. Whether billing should own the IVA exemption is a product
   // decision and is still open on the board (j13).
   const canEditProtectedFields = can(user, 'clients.update');
+  // The tax/IVA exemption needs its OWN permission (migration 435). It is not
+  // a variant of "edit a client": it changes what the CFDI declares to SAT, so
+  // a wrong value files an incorrect fiscal document. `clients.update` is held
+  // by support, who should be able to fix a phone number but not a tax status.
+  const canEditTaxExemption = can(user, 'clients.tax_exemption');
   // "IVA"/"Exento" are Mexican. This tab is shown to EVERY org, so the tax
   // vocabulary follows the org's locale rather than assuming Mexico — a US or
   // Canadian operator was being asked about a tax that does not exist there.
@@ -245,6 +250,11 @@ export function ProfileExtrasTab({ clientId, canEdit }: TabProps) {
                   </div>
                 </td>
               </tr>
+            </>
+          )}
+
+          {canEditTaxExemption && canEdit && (
+            <>
               <tr>
                 <td style={{ ...cell, color: 'var(--text-secondary)' }}>
                   {isMxOrg ? 'IVA exempt (0% IVA on invoices)' : 'Tax exempt (0% tax on invoices)'}

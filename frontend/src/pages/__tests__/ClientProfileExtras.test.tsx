@@ -74,6 +74,21 @@ describe('the gate follows the backend permission, not the legacy role', () => {
     expect(screen.queryByText(/Exempt from automatic suspension/i)).toBeNull();
   });
 
+  it('the TAX exemption needs its own permission, not clients.update', async () => {
+    // Support holds clients.update (migration 119) and legitimately edits client
+    // records — but the IVA exemption changes what the CFDI declares to SAT, so
+    // it is gated on clients.tax_exemption (migration 435), which support does
+    // not hold. The suspension (VIP) block stays on clients.update.
+    renderTab({ role: 'support', permissions: ['clients.view', 'clients.update'] });
+    await waitFor(() => expect(screen.getByText(/Exempt from automatic suspension/i)).toBeInTheDocument());
+    expect(screen.queryByText(/exempt \(0%/i)).toBeNull();
+  });
+
+  it('a holder of clients.tax_exemption sees the tax block', async () => {
+    renderTab({ role: 'manager', permissions: ['clients.view', 'clients.update', 'clients.tax_exemption'] });
+    await waitFor(() => expect(screen.getByText(/exempt \(0%/i)).toBeInTheDocument());
+  });
+
   it('readonly does not see them either', async () => {
     renderTab({ role: 'readonly', permissions: ['clients.view'] });
     await waitFor(() => expect(screen.getByText('Credit score')).toBeInTheDocument());
