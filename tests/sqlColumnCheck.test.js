@@ -486,3 +486,36 @@ describe('sql-column-check: new migrations are checked too', () => {
       });
   });
 });
+
+// =============================================================================
+// README counts — caught on main, not locally, four times in a row
+// =============================================================================
+// CI validates that README.md's migration range and table count match reality,
+// but `lint-and-test` is MAIN-PUSH ONLY: four PRs went green and then reddened
+// main, because migration 436 added a table and only the migration RANGE was
+// bumped, not the table count. This asserts both locally.
+describe('README is in sync with the schema and migrations', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+
+  test('the table count matches schema.sql', () => {
+    const actual = fs.readFileSync(path.join(root, 'database/schema.sql'), 'utf8')
+      .split('\n').filter(l => l.startsWith('CREATE TABLE')).length;
+    const claimed = readme.match(/all (\d+) tables/);
+    expect(claimed).not.toBeNull();
+    expect(Number(claimed[1])).toBe(actual);
+  });
+
+  test('the migration range matches the highest migration on disk', () => {
+    const nums = fs.readdirSync(path.join(root, 'database/migrations'))
+      .filter(f => f.endsWith('.sql'))
+      .map(f => parseInt(f.slice(0, f.indexOf('_')), 10))
+      .filter(Number.isFinite);
+    const highest = Math.max(...nums);
+    const claimed = readme.match(/001[–-](\d+)/);
+    expect(claimed).not.toBeNull();
+    expect(Number(claimed[1])).toBe(highest);
+  });
+});
