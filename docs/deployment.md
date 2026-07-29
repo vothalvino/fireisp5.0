@@ -83,10 +83,16 @@ For a standard redeploy, the repo ships **`redeploy.sh`** — it runs the whole
 flow (pull `main` → pull the matching image → migrate → verify) as one command
 and halts on the first failed step, so a rejected git pull or an image that CI
 has not published yet never goes on to migrate against a stale container.
-Install it once as a global command:
+
+`install.sh` sets this up for you. To add it to an existing install, create a
+**wrapper** (not a copy):
 
 ```bash
-sudo install -m 0755 /opt/fireisp/redeploy.sh /usr/local/bin/redeploy
+sudo tee /usr/local/bin/redeploy >/dev/null <<'EOF'
+#!/usr/bin/env bash
+exec env FIREISP_DIR=/opt/fireisp /opt/fireisp/redeploy.sh "$@"
+EOF
+sudo chmod +x /usr/local/bin/redeploy
 ```
 
 then redeploy any time, from any directory:
@@ -94,6 +100,14 @@ then redeploy any time, from any directory:
 ```bash
 sudo redeploy
 ```
+
+> **Why a wrapper and not `install -m 0755 …`?** A copy goes stale the moment
+> you `git pull`: you keep running the old script and get the old behaviour with
+> nothing to indicate it. The wrapper always executes the version that shipped
+> with the code you have. It also pins `FIREISP_DIR`, which cannot be left to
+> the caller — `sudo` resets the environment, so `FIREISP_DIR=… sudo redeploy`
+> is silently discarded. If you already installed a copy, replace it with the
+> wrapper above.
 
 > **Release note — payment webhooks now fail closed.** If you receive Stripe or
 > Conekta webhooks, you **must** set `STRIPE_WEBHOOK_SECRET` / `CONEKTA_WEBHOOK_KEY`
@@ -160,12 +174,17 @@ are still serving. Two causes worth telling apart:
 
 ##### Upgrading from a build-on-the-server install
 
-`redeploy` is installed as a **copy** in `/usr/local/bin`, so after pulling this
-change the old build-based script is still what runs. Reinstall it first:
+If `/usr/local/bin/redeploy` is a **copy** of the old script (the pre-wrapper
+install form), it is still what runs after `git pull` — replace it with the
+wrapper shown above, then deploy:
 
 ```bash
 git -C /opt/fireisp pull
-sudo install -m 0755 /opt/fireisp/redeploy.sh /usr/local/bin/redeploy
+sudo tee /usr/local/bin/redeploy >/dev/null <<'EOF'
+#!/usr/bin/env bash
+exec env FIREISP_DIR=/opt/fireisp /opt/fireisp/redeploy.sh "$@"
+EOF
+sudo chmod +x /usr/local/bin/redeploy
 sudo redeploy
 ```
 
