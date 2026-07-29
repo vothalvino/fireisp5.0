@@ -517,11 +517,38 @@ fi
 # matters, because the frontend build alone peaks around 1.43 GB RSS and the
 # documented minimum for this stack is 2 GB total.
 #
-# Air-gapped or building from an unmerged commit? Add the build override:
-#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
-info "Pulling images and starting containers (first run downloads ~400 MB)..."
-$COMPOSE pull
-$COMPOSE up -d
+# The published image is linux/amd64 ONLY. On any other architecture we build
+# from source instead, which is what this installer always used to do. Checked
+# BEFORE pulling, because at this point the TLS certificate has already been
+# issued — letting `set -e` abort here on an unmatched manifest would send the
+# operator into a retry loop that burns Let's Encrypt's duplicate-certificate
+# rate limit (5/week) for a problem no retry can fix.
+_ARCH="$(uname -m)"
+if [[ "$_ARCH" == "x86_64" || "$_ARCH" == "amd64" ]]; then
+  info "Pulling images and starting containers (first run downloads ~400 MB)..."
+  if ! $COMPOSE pull; then
+    warn ""
+    warn "Could not pull the application image."
+    warn ""
+    warn "If the error above says 'denied' or 'unauthorized', the GitHub package"
+    warn "is private — GitHub makes container packages private by DEFAULT, even"
+    warn "for a public repository. Either make it public:"
+    warn "  GitHub → Packages → fireisp5.0 → Package settings → Change visibility"
+    warn "or authenticate this host:"
+    warn "  echo \"\$GHCR_PAT\" | docker login ghcr.io -u <github-username> --password-stdin"
+    warn ""
+    warn "Then re-run this installer. Your .env.prod and TLS certificate are"
+    warn "already in place and will be reused — nothing is lost."
+    die "Image pull failed."
+  fi
+  $COMPOSE up -d
+else
+  warn "Architecture '${_ARCH}' detected — the published image is amd64 only."
+  warn "Building from source instead. This needs real memory (the frontend"
+  warn "build peaks around 1.43 GB) and will take several minutes."
+  COMPOSE="$COMPOSE -f $INSTALL_DIR/docker-compose.build.yml"
+  $COMPOSE up -d --build
+fi
 log "Containers started."
 
 # ── Wait for database ─────────────────────────────────────────────────────────

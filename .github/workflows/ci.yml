@@ -608,6 +608,18 @@ jobs:
       # compiling on the VPS — a whole-program tsc + Vite build peaked at 1.43 GB
       # RSS, which on a small box evicted MySQL's buffer pools into swap and
       # eventually wedged the machine (see docs/deployment.md).
+      # The warm step is continue-on-error so a Docker Hub outage cannot red the
+      # branch for something that is not this repo's fault. That trade-off is
+      # right for a PR and WRONG for main: production now pulls what this job
+      # publishes, so "green" must mean "an image exists". Without this, a
+      # commit lands with no image, `redeploy` fails on the pull, and the
+      # operator is sent to an Actions page showing a green tick.
+      - name: Fail the branch if main produced no image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome != 'success'
+        run: |
+          echo "::error title=No image published::The image was never built (Docker Hub was unreachable), so commit ${{ github.sha }} has NO published image and cannot be deployed. Re-run this job once Docker Hub recovers."
+          exit 1
+
       - name: Log in to ghcr.io
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome == 'success'
         uses: docker/login-action@v3

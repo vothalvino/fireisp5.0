@@ -107,7 +107,8 @@ sudo redeploy
 > receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior for
 > local testing only — never set it in production.
 
-For a non-standard install path, set `FIREISP_DIR=/your/path redeploy`.
+For a non-standard install path, set `FIREISP_DIR` inside a root shell
+(`sudo -i`) — as a `sudo` prefix it is stripped, see the rollback note below.
 
 #### Nothing is compiled on the server
 
@@ -126,17 +127,59 @@ reboot. A reboot zeroes swap, which is why it appeared to "fix" it, and why the
 interval shrank as retained images grew the daemons' resident metadata.
 
 `redeploy` pins the image to the **exact commit** it just checked out, so
-`docker ps` and `git rev-parse HEAD` can never disagree. Rollback is therefore a
-tag change, not a rebuild:
+`docker ps` and `git rev-parse HEAD` can never disagree. Rolling back is
+therefore a tag change, not a rebuild — **pass the commit as an argument**:
 
 ```bash
-FIREISP_IMAGE_TAG=<older-commit-sha> sudo redeploy
+sudo redeploy <older-commit-sha>
 ```
 
-If the pull fails, CI has usually not finished publishing that commit yet — the
-image is pushed only *after* the scan passes. Nothing on the host has changed at
-that point; the previous containers are still serving. Check
-[Actions](https://github.com/vothalvino/fireisp5.0/actions) and re-run.
+> Not `FIREISP_IMAGE_TAG=<sha> sudo redeploy`. `sudo` resets the environment by
+> default (`Defaults env_reset`), so that prefix is **silently discarded** and
+> the script falls through to `HEAD` — redeploying the newest build, i.e. the
+> exact thing you were rolling back from, and exiting 0. An argument cannot be
+> stripped. The same applies to `FIREISP_DIR`: set it inside a root shell
+> (`sudo -i`) rather than as a `sudo` prefix.
+
+**Rolling the image back does not roll the database back.** Migrations already
+applied stay applied; `migrate.js` runs from inside the old image and no-ops,
+because that image only knows its own already-applied files. Old code against a
+forward schema is fine for additive migrations and breaks on a `DROP`, `RENAME`
+or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
+
+If the pull fails, nothing on the host has changed and the previous containers
+are still serving. Two causes worth telling apart:
+
+- **`manifest unknown`** — no image for that commit. Usually CI hasn't finished
+  (it publishes only *after* the scan passes). But note the `container-scan` job
+  is deliberately allowed to go **green without building** when Docker Hub is
+  unreachable, so on older commits a green tick is not proof an image exists —
+  open the run and look for "Container scan SKIPPED". (Since this change, that
+  case fails the branch on `main` rather than passing quietly.)
+- **`denied` / `unauthorized`** — see the one-time package-visibility step below.
+
+##### Upgrading from a build-on-the-server install
+
+`redeploy` is installed as a **copy** in `/usr/local/bin`, so after pulling this
+change the old build-based script is still what runs. Reinstall it first:
+
+```bash
+git -C /opt/fireisp pull
+sudo install -m 0755 /opt/fireisp/redeploy.sh /usr/local/bin/redeploy
+sudo redeploy
+```
+
+Skipping that is not harmless: the old script runs `up -d --build`, finds no
+`build:` block for `app`, and falls back to `${FIREISP_IMAGE:-…:latest}`. If CI
+has not yet published the commit you just pulled, `:latest` is still the
+*previous* one — so it succeeds while deploying older code against a newer
+source tree.
+
+##### Architecture
+
+The published image is **linux/amd64 only**. On ARM (Ampere, Graviton, Hetzner
+CAX) build from source with the override in "Building on the host anyway" below;
+`install.sh` detects this and does it for you.
 
 ##### One-time: make the image pullable
 
@@ -796,7 +839,7 @@ spec:
     spec:
       containers:
         - name: fireisp
-          image: fireisp/fireisp:5.0
+          image: ghcr.io/vothalvino/fireisp5.0:latest
           ports:
             - containerPort: 3000
               name: http

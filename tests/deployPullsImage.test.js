@@ -71,9 +71,18 @@ describe('redeploy.sh pulls and never builds', () => {
     expect(script).toMatch(/dc pull app/);
   });
 
-  it('never passes --build or --no-cache', () => {
-    expect(script).not.toMatch(/--build\b/);
-    expect(script).not.toMatch(/--no-cache/);
+  it('never INVOKES a build', () => {
+    // Targets invocation lines, not prose: the failure message legitimately
+    // tells an ARM operator the build-override command to run by hand, and a
+    // blanket text ban would forbid documenting the one supported escape hatch.
+    const invocations = script
+      .split('\n')
+      .filter(l => /^\s*(dc|docker compose|\$COMPOSE)\b/.test(l));
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const line of invocations) {
+      expect(line).not.toMatch(/--build\b/);
+      expect(line).not.toMatch(/--no-cache/);
+    }
   });
 
   it('pins the tag to the checked-out commit', () => {
@@ -90,23 +99,66 @@ describe('redeploy.sh pulls and never builds', () => {
     expect(script).toMatch(/export FIREISP_IMAGE=/);
   });
 
-  it('reclaims superseded images, without touching tagged ones', () => {
-    // The daemons hold resident metadata for every image they still know about,
-    // which is what made the reboot interval SHRINK. `-a` would evict tagged
-    // images too, including the one a rollback needs.
-    expect(script).toMatch(/docker image prune -f/);
+  it('accepts the rollback target as an ARGUMENT, ahead of the env var', () => {
+    // `sudo` resets the environment by default, so `FIREISP_IMAGE_TAG=x sudo
+    // redeploy` is silently discarded and the script falls through to HEAD —
+    // redeploying the newest build, i.e. the thing being rolled back FROM, and
+    // exiting 0. An argument cannot be stripped, so it must come first.
+    const tagLine = script.split('\n').find(l => l.trimStart().startsWith('TAG='));
+    expect(tagLine).toMatch(/^\s*TAG="\$\{1:-/);
+  });
+
+  it('enforces a retention policy, because a plain prune is inert here', () => {
+    // Every pulled image carries a unique :<sha> tag, so NOTHING is ever
+    // dangling and `docker image prune` alone reclaims zero. The retained set
+    // would grow by one image per deploy forever — which is what grows the
+    // daemons' resident metadata and shrinks the interval between wedges.
+    expect(script).toMatch(/KEEP_IMAGES=/);
+    expect(script).toMatch(/docker rmi/);
+    expect(script).toMatch(/tail -n "\+\$\{KEEP_IMAGES\}"/);
+    // `-a` would evict tagged images including the rollback target.
     expect(script).not.toMatch(/image prune\s+(-\w*a|--all)/);
+  });
+
+  it('waits for the container before migrating', () => {
+    // Pulling is fast, so the race the old multi-minute build hid is now real:
+    // `exec` against a crash-looping image fails with a bare "container is not
+    // running", which reads as tooling trouble rather than a bad deploy.
+    // Anchored on the INVOCATION line, not the first textual occurrence —
+    // "migrate.js" also appears in the header comment explaining the rollback
+    // semantics, which sits above everything and would pass trivially.
+    const lines = script.split('\n');
+    const migrateAt = lines.findIndex(l => /^\s*dc exec .*migrate\.js/.test(l));
+    const waitAt = lines.findIndex(l => l.includes('become responsive'));
+    expect(migrateAt).toBeGreaterThanOrEqual(0);
+    expect(waitAt).toBeGreaterThanOrEqual(0);
+    expect(migrateAt).toBeGreaterThan(waitAt);
   });
 });
 
 describe('the installer does not compile on the target box', () => {
   const install = read('install.sh');
 
-  it('pulls instead of building', () => {
+  it('pulls the published image on the platform it is published for', () => {
     expect(install).toMatch(/\$COMPOSE pull/);
-    // Only the commented example of the deliberate build-override may mention it.
+  });
+
+  it('falls back to a source build ONLY behind an architecture check', () => {
+    // The published image is amd64-only, and `install.sh` runs under `set -e`
+    // AFTER the TLS certificate is issued — so an unmatched manifest on an ARM
+    // VPS would abort the install and push the operator into a retry loop that
+    // burns Let's Encrypt's 5/week duplicate-cert limit on something no retry
+    // can fix. A build fallback is correct here; an UNGUARDED build is the
+    // regression, because it puts a 1.43 GB compile back on the target box.
     const live = install.split('\n').filter(l => !l.trim().startsWith('#'));
-    expect(live.some(l => l.includes('up -d --build'))).toBe(false);
+    const archAt = live.findIndex(l => l.includes('uname -m'));
+    expect(archAt).toBeGreaterThanOrEqual(0);
+
+    live.forEach((line, i) => {
+      if (line.includes('up -d --build')) {
+        expect(i).toBeGreaterThan(archAt);
+      }
+    });
   });
 });
 
@@ -126,10 +178,48 @@ describe('CI publishes only what it scanned', () => {
     expect(push).toBeGreaterThan(scan);
   });
 
+  it('fails main when no image was produced, instead of passing quietly', () => {
+    // The Docker Hub warm step is continue-on-error so a third-party outage
+    // cannot red a PR. On main that is now wrong: production pulls what this
+    // job publishes, so "green" has to mean "an image exists". Otherwise a
+    // commit lands with no image, redeploy fails on the pull, and the operator
+    // is sent to an Actions page showing a green tick.
+    const guard = steps.find(s => (s.name || '').includes('produced no image'));
+    expect(guard).toBeDefined();
+    expect(guard.if).toContain("refs/heads/main");
+    expect(guard.if).toContain("outcome != 'success'");
+    expect(guard.run).toContain('exit 1');
+  });
+
   it('builds once and pushes those same tags, so the scanned bytes are the shipped bytes', () => {
     const build = steps[idx('Build Docker image')];
     expect(build.with.push).toBe(false);   // loaded locally for the scan first
     expect(build.with.load).toBe(true);
     expect(build.with.tags).toContain('RELEASE_IMAGE');
+  });
+});
+
+describe('k8s and Helm point at the image that is actually published', () => {
+  // These defaulted to `fireisp/fireisp`, which resolves to
+  // docker.io/fireisp/fireisp — a namespace this project does not control, so a
+  // squatter there would have been pulled and run. Worse, the cosign policies
+  // shipped alongside glob ghcr.io/vothalvino/fireisp5.0:*, so they never
+  // matched the deployed image and the signature check bought nothing.
+  const REGISTRY = 'ghcr.io/vothalvino/fireisp5.0';
+
+  it('the k8s Deployment uses the published image', () => {
+    const dep = yaml.load(read('k8s/deployment.yaml'));
+    const img = dep.spec.template.spec.containers[0].image;
+    expect(img).toContain(REGISTRY);
+  });
+
+  it('the Helm chart defaults to the published image', () => {
+    expect(yaml.load(read('charts/fireisp/values.yaml')).image.repository).toBe(REGISTRY);
+  });
+
+  it('the cosign policies verify that same path', () => {
+    for (const f of ['k8s/cosign-policy.yaml', 'charts/fireisp/templates/cosign-policy.yaml']) {
+      expect(read(f)).toContain(REGISTRY);
+    }
   });
 });
