@@ -22,7 +22,8 @@
 -- governs org-membership roles.
 -- =============================================================================
 
-INSERT IGNORE INTO permissions (name, description, `group`)
+-- Column is `module`, not `group` — permissions(id, name, description, module).
+INSERT IGNORE INTO permissions (name, description, module)
 VALUES (
   'clients.tax_exemption',
   'Set a client tax/IVA exemption (affects CFDI output)',
