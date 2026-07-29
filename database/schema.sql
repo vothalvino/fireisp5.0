@@ -14026,6 +14026,16 @@ CREATE TABLE IF NOT EXISTS whatsapp_conversation_state (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- Table: tls_monitor_state (migration 434)
+CREATE TABLE IF NOT EXISTS ops_alert_deliveries (
+    id         BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    alert_key  VARCHAR(255)     NOT NULL COMMENT 'Alert title — carries what makes it distinct',
+    channel    VARCHAR(32)      NOT NULL DEFAULT 'email',
+    sent_at    TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_ops_alert_key (alert_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS tls_monitor_state (
     id                   TINYINT UNSIGNED NOT NULL DEFAULT 1
                              COMMENT 'Always 1 — the certificate is install-wide, so this is a single row',

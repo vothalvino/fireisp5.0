@@ -88,10 +88,59 @@ function fetchPeerCertificate(hostname, port) {
  * scheduled task runs daily and must not re-alert every run for the same
  * certificate and threshold — but it MUST alert again for a new certificate.
  */
+/**
+ * Deliver an infrastructure alert to the configured ops contact.
+ *
+ * Email only, by design: there is no user row to attach a bell notification to,
+ * and creating one would drop a host-level message into some tenant's list.
+ *
+ * Dedupe is an INSERT IGNORE on the UNIQUE alert_key rather than a
+ * SELECT-then-INSERT, so two runs racing cannot both decide the alert is new.
+ * The row is written FIRST and rolled back if nothing could be delivered — the
+ * marker must never outlive a failed send, or the alert is suppressed forever.
+ */
+async function deliverToOps({ opsEmails, title, body }) {
+  const emailTransport = require('./emailTransport');
+
+  const [claim] = await db.query(
+    'INSERT IGNORE INTO ops_alert_deliveries (alert_key, channel) VALUES (?, ?)',
+    [title.slice(0, 255), 'email'],
+  );
+  if (claim.affectedRows === 0) return 0;   // already alerted for this exact title
+
+  let sent = 0;
+  for (const to of opsEmails) {
+    try {
+      await emailTransport.sendEmail({ to, subject: title, text: body });
+      sent += 1;
+    } catch (err) {
+      logger.warn({ err: err.message, to }, 'Ops alert email failed');
+    }
+  }
+
+  if (sent === 0) {
+    // Nothing went out. Release the claim so the next run retries instead of
+    // treating a total delivery failure as "already handled".
+    await db.query('DELETE FROM ops_alert_deliveries WHERE alert_key = ?', [title.slice(0, 255)])
+      .catch(() => {});
+    logger.error({ title }, 'Ops alert could not be delivered to any configured address');
+  }
+  return sent;
+}
+
 async function deliver({ organizationId, type, title, body }) {
   const Notification = require('../models/Notification');
   const User = require('../models/User');
   const emailTransport = require('./emailTransport');
+
+  // A configured ops contact wins. It is addressed by email only — there is no
+  // user row to hang a bell notification on, and inventing one would put a
+  // tenant-visible notification in somebody's list.
+  const { opsAlertRecipients } = require('./opsContact');
+  const opsEmails = await opsAlertRecipients();
+  if (opsEmails.length > 0) {
+    return deliverToOps({ opsEmails, title, body });
+  }
 
   const recipients = await User.getStaffByEffectiveRole(organizationId, ['admin', 'manager']);
   if (recipients.length === 0) {
@@ -171,6 +220,13 @@ async function notifyTlsExpiry({ hostname, validTo, daysLeft, threshold, organiz
 async function notifyForAllOrgs(organizationId, notify) {
   let orgIds = [organizationId];
   if (organizationId === null || organizationId === undefined) {
+    // A dedicated ops contact REPLACES the fan-out (migration 436). The
+    // certificate is install-wide, so with an operator on file there is no
+    // reason to page every tenant's admins about a host they cannot reach.
+    // Delivered once, under organizationId null.
+    const { hasOpsContact } = require('./opsContact');
+    if (await hasOpsContact()) return notify(null);
+
     const [orgs] = await db.query(
       "SELECT id FROM organizations WHERE deleted_at IS NULL AND status = 'active'",
     );
