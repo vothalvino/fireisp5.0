@@ -475,7 +475,26 @@ jobs:
           retention-days: 14
 
   container-scan:
-    runs-on: ubuntu-latest
+    # One NATIVE runner per architecture. The alternative — one job with
+    # `platforms: linux/amd64,linux/arm64` — emulates arm64 through QEMU, and a
+    # whole-program TypeScript build under emulation takes long enough to make
+    # CI flaky, which is how people learn to ignore red builds.
+    #
+    # Splitting also preserves the property that matters: each job LOADS its own
+    # single-platform image, scans exactly those bytes, and pushes exactly those
+    # bytes. `load: true` cannot load a multi-platform manifest at all, so a
+    # single combined build would have had to push first and scan afterwards.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       security-events: write  # upload Trivy SARIF to GitHub Security tab
@@ -541,19 +560,21 @@ jobs:
           context: .
           push: false
           load: true
+          platforms: ${{ matrix.platform }}
           tags: |
-            fireisp/fireisp:ci-${{ github.sha }}
-            ${{ env.RELEASE_IMAGE }}:${{ github.sha }}
-            ${{ env.RELEASE_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            fireisp/fireisp:ci-${{ github.sha }}-${{ matrix.arch }}
+            ${{ env.RELEASE_IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
+          # Scoped per architecture. Without this the two matrix jobs share one
+          # cache key and repeatedly evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
       - name: Generate SBOM with Syft
         if: steps.warm.outcome == 'success'
         uses: anchore/sbom-action@v0.18.0
         with:
-          image: fireisp/fireisp:ci-${{ github.sha }}
-          artifact-name: sbom-${{ github.sha }}.spdx.json
+          image: fireisp/fireisp:ci-${{ github.sha }}-${{ matrix.arch }}
+          artifact-name: sbom-${{ github.sha }}-${{ matrix.arch }}.spdx.json
           output-file: sbom.spdx.json
           format: spdx-json
 
@@ -561,7 +582,7 @@ jobs:
         if: steps.warm.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
-          name: sbom-${{ github.sha }}
+          name: sbom-${{ github.sha }}-${{ matrix.arch }}
           path: sbom.spdx.json
           retention-days: 90
 
@@ -569,7 +590,7 @@ jobs:
         if: github.event_name == 'pull_request' && steps.warm.outcome == 'success'
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: fireisp/fireisp:ci-${{ github.sha }}
+          image-ref: fireisp/fireisp:ci-${{ github.sha }}-${{ matrix.arch }}
           format: sarif
           output: trivy-results.sarif
           version: v0.71.1
@@ -583,7 +604,7 @@ jobs:
         if: github.event_name != 'pull_request' && steps.warm.outcome == 'success'
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: fireisp/fireisp:ci-${{ github.sha }}
+          image-ref: fireisp/fireisp:ci-${{ github.sha }}-${{ matrix.arch }}
           format: sarif
           output: trivy-results.sarif
           version: v0.71.1
@@ -597,7 +618,7 @@ jobs:
         uses: actions/upload-artifact@v6
         if: always() && steps.warm.outcome == 'success'
         with:
-          name: trivy-results-${{ github.sha }}
+          name: trivy-results-${{ github.sha }}-${{ matrix.arch }}
           path: trivy-results.sarif
           retention-days: 30
 
@@ -633,30 +654,82 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome == 'success'
         run: |
           set -euo pipefail
-          # Both tags already point at the image built above, so this pushes the
-          # exact bytes Trivy cleared. :latest is what a fresh install pulls;
-          # the SHA tag is what redeploy pins to, which is what makes a rollback
-          # a tag change rather than a rebuild.
-          docker push "${RELEASE_IMAGE}:${{ github.sha }}"
-          docker push "${RELEASE_IMAGE}:latest"
-          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${RELEASE_IMAGE}:${{ github.sha }}")" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Image published::${RELEASE_IMAGE}:${{ github.sha }} — deploy with: sudo redeploy"
+          # The per-ARCHITECTURE tag only. The multi-arch :<sha> and :latest tags
+          # a host actually pulls are assembled from these by publish-manifest
+          # below, once BOTH architectures have been built and scanned — so a
+          # failure on one arch cannot leave :latest pointing at a half-published
+          # release. This pushes the exact bytes Trivy cleared.
+          docker push "${RELEASE_IMAGE}:${{ github.sha }}-${{ matrix.arch }}"
+          echo "::notice title=${{ matrix.arch }} image pushed::${RELEASE_IMAGE}:${{ github.sha }}-${{ matrix.arch }}"
+
+  # ---------------------------------------------------------------------------
+  # Combine the per-architecture images into ONE multi-arch tag.
+  #
+  # Until this runs there is no :<sha> or :latest, so `docker pull` sees nothing
+  # half-finished: either both architectures published and the manifest exists,
+  # or neither tag moved and servers keep running what they already have.
+  #
+  # `needs: container-scan` waits for every matrix leg, and because the matrix
+  # does not set continue-on-error a failed or unscanned architecture skips this
+  # job entirely.
+  # ---------------------------------------------------------------------------
+  publish-manifest:
+    needs: container-scan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # keyless cosign signing via OIDC
+
+    steps:
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the multi-arch manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+          # imagetools reads the two per-arch manifests straight from the
+          # registry and writes a manifest list. No image is rebuilt, so the
+          # bytes each architecture serves are still the scanned ones.
+          docker buildx imagetools create \
+            -t "${RELEASE_IMAGE}:${{ github.sha }}" \
+            -t "${RELEASE_IMAGE}:latest" \
+            "${RELEASE_IMAGE}:${{ github.sha }}-amd64" \
+            "${RELEASE_IMAGE}:${{ github.sha }}-arm64"
+
+          # Fail loudly if the list is not actually multi-arch — a manifest that
+          # silently lost an architecture would send ARM hosts back to building
+          # from source, which is the whole problem this exists to remove.
+          PLATFORMS=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${{ github.sha }}" --raw \
+            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' | sort -u)
+          echo "platforms: $PLATFORMS"
+          echo "$PLATFORMS" | grep -qx 'linux/amd64'
+          echo "$PLATFORMS" | grep -qx 'linux/arm64'
+
+          DIGEST=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${{ github.sha }}" \
+            --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=${RELEASE_IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Image published::${RELEASE_IMAGE}:${{ github.sha }} (linux/amd64 + linux/arm64) — deploy with: sudo redeploy"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.8.1
-        if: steps.publish.outcome == 'success'
 
-      - name: Sign image (keyless, main branch only)
-        # Was gated on vars.REGISTRY, which was never set — so this step had
-        # never actually run. It signs the published ghcr image by DIGEST, which
-        # is what the cosign policies in k8s/ and charts/ verify.
-        if: steps.publish.outcome == 'success'
+      - name: Sign the published manifest (keyless)
+        # Signs the MANIFEST LIST digest — that is what a host resolves when it
+        # pulls :latest or :<sha>, and what the cosign policies in k8s/ and
+        # charts/ verify. (This step was previously gated on vars.REGISTRY,
+        # which was never set, so signing had never actually run.)
         env:
           COSIGN_EXPERIMENTAL: "1"
-          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
-          echo "Signing ${IMAGE_DIGEST}"
-          cosign sign --yes "${IMAGE_DIGEST}"
+          echo "Signing ${{ steps.manifest.outputs.ref }}"
+          cosign sign --yes "${{ steps.manifest.outputs.ref }}"
 
   # ---------------------------------------------------------------------------
   # P2.2 — OWASP ZAP DAST (passive baseline scan)

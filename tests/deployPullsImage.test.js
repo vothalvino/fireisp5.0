@@ -199,6 +199,76 @@ describe('CI publishes only what it scanned', () => {
   });
 });
 
+describe('the image is published for every architecture people self-host on', () => {
+  const ci = yaml.load(read('.github/workflows/ci.yml'));
+  const scan = ci.jobs['container-scan'];
+  const manifest = ci.jobs['publish-manifest'];
+  const legs = scan.strategy.matrix.include;
+
+  it('builds amd64 AND arm64', () => {
+    // Dropping arm64 sends every ARM self-hoster back to compiling on their own
+    // VPS — the exact 1.43 GB build that made the box wedge. It would fail
+    // silently: amd64 hosts would never notice.
+    expect(legs.map(l => l.arch).sort()).toEqual(['amd64', 'arm64']);
+  });
+
+  it('uses NATIVE runners, not QEMU emulation', () => {
+    // `platforms: linux/amd64,linux/arm64` on one x86 runner emulates arm64,
+    // and a whole-program tsc build under QEMU is slow enough to make CI flaky.
+    for (const leg of legs) expect(leg.runner).toMatch(new RegExp(leg.arch === 'arm64' ? 'arm' : 'ubuntu'));
+    const build = scan.steps.find(s => (s.name || '').includes('Build Docker image'));
+    expect(build.with.platforms).toBe('${{ matrix.platform }}');   // ONE platform per job
+    expect(build.with.platforms).not.toContain(',');
+  });
+
+  it('scopes the build cache per architecture', () => {
+    // Unscoped, the two legs share a cache key and evict each other's layers
+    // every run — turning a cache into a slowdown.
+    const build = scan.steps.find(s => (s.name || '').includes('Build Docker image'));
+    expect(build.with['cache-from']).toContain('scope=');
+    expect(build.with['cache-to']).toContain('scope=');
+  });
+
+  it('container-scan publishes ONLY its per-arch tag', () => {
+    // :latest and :<sha> must not exist until BOTH arches are in, or a failure
+    // on one leg leaves the tag everyone pulls pointing at a half release.
+    const push = scan.steps.find(s => (s.name || '').includes('Push the scanned image'));
+    expect(push.run).toContain('matrix.arch');
+    expect(push.run).not.toMatch(/docker push "\$\{RELEASE_IMAGE\}:latest"/);
+  });
+
+  it('the manifest job waits for every architecture', () => {
+    expect(manifest.needs).toBe('container-scan');
+    expect(manifest.if).toContain('refs/heads/main');
+  });
+
+  it('the manifest job VERIFIES both platforms landed', () => {
+    // A manifest that silently lost an arch would send those hosts back to
+    // building from source, and nothing else would notice.
+    const create = manifest.steps.find(s => (s.name || '').includes('multi-arch manifest'));
+    expect(create.run).toContain('imagetools create');
+    // Asserted on the VERIFICATION construct, not the bare platform string.
+    // "linux/arm64" also appears in this step's success notice, so a plain
+    // toContain passes even with the check deleted — which is exactly what a
+    // mutation run caught.
+    expect(create.run).toMatch(/grep -qx 'linux\/amd64'/);
+    expect(create.run).toMatch(/grep -qx 'linux\/arm64'/);
+  });
+
+  it('cosign signs the manifest list, not one architecture', () => {
+    // A host pulling :latest resolves the manifest list digest — signing a
+    // single per-arch image would leave the thing actually pulled unsigned.
+    const sign = manifest.steps.find(s => (s.name || '').includes('Sign the published manifest'));
+    expect(sign.run).toContain('steps.manifest.outputs.ref');
+  });
+
+  it('the installer pulls on arm64 rather than building', () => {
+    const install = read('install.sh');
+    expect(install).toMatch(/aarch64/);
+    expect(install).toMatch(/arm64/);
+  });
+});
+
 describe('k8s and Helm point at the image that is actually published', () => {
   // These defaulted to `fireisp/fireisp`, which resolves to
   // docker.io/fireisp/fireisp — a namespace this project does not control, so a

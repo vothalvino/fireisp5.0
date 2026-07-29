@@ -517,14 +517,17 @@ fi
 # matters, because the frontend build alone peaks around 1.43 GB RSS and the
 # documented minimum for this stack is 2 GB total.
 #
-# The published image is linux/amd64 ONLY. On any other architecture we build
-# from source instead, which is what this installer always used to do. Checked
-# BEFORE pulling, because at this point the TLS certificate has already been
-# issued — letting `set -e` abort here on an unmatched manifest would send the
+# The image is published for linux/amd64 and linux/arm64, which covers every
+# mainstream VPS (including Ampere, Graviton and Hetzner CAX). Anything else —
+# 32-bit ARM, RISC-V — has no published image and builds from source, which is
+# what this installer always used to do.
+#
+# Checked BEFORE pulling, because the TLS certificate has already been issued by
+# this point: letting `set -e` abort on an unmatched manifest would send the
 # operator into a retry loop that burns Let's Encrypt's duplicate-certificate
-# rate limit (5/week) for a problem no retry can fix.
+# rate limit (5/week) on a problem no retry can fix.
 _ARCH="$(uname -m)"
-if [[ "$_ARCH" == "x86_64" || "$_ARCH" == "amd64" ]]; then
+if [[ "$_ARCH" == "x86_64" || "$_ARCH" == "amd64" || "$_ARCH" == "aarch64" || "$_ARCH" == "arm64" ]]; then
   info "Pulling images and starting containers (first run downloads ~400 MB)..."
   if ! $COMPOSE pull; then
     warn ""
@@ -543,9 +546,10 @@ if [[ "$_ARCH" == "x86_64" || "$_ARCH" == "amd64" ]]; then
   fi
   $COMPOSE up -d
 else
-  warn "Architecture '${_ARCH}' detected — the published image is amd64 only."
-  warn "Building from source instead. This needs real memory (the frontend"
-  warn "build peaks around 1.43 GB) and will take several minutes."
+  warn "Architecture '${_ARCH}' detected — no image is published for it"
+  warn "(amd64 and arm64 are). Building from source instead. This needs real"
+  warn "memory (the frontend build peaks around 1.43 GB) and takes several"
+  warn "minutes."
   COMPOSE="$COMPOSE -f $INSTALL_DIR/docker-compose.build.yml"
   $COMPOSE up -d --build
 fi
