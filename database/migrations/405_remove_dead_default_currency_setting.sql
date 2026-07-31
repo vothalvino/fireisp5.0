@@ -7,7 +7,7 @@
 -- balance. Migration 120 ALSO seeded a `default_currency` key into the global
 -- `settings` key/value map (surfaced by the org "Settings" modal), but nothing
 -- in the application ever reads it. The result is currency appearing in TWO
--- places that can silently disagree: on the demo the column reads MXN while
+-- places that can silently disagree: in live testing the column reads MXN while
 -- this dead setting reads USD. Editing the settings copy changes nothing,
 -- which is worse than useless — it's misleading.
 --

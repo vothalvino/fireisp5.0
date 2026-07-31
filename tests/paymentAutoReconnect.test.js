@@ -5,7 +5,7 @@
 // that fully pays a suspended contract's invoice marked the invoice PAID and
 // *then* threw inside suspensionService.reconnectContract — so the customer had
 // paid, the invoice said paid, and the service stayed suspended. Reproduced live
-// on the demo server before the fix.
+// in live testing before the fix.
 //
 // This test drives the real route through the real service with a mocked driver,
 // so the INSERT is executed for real against the mock and a bad column list shows

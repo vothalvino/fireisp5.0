@@ -1,9 +1,9 @@
 # No-redeploy live verification of frontend PRs (vite proxy → demo)
 
-**Learned:** 2026-07-16 overnight campaign (PRs #431/#432). The demo server cannot be redeployed by the agent (no SSH), but frontend-only PRs can still be FULLY live-verified pre-merge against the real production backend.
+**Learned:** 2026-07-16 overnight campaign (PRs #431/#432). A live install server cannot be redeployed by the agent (no SSH), but frontend-only PRs can still be FULLY live-verified pre-merge against the real production backend.
 
 **Recipe:**
-1. From the PR worktree: `VITE_API_URL=https://demo.opentrk.com.mx node_modules/.bin/vite --port 5173` — `frontend/vite.config.ts` proxies `/api`, `/healthz`, `/health` with `changeOrigin: true`.
+1. From the PR worktree: `VITE_API_URL=https://<your-domain> node_modules/.bin/vite --port 5173` — `frontend/vite.config.ts` proxies `/api`, `/healthz`, `/health` with `changeOrigin: true`.
 2. Auth works: the backend's `Secure` cookies are accepted on `http://localhost` (browsers treat localhost as a trustworthy origin); CSRF is same-origin through the proxy.
 3. Drive with Playwright from `e2e/node_modules` (`chromium` lives in `~/.cache/ms-playwright`); a standalone config with `testDir` pointed at a scratch dir works — no need to touch `e2e/tests/`.
 4. Only valid when the PR needs **zero backend changes** — the demo runs `main`, so new endpoints/migrations won't exist. Backend PRs still need a redeploy to walk.

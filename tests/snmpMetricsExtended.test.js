@@ -380,7 +380,7 @@ describe('SNMP Metrics extended routes (§6.2/6.3)', () => {
     test('metric lookups expand IN placeholders per device id and bind FLAT params (execute() does not expand array binds)', async () => {
       // Regression: db.query() is execute()-backed — `IN (?)` with a nested
       // array param silently returns empty rows on real MySQL while mocked
-      // tests stay green (the exact live failure found on the demo after
+      // tests stay green (the exact live failure found after
       // PR #439 deployed). Assert the generated SQL carries one `?` per
       // device id and that every bind is a scalar, never a nested array.
       mockFleetDb();

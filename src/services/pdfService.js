@@ -268,7 +268,7 @@ async function generateInvoicePdf(invoiceId, { locale = 'en' } = {}) {
 
     // MX-only: an unstamped invoice is a remisión, not a factura — say so.
     // Own line: sharing the status row collided with the date columns
-    // (caught on the live demo walk).
+    // (caught in live testing).
     if (mxRemision) {
       doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.danger)
         .text('REMISIÓN — SIN VALOR FISCAL', PAGE_MARGIN, y);

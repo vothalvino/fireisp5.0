@@ -105,7 +105,7 @@ describe('GET /portal/privacy-notice — bundled templates', () => {
   });
 
   it('never prints a dead placeholder when the org has no email or address', async () => {
-    // Found on the live demo after the redeploy: an org with no contact email
+    // Found in live testing after a deploy: an org with no contact email
     // produced "exercise your ARCO rights by writing to **—**", and claimed the
     // responsable was "located at —". A privacy notice whose legally-required
     // contact is an em-dash is a broken legal document, not a cosmetic gap.
