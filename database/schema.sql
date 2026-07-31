@@ -4018,6 +4018,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS outages (
     id                      BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    organization_id         BIGINT UNSIGNED  NULL     COMMENT 'Owning org, denormalised from site/device; NULL = unattributed legacy row, adoptable on write (migration 437)',
     site_id                 BIGINT UNSIGNED  NULL     COMMENT 'Affected site; NULL if device-level only',
     device_id               BIGINT UNSIGNED  NULL     COMMENT 'Affected device; NULL if site-wide',
     outage_type             ENUM('planned', 'unplanned') NOT NULL DEFAULT 'unplanned',
