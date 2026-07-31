@@ -67863,6 +67863,10 @@
       "speedTests_createSpeedTest": {
         "type": "object",
         "properties": {
+          "client_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "contract_id": {
             "type": "number",
             "minimum": 1
@@ -67870,6 +67874,9 @@
           "device_id": {
             "type": "number",
             "minimum": 1
+          },
+          "tested_at": {
+            "type": "string"
           },
           "download_mbps": {
             "type": "number",
@@ -67903,7 +67910,11 @@
           },
           "server_location": {
             "type": "string",
-            "maximum": 255
+            "maximum": 150
+          },
+          "ip_address": {
+            "type": "string",
+            "maximum": 45
           },
           "notes": {
             "type": "string",
@@ -67912,7 +67923,8 @@
         },
         "required": [
           "download_mbps",
-          "upload_mbps"
+          "upload_mbps",
+          "test_source"
         ]
       },
       "speedTests_updateSpeedTest": {

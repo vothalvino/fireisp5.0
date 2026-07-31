@@ -6802,6 +6802,7 @@ CREATE TABLE IF NOT EXISTS contract_addons (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS speed_tests (
     id               BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    organization_id  BIGINT UNSIGNED   NULL                      COMMENT 'Owning org, denormalised from client/contract/device; NULL = unattributed legacy row, adoptable on write (migration 438)',
     client_id        BIGINT UNSIGNED   NULL                      COMMENT 'Client who initiated or is associated with this test; NULL = probe-only',
     contract_id      BIGINT UNSIGNED   NULL                      COMMENT 'Contract (service) under test; NULL = not contract-specific',
     device_id        BIGINT UNSIGNED   NULL                      COMMENT 'CPE or probe device that ran the test; NULL = client browser test',
@@ -6815,11 +6816,12 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     packet_loss_pct  DECIMAL(5, 2)      NULL                      COMMENT 'Packet loss percentage (0.00–100.00)',
     ip_address       VARCHAR(45)        NULL                      COMMENT 'Public IP address observed during the test (IPv4 or IPv6)',
     notes            TEXT               NULL                      COMMENT 'Free-text observations or technician comments',
-    tested_at        TIMESTAMP          NOT NULL                  COMMENT 'When the test measurement was taken',
+    tested_at        TIMESTAMP          NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'When the test measurement was taken; defaults to insert time for live-recorded tests',
     created_at       TIMESTAMP          NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    KEY idx_speed_tests_org (organization_id, tested_at),
     KEY idx_speed_tests_client_id (client_id),
     KEY idx_speed_tests_contract_id (contract_id),
     KEY idx_speed_tests_device_id (device_id),
@@ -6831,7 +6833,9 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     CONSTRAINT fk_speed_tests_contract FOREIGN KEY (contract_id)
         REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_speed_tests_device FOREIGN KEY (device_id)
-        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES devices (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_speed_tests_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

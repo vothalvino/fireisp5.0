@@ -12,6 +12,7 @@ const { validate } = require('../middleware/validate');
 const { createOutage, updateOutage } = require('../middleware/schemas/outages');
 const db = require('../config/database');
 const eventBus = require('../services/eventBus');
+const { visibleToOrg, rejectOrgReassignment, adoptUnattributed } = require('../utils/orgAdoption');
 const logger = require('../utils/logger').child({ service: 'routes/outages' });
 
 const router = Router();
@@ -54,15 +55,9 @@ const ctrl = crudController(Outage, {
 router.use(authenticate);
 router.use(orgScope);
 
-/**
- * An outage the tenant may act on: theirs, or an unattributed legacy row.
- *
- * BaseModel cannot express this — with hasOrgScope true it emits a bare
- * `organization_id = ?`, which HIDES every NULL-org row. That is the anti-fix
- * #582 rejected for scheduled_tasks: an operator sees an empty page and
- * concludes nothing is wrong, which is worse than the leak it replaces.
- */
-const VISIBLE = '(o.organization_id = ? OR o.organization_id IS NULL)';
+// Theirs, or an unattributed legacy row. See src/utils/orgAdoption.js for why
+// BaseModel cannot express this.
+const VISIBLE = visibleToOrg('o');
 
 router.get('/', requirePermission('outages.view'), async (req, res, next) => {
   try {
@@ -108,53 +103,15 @@ router.get('/:id', requirePermission('outages.view'), async (req, res, next) => 
   } catch (err) { next(err); }
 });
 
-/**
- * An outage cannot be moved between tenants.
- *
- * organization_id must be fillable (create injects it, and adoption sets it),
- * and the update schema does not declare it — and validate() IGNORES
- * undeclared fields rather than stripping them. Without this a PUT could hand
- * an outage to another org, or NULL it and make it unattributed again.
- */
-function rejectOrgReassignment(req, res, next) {
-  if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'organization_id')) {
-    return res.status(422).json({
-      error: { code: 'ORG_IMMUTABLE', message: 'An outage cannot be moved to another organization.' },
-    });
-  }
-  next();
-}
-
-/**
- * Let the first tenant that writes to an unattributed legacy row ADOPT it.
- *
- * Without this, the strict write predicate makes those rows permanently
- * un-editable: a legacy 'ongoing' outage would sit on every tenant's NOC
- * dashboard with no way to resolve it. Adoption also closes the set — from
- * migration 437 on nothing new is unattributed, so this can only shrink.
- *
- * Runs BEFORE the write so BaseModel's `organization_id = ?` then matches.
- */
-async function adoptUnattributed(req, res, next) {
-  try {
-    const [rows] = await db.query(
-      'SELECT organization_id FROM outages WHERE id = ? LIMIT 1', [req.params.id],
-    );
-    if (rows[0] && rows[0].organization_id === null && req.orgId) {
-      await db.query(
-        'UPDATE outages SET organization_id = ? WHERE id = ? AND organization_id IS NULL',
-        [req.orgId, req.params.id],
-      );
-      logger.info({ outageId: req.params.id, organizationId: req.orgId },
-        'Adopted an unattributed outage into the acting organization');
-    }
-    next();
-  } catch (err) { next(err); }
-}
+// From migration 437 on nothing new is unattributed, so adoption only ever
+// shrinks the legacy set. Without it a legacy 'ongoing' outage would sit
+// un-resolvable on every tenant's NOC dashboard.
+const rejectMove = rejectOrgReassignment('outage');
+const adopt = adoptUnattributed('outages', 'outage');
 
 router.post('/', requirePermission('outages.create'), validate(createOutage), ctrl.create);
-router.put('/:id', requirePermission('outages.update'), rejectOrgReassignment, adoptUnattributed, validate(updateOutage), ctrl.update);
-router.delete('/:id', requirePermission('outages.delete'), adoptUnattributed, ctrl.destroy);
-router.post('/:id/restore', requirePermission('outages.update'), adoptUnattributed, ctrl.restore);
+router.put('/:id', requirePermission('outages.update'), rejectMove, adopt, validate(updateOutage), ctrl.update);
+router.delete('/:id', requirePermission('outages.delete'), adopt, ctrl.destroy);
+router.post('/:id/restore', requirePermission('outages.update'), adopt, ctrl.restore);
 
 module.exports = router;
