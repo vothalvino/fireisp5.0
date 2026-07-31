@@ -121,7 +121,7 @@ describe('POST /api/v1/plans/addons', () => {
     // billing_cycle omitted from the request must land as the column DEFAULT
     // ('monthly'), never as undefined — the mocked driver tolerates undefined
     // bind params but real mysql2 throws, which 500'd every addon create that
-    // omitted billing_cycle (found live on the demo, 2026-07-14).
+    // omitted billing_cycle (found in live testing, 2026-07-14).
     // description (migration 392 follow-up) omitted from the request lands as
     // NULL, same undefined-bind-param safety as billing_cycle above.
     expect(insertCall[1]).toEqual([10, 'Router Rental', 'equipment_rental', 7, null, 50, 'monthly', true, 'active']);

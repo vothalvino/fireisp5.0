@@ -108,7 +108,7 @@ describe('drDrillService.runDrill', () => {
   });
 
   it('a COMPLETE small-org dump passes — the old 1 MB floor was a false positive', async () => {
-    // ~300 KB gz like the live demo org: structurally complete, over the 64 KB
+    // ~300 KB gz like a populated install: structurally complete, over the 64 KB
     // floor, but far under the old hardcoded 1 MB minimum.
     setupHealthyBackup(tmpFile);
     expect(fs.statSync(tmpFile).size).toBeLessThan(1_048_576);

@@ -307,7 +307,7 @@ describe('throughput chart', () => {
   });
 
   it('bursty series: a tiny avg keeps its own unit instead of rounding to zero', () => {
-    // Live-observed shape on the demo org: one 40 Mbps spike over a ~650 bps
+    // Live-observed shape on a populated install: one 40 Mbps spike over a ~650 bps
     // baseline. A single shared unit would render AVG as "0.0 Mbps".
     const series: ThroughputSeries = {
       points: [{ ts: '2026-07-02T00:00:00Z', in_bps: 40_000_000, out_bps: 900 }],

@@ -127,7 +127,7 @@ describe('pollerEngine', () => {
     test("queries outages by 'ongoing' — the real enum member — not 'active' (regression)", async () => {
       // outages.status is ENUM('ongoing','resolved','post_mortem'); the old
       // literal 'active' is not a member, so the query matched zero rows and
-      // adaptive polling could never engage. Found live on the demo.
+      // adaptive polling could never engage. Found in live testing.
       db.query.mockResolvedValueOnce([[]]);
       await pollerEngine.adaptivePollCheck();
       const [sql] = db.query.mock.calls[0];

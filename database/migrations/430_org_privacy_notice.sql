@@ -26,7 +26,7 @@
 -- chain above it did — Organization.fillable lists it, the create/update
 -- validation schemas accept it, and OrganizationDetail renders a "Logo URL"
 -- input — so filling that field 500'd with ER_BAD_FIELD_ERROR (confirmed live
--- on the demo, 2026-07-27). Every empty save survived only because the form
+-- in live testing, 2026-07-27). Every empty save survived only because the form
 -- drops empty strings. sql:check never saw it: BaseModel's column list is
 -- dynamic SQL, which the checker skips rather than guesses.
 --

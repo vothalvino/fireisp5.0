@@ -4,7 +4,7 @@
 // Atomic, multi-invoice, oldest→newest payment allocation. Drives the real
 // route + src/services/paymentAllocationService.js through a mocked
 // PoolConnection, so a bad column/param list or a broken transaction boundary
-// shows up here rather than as a 500/wrong-order-applied on the demo server.
+// shows up here rather than as a 500/wrong-order-applied in live testing.
 //
 // See PR brief "payment waterfall" — RecordPaymentModal's invoice checklist
 // submits to this endpoint.

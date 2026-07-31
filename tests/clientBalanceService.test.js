@@ -6,7 +6,7 @@
 // support-context enrichment, the client portal dashboard) — it replaces the
 // old client_balance_ledger-derived figure, which could drift from reality
 // because not every money path wrote a ledger entry (see PR brief
-// "balance-computed-currency-org"; client 35 on the live demo had a credit-note
+// "balance-computed-currency-org"; client 35 in live testing had a credit-note
 // ledger entry showing "in credit" next to a genuinely unpaid open invoice).
 // =============================================================================
 
