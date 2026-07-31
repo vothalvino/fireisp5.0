@@ -136,3 +136,88 @@ describe('running a task', () => {
     expect(q[0]).toMatch(/organization_id = \? OR organization_id IS NULL/);
   });
 });
+
+// =============================================================================
+// The two holes #582 left, which its own review did not catch
+// =============================================================================
+// #582 fixed the READ leak (globals visible, flagged, read-only) and stopped
+// there. Two things it missed, both because ScheduledTask.hasOrgScope stayed
+// false while the table HAS an organization_id:
+//
+//   1. crudController injects organization_id on create ONLY when the flag is
+//      true — so every task a tenant created was written NULL-org, i.e. GLOBAL,
+//      and its own creator was then 403'd out of editing it. Silent: it looks
+//      like the task was created fine.
+//   2. update/delete/restore went through BaseModel with NO org predicate.
+//      blockGlobalTaskWrites did not catch it, because another org's task is
+//      not global — the guard waved it through.
+//
+// This is why the pattern had to be fixed BEFORE outages and speed_tests copy
+// it four more times.
+describe('#582 follow-up: a tenant task is OWNED, not global', () => {
+  it('stamps the creating org, so the task is not born global', async () => {
+    // If organization_id is missing from the INSERT the row is NULL-org, which
+    // this table treats as "shared by every organization" — the creator then
+    // cannot edit their own task.
+    wireDb({ rows: [] });
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[ADMIN]];
+      if (/^INSERT INTO `?scheduled_tasks`?/i.test(sql)) return [{ insertId: 77 }];
+      // BaseModel backticks the table name; the hand-written route queries do
+      // not. Matching only the unquoted form makes the create read-back return
+      // nothing and the route 500s on a null record.
+      if (/FROM `?scheduled_tasks`?/.test(sql)) return [[{ id: 77, organization_id: 1, task_name: 'my_sweep' }]];
+      return [[]];
+    });
+    db.execute.mockImplementation(db.query.getMockImplementation());
+
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks'))
+      .send({ task_name: 'my_sweep', task_type: 'radius_sync', cron_expression: '0 3 * * *' });
+
+    expect([200, 201]).toContain(res.status);
+    const insert = db.query.mock.calls.find(([s]) => /^INSERT INTO `?scheduled_tasks`?/i.test(s));
+    expect(insert).toBeDefined();
+    expect(insert[0]).toMatch(/organization_id/);
+    expect(insert[1]).toContain(1);
+  });
+
+  it("scopes an UPDATE, so another tenant's task is not writable", async () => {
+    // The row is NOT global (organization_id 2), so blockGlobalTaskWrites lets
+    // it through by design — BaseModel's org predicate is what must stop it.
+    wireDb({ targetOrg: 2, rows: [] });
+    const res = await auth(request(app).put('/api/v1/scheduled-tasks/50')).send({ is_enabled: false });
+
+    expect(res.status).not.toBe(200);
+    const upd = db.query.mock.calls.find(([s]) => /^UPDATE `?scheduled_tasks`?/i.test(s));
+    if (upd) expect(upd[0]).toMatch(/organization_id = \?/);
+  });
+
+  it('scopes a DELETE the same way', async () => {
+    wireDb({ targetOrg: 2, rows: [] });
+    const res = await auth(request(app).delete('/api/v1/scheduled-tasks/50')).send();
+    expect(res.status).not.toBe(204);
+    const del = db.query.mock.calls.find(([s]) => /^UPDATE `?scheduled_tasks`? SET deleted_at|^DELETE FROM `?scheduled_tasks`?/i.test(s));
+    if (del) expect(del[0]).toMatch(/organization_id = \?/);
+  });
+
+  it('refuses to MOVE a task between organizations', async () => {
+    // organization_id is fillable (create needs it) and undeclared in the
+    // update schema, and validate() ignores undeclared fields rather than
+    // stripping them — so without this guard a PUT could reassign the row, or
+    // set it NULL and promote it to a global nobody can edit.
+    wireDb({ targetOrg: 1, rows: [{ id: 20, organization_id: 1, task_name: 'mine' }] });
+    const res = await auth(request(app).put('/api/v1/scheduled-tasks/20'))
+      .send({ organization_id: 2, is_enabled: false });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ORG_IMMUTABLE');
+    expect(db.query.mock.calls.some(([s]) => /^UPDATE `?scheduled_tasks`?/i.test(s))).toBe(false);
+  });
+
+  it('promoting a task to GLOBAL via organization_id: null is refused too', async () => {
+    wireDb({ targetOrg: 1, rows: [{ id: 20, organization_id: 1, task_name: 'mine' }] });
+    const res = await auth(request(app).put('/api/v1/scheduled-tasks/20'))
+      .send({ organization_id: null });
+    expect(res.status).toBe(422);
+  });
+});

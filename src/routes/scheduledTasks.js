@@ -49,10 +49,25 @@ async function isGlobalTask(id) {
   return rows.length > 0 && rows[0].organization_id === null;
 }
 
+/**
+ * Refuse writes to a GLOBAL (NULL-org) task.
+ *
+ * This guard answers exactly one question — "is the target global?" — and
+ * nothing else. It is NOT a tenancy check: a task owned by ANOTHER
+ * organization is not global, so this waves it through by design. Strict
+ * ownership is BaseModel's job, via ScheduledTask.hasOrgScope, and that is
+ * the half #582 was missing: with the flag false, "not global" meant "no
+ * predicate at all" and one tenant could edit another tenant's task.
+ *
+ * Keeping the two concerns separate is deliberate. Folding ownership in here
+ * would put tenancy enforcement in a route helper for one table, where the
+ * next table would have to reimplement it; leaving it in the model means every
+ * verb — update, delete, restore — gets it without being asked.
+ */
 function blockGlobalTaskWrites(req, res, next) {
   isGlobalTask(req.params.id)
     .then((global) => {
-      if (!global) return next();
+      if (!global) return next();   // may still be another org's — see above
       res.status(403).json({
         error: {
           code: 'GLOBAL_TASK_READONLY',
@@ -61,6 +76,29 @@ function blockGlobalTaskWrites(req, res, next) {
       });
     })
     .catch(next);
+}
+
+/**
+ * organization_id is in `fillable` because crudController injects it on
+ * create. That also means a PUT body carrying one would reach
+ * BaseModel.update, and the update schema does not declare the field, so
+ * validate() lets it pass rather than rejecting it (undeclared fields are
+ * ignored, not stripped).
+ *
+ * The result would be a task MOVED into another tenant — or, worse, into NULL
+ * and thereby promoted to a global task that every org then sees and nobody
+ * can edit. Same hole that was closed for invoices with ORG_IMMUTABLE.
+ */
+function rejectOrgReassignment(req, res, next) {
+  if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'organization_id')) {
+    return res.status(422).json({
+      error: {
+        code: 'ORG_IMMUTABLE',
+        message: 'A scheduled task cannot be moved to another organization.',
+      },
+    });
+  }
+  next();
 }
 
 router.get('/', requirePermission('scheduled_tasks.view'), async (req, res, next) => {
@@ -104,7 +142,7 @@ router.get('/:id', requirePermission('scheduled_tasks.view'), async (req, res, n
 });
 
 router.post('/', requirePermission('scheduled_tasks.create'), quotaCheck('scheduled_tasks'), validate(createScheduledTask), ctrl.create);
-router.put('/:id', requirePermission('scheduled_tasks.update'), blockGlobalTaskWrites, validate(updateScheduledTask), ctrl.update);
+router.put('/:id', requirePermission('scheduled_tasks.update'), blockGlobalTaskWrites, rejectOrgReassignment, validate(updateScheduledTask), ctrl.update);
 router.delete('/:id', requirePermission('scheduled_tasks.delete'), blockGlobalTaskWrites, ctrl.destroy);
 
 // Manually trigger a task
