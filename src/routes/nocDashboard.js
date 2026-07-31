@@ -83,14 +83,23 @@ router.get('/alarms', requirePermission('noc.view'), async (req, res, next) => {
 });
 
 // GET /noc/outages — ongoing outages grouped by site
-// Note: outages table has no organization_id; filter via sites join
+//
+// Filtered on outages.organization_id (migration 437), NOT through the sites
+// join. The old form put `s.organization_id = ?` in the WHERE, which turns the
+// LEFT JOIN into an INNER JOIN and silently drops every outage with no site —
+// and alertService, the only automated creator, sets device_id and never
+// site_id. So this panel showed ZERO auto-created outages: exactly the ones a
+// NOC needs, invisible, with no error to notice.
+//
+// The join stays LEFT and is now only for the display name.
 router.get('/outages', requirePermission('noc.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
       `SELECT o.*, s.name AS site_name
        FROM outages o
        LEFT JOIN sites s ON s.id = o.site_id
-       WHERE s.organization_id = ? AND o.status = 'ongoing' AND o.deleted_at IS NULL
+       WHERE (o.organization_id = ? OR o.organization_id IS NULL)
+         AND o.status = 'ongoing' AND o.deleted_at IS NULL
        ORDER BY o.started_at DESC`,
       [req.orgId],
     );
@@ -129,10 +138,13 @@ router.get('/events', requirePermission('noc.view'), async (req, res, next) => {
       [req.orgId],
     );
     const [outageEvents] = await db.query(
+      // Same INNER-JOIN degeneration as /noc/outages above: filtering on the
+      // LEFT-joined sites row dropped every device-only outage from the
+      // timeline. No sites join needed here — nothing selects from it.
       `SELECT 'outage' AS event_type, o.id, o.title AS detail, o.status, o.started_at AS occurred_at
        FROM outages o
-       LEFT JOIN sites s ON s.id = o.site_id
-       WHERE s.organization_id = ? AND o.deleted_at IS NULL
+       WHERE (o.organization_id = ? OR o.organization_id IS NULL)
+         AND o.deleted_at IS NULL
        ORDER BY o.started_at DESC LIMIT 20`,
       [req.orgId],
     );

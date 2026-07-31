@@ -301,23 +301,34 @@ async function autoCreateOutage(organizationId, rule, breach) {
   try {
     const title = `Alert: ${rule.name} — ${breach.metric} ${breach.operator} ${breach.threshold}`;
 
+    // Scoped to THIS org: without it, another org's ongoing outage on the same
+    // device with the same title would suppress this one entirely.
+    //
+    // `deleted_at IS NULL` is not cosmetic either — a soft-deleted 'ongoing'
+    // row matched here forever, so once anyone archived an auto-created outage
+    // that alert could never raise one again.
     const [existing] = await db.query(
       `SELECT id FROM outages
        WHERE device_id = ? AND title = ? AND status = 'ongoing'
+         AND organization_id <=> ? AND deleted_at IS NULL
        LIMIT 1`,
-      [breach.device_id, title],
+      [breach.device_id, title, organizationId],
     );
     if (existing.length > 0) {
       return;
     }
 
-    // `outages` has no organization_id column — it is scoped through its
-    // device/site — and status is ENUM('ongoing','resolved','post_mortem'), so
-    // an outage that has just started is 'ongoing' (database/schema.sql).
+    // status is ENUM('ongoing','resolved','post_mortem'), so an outage that has
+    // just started is 'ongoing' (database/schema.sql).
+    //
+    // organization_id is written here (migration 437). This is the only
+    // automated creator on the platform, so nearly every outage row comes from
+    // it — miss it and the table backfills correctly and then immediately
+    // starts accumulating unattributed rows again.
     const [result] = await db.query(
-      `INSERT INTO outages (device_id, title, severity, status, started_at)
-       VALUES (?, ?, ?, 'ongoing', NOW())`,
-      [breach.device_id, title, rule.severity || 'major'],
+      `INSERT INTO outages (organization_id, device_id, title, severity, status, started_at)
+       VALUES (?, ?, ?, ?, 'ongoing', NOW())`,
+      [organizationId, breach.device_id, title, rule.severity || 'major'],
     );
 
     // Unlike POST /outages (src/routes/outages.js), this bypasses the route
