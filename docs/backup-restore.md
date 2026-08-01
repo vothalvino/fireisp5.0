@@ -64,10 +64,17 @@ docker compose exec app npm run backup
 Or backup the MySQL container directly:
 
 ```bash
-docker compose exec db mysqldump -u root -p"$DB_PASSWORD" \
-  --single-transaction --routines --triggers --events \
-  fireisp | gzip > backup-$(date +%Y%m%d-%H%M%S).sql.gz
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db-primary \
+  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -u root --single-transaction --routines --triggers --events fireisp' \
+  | gzip > backup-$(date +%Y%m%d-%H%M%S).sql.gz
 ```
+
+The single quotes are load-bearing: `$MYSQL_ROOT_PASSWORD` is expanded by the
+shell **inside** the container, from the environment Compose already gave it, so
+the password never reaches any command line. Never use `-p<password>` or
+`--password=` — `/proc/<pid>/cmdline` is world-readable, and container processes
+are visible in the host's `/proc` too. (On the dev stack the service is `db`;
+drop the `-f`/`--env-file` flags.)
 
 ---
 
@@ -145,10 +152,14 @@ mysql -u root -p fireisp_restored -e "CALL preflight_check_event_scheduler();"
 
 ```bash
 # Copy backup into container
-docker cp backup.sql.gz fireisp-db-1:/tmp/
+docker compose -f docker-compose.prod.yml --env-file .env.prod cp backup.sql.gz db-primary:/tmp/
 
-# Restore inside container
-docker compose exec db sh -c "gunzip < /tmp/backup.sql.gz | mysql -u root -p\$MYSQL_ROOT_PASSWORD fireisp"
+# Restore inside container (password expanded inside the container, never in argv)
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db-primary \
+  sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; gunzip < /tmp/backup.sql.gz | mysql -u root fireisp'
+
+# Remove the copy when the restore finishes
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db-primary rm -f /tmp/backup.sql.gz
 ```
 
 ### Point-in-Time Recovery (MySQL Binary Logs)

@@ -75,3 +75,98 @@ describe('setup.sh secret generation', () => {
     expect(env.REDIS_URL).toBe(`redis://:${env.REDIS_PASSWORD}@redis:6379`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// set_env_value must not hand a secret to another process, or mangle it
+// ---------------------------------------------------------------------------
+// It used to run `sed -i "s|^KEY=.*|KEY=${value}|"`, which execs sed with the
+// secret in its argv — and /proc/<pid>/cmdline is mode 0444, readable by every
+// local account. Every generated secret went through it: JWT_SECRET,
+// ENCRYPTION_KEY, and the DB / root / replication / Redis passwords.
+//
+// The same line was also a silent corruption bug, because sed's replacement
+// text has its own syntax: `&` means "the whole match" and `|` closed the
+// s-command. Verified against the old implementation — `sed&replace` was
+// written as `sedJWT_SECRET=oldreplace`, and `has|pipe&amp` as `old`.
+
+/** Call set_env_value in isolation, without running the rest of setup.sh. */
+function callSetEnvValue(file, key, value) {
+  const script = `
+    set -euo pipefail
+    eval "$(sed -n '/^set_env_value() {/,/^}/p' "$1")"
+    set_env_value "$2" "$3" "$4"
+  `;
+  return execFileSync('bash', ['-c', script, 'bash', path.join(REPO_ROOT, 'setup.sh'), file, key, value],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+const readKey = (file, key) => fs.readFileSync(file, 'utf8')
+  .split(/\r?\n/).find(l => l.startsWith(`${key}=`))?.slice(key.length + 1);
+
+describe('setup.sh set_env_value keeps secrets out of argv and intact', () => {
+  const HOSTILE = [
+    ['plain', 'simple123'],
+    ['sed replacement ampersand', 'sed&replace'],
+    ['pipe, the old sed delimiter', 'has|pipe&amp'],
+    ['backslash', 'back\\slash'],
+    ['double quote', 'quo"te'],
+    ['single quote', "sin'gle"],
+    ['forward slashes', 'a/b/c'],
+    ['shell substitution shapes', '$(id)`id`'],
+    ['spaces', 'sp ace'],
+  ];
+
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-setenv-')); });
+
+  const seed = (contents = 'JWT_SECRET=old\n# DB_PASSWORD=commented\nKEEP_ME=yes\n') => {
+    const file = path.join(dir, '.env');
+    fs.writeFileSync(file, contents);
+    fs.chmodSync(file, 0o600);
+    return file;
+  };
+
+  test.each(HOSTILE)('writes a value containing %s byte-for-byte', (_label, value) => {
+    const file = seed();
+    callSetEnvValue(file, 'JWT_SECRET', value);
+    expect(readKey(file, 'JWT_SECRET')).toBe(value);
+  });
+
+  test('uncomments a commented key rather than appending a duplicate', () => {
+    const file = seed();
+    callSetEnvValue(file, 'DB_PASSWORD', 'x|y\\z"q');
+    expect(readKey(file, 'DB_PASSWORD')).toBe('x|y\\z"q');
+    const occurrences = fs.readFileSync(file, 'utf8').split('\n').filter(l => l.startsWith('DB_PASSWORD='));
+    expect(occurrences).toHaveLength(1);
+  });
+
+  test('appends a key that is absent entirely', () => {
+    const file = seed();
+    callSetEnvValue(file, 'BRAND_NEW', 'v|a\\l');
+    expect(readKey(file, 'BRAND_NEW')).toBe('v|a\\l');
+  });
+
+  test('leaves other lines alone and preserves 0600 on the secrets file', () => {
+    // A rewrite that mv'd a temp over the original would replace the inode and
+    // take the umask's mode, quietly making DB_PASSWORD world-readable.
+    const file = seed();
+    callSetEnvValue(file, 'JWT_SECRET', 'zz');
+    expect(fs.readFileSync(file, 'utf8')).toContain('KEEP_ME=yes');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test('spawns nothing that could carry the secret in its argv', () => {
+    // The load-bearing property. Builtins only — no sed, no awk, no tee.
+    const body = fs.readFileSync(path.join(REPO_ROOT, 'setup.sh'), 'utf8');
+    const fn = body.slice(body.indexOf('set_env_value() {'), body.indexOf('\n}', body.indexOf('set_env_value() {')));
+    const code = fn.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
+    for (const forbidden of ['sed ', 'awk ', 'tee ', 'perl ', 'python']) {
+      expect(code).not.toContain(forbidden);
+    }
+    // grep is still used, but only to TEST for a key — never with the value.
+    for (const line of code.split('\n').filter(l => l.includes('grep'))) {
+      expect(line).not.toContain('$value');
+      expect(line).not.toContain('${value}');
+    }
+  });
+});

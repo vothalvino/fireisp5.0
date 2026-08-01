@@ -118,10 +118,16 @@ removed, restored into the new container that has the named volume attached.
 
    ```bash
    docker exec fireisp-db-1 sh -c \
-     'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" \
+     'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot \
        --single-transaction --routines --triggers --events --all-databases' \
      | gzip > migrate-$(date +%F-%H%M%S).sql.gz
    ```
+
+   The password goes in `MYSQL_PWD` rather than a `-p` flag because `/proc/<pid>/cmdline`
+   is world-readable — including on the host, for processes inside containers — so any
+   local account could read it off the running `mysqldump`. The single quotes are
+   load-bearing: the variable must be expanded inside the container, where the compose
+   file already set it.
 
    (Or run `npm run backup` if the app container can reach the database.)
 
@@ -137,7 +143,7 @@ removed, restored into the new container that has the named volume attached.
 
    ```bash
    gunzip < migrate-YYYY-MM-DD-HHMMSS.sql.gz \
-     | docker exec -i fireisp-db-1 sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+     | docker exec -i fireisp-db-1 sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
    ```
 
 4. **Re-verify** before declaring success:

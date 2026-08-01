@@ -55,6 +55,12 @@ export DB_USER="${DB_USER:-root}"
 read -s -p "MySQL password: " DB_PASS; export DB_PASS
 ```
 
+The commands below pass the password to the MySQL clients through the
+`MYSQL_PWD` environment variable rather than `--password=`.  `/proc/<pid>/cmdline`
+is world-readable, so any local account can read the full argv of a running
+`mysql`/`mysqldump`; the environment (`/proc/<pid>/environ`) is not.  At an
+interactive terminal, a bare `-p` (prompt, no value) is equally safe.
+
 ---
 
 ## Phase 1 — Take a Fresh Backup
@@ -83,9 +89,9 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_FILE="storage/backups/${DB_NAME}_${TIMESTAMP}.sql.gz"
 mkdir -p storage/backups
 
-mysqldump \
+MYSQL_PWD="$DB_PASS" mysqldump \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   --single-transaction \
   --routines --triggers --events \
   --set-gtid-purged=OFF \
@@ -119,15 +125,15 @@ Record the backup size and filename in [Timing Record](#timing-record).
 docker compose stop app 2>/dev/null || true
 
 # Drop the database
-mysql \
+MYSQL_PWD="$DB_PASS" mysql \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   -e "DROP DATABASE IF EXISTS \`${DB_NAME}\`;"
 
 # Verify it's gone
-mysql \
+MYSQL_PWD="$DB_PASS" mysql \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   -e "SHOW DATABASES LIKE '${DB_NAME}';" \
   | grep -q "$DB_NAME" \
   && echo "FAIL: database still exists" \
@@ -144,17 +150,17 @@ Record the time in [Timing Record](#timing-record).
 
 ```bash
 # Create a fresh database
-mysql \
+MYSQL_PWD="$DB_PASS" mysql \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   -e "CREATE DATABASE \`${DB_NAME}\`
         CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 # Restore from the backup taken in Phase 1
 gunzip -c "$BACKUP_FILE" | \
-  mysql \
+  MYSQL_PWD="$DB_PASS" mysql \
     --host="$DB_HOST" --port="$DB_PORT" \
-    --user="$DB_USER" --password="$DB_PASS" \
+    --user="$DB_USER" \
     "$DB_NAME"
 
 echo "Restore exit code: $?"
@@ -163,9 +169,9 @@ echo "Restore exit code: $?"
 ### Enable the event scheduler (required for SNMP rollups and partition maintenance)
 
 ```bash
-mysql \
+MYSQL_PWD="$DB_PASS" mysql \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   -e "SET GLOBAL event_scheduler = ON;"
 ```
 
@@ -274,9 +280,9 @@ WHERE pa.total_applied > p.amount + 0.01;
 
 ```bash
 # Run the built-in preflight check (starts application against the restored DB)
-mysql \
+MYSQL_PWD="$DB_PASS" mysql \
   --host="$DB_HOST" --port="$DB_PORT" \
-  --user="$DB_USER" --password="$DB_PASS" \
+  --user="$DB_USER" \
   "$DB_NAME" \
   -e "CALL preflight_check_event_scheduler();"
 ```

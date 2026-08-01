@@ -27,17 +27,55 @@ get_env_value() {
     grep -E "^${key}=" "$file" | tail -n 1 | cut -d= -f2- || true
 }
 
+# Write KEY=value into an env file WITHOUT the value ever becoming a command
+# argument.
+#
+# This used to run `sed -i "s|^KEY=.*|KEY=${value}|"`, which execs sed with the
+# secret in its argv — and /proc/<pid>/cmdline is mode 0444, so every local
+# account could read it while sed ran. Every generated secret went through here:
+# JWT_SECRET, ENCRYPTION_KEY, and the DB / root / replication / Redis passwords.
+#
+# Bash builtins only (read, printf, string tests). A builtin does not fork, so
+# nothing appears in any process table. That also removes the old landmine where
+# a value containing `|`, `&` or `\` was interpreted as sed replacement syntax
+# and silently corrupted the written secret.
+#
+# Substitution semantics are preserved exactly: every line matching `KEY=` is
+# replaced; failing that, every `# KEY=` / `#KEY=` line is uncommented and set;
+# failing that, the setting is appended.
 set_env_value() {
     local file="$1"
     local key="$2"
     local value="$3"
-    if grep -qE "^${key}=" "$file"; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
-    elif grep -qE "^# ?${key}=" "$file"; then
-        sed -i "s|^# \?${key}=.*|${key}=${value}|" "$file"
-    else
-        printf '\n%s=%s\n' "$key" "$value" >> "$file"
+    local line out="" found=0 mode="set"
+
+    if ! grep -qE "^${key}=" "$file"; then
+        if grep -qE "^# ?${key}=" "$file"; then
+            mode="uncomment"
+        else
+            printf '\n%s=%s\n' "$key" "$value" >> "$file"
+            return 0
+        fi
     fi
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$mode:$line" in
+            set:"${key}="*)              line="${key}=${value}"; found=1 ;;
+            uncomment:"# ${key}="*)      line="${key}=${value}"; found=1 ;;
+            uncomment:"#${key}="*)       line="${key}=${value}"; found=1 ;;
+        esac
+        out+="${line}"$'\n'
+    done < "$file"
+
+    # Never truncate a file holding DB_PASSWORD/ENCRYPTION_KEY on a logic error.
+    if [ "$found" -ne 1 ] || [ -z "$out" ]; then
+        echo "set_env_value: refusing to rewrite $file (no ${key} line matched)" >&2
+        return 1
+    fi
+
+    # Truncate-in-place rather than mv: mv would replace the inode and hand the
+    # file the umask's mode, turning a 0600 secrets file world-readable.
+    printf '%s' "$out" > "$file"
 }
 
 ensure_hex_secret() {

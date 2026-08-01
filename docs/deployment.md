@@ -1260,9 +1260,19 @@ mysqldump -h replica.db.example.com -u backup_user -p \
   --single-transaction --routines --events --triggers \
   fireisp > fireisp_backup_$(date +%Y%m%d).sql
 
-# Or use Percona XtraBackup for large databases
-xtrabackup --backup --target-dir=/backups/full \
-  --host=replica.db.example.com --user=backup_user --password=<password>
+# Or use Percona XtraBackup for large databases. Keep the password in a 0600
+# defaults file rather than in argv — /proc/<pid>/cmdline is world-readable, so
+# any local account can read the password off a running backup.
+cat > /etc/fireisp/backup.cnf <<'EOF'
+[xtrabackup]
+user=backup_user
+password=<password>
+EOF
+chmod 600 /etc/fireisp/backup.cnf
+
+xtrabackup --defaults-extra-file=/etc/fireisp/backup.cnf \
+  --backup --target-dir=/backups/full \
+  --host=replica.db.example.com
 ```
 
 Schedule daily backups via cron:
@@ -1606,18 +1616,31 @@ Service, Ingress, HPA, PDB, PVC, PrometheusRule, and ClusterImagePolicy).
 helm repo add fireisp https://vothalvino.github.io/fireisp5.0
 helm repo update
 
+# Generate the install values into a file — never pass secrets with --set
+umask 077
+cat > values-secret.yaml <<EOF
+ingress:
+  hostname: isp.example.com
+secrets:
+  JWT_SECRET: "$(openssl rand -base64 48)"
+  ENCRYPTION_KEY: "$(openssl rand -hex 32)"
+  DB_HOST: mysql.fireisp.svc.cluster.local
+  DB_PASSWORD: my-db-password
+EOF
+chmod 600 values-secret.yaml
+
 # Install into the fireisp namespace (creates namespace automatically)
 helm install fireisp fireisp/fireisp \
   --namespace fireisp --create-namespace \
-  --set ingress.hostname=isp.example.com \
-  --set secrets.JWT_SECRET="$(openssl rand -base64 48)" \
-  --set secrets.ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  --set secrets.DB_HOST=mysql.fireisp.svc.cluster.local \
-  --set secrets.DB_PASSWORD=my-db-password
+  -f values-secret.yaml
 ```
 
-> **Production secret management:** Do not pass secrets via `--set` in CI
-> pipelines. Use Sealed Secrets or External Secrets Operator instead —
+> **Production secret management:** `--set` is unsafe for secrets everywhere,
+> not just in CI: the value lands in helm's argv, and `/proc/<pid>/cmdline` is
+> world-readable, so any local account can read it while the command runs — and
+> it is then stored verbatim in the Helm release history. Keep
+> `values-secret.yaml` at mode 600 and out of git; beyond a first install, use
+> Sealed Secrets or External Secrets Operator —
 > see [docs/secrets-management.md](./secrets-management.md).
 
 ### Installing from Source
@@ -1784,15 +1807,27 @@ Combine Argo CD with [Sealed Secrets](https://github.com/bitnami-labs/sealed-sec
 so encrypted secret manifests can be committed safely to git:
 
 ```bash
+# Write the values to a 0600 file first — --from-literal would put them in
+# kubectl's argv, and /proc/<pid>/cmdline is world-readable to every local
+# account on the box.
+umask 077
+cat > secrets.env <<EOF
+JWT_SECRET=$(openssl rand -base64 48)
+ENCRYPTION_KEY=$(openssl rand -hex 32)
+DB_PASSWORD=my-password
+EOF
+chmod 600 secrets.env
+
 # Seal the fireisp-secret for the fireisp namespace
 kubectl create secret generic fireisp-secret \
   --namespace fireisp \
   --dry-run=client \
-  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
-  --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  --from-literal=DB_PASSWORD="my-password" \
+  --from-env-file=./secrets.env \
   -o yaml \
   | kubeseal --format yaml > gitops/fireisp-sealed-secret.yaml
+
+# The sealed manifest is the only copy that should survive
+shred -u secrets.env 2>/dev/null || rm -f secrets.env
 
 git add gitops/fireisp-sealed-secret.yaml
 git commit -m "chore: rotate fireisp secrets"
