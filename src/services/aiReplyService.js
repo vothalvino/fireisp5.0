@@ -357,6 +357,58 @@ async function _persistTriage({ ticketId, orgId, classification, suggestedResolu
 async function generate({ orgId, ticketId, channel = 'portal', inboundText, contractId = null } = {}) {
   const startTime = Date.now();
 
+  // ── Step 0: Ownership ───────────────────────────────────────────────────────
+  // BOTH ids arrive from callers that accept them from a request body, and
+  // everything downstream trusts them:
+  //
+  //   ticketId  → Ticket.getComments() is `SELECT * FROM ticket_comments WHERE
+  //               ticket_id = ?` with NO org predicate, and its rows (including
+  //               agent-only notes rendered as "(internal)") go into the prompt.
+  //               Worse, Step 10 WRITES: Ticket.addComment() is an unscoped
+  //               INSERT, and the `Ticket.findById(ticketId, orgId)` above it is
+  //               never null-checked — so a foreign ticket silently receives a
+  //               comment, customer-visible under mode='auto_send'.
+  //   contractId → serviceHealthService.getSnapshot() / topologyContextService
+  //               .summarize() key on contract_id and device_id with no org
+  //               predicate: RADIUS session and username, connection logs, plan
+  //               speeds, SNMP metrics, last speed test.
+  //
+  // #601 checked contractId in src/routes/ai.js. That was the wrong PLACE, not
+  // just an incomplete check: the REST route is one of four entry points, and
+  // the other three — the GraphQL aiDraftReply mutation, the ai-triage worker
+  // fed by POST /tickets, and the portal chat — bypassed it entirely. It also
+  // guarded one of the two ids in the very body it was hardening.
+  //
+  // The guard belongs here, where every caller converges and where orgId is
+  // already known. Returning `skipped` rather than throwing matches every other
+  // refusal in this function: callers already handle it, and a ticket that is
+  // not yours is indistinguishable from one that does not exist.
+  // Required locally, matching _persistTriage below — this module deliberately
+  // does not hold a module-scope db handle.
+  const db = require('../config/database');
+
+  if (ticketId !== null && ticketId !== undefined) {
+    const [tRows] = await db.query(
+      'SELECT id FROM tickets WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+      [ticketId, orgId],
+    );
+    if (!tRows.length) {
+      logger.warn({ orgId, ticketId }, 'aiReplyService: refused — ticket does not belong to this organization');
+      return { skipped: true, reason: 'ticket_not_in_org' };
+    }
+  }
+
+  if (contractId !== null && contractId !== undefined) {
+    const [cRows] = await db.query(
+      'SELECT id FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1',
+      [contractId, orgId],
+    );
+    if (!cRows.length) {
+      logger.warn({ orgId, contractId }, 'aiReplyService: refused — contract does not belong to this organization');
+      return { skipped: true, reason: 'contract_not_in_org' };
+    }
+  }
+
   // ── Step 1: Gate ────────────────────────────────────────────────────────────
   const policy = await AiPolicy.findByOrgId(orgId);
 
