@@ -266,3 +266,96 @@ describe('a REJECTED request must not transfer ownership', () => {
     expect(adopt).toBeDefined();
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A measurement may only reference the caller's OWN client/contract/device
+// ---------------------------------------------------------------------------
+// The FKs require these rows to EXIST, not to belong to anyone — an org-agnostic
+// FK cannot express tenancy. So org A could post a measurement against org B's
+// contract and crudController would stamp it organization_id = A: invisible to
+// B, undeletable by B, and still attached to B's contract.
+//
+// Not merely litter. serviceHealthService.getLastSpeedTest keyed on contract_id
+// alone, so B's own service-health panel — and the AI reply context — would read
+// A's forged row as B's most recent test. A fabricated 0.05 Mbps with a
+// far-future tested_at becomes B's "latest measurement".
+
+describe('forged references are refused', () => {
+  function wireOwnership({ owned = true } = {}) {
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[ADMIN]];
+      if (/FROM (clients|contracts|devices)\s+WHERE id = \?/.test(sql)) {
+        return [owned ? [{ id: 5 }] : []];
+      }
+      if (/COUNT\(\*\)/.test(sql)) return [[{ total: 0 }]];
+      if (/^INSERT INTO `?speed_tests`?/i.test(sql)) return [{ insertId: 99, affectedRows: 1 }];
+      if (/^UPDATE `?speed_tests`?/i.test(sql)) return [{ affectedRows: 1 }];
+      if (/FROM `?speed_tests`?/i.test(sql)) return [[MINE]];
+      return [[]];
+    });
+    db.execute.mockImplementation(db.query.getMockImplementation());
+  }
+
+  it.each([['client_id'], ['contract_id'], ['device_id']])(
+    'POST rejects a foreign %s', async (field) => {
+      wireOwnership({ owned: false });
+      const res = await auth(request(app).post('/api/v1/speed-tests')).send({
+        download_mbps: 0.05, upload_mbps: 0.05, test_source: 'technician', [field]: 777,
+      });
+      expect(res.status).toBe(422);
+      expect(db.query.mock.calls.some(([s]) => /^INSERT INTO `?speed_tests`?/i.test(s))).toBe(false);
+    },
+  );
+
+  it('the ownership probe binds the ACTING org, not the body', async () => {
+    wireOwnership();
+    await auth(request(app).post('/api/v1/speed-tests')).send({
+      download_mbps: 1, upload_mbps: 1, test_source: 'technician', contract_id: 5,
+    });
+    const probe = db.query.mock.calls.find(([s]) => /FROM contracts\s+WHERE id = \?/.test(s));
+    expect(probe).toBeDefined();
+    // The SQL, not only the params. Params are assembled regardless of what the
+    // WHERE clause says, so asserting them alone passes even with the org
+    // predicate deleted — found by mutation testing, which is the whole reason
+    // this line exists.
+    expect(probe[0]).toMatch(/organization_id = \?/);
+    expect(probe[0]).toMatch(/\? IS NULL AND organization_id IS NULL/);
+    expect(probe[1]).toEqual([5, 1, 1]);
+  });
+
+  it('accepts references the caller does own', async () => {
+    wireOwnership({ owned: true });
+    const res = await auth(request(app).post('/api/v1/speed-tests')).send({
+      download_mbps: 1, upload_mbps: 1, test_source: 'technician', contract_id: 5, client_id: 5,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('skips the probe entirely when no references are supplied', async () => {
+    // A probe-only measurement has none of the three; it must not 422.
+    wireOwnership();
+    const res = await auth(request(app).post('/api/v1/speed-tests')).send({
+      download_mbps: 1, upload_mbps: 1, test_source: 'automated_probe',
+    });
+    expect(res.status).toBe(201);
+    expect(db.query.mock.calls.some(([s]) => /FROM contracts\s+WHERE id = \?/.test(s))).toBe(false);
+  });
+
+  it('PUT is guarded too — the row can be re-pointed after creation', async () => {
+    wireOwnership({ owned: false });
+    const res = await auth(request(app).put('/api/v1/speed-tests/10')).send({ contract_id: 777 });
+    expect(res.status).toBe(422);
+  });
+
+  it('the health read will not consume a forged row', () => {
+    // The other half: even with the route guarded, rows predating this fix
+    // exist. getLastSpeedTest must not treat a row whose org differs from the
+    // contract's as that contract's latest measurement.
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/services/serviceHealthService.js'), 'utf8',
+    );
+    expect(src).toMatch(/JOIN contracts c ON c\.id = st\.contract_id/);
+    expect(src).toMatch(/st\.organization_id <=> c\.organization_id/);
+  });
+});
