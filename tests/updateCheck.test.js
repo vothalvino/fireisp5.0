@@ -163,17 +163,32 @@ describe('the answer stays FRESH enough to be useful', () => {
   });
 
   it('notices commits that land after the first check', async () => {
+    // Two steps, not one, since the check became non-blocking: the stale answer
+    // is served instantly with refreshing=true, and the fresh one lands right
+    // behind it. The client re-polls on that flag, so the operator still sees
+    // the update without touching anything — that is what makes the tab both
+    // fast AND accurate rather than trading one for the other.
     fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: RUNNING }) });
     expect((await updateCheck.getStatus()).update_available).toBe(false);
 
     fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
     const realNow = Date.now;
-    Date.now = () => realNow() + updateCheck.CHECK_TTL_MS + 1000;
+    const base = realNow();
+    Date.now = () => base + updateCheck.CHECK_TTL_MS + 1000;
     try {
-      const status = await updateCheck.getStatus();
-      expect(status.latest_sha).toBe(LATEST);
-      expect(status.update_available).toBe(true);
+      const first = await updateCheck.getStatus();
+      expect(first.refreshing).toBe(true);          // tells the client to look again
+      await new Promise((r) => setTimeout(r, 20));  // the refresh lands
+      const second = await updateCheck.getStatus();
+      expect(second.latest_sha).toBe(LATEST);
+      expect(second.update_available).toBe(true);
     } finally { Date.now = realNow; }
+  });
+
+  it('does not claim to be refreshing when the answer is fresh', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    await updateCheck.getStatus();
+    expect((await updateCheck.getStatus()).refreshing).toBe(false);
   });
 
   it('holds a FAILURE far longer than an answer', async () => {
@@ -203,6 +218,91 @@ describe('the answer stays FRESH enough to be useful', () => {
       await updateCheck.getStatus();
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     } finally { Date.now = realNow; }
+  });
+});
+
+describe('a page load never waits on GitHub', () => {
+  // The Version tab was blocking on a round trip to api.github.com before it
+  // could paint: ~300ms normally, and up to REQUEST_TIMEOUT_MS when GitHub is
+  // slow, rate-limiting or unreachable from the host. With a 15-minute TTL and
+  // someone visiting the tab occasionally, nearly EVERY visit was a cold one.
+  beforeEach(() => { process.env.FIREISP_GIT_SHA = RUNNING; });
+
+  it('serves the stale answer immediately once anything is cached', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: RUNNING }) });
+    await updateCheck.getStatus();                       // populate
+
+    // Make the network slow, and let the TTL lapse.
+    fetchSpy.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+      return { ok: true, status: 200, json: async () => ({ sha: LATEST }) };
+    });
+    const realNow = Date.now;
+    const base = realNow();
+    Date.now = () => base + updateCheck.CHECK_TTL_MS + 1000;
+    try {
+      const started = realNow();
+      const status = await updateCheck.getStatus();
+      const elapsed = realNow() - started;
+      expect(status.latest_sha).toBe(RUNNING);   // the stale value, served now
+      expect(elapsed).toBeLessThan(100);         // did NOT wait for the 250ms call
+    } finally { Date.now = realNow; }
+  });
+
+  it('picks up the refreshed value afterwards', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: RUNNING }) });
+    await updateCheck.getStatus();
+
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    const realNow = Date.now;
+    const base = realNow();
+    Date.now = () => base + updateCheck.CHECK_TTL_MS + 1000;
+    try {
+      await updateCheck.getStatus();                       // triggers background refresh
+      await new Promise((r) => setTimeout(r, 20));         // let it land
+      expect((await updateCheck.getStatus()).latest_sha).toBe(LATEST);
+    } finally { Date.now = realNow; }
+  });
+
+  it('the FIRST call of a process still waits — there is nothing to serve', async () => {
+    // Returning null here would render "could not reach github.com" on a
+    // perfectly healthy install. warmCache() moves this cost to boot.
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    expect((await updateCheck.getStatus()).latest_sha).toBe(LATEST);
+  });
+
+  it('deduplicates concurrent callers into one request', async () => {
+    // Several widgets mounting at once must not each hit GitHub.
+    fetchSpy.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+      return { ok: true, status: 200, json: async () => ({ sha: LATEST }) };
+    });
+    await Promise.all([updateCheck.getStatus(), updateCheck.getStatus(), updateCheck.getStatus()]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('warmCache', () => {
+  it('populates the cache so the first visit is instant', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    updateCheck.warmCache();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect((await updateCheck.getStatus()).latest_sha).toBe(LATEST);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);   // served from the warm cache
+  });
+
+  it('makes NO call when the operator has not enabled checks', async () => {
+    // Boot must not make a network request they declined.
+    process.env.FIREISP_UPDATE_CHECK = '0';
+    updateCheck.warmCache();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('never throws, so it cannot break boot', () => {
+    fetchSpy.mockRejectedValue(new Error('ENOTFOUND'));
+    expect(() => updateCheck.warmCache()).not.toThrow();
   });
 });
 

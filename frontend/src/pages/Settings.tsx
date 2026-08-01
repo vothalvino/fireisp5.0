@@ -1034,6 +1034,8 @@ interface SystemVersion {
   update_available: boolean;
   check_enabled: boolean;
   checked_at: string | null;
+  /** A refresh is running behind this response; poll again shortly. */
+  refreshing?: boolean;
 }
 
 function VersionTab() {
@@ -1043,6 +1045,13 @@ function VersionTab() {
     queryKey: ['system-version'],
     queryFn: () => apiFetch<{ data: SystemVersion }>(`${API_BASE}/system/version`),
     retry: false,
+    // The server answers instantly with a possibly-stale value rather than
+    // blocking on api.github.com. When it says a refresh is in flight, look
+    // again shortly so the fresh answer arrives without the operator having to
+    // do anything — otherwise "fast" would just mean "stale".
+    refetchInterval: (q) => (
+      (q.state.data as { data: SystemVersion } | undefined)?.data?.refreshing ? 1500 : false
+    ),
   });
 
   // Polled only while something is in flight — an idle Settings page has no
