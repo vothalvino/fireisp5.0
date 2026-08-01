@@ -4855,7 +4855,9 @@
     "checkedAt": "Última verificação",
     "howToUpdate": "Para atualizar, execute no servidor:",
     "howToEnable": "A verificação de atualizações vem ativada por padrão. É a única requisição externa que o FireISP faz por conta própria e nenhum dado da instalação é enviado. Para desativá-la, defina",
-    "howToEnableTail": "em .env.prod e reimplante."
+    "howToEnableTail": "em .env.prod e reimplante.",
+    "checkNow": "Verificar atualizações agora",
+    "checking": "Verificando…"
   },
   "deploy": {
     "title": "Implantação",
@@ -4865,12 +4867,15 @@
     "requestedAt": "Solicitada",
     "finishedAt": "Concluída",
     "agentMissing": "Nenhum agente de implantação se registrou a partir do servidor, portanto não há nada que execute a implantação. Instale-o uma vez:",
-    "agentMissingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina. Até instalar o agente, implante pela linha de comando com sudo redeploy.",
+    "agentMissingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina.",
     "status": {
       "pending": "Na fila",
       "running": "Em execução",
       "succeeded": "Concluída",
       "failed": "Falhou"
-    }
+    },
+    "nothingToDeploy": "Você está na versão mais recente — nada a implantar.",
+    "enableCheckFirst": "A verificação de atualizações está desativada, portanto não há com o que comparar. Ative-a para implantar daqui.",
+    "cliFallback": "Até lá, implante a partir do servidor com:"
   }
 }
