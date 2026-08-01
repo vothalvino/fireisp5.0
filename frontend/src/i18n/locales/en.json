@@ -4837,5 +4837,24 @@
   "updateBanner": {
     "message": "A newer FireISP release is available — running {{running}}, latest is {{latest}}.",
     "dismiss": "Dismiss until tomorrow"
+  },
+  "version": {
+    "title": "Installed version",
+    "loading": "Checking…",
+    "running": "Running commit",
+    "unknownBuild": "unknown",
+    "unknownBuildNote": "This image was not built by CI, so it carries no commit stamp. Deploy a published build to see the exact version.",
+    "checkState": "Update check",
+    "checkOn": "Enabled",
+    "checkOff": "Disabled — no outbound requests are made",
+    "latest": "Latest available",
+    "unreachable": "could not reach github.com",
+    "status": "Status",
+    "updateAvailable": "A newer release is available",
+    "upToDate": "Up to date",
+    "checkedAt": "Last checked",
+    "howToUpdate": "To update, run on the server:",
+    "howToEnable": "To check for new releases, set",
+    "howToEnableTail": "in .env.prod and redeploy. This is the only outbound request FireISP makes on its own; no install data is sent."
   }
 }
