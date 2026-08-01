@@ -179,11 +179,46 @@ router.post('/:id/push', requirePermission('radius.sync'), async (req, res, next
 // Per-account route injection CRUD (item 15 — Framed-Route)
 // =============================================================================
 
-router.get('/:id/routes', requirePermission('radius_account_routes.view'), async (req, res, next) => {
+/**
+ * Every handler below took the account id straight from the URL and queried
+ * radius_account_routes without an org predicate, on all four verbs:
+ *
+ *   GET    WHERE radius_account_id = ?                  -> cross-tenant read
+ *   POST   INSERT stamped req.orgId but never checked the PARENT account
+ *   PUT    WHERE id = ? AND radius_account_id = ?        -> cross-tenant write
+ *   DELETE same shape                                    -> cross-tenant delete
+ *
+ * The write side is the serious half. radiusService consumes these rows at
+ * AUTHENTICATION time to emit Framed-Route, so a route injected onto another
+ * tenant's account changes where that subscriber's traffic goes — a network
+ * effect, not a data one. The POST stamping req.orgId made it worse rather than
+ * better: the row looked correctly owned while hanging off someone else's
+ * account.
+ *
+ * Fixed the same way as the CPE parameter mappings: prove the parent belongs to
+ * the caller, then scope every query again.
+ */
+async function requireOwnedRadiusAccount(req, res, next) {
+  try {
+    // findByIdOrFail with orgId emits the org predicate and 404s otherwise —
+    // which is the right answer here, since which account ids exist is exactly
+    // what must not be confirmed.
+    await Radius.findByIdOrFail(req.params.id, req.orgId);
+    next();
+  } catch (err) { next(err); }
+}
+
+// Admits NULL-org rows so a single-tenant install (where req.orgId is null and
+// rows carry no org) still works — the same rule used elsewhere in this repo.
+const ROUTE_VISIBLE = '(organization_id = ? OR (? IS NULL AND organization_id IS NULL))';
+
+router.get('/:id/routes', requirePermission('radius_account_routes.view'), requireOwnedRadiusAccount, async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM radius_account_routes WHERE radius_account_id = ? AND deleted_at IS NULL ORDER BY id ASC',
-      [req.params.id],
+      `SELECT * FROM radius_account_routes
+        WHERE radius_account_id = ? AND deleted_at IS NULL AND ${ROUTE_VISIBLE}
+        ORDER BY id ASC`,
+      [req.params.id, req.orgId, req.orgId],
     );
     res.json({ data: rows });
   } catch (err) {
@@ -191,7 +226,7 @@ router.get('/:id/routes', requirePermission('radius_account_routes.view'), async
   }
 });
 
-router.post('/:id/routes', requirePermission('radius_account_routes.create'), validate(createRoute), async (req, res, next) => {
+router.post('/:id/routes', requirePermission('radius_account_routes.create'), requireOwnedRadiusAccount, validate(createRoute), async (req, res, next) => {
   try {
     const { destination, gateway, metric } = req.body;
     const [result] = await db.query(
@@ -206,15 +241,22 @@ router.post('/:id/routes', requirePermission('radius_account_routes.create'), va
   }
 });
 
-router.put('/:id/routes/:routeId', requirePermission('radius_account_routes.update'), validate(createRoute), async (req, res, next) => {
+router.put('/:id/routes/:routeId', requirePermission('radius_account_routes.update'), requireOwnedRadiusAccount, validate(createRoute), async (req, res, next) => {
   try {
     const { destination, gateway, metric } = req.body;
-    await db.query(
+    const [result] = await db.query(
       `UPDATE radius_account_routes SET destination=?, gateway=?, metric=?
-       WHERE id = ? AND radius_account_id = ? AND deleted_at IS NULL`,
-      [destination, gateway ?? null, metric ?? null, req.params.routeId, req.params.id],
+       WHERE id = ? AND radius_account_id = ? AND deleted_at IS NULL AND ${ROUTE_VISIBLE}`,
+      [destination, gateway ?? null, metric ?? null, req.params.routeId, req.params.id, req.orgId, req.orgId],
     );
-    const [rows] = await db.query('SELECT * FROM radius_account_routes WHERE id = ?', [req.params.routeId]);
+    // 404 on a miss rather than re-reading by id alone: the old version fetched
+    // the row with `WHERE id = ?` afterwards, so a rejected UPDATE still
+    // returned another tenant's route as though it had been edited.
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Route not found' });
+    const [rows] = await db.query(
+      `SELECT * FROM radius_account_routes WHERE id = ? AND ${ROUTE_VISIBLE}`,
+      [req.params.routeId, req.orgId, req.orgId],
+    );
     if (rows.length === 0) return res.status(404).json({ error: 'Route not found' });
     res.json({ data: rows[0] });
   } catch (err) {
@@ -222,18 +264,19 @@ router.put('/:id/routes/:routeId', requirePermission('radius_account_routes.upda
   }
 });
 
-router.delete('/:id/routes/:routeId', requirePermission('radius_account_routes.delete'), async (req, res, next) => {
+router.delete('/:id/routes/:routeId', requirePermission('radius_account_routes.delete'), requireOwnedRadiusAccount, async (req, res, next) => {
   try {
-    await db.query(
-      'UPDATE radius_account_routes SET deleted_at = NOW() WHERE id = ? AND radius_account_id = ? AND deleted_at IS NULL',
-      [req.params.routeId, req.params.id],
+    const [result] = await db.query(
+      `UPDATE radius_account_routes SET deleted_at = NOW()
+        WHERE id = ? AND radius_account_id = ? AND deleted_at IS NULL AND ${ROUTE_VISIBLE}`,
+      [req.params.routeId, req.params.id, req.orgId, req.orgId],
     );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Route not found' });
     res.status(204).end();
   } catch (err) {
     next(err);
   }
 });
-
 // =============================================================================
 // Walled Garden Settings (item 14)
 // =============================================================================
