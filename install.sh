@@ -560,9 +560,14 @@ log "Containers started."
 MAX_DB_WAIT_ITERATIONS=30
 info "Waiting for MySQL to be ready (up to 5 minutes)..."
 for i in $(seq 1 "$MAX_DB_WAIT_ITERATIONS"); do
+  # The password is expanded INSIDE the container (single quotes are the point)
+  # from the env compose already gave it. The old form put DB_ROOT_PASSWORD in
+  # the HOST process's argv, where /proc/<pid>/cmdline (mode 0444) exposed it to
+  # every local account for up to the full 5-minute wait. Same rule as the seed
+  # step below and deploy-agent.sh: no secret ever reaches host argv.
   if $COMPOSE exec -T db-primary \
-      mysqladmin ping -h localhost -u root "--password=${DB_ROOT_PASSWORD}" \
-      --silent >/dev/null 2>&1; then
+      sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqladmin ping -h localhost -u root --silent' \
+      >/dev/null 2>&1; then
     log "Database is ready."
     break
   fi

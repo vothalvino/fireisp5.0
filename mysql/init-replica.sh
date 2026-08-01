@@ -21,9 +21,17 @@ REPL_PASS="${MYSQL_REPL_PASSWORD:?MYSQL_REPL_PASSWORD must be set}"
 PRIMARY_HOST="db-primary"
 PRIMARY_PORT=3306
 
+# MYSQL_PWD, never -p<password>: this runs in a container, but a container
+# process's argv is visible in the HOST's /proc (/proc/<pid>/cmdline is
+# world-readable), so `-p"${MYSQL_ROOT_PASSWORD}"` exposed the root password to
+# every local account on the box — repeatedly, in the wait loop below. The
+# REPL_PASS interpolations further down are fine: they land in SQL fed over
+# STDIN (the heredocs), which never appears in any argv.
+export MYSQL_PWD="${MYSQL_ROOT_PASSWORD}"
+
 echo "[init-replica] Waiting for primary at ${PRIMARY_HOST}:${PRIMARY_PORT} ..."
 until mysqladmin ping -h "${PRIMARY_HOST}" -P "${PRIMARY_PORT}" \
-      -u root -p"${MYSQL_ROOT_PASSWORD}" --silent 2>/dev/null; do
+      -u root --silent 2>/dev/null; do
   echo "[init-replica] Primary not ready — sleeping 3s ..."
   sleep 3
 done
@@ -32,7 +40,7 @@ echo "[init-replica] Primary is up."
 # ── 1. Create the replication user on the PRIMARY (idempotent) ─────────────
 echo "[init-replica] Creating replication user '${REPL_USER}' on primary ..."
 mysql -h "${PRIMARY_HOST}" -P "${PRIMARY_PORT}" \
-      -u root -p"${MYSQL_ROOT_PASSWORD}" --protocol=TCP <<-SQL
+      -u root --protocol=TCP <<-SQL
   CREATE USER IF NOT EXISTS '${REPL_USER}'@'%'
     IDENTIFIED WITH caching_sha2_password BY '${REPL_PASS}';
   GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
@@ -41,7 +49,7 @@ SQL
 
 # ── 2. Point this replica at the primary using GTID auto-positioning ───────
 echo "[init-replica] Configuring replica ..."
-mysql -u root -p"${MYSQL_ROOT_PASSWORD}" --protocol=SOCKET <<-SQL
+mysql -u root --protocol=SOCKET <<-SQL
   STOP REPLICA;
   CHANGE REPLICATION SOURCE TO
     SOURCE_HOST      = '${PRIMARY_HOST}',
@@ -54,7 +62,7 @@ mysql -u root -p"${MYSQL_ROOT_PASSWORD}" --protocol=SOCKET <<-SQL
 SQL
 
 echo "[init-replica] Replication started. Checking status ..."
-mysql -u root -p"${MYSQL_ROOT_PASSWORD}" --protocol=SOCKET \
+mysql -u root --protocol=SOCKET \
       -e "SHOW REPLICA STATUS\G" | grep -E "(Replica_IO|Replica_SQL|Seconds_Behind)"
 
 echo "[init-replica] Done."
