@@ -4833,5 +4833,9 @@
     "technician": "Técnico",
     "lastReport": "Último reporte",
     "accuracyCol": "Precisión"
+  },
+  "updateBanner": {
+    "message": "Hay una versión más reciente de FireISP — en ejecución {{running}}, la más reciente es {{latest}}.",
+    "dismiss": "Ocultar hasta mañana"
   }
 }

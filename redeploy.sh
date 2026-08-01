@@ -180,8 +180,13 @@ EOF
   SUCCESSFUL deploy, so a run of failures lets them accumulate.
 
       df -h ${APP_DIR}
-      docker system df
-      docker image prune -a --filter "until=168h"
+      docker system df          # where the space actually went
+      docker builder prune -f   # build cache only -- keeps every image
+
+  To keep fewer rollback targets, lower FIREISP_IMAGE_KEEP (currently
+  ${KEEP_IMAGES}) and run a successful deploy; the prune step then reclaims the
+  rest. Do NOT reach for a blanket image prune: it deletes the older builds that
+  make \`sudo redeploy <sha>\` a one-step rollback.
 EOF
       ;;
     *)

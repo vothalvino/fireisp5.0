@@ -4833,5 +4833,9 @@
     "technician": "Technician",
     "lastReport": "Last report",
     "accuracyCol": "Accuracy"
+  },
+  "updateBanner": {
+    "message": "A newer FireISP release is available — running {{running}}, latest is {{latest}}.",
+    "dismiss": "Dismiss until tomorrow"
   }
 }

@@ -70,6 +70,7 @@ const pollerPerformanceRoutes = require('./routes/pollerPerformance');
 const connectionLogRoutes = require('./routes/connectionLogs');
 const networkHealthRoutes = require('./routes/networkHealth');
 const settingsRoutes = require('./routes/settings');
+const systemVersionRoutes = require('./routes/systemVersion');
 const messageTemplateRoutes = require('./routes/messageTemplates');
 const auditLogRoutes = require('./routes/auditLogs');
 const fileRoutes = require('./routes/files');
@@ -621,6 +622,8 @@ v1.use('/poller-performance', requireFeature('snmp'), pollerPerformanceRoutes);
 v1.use('/connection-logs', connectionLogRoutes);
 v1.use('/network-health', networkHealthRoutes);
 v1.use('/settings', adminIpAllowlist, settingsRoutes);
+// Install-operator only, and gated inside the router — see routes/systemVersion.js.
+v1.use('/system', systemVersionRoutes);
 v1.use('/message-templates', messageTemplateRoutes);
 v1.use('/audit-logs', adminIpAllowlist, auditLogRoutes);
 v1.use('/files', fileRoutes);

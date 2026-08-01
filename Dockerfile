@@ -83,6 +83,22 @@ RUN set -eux; \
 
 USER fireisp
 
+# The commit this image was built from. Nothing in the running app knew this
+# before: package.json carries a static "5.0.0" that has not moved in the
+# platform's lifetime, so "what is actually deployed?" could only be answered by
+# SSHing in and reading `git rev-parse HEAD` — which reports the SOURCE tree,
+# not the image, and those two disagree precisely when it matters (a rollback
+# pins an older image against a newer checkout).
+#
+# Declared LAST on purpose. GIT_SHA changes on every commit, so every layer at
+# or below its first use is cache-busted; putting it here means that is only
+# these two lines, not the apt install or the pnpm install above.
+#
+# Empty when built outside CI (docker-compose.build.yml passes nothing), and the
+# app treats an empty value as "unknown" rather than guessing.
+ARG GIT_SHA=""
+ENV FIREISP_GIT_SHA=$GIT_SHA
+
 EXPOSE 3000
 # Embedded RADIUS server (auth + accounting) — only used when RADIUS_SERVER_ENABLED=true
 EXPOSE 1812/udp 1813/udp
