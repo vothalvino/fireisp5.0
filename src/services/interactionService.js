@@ -47,7 +47,19 @@ const SURVEY_SCORE_RANGES = {
 async function activityTimeline(clientId, organizationId, { limit = 100, includeBillingTickets = true } = {}) {
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
 
-  // email_logs has no organization_id column — it is scoped via the client.
+  // Every branch below carries its own org predicate, because the client id
+  // arrives from the URL. The email_logs branch did NOT — it was written when
+  // that table genuinely had no organization_id, and migration 386 added one
+  // without this query being revisited. The stale comment that used to sit here
+  // said exactly that, which is how it survived.
+  //
+  // The gap was a real cross-tenant read: GET /clients/<another tenant's client
+  // id>/timeline returned empty for interactions, tickets, payments and SMS —
+  // all correctly scoped — while still listing that client's email SUBJECTS and
+  // RECIPIENT ADDRESSES.
+  //
+  // email_logs has no deleted_at column, so no soft-delete filter belongs on
+  // that branch (adding one would be a 500, not a tightening).
   const [rows] = await db.queryReplica(`
     SELECT * FROM (
       SELECT 'interaction' AS event_type, ci.id AS reference_id,
@@ -78,6 +90,7 @@ async function activityTimeline(clientId, organizationId, { limit = 100, include
       SELECT 'email', el.id, el.channel, el.subject, el.recipient, el.status, el.created_at
       FROM email_logs el
       WHERE el.client_id = ?
+        AND (? IS NULL OR el.organization_id = ?)
 
       UNION ALL
 
@@ -89,11 +102,11 @@ async function activityTimeline(clientId, organizationId, { limit = 100, include
     ORDER BY occurred_at DESC
     LIMIT ${safeLimit}
   `, [
-    clientId, organizationId, organizationId,
-    clientId, organizationId, organizationId,
-    clientId, organizationId, organizationId,
-    clientId,
-    clientId, organizationId, organizationId,
+    clientId, organizationId, organizationId,   // client_interactions
+    clientId, organizationId, organizationId,   // tickets
+    clientId, organizationId, organizationId,   // payments
+    clientId, organizationId, organizationId,   // email_logs  <- was `clientId` alone
+    clientId, organizationId, organizationId,   // sms_logs
   ]);
 
   return { client_id: Number(clientId), events: rows };
