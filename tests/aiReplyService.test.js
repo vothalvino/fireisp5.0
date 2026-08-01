@@ -65,6 +65,16 @@ jest.mock('../src/services/llmProviderService', () => ({
   chat: mockLlmChat,
 }));
 
+// generate() now proves the ticket and contract belong to the calling org before
+// it does anything else (Step 0). That probe reads the DB directly, so this file
+// needs a database mock it never previously required. Default: the ids DO belong
+// to the org, so every pre-existing case behaves as it did.
+const mockDbQuery = jest.fn();
+jest.mock('../src/config/database', () => ({
+  query:   (...args) => mockDbQuery(...args),
+  execute: (...args) => mockDbQuery(...args),
+}));
+
 // ---------------------------------------------------------------------------
 // Load service AFTER mocks are in place
 // ---------------------------------------------------------------------------
@@ -103,6 +113,8 @@ const DEFAULT_LOG_ENTRY = { id: 101 };
 const DEFAULT_TICKET = { id: 1, organization_id: 1, assigned_to: 7, contract_id: 10 };
 
 function setupDefaults() {
+  // Ownership probes pass, and _persistTriage's INSERT is a no-op.
+  mockDbQuery.mockResolvedValue([[{ id: 1 }]]);
   mockFindByOrgId.mockResolvedValue({ ...DEFAULT_POLICY });
   mockTopologySummarize.mockResolvedValue({ cpe: null, accessDevice: null, backhauls: [], coreDevice: null, activeOutages: [] });
   mockHealthSnapshot.mockResolvedValue({ contractId: 1, radiusSession: null });
@@ -129,6 +141,9 @@ const GENERATE_ARGS = {
   contractId:   10,
 };
 
+// Every describe needs the Step 0 ownership probe to pass by default — the
+// `gate` block has no setupDefaults() of its own, so this has to be global.
+beforeEach(() => mockDbQuery.mockResolvedValue([[{ id: 1 }]]));
 afterEach(() => jest.clearAllMocks());
 
 // =============================================================================
