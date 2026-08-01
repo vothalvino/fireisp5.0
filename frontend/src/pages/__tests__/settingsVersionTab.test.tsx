@@ -251,7 +251,11 @@ describe('Check for updates now', () => {
     await waitFor(() => {
       const call = mockFetch.mock.calls.find(([u]) => String(u).includes('/system/version/check'));
       expect(call).toBeDefined();
-      expect(call[1]?.method).toBe('POST');
+      // Optional chaining rather than indexing: expect(...).toBeDefined() does
+      // not narrow the type for TypeScript, so `call[1]` is a compile error
+      // (TS18048). The assertion below still fails correctly if `call` is
+      // undefined — it just does not break the build to say so.
+      expect(call?.[1]?.method).toBe('POST');
     });
   });
 
