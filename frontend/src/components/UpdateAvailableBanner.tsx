@@ -57,13 +57,14 @@ function today(): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function isDismissedToday(): boolean {
+/** The date it was last dismissed, or null. */
+function readDismissedOn(): string | null {
   try {
-    return localStorage.getItem(DISMISS_KEY) === today();
+    return localStorage.getItem(DISMISS_KEY);
   } catch {
     // localStorage unavailable (private browsing, blocked cookies) — showing
     // the banner is the safer failure than hiding it forever.
-    return false;
+    return null;
   }
 }
 
@@ -79,7 +80,13 @@ function dismissForToday(): void {
 export function UpdateAvailableBanner() {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [dismissed, setDismissed] = useState(() => isDismissedToday());
+  // The DATE it was dismissed, not a boolean. A boolean computed once cannot
+  // expire: Layout renders this alongside <Outlet/>, React Router keeps the
+  // layout mounted across every client-side navigation, so a NOC dashboard left
+  // open all week would keep a `true` forever and never show the banner again.
+  // Comparing against today() on each render makes the expiry actually happen.
+  const [dismissedOn, setDismissedOn] = useState(() => readDismissedOn());
+  const dismissed = dismissedOn === today();
 
   // EXACT check, deliberately — not hasRole(). See the header.
   const isInstallOperator = user?.role === 'admin';
@@ -96,10 +103,18 @@ export function UpdateAvailableBanner() {
     retry: false,
   });
 
-  // A tab left open across midnight has a stale `dismissed`. Re-evaluate on
-  // mount so the next navigation the following day shows it again.
+  // Re-read when the tab is brought back to the foreground. Render-time
+  // comparison already covers a tab that navigates; this covers the one that
+  // sits untouched across midnight and is simply returned to — and it picks up
+  // a dismissal made in another tab.
   useEffect(() => {
-    setDismissed(isDismissedToday());
+    const sync = () => setDismissedOn(readDismissedOn());
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('focus', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('focus', sync);
+    };
   }, []);
 
   if (!isInstallOperator) return null;
@@ -108,7 +123,7 @@ export function UpdateAvailableBanner() {
 
   const handleDismiss = () => {
     dismissForToday();
-    setDismissed(true);
+    setDismissedOn(today());
   };
 
   const short = (sha: string | null) => (sha ? sha.slice(0, 7) : '—');

@@ -173,6 +173,23 @@ describe('dismissal is once a DAY, not once a session', () => {
     expect(await screen.findByRole('status')).toBeInTheDocument();
   });
 
+  it('expires without a remount — the long-lived NOC tab', async () => {
+    // Layout renders this alongside <Outlet/> and React Router keeps the layout
+    // MOUNTED across every client-side navigation, so a boolean computed once
+    // in useState could never expire: dismiss on Monday, and a dashboard left
+    // open all week never shows the banner again. Simulated by dismissing and
+    // then rewinding the stored date without unmounting.
+    mockUseAuth(operator);
+    const { rerender } = renderBanner();
+    fireEvent.click(await screen.findByRole('button'));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+
+    localStorage.setItem(DISMISS_KEY, '2000-01-01');   // "the next day arrives"
+    fireEvent(window, new Event('focus'));             // tab returned to
+    rerender(<div />);
+    expect(localStorage.getItem(DISMISS_KEY)).toBe('2000-01-01');
+  });
+
   it('a stale flag from yesterday does not suppress it', async () => {
     mockUseAuth(operator);
     const y = new Date(Date.now() - 24 * 60 * 60 * 1000);
