@@ -264,7 +264,17 @@ async function getLastSpeedTest(contractId) {
 /**
  * Build a comprehensive service-health snapshot for a contract.
  *
- * @param {number}   contractId
+ * ⚠ PRECONDITION — contractId MUST already be proven to belong to the caller's
+ * organization. Every query below keys on contract_id or device_id and carries
+ * NO organization predicate of its own, so passing a caller-supplied id here
+ * reads across tenants: RADIUS session and username, connection logs, plan
+ * details, SNMP device metrics and the last speed test.
+ *
+ * Callers: tickets.js derives it from a ticket fetched WHERE organization_id =
+ * req.orgId; the portal chat passes none; ai.js validates ownership before
+ * calling (it is the only one that takes the id from a request body).
+ *
+ * @param {number}   contractId  org-validated by the caller — see above
  * @param {number[]} [pathDeviceIds=[]]  Device IDs along the topology path
  *   (from topologyContextService.summarize); used for SNMP metric lookup.
  * @returns {Promise<object>}
