@@ -7,11 +7,21 @@
 //   2. Is there a newer one?                  — needs an outbound call, and is
 //                                               OFF unless an operator opts in.
 //
-// WHY OPT-IN. FireISP is self-hosted by other people. A billing and network
-// management system that silently calls github.com every day is the kind of
-// thing that fails a customer's security review, and an air-gapped or
-// management-network install would log a failed request forever with no way to
-// stop it. So the default is off and the request carries no install data.
+// ON BY DEFAULT, OPT-OUT. A fresh install should tell its operator that a
+// newer release exists without anyone first discovering that a variable exists
+// and editing a file full of secrets to set it — an update notice nobody turns
+// on notifies nobody.
+//
+// The cost is real and stated rather than hidden: this is the only outbound
+// request FireISP makes on its own behalf. An air-gapped or
+// management-network install should set FIREISP_UPDATE_CHECK=0, which is
+// documented in .env.prod.example, docs/deployment.md and the Settings ->
+// Version tab. Until it does, the failed request is cached for a day and
+// logged at info — it never retries per page load and never surfaces an error.
+//
+// What it sends is unchanged and is what makes the default defensible: an
+// unauthenticated GET with no body, no identifiers, no version and no
+// telemetry.
 //
 // WHY AN ENV VAR AND NOT THE `settings` TABLE. That was the first design, and
 // it is wrong here. `settings` is install-wide (no organization_id) but is
@@ -60,14 +70,18 @@ function runningSha() {
 }
 
 /**
- * Whether the operator has opted in to the outbound check.
+ * Whether the check may run. Unset = ON; only an explicit falsey value is an
+ * opt-out.
  *
- * Unset = off. An install that never touches this makes no network calls at
- * all, which is the behaviour every existing install already has.
+ * Deliberately an allowlist of "off" spellings rather than `!== '1'`: an
+ * operator who writes `FIREISP_UPDATE_CHECK=yes` meaning to enable it must not
+ * be read as disabling it, and a typo should fail toward the documented
+ * default rather than silently disabling a feature they can then not explain.
  */
 function isEnabled() {
   const raw = String(process.env[ENV_FLAG] ?? '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
+  if (raw === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(raw);
 }
 
 /**

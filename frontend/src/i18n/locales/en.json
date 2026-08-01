@@ -4854,7 +4854,7 @@
     "upToDate": "Up to date",
     "checkedAt": "Last checked",
     "howToUpdate": "To update, run on the server:",
-    "howToEnable": "To check for new releases, set",
-    "howToEnableTail": "in .env.prod and redeploy. This is the only outbound request FireISP makes on its own; no install data is sent."
+    "howToEnable": "Update checks are on by default. This is the only outbound request FireISP makes on its own, and no install data is sent. To switch it off, set",
+    "howToEnableTail": "in .env.prod and redeploy."
   }
 }

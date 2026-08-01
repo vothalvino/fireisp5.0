@@ -124,14 +124,14 @@ describe('what it shows', () => {
     expect(screen.getByText('sudo redeploy')).toBeInTheDocument();
   });
 
-  it('explains how to switch the check on when it is off', async () => {
+  it('explains how to switch the check OFF, since on is now the default', async () => {
     // The disabled state is the DEFAULT, so this is the first thing most
     // operators will see. It has to say what to do, not just "Disabled".
     respondWith({ check_enabled: false, latest_sha: null, update_available: false, checked_at: null });
     renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Version/i }));
     expect(await screen.findByText(/Disabled/i)).toBeInTheDocument();
-    expect(screen.getByText('FIREISP_UPDATE_CHECK=1')).toBeInTheDocument();
+    expect(screen.getByText('FIREISP_UPDATE_CHECK=0')).toBeInTheDocument();
   });
 
   it('hides the upstream rows entirely when the check is off', async () => {
