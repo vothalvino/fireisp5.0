@@ -156,6 +156,12 @@ describe('the agent script keeps the invariant', () => {
   const src = () => require('node:fs').readFileSync(
     require('node:path').join(__dirname, '../deploy-agent.sh'), 'utf8',
   );
+  // EVERY negative assertion below must run against this, not the raw source.
+  // This script documents the constructs it deliberately rejected, so a bare
+  // "the file does not contain X" flags its own rationale — the same
+  // substring-matches-prose trap that has now produced three phantom failures
+  // in this feature's tests.
+  const code = () => src().split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
 
   it('runs redeploy.sh with no arguments', () => {
     // Written literally rather than assembled in a variable, so that this
@@ -198,30 +204,78 @@ describe('the agent script keeps the invariant', () => {
     expect(s).not.toMatch(/grep -E '\^DB_/);
   });
 
-  it('expands credentials inside the container and passes SQL as an env var — nothing secret in host argv', () => {
+  it('puts NOTHING sensitive in host argv — statement on stdin, credentials expanded in the container', () => {
+    // /proc/<pid>/cmdline is mode 0444: every local user can read the argv of a
+    // root process while it runs. An `exec -e SQL_STMT=...` form was tried and
+    // is NOT equivalent — bash expands it into the argv of the HOST docker
+    // process, exposing the whole statement including output_tail (registry
+    // URLs, image digests, migration output from a root process).
     const s = src();
-    // Load-bearing constructs, not prose: the -e flag carrying the statement…
-    expect(s).toMatch(/exec -T -e SQL_STMT="\$1"/);
-    // …and the single-quoted container command, so the host shell can expand
-    // neither the credentials nor the statement.
+    expect(s).toMatch(/printf '%s' "\$1" \| dc exec -T "\$DB_SERVICE"/);
+    expect(code()).not.toMatch(/-e SQL_STMT=/);
+    // The container command is single-quoted, so the host shell expands neither
+    // the credentials nor the statement.
     const cmd = s.split('\n').find((l) => l.includes('MYSQL_PWD='));
     expect(cmd).toBeDefined();
     expect(cmd.trim().startsWith("'MYSQL_PWD=")).toBe(true);
+    // …and the statement never becomes an argument of mysql either.
+    expect(cmd).not.toMatch(/-e "/);
+  });
+
+  it('never echoes raw database stderr, which can quote lines of .env.prod', () => {
+    // compose is invoked with `--env-file <secrets file>` and its dotenv parser
+    // quotes the offending source line back on a parse error. Echoing that into
+    // the journal every 30s would hand DB_PASSWORD/ENCRYPTION_KEY to every
+    // `adm`/`systemd-journal` member and any log shipper on the box.
+    const s = src();
+    const fallback = s.slice(s.indexOf('err_report() {'));
+    const defaultArm = fallback.slice(fallback.indexOf('    *)'), fallback.indexOf('esac'));
+    expect(defaultArm).not.toMatch(/\$\{?err/i); // the captured stderr is not interpolated
+    expect(defaultArm).toMatch(/logs \$\{DB_SERVICE\}/); // a pointer instead
+  });
+
+  it('reports before exiting at every query, not just the heartbeat', () => {
+    // A bare `set -e` exit left `journalctl -u fireisp-deploy-agent` — the
+    // command the UI tells the operator to run — completely empty, while the
+    // captured reason was deleted by the EXIT trap.
+    const s = src();
+    for (const site of ['claiming a request', 'reading the claimed request',
+      'sweeping stale deploys', 're-checking the claim', 'writing the result of request']) {
+      expect(s).toContain(`err_report "${site}`);
+    }
+  });
+
+  it('does not announce success when the result was never written back', () => {
+    // Five failed writes then "request N succeeded" would describe a row the
+    // GUI never received: the UI sits on "running" while the journal says done.
+    const s = src();
+    expect(s).toMatch(/WROTE_RESULT=1/);
+    expect(s).toMatch(/if \(\( WROTE_RESULT \)\); then/);
+    expect(s).toMatch(/could NOT be written back/);
+  });
+
+  it('honours the opt-out itself, before writing a heartbeat', () => {
+    // Covers the window where the flag is set but the host has not redeployed,
+    // so redeploy has not yet disabled the timer. No heartbeat means the GUI
+    // reports no agent and hides the button — what "off" should look like.
+    const s = src();
+    const guard = s.slice(0, s.indexOf('deploy_agent_status'));
+    expect(guard).toMatch(/FIREISP_DEPLOY_AGENT/);
+    expect(guard).toMatch(/0\|false\|no\|off\)/);
   });
 
   it('reports the real database error instead of guessing', () => {
     // The first version discarded stderr and printed "is the stack up?" while
     // mysql was answering "Access denied" — which sent the live diagnosis in
     // exactly the wrong direction.
+    // The query's stderr is captured, never discarded — asserted on the sql()
+    // function itself, since 2>/dev/null is legitimate elsewhere (reading an
+    // optional file). Then it is classified for the journal.
     const s = src();
-    expect(s).toMatch(/2>"\$ERR_FILE"/); // stderr captured…
-    // …never discarded. Comment lines are excluded: the script legitimately
-    // NAMES 2>/dev/null while explaining why it no longer uses it, and a bare
-    // substring match would flag its own rationale (the toContain-on-prose
-    // trap that bit the redeploy tests twice).
-    const code = s.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
-    expect(code).not.toMatch(/2>\/dev\/null/);
-    expect(s).toMatch(/Access denied/); // and classified for the journal
+    const sqlFn = s.slice(s.indexOf('sql() {'), s.indexOf('err_report() {'));
+    expect(sqlFn).toMatch(/2>"\$ERR_FILE"/);
+    expect(sqlFn).not.toMatch(/2>\/dev\/null/);
+    expect(s).toMatch(/Access denied/);
   });
 
   it('stamps the heartbeat before doing any work', () => {
@@ -307,7 +361,7 @@ describe('redeploy installs the deploy-agent units', () => {
   });
 
   it('honours an operator who does not want a timer', () => {
-    expect(run('DEPLOY_AGENT=0;')).toMatch(/skipping/);
+    expect(run('DEPLOY_AGENT=0;')).toMatch(/GUI deploys are off/);
   });
 
   it('skips a host with no systemd rather than failing the deploy', () => {
@@ -327,39 +381,80 @@ describe('redeploy installs the deploy-agent units', () => {
     expect(src).toMatch(/if \(\( changed \)\); then\s*\n\s*systemctl daemon-reload/);
   });
 
+  // A sandbox whose `systemctl` RECORDS instead of acting. Without it these
+  // tests' only protection against touching the host's real systemd is the
+  // feature under test working — so a regression in the flag parse would, on a
+  // root shell or in the uid-0 test containers, enable a production timer as a
+  // side effect of the test that exists to prove it does not.
+  const sandbox = ({ env = '', timerInstalled = false } = {}) => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-agent-flag-'));
+    fs.writeFileSync(path.join(dir, '.env.prod'), env);
+    fs.mkdirSync(path.join(dir, 'bin'));
+    const calls = path.join(dir, 'systemctl.calls');
+    fs.writeFileSync(path.join(dir, 'bin', 'systemctl'),
+      `#!/usr/bin/env bash\necho "$@" >> ${JSON.stringify(calls)}\n`
+      // is-enabled/is-active decide whether a timer is considered present.
+      + `case "$1" in is-enabled|is-active) exit ${timerInstalled ? 0 : 1} ;; esac\nexit 0\n`);
+    fs.chmodSync(path.join(dir, 'bin', 'systemctl'), 0o755);
+    // stderr merged into stdout: warnings are written to stderr, and
+    // execFileSync's return value carries stdout only.
+    const run = (extraEnv = {}) => require('node:child_process').execFileSync(
+      'bash',
+      ['-c', 'exec 2>&1; set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; install_deploy_agent', 'bash', script],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, FIREISP_DIR: dir, ...extraEnv },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    return { run, systemctlCalls: () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '') };
+  };
+
   it('honours FIREISP_DEPLOY_AGENT=0 written in .env.prod — the one place sudo cannot strip it', () => {
     // The docs always pointed operators at .env.prod, but the script only read
     // the process environment — which sudoers' env_reset empties, so the
     // documented opt-out could never work. Quotes, a trailing comment and a CR
     // are all present here because hand-edited files have all three.
-    const fs = require('node:fs');
-    const os = require('node:os');
-    const path = require('node:path');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-agent-flag-'));
-    fs.writeFileSync(path.join(tmp, '.env.prod'), 'DB_PASSWORD=x\nFIREISP_DEPLOY_AGENT="0" # no timer on this box\r\n');
-    const out = require('node:child_process').execFileSync(
-      'bash',
-      ['-c', 'set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; install_deploy_agent', 'bash', script],
-      { encoding: 'utf8', env: { ...process.env, FIREISP_DIR: tmp }, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    expect(out).toMatch(/skipping/);
+    const s = sandbox({ env: 'DB_PASSWORD=x\nFIREISP_DEPLOY_AGENT="0" # no timer on this box\r\n' });
+    expect(s.run()).toMatch(/GUI deploys are off/);
+    expect(s.systemctlCalls()).not.toMatch(/^enable --now/m);
+  });
+
+  it('STOPS a timer that is already installed, rather than just declining to install one', () => {
+    // The units are installed by the first deploy that carries them, so by the
+    // time an operator reads the docs and sets the flag the timer is already
+    // enabled. "Skipping" left a root poller servicing GUI deploy requests on a
+    // box whose operator had just been told GUI deploys were off.
+    const s = sandbox({ env: 'FIREISP_DEPLOY_AGENT=0\n', timerInstalled: true });
+    expect(s.run()).toMatch(/stopped and disabled/);
+    expect(s.systemctlCalls()).toMatch(/^disable --now fireisp-deploy-agent\.timer$/m);
+  });
+
+  it.each([['false'], ['no'], ['off'], ['FALSE'], ['Off']])('reads %s as off, not as on', (value) => {
+    const s = sandbox({ env: `FIREISP_DEPLOY_AGENT=${value}\n`, timerInstalled: true });
+    expect(s.run()).toMatch(/stopped and disabled/);
+    expect(s.systemctlCalls()).not.toMatch(/^enable --now/m);
+  });
+
+  it('WARNS on a value it does not recognise instead of silently enabling', () => {
+    // Reading a typo as the default is right for FIREISP_UPDATE_CHECK, whose
+    // default is an inert banner. It is wrong here: the default grants a root
+    // timer the power to service GUI-initiated deploys, so an operator who
+    // meant "off" must not be told nothing.
+    const s = sandbox({ env: 'FIREISP_DEPLOY_AGENT=disabled\n' });
+    const out = s.run();
+    expect(out).toMatch(/not a recognised value/);
+    expect(out).toMatch(/stays ENABLED/);
   });
 
   it('an environment value that genuinely survives still wins over the file', () => {
-    const fs = require('node:fs');
-    const os = require('node:os');
-    const path = require('node:path');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-agent-flag-'));
-    fs.writeFileSync(path.join(tmp, '.env.prod'), 'FIREISP_DEPLOY_AGENT=0\n');
-    // PATH=/nonexistent stops install_deploy_agent at the systemctl probe, so
-    // this test can never touch the real /etc/systemd/system wherever it runs.
-    const out = require('node:child_process').execFileSync(
-      'bash',
-      ['-c', 'set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; PATH=/nonexistent install_deploy_agent', 'bash', script],
-      { encoding: 'utf8', env: { ...process.env, FIREISP_DIR: tmp, FIREISP_DEPLOY_AGENT: '1' }, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    expect(out).toMatch(/no systemctl/);
-    expect(out).not.toMatch(/skipping/);
+    const s = sandbox({ env: 'FIREISP_DEPLOY_AGENT=0\n', timerInstalled: true });
+    const out = s.run({ FIREISP_DEPLOY_AGENT: '1' });
+    expect(out).not.toMatch(/GUI deploys are off/);
+    expect(s.systemctlCalls()).not.toMatch(/disable/);
   });
 
   it('never lets a unit-install failure fail the deploy', () => {
