@@ -192,9 +192,10 @@ describe('an unattributed legacy row is adopted, not blocked', () => {
 
   it('the adoption UPDATE is itself guarded by IS NULL', () => {
     // Belt and braces against a race: two tenants adopting at once must not
-    // let the second overwrite the first.
+    // let the second overwrite the first. Asserted on the shared helper, which
+    // is where the statement lives now that speed_tests reuses it.
     const src = require('node:fs').readFileSync(
-      require('node:path').join(__dirname, '../src/routes/outages.js'), 'utf8',
+      require('node:path').join(__dirname, '../src/utils/orgAdoption.js'), 'utf8',
     );
     expect(src).toMatch(/SET organization_id = \? WHERE id = \? AND organization_id IS NULL/);
   });

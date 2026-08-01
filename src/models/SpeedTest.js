@@ -16,10 +16,13 @@ class SpeedTest extends BaseModel {
     ];
   }
 
-  // speed_tests has no organization_id column (single-tenant deployment),
-  // so org-scoping must stay off or BaseModel emits WHERE organization_id = ?
-  // against a non-existent column → 500.
-  static get hasOrgScope() { return false; }
+  // organization_id added by migration 438. Scoping must stay ON: with it off
+  // BaseModel omits the predicate SILENTLY, and every tenant could read and
+  // rewrite every other tenant's SLA evidence.
+  //
+  // Reads that must also admit unattributed legacy rows are hand-written in
+  // src/routes/speedTests.js — BaseModel cannot express `= ? OR IS NULL`.
+  static get hasOrgScope() { return true; }
 
   // deleted_at column added by migration 151 — soft-delete is supported.
   static get softDelete() { return true; }
