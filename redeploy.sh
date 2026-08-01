@@ -54,6 +54,11 @@ REGISTRY_IMAGE="${FIREISP_REGISTRY_IMAGE:-ghcr.io/vothalvino/fireisp5.0}"
 # How many superseded images to keep on disk for rollback. Everything older is
 # removed after a successful deploy — see "Reclaiming" at the end.
 KEEP_IMAGES="${FIREISP_IMAGE_KEEP:-3}"
+# Seconds to wait for the image to appear before giving up. The dominant
+# "failure" is redeploying in the few minutes between merging and CI finishing
+# the publish, which is not a failure at all — it is a race worth waiting out.
+# 0 disables the wait and fails immediately.
+IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-300}"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "error: $COMPOSE_FILE not found — set FIREISP_DIR to your FireISP install path" >&2
@@ -78,43 +83,99 @@ if [[ -n "${1:-}" ]]; then
   echo "    (pinned by argument — this is a ROLLBACK; the database schema is NOT rolled back)"
 fi
 
+# -----------------------------------------------------------------------------
+# Wait for the image, then diagnose ONE cause — not a menu of three.
+# -----------------------------------------------------------------------------
+# `docker manifest inspect` asks the registry whether a tag exists without
+# downloading any layers, so it is cheap to poll and its stderr says WHICH
+# problem this is. The previous version printed all three possible causes and
+# left the operator to work out which applied; in practice it was almost always
+# "CI has not published yet", which is a wait, not an error.
+#
+# This block can only ever HELP: it never fails the deploy on its own. If
+# `docker manifest` is unavailable or unreliable on this host, the pull below
+# runs exactly as it always did. Nothing here is load-bearing.
+STAY_MSG="  Nothing has been changed on this host: the previous containers are still
+  running and still serving."
+
+manifest_ok()  { docker manifest inspect "$FIREISP_IMAGE" >/dev/null 2>&1; }
+manifest_err() { docker manifest inspect "$FIREISP_IMAGE" 2>&1 >/dev/null || true; }
+
+if docker manifest inspect --help >/dev/null 2>&1 && (( IMAGE_WAIT > 0 )) && ! manifest_ok; then
+  # Only wait when the registry positively says the tag is absent. Any other
+  # error (auth, experimental-CLI, DNS) is not something waiting can fix, so
+  # fall straight through to the pull and let it produce the real diagnosis.
+  if [[ "$(manifest_err)" == *manifest\ unknown* || "$(manifest_err)" == *"not found"* ]]; then
+    echo "==> Image not published yet — waiting up to ${IMAGE_WAIT}s"
+    echo "    (CI publishes only after the security scan passes, so a commit"
+    echo "     merged moments ago takes a few minutes to become deployable)"
+    deadline=$(( SECONDS + IMAGE_WAIT ))
+    until manifest_ok; do
+      (( SECONDS >= deadline )) && break
+      sleep 10
+      printf '    ...still waiting (%ds elapsed)\n' "$(( IMAGE_WAIT - (deadline - SECONDS) ))"
+    done
+    manifest_ok && echo "==> Image published — continuing"
+  fi
+fi
+
 echo "==> Pulling image"
-if ! dc pull app; then
-  cat >&2 <<EOF
+if ! PULL_OUT="$(dc pull app 2>&1)"; then
+  printf '%s\n' "$PULL_OUT" >&2
+  echo >&2
+  echo "error: could not pull ${FIREISP_IMAGE}" >&2
+  echo >&2
+  # Name the ONE cause that matches, rather than listing every possibility and
+  # making the operator diagnose their own deploy.
+  case "$PULL_OUT" in
+    *nauthorized*|*denied*|*"authentication required"*)
+      cat >&2 <<EOF
+  The registry refused this host: the ghcr package is PRIVATE and this host is
+  not logged in. GitHub makes container packages private by DEFAULT even for a
+  public repository, so this bites once on a new install and never again.
+  Either make the package public (GitHub -> Packages -> fireisp5.0 -> Package
+  settings -> Change visibility), or authenticate here:
 
-error: could not pull ${FIREISP_IMAGE}
-
-  Three likely reasons:
-
-  1. 'denied' / 'unauthorized' — the ghcr package is PRIVATE and this host is
-     not logged in. GitHub makes container packages private by DEFAULT, even
-     for a public repository, so this bites once on a new install and never
-     again. Either make the package public (GitHub → Packages → fireisp5.0 →
-     Package settings → Change visibility), or authenticate here:
-
-         echo "\$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
-
-  2. 'manifest unknown' — no image exists for this commit. Either CI has not
-     finished (it publishes only AFTER the Trivy scan passes), or the build was
-     SKIPPED because Docker Hub was unreachable. That case leaves the CI run
-     GREEN with a warning annotation, so a green tick is not proof an image
-     exists — open the run and check container-scan for "Container scan
-     SKIPPED". If so, re-run that job, or deploy the previous commit:
-
-         sudo redeploy <previous-commit-sha>
-
-         https://github.com/vothalvino/fireisp5.0/actions
-
-  3. 'no matching manifest for <platform>' — images are published for
-     linux/amd64 and linux/arm64, which covers every mainstream VPS. If you
-     are on something else (32-bit ARM, RISC-V), build from source instead:
-
-         cd ${APP_DIR} && docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
-
-  Nothing has been changed on this host: the previous containers are still
-  running and still serving.
-
+      echo "\$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
 EOF
+      ;;
+    *"no matching manifest"*|*"no match for platform"*)
+      cat >&2 <<EOF
+  The image exists but not for this machine's architecture. Published builds
+  are linux/amd64 and linux/arm64, which covers every mainstream VPS. On
+  anything else (32-bit ARM, RISC-V), build from source instead:
+
+      cd ${APP_DIR} && docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
+EOF
+      ;;
+    *"manifest unknown"*|*"not found"*)
+      cat >&2 <<EOF
+  No image exists for this commit$( (( IMAGE_WAIT > 0 )) && printf ', and none appeared within %ss' "$IMAGE_WAIT" ).
+  Either CI is still running, or the build was SKIPPED because Docker Hub was
+  unreachable -- that case leaves the run GREEN with only a warning annotation,
+  so a green tick is not proof an image exists. Open the run and check
+  container-scan for "Container scan SKIPPED".
+
+      https://github.com/vothalvino/fireisp5.0/actions
+
+  Re-run that job, wait longer (FIREISP_IMAGE_WAIT=900 sudo -E redeploy), or
+  deploy the last commit that does have an image:
+
+      sudo redeploy <previous-commit-sha>
+EOF
+      ;;
+    *)
+      cat >&2 <<EOF
+  The pull failed for a reason this script does not recognise -- the registry
+  output is above. Common causes are a full disk and a network drop mid-layer:
+
+      df -h ${APP_DIR}
+EOF
+      ;;
+  esac
+  echo >&2
+  echo "$STAY_MSG" >&2
+  echo >&2
   exit 1
 fi
 
