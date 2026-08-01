@@ -93,19 +93,19 @@ describe('uptime comes from outages, not from missing metrics', () => {
     wire({ rows: [DEVICE], outages: [{ device_id: 7, minutes_down: 1440 }] });
     await agg.aggregateDay(1, '2026-07-30');
     const [, params] = inserts()[0];
-    expect(params[3]).toBe(0);      // uptime_pct
-    expect(params[10]).toBe(1440);  // total_downtime_minutes
+    expect(params[4]).toBe(0);      // uptime_pct
+    expect(params[11]).toBe(1440);  // total_downtime_minutes
   });
 
   it('no outage yields 100%', async () => {
     await agg.aggregateDay(1, '2026-07-30');
-    expect(inserts()[0][1][3]).toBe(100);
+    expect(inserts()[0][1][4]).toBe(100);
   });
 
   it('a six-hour outage yields 75%', async () => {
     wire({ rows: [DEVICE], outages: [{ device_id: 7, minutes_down: 360 }] });
     await agg.aggregateDay(1, '2026-07-30');
-    expect(inserts()[0][1][3]).toBe(75);
+    expect(inserts()[0][1][4]).toBe(75);
   });
 
   it('caps at a day, so a multi-day outage cannot go negative', async () => {
@@ -113,8 +113,8 @@ describe('uptime comes from outages, not from missing metrics', () => {
     // uptime_pct = -300, which would fail the DECIMAL(5,2) column anyway.
     wire({ rows: [DEVICE], outages: [{ device_id: 7, minutes_down: 99999 }] });
     await agg.aggregateDay(1, '2026-07-30');
-    expect(inserts()[0][1][3]).toBe(0);
-    expect(inserts()[0][1][10]).toBe(1440);
+    expect(inserts()[0][1][4]).toBe(0);
+    expect(inserts()[0][1][11]).toBe(1440);
   });
 
   it('clamps each outage to the day rather than counting its whole length', async () => {
@@ -138,20 +138,20 @@ describe('it does not invent numbers it does not have', () => {
     // success while knowing nothing.
     await agg.aggregateDay(1, '2026-07-30');
     expect(inserts()[0][0]).toMatch(/packet_loss_pct/);
-    expect(inserts()[0][0]).toMatch(/VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, NULL, \?\)/);
+    expect(inserts()[0][0]).toMatch(/VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, NULL, \?\)/);
   });
 
   it('keeps a missing latency as NULL rather than 0', async () => {
     wire({ rows: [{ ...DEVICE, avg_latency_ms: null, max_latency_ms: null }] });
     await agg.aggregateDay(1, '2026-07-30');
     const params = inserts()[0][1];
-    expect(params[4]).toBeNull();
     expect(params[5]).toBeNull();
+    expect(params[6]).toBeNull();
   });
 
   it('converts DECIMAL strings to numbers', async () => {
     await agg.aggregateDay(1, '2026-07-30');
-    expect(inserts()[0][1][6]).toBe(95.5);
+    expect(inserts()[0][1][7]).toBe(95.5);
   });
 });
 
@@ -161,10 +161,26 @@ describe('re-running a day must not double-count it', () => {
     expect(inserts()[0][0]).toMatch(/ON DUPLICATE KEY UPDATE/);
   });
 
-  it('never writes the generated subject_key', async () => {
-    // MySQL rejects an INSERT that names a GENERATED column at all.
+  it('writes subject_key, because it is NOT a generated column', async () => {
+    // The obvious design was a generated column, and it cannot work here:
+    // MySQL prohibits ON UPDATE CASCADE / ON DELETE SET NULL on a base column
+    // of a generated column, and this table carries exactly those on device_id
+    // and network_link_id. Four real-MySQL CI jobs reported
+    // ER_CANNOT_ADD_FOREIGN before this was a plain column. So the aggregator —
+    // the only writer of this table — has to populate it.
     await agg.aggregateDay(1, '2026-07-30');
-    expect(inserts()[0][0]).not.toMatch(/subject_key/);
+    expect(inserts()[0][0]).toMatch(/subject_key/);
+    expect(inserts()[0][1][0]).toBe('7:0');
+  });
+
+  it('folds the NULL half of the key to 0', () => {
+    // Without that, MySQL treats the NULLs as distinct and the unique key
+    // stops preventing anything — which is the whole point of the column.
+    const mig = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../database/migrations/441_network_health_snapshot_key.sql'), 'utf8',
+    );
+    expect(mig).toMatch(/COALESCE\(device_id, 0\), ':', COALESCE\(network_link_id, 0\)/);
+    expect(mig).not.toMatch(/GENERATED ALWAYS AS/);
   });
 });
 

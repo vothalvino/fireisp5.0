@@ -7012,7 +7012,7 @@ CREATE TABLE IF NOT EXISTS network_health_snapshots (
     peak_throughput_out_mbps  DECIMAL(10, 3)    NULL                    COMMENT 'Peak outbound throughput in Mbps observed during the day',
     packet_loss_pct           DECIMAL(5, 2)     NULL                    COMMENT 'Average packet loss percentage for the day (0.00–100.00)',
     total_downtime_minutes    INT UNSIGNED      NOT NULL DEFAULT 0      COMMENT 'Total minutes of detected downtime during the day',
-    subject_key               VARCHAR(48)       GENERATED ALWAYS AS (CONCAT(COALESCE(device_id, 0), ':', COALESCE(network_link_id, 0))) STORED COMMENT 'Device/link identity with NULLs folded to 0, so the daily upsert has a key MySQL will not treat as distinct (migration 441)',
+    subject_key               VARCHAR(48)       NULL                    COMMENT 'Device/link identity with NULLs folded to 0, so the daily upsert has a key MySQL will not treat as distinct. Written by networkHealthAggregator; NOT generated, because MySQL forbids ON DELETE SET NULL / ON UPDATE CASCADE on a generated column base (migration 441)',
     created_at                TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),

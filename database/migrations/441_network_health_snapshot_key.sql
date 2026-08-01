@@ -15,15 +15,25 @@
 -- backfill, a manual trigger — silently duplicates every row it already wrote,
 -- and the page starts double-counting.
 --
--- WHY A GENERATED COLUMN. The natural key is (device_id, network_link_id,
--- snapshot_date), but a snapshot is device-only OR link-only, so one of those
--- two is always NULL — and MySQL treats NULLs in a UNIQUE index as DISTINCT.
--- Two runs for the same device and day would both carry network_link_id NULL
--- and both be accepted, which is precisely the duplication being prevented.
--- COALESCE-ing into a stored column gives the key a value in every row.
+-- WHY A DISCRIMINATOR COLUMN AT ALL. The natural key is (device_id,
+-- network_link_id, snapshot_date), but a snapshot is device-only OR link-only,
+-- so one of those two is always NULL — and MySQL treats NULLs in a UNIQUE index
+-- as DISTINCT. Two runs for the same device and day would both carry
+-- network_link_id NULL and both be accepted, which is precisely the duplication
+-- being prevented. Folding NULLs to 0 gives the key a value in every row.
 --
--- subject_key is GENERATED, so nothing may ever write it explicitly — MySQL
--- rejects an INSERT that names a generated column at all.
+-- WHY NOT A GENERATED COLUMN, which is the obvious way to do that: MySQL
+-- PROHIBITS ON UPDATE CASCADE and ON DELETE SET NULL on a base column of a
+-- generated column, and this table already carries exactly those actions on
+-- device_id and network_link_id (fk_network_health_device,
+-- fk_network_health_link). Adding a generated column derived from them makes
+-- the whole table undefinable — ER_CANNOT_ADD_FOREIGN (1215), which is what
+-- four real-MySQL CI jobs reported. The restriction applies to STORED and
+-- VIRTUAL alike, so there is no variant of that approach that works.
+--
+-- So it is a PLAIN column, written by the aggregation alongside every row it
+-- inserts. src/services/networkHealthAggregator.js is the only writer of this
+-- table, so there is exactly one place that has to keep it consistent.
 --
 -- Guarded via INFORMATION_SCHEMA (idempotent — safe to re-run on MySQL 8).
 -- =============================================================================
@@ -55,9 +65,15 @@ BEGIN
      WHERE s.id <> dup.keep_id;
 
     ALTER TABLE network_health_snapshots
-      ADD COLUMN subject_key VARCHAR(48)
-          GENERATED ALWAYS AS (CONCAT(COALESCE(device_id, 0), ':', COALESCE(network_link_id, 0))) STORED
-          COMMENT 'Device/link identity with NULLs folded to 0, so the daily upsert has a key MySQL will not treat as distinct (migration 441)',
+      ADD COLUMN subject_key VARCHAR(48) NULL
+          COMMENT 'Device/link identity with NULLs folded to 0, so the daily upsert has a key MySQL will not treat as distinct. Written by networkHealthAggregator; NOT generated, because MySQL forbids the ON DELETE SET NULL / ON UPDATE CASCADE this table uses on a generated column base (migration 441)';
+
+    -- Backfill whatever is already there so the unique key can be built.
+    UPDATE network_health_snapshots
+       SET subject_key = CONCAT(COALESCE(device_id, 0), ':', COALESCE(network_link_id, 0))
+     WHERE subject_key IS NULL;
+
+    ALTER TABLE network_health_snapshots
       ADD UNIQUE KEY uq_nhs_subject_date (subject_key, snapshot_date);
   END IF;
 END //

@@ -125,12 +125,12 @@ async function aggregateDay(organizationId = null, day = null) {
 
     await db.query(
       `INSERT INTO network_health_snapshots
-         (organization_id, device_id, snapshot_date, uptime_pct,
+         (subject_key, organization_id, device_id, snapshot_date, uptime_pct,
           avg_latency_ms, max_latency_ms,
           avg_throughput_in_mbps, avg_throughput_out_mbps,
           peak_throughput_in_mbps, peak_throughput_out_mbps,
           packet_loss_pct, total_downtime_minutes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON DUPLICATE KEY UPDATE
           organization_id          = VALUES(organization_id),
           uptime_pct               = VALUES(uptime_pct),
@@ -142,6 +142,11 @@ async function aggregateDay(organizationId = null, day = null) {
           peak_throughput_out_mbps = VALUES(peak_throughput_out_mbps),
           total_downtime_minutes   = VALUES(total_downtime_minutes)`,
       [
+        // subject_key folds the NULL half of (device_id, network_link_id) to 0
+        // so the unique key has something to match on. Written here rather than
+        // generated: MySQL forbids this table's ON DELETE SET NULL on a
+        // generated column's base column.
+        `${r.device_id}:0`,
         r.organization_id, r.device_id, snapshotDate, uptimePct,
         num(r.avg_latency_ms), num(r.max_latency_ms),
         num(r.avg_throughput_in_mbps), num(r.avg_throughput_out_mbps),
