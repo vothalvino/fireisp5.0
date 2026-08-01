@@ -161,16 +161,36 @@ because that image only knows its own already-applied files. Old code against a
 forward schema is fine for additive migrations and breaks on a `DROP`, `RENAME`
 or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
 
-If the pull fails, nothing on the host has changed and the previous containers
-are still serving. Two causes worth telling apart:
+#### Deploying a commit CI hasn't published yet
 
-- **`manifest unknown`** — no image for that commit. Usually CI hasn't finished
-  (it publishes only *after* the scan passes). But note the `container-scan` job
-  is deliberately allowed to go **green without building** when Docker Hub is
-  unreachable, so on older commits a green tick is not proof an image exists —
-  open the run and look for "Container scan SKIPPED". (Since this change, that
-  case fails the branch on `main` rather than passing quietly.)
+The most common "failure" is not one: you merge, immediately run `sudo
+redeploy`, and the image does not exist yet because CI publishes only *after*
+the security scan passes — a few minutes later. `redeploy` now **waits** for
+the image instead of failing, up to `FIREISP_IMAGE_WAIT` seconds (default
+`300`, `0` disables):
+
+```bash
+FIREISP_IMAGE_WAIT=900 sudo -E redeploy    # note -E: sudo strips the variable otherwise
+```
+
+It waits only when the registry positively reports the tag as absent. An auth
+or network error is not something waiting can fix, so those fall straight
+through to the real diagnosis.
+
+If the pull then fails, nothing on the host has changed and the previous
+containers are still serving. The script names the **one** cause that applies
+rather than listing all of them:
+
+- **`manifest unknown`** — no image for that commit. Usually CI still running.
+  But note the `container-scan` job is deliberately allowed to go **green
+  without building** when Docker Hub is unreachable, so on older commits a
+  green tick is not proof an image exists — open the run and look for
+  "Container scan SKIPPED". (Since this change, that case fails the branch on
+  `main` rather than passing quietly.)
 - **`denied` / `unauthorized`** — see the one-time package-visibility step below.
+- **`no matching manifest`** — the image exists but not for this machine's
+  architecture. Published builds are `linux/amd64` and `linux/arm64`; anything
+  else builds from source.
 
 ##### Upgrading from a build-on-the-server install
 
