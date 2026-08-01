@@ -16,11 +16,18 @@
 //   migration-status  Show applied vs pending migrations
 //
 // THE PASSWORD IS NEVER A COMMAND-LINE ARGUMENT. It is read from the
-// ADMIN_PASSWORD environment variable, or prompted for interactively. The old
-// `--password <pw>` flag put the value in this process's argv, and
-// /proc/<pid>/cmdline is mode 0444 — every local account on the box could read
-// it for as long as the command ran. It is still accepted so existing scripts
-// do not break, but it warns loudly.
+// FIREISP_ADMIN_PASSWORD environment variable, or prompted for interactively.
+//
+// NOT `ADMIN_PASSWORD`: seed.js already owns that name for the INITIAL password
+// of the seeded admin account, install.sh writes it into .env.prod, and the app
+// container loads that file. Reusing it would make `reset-password` run inside
+// the container — which is exactly where an operator would run it — silently
+// reset the account to the seed password instead of prompting.
+//
+// The old `--password <pw>` flag put the value in this process's argv, and
+// /proc/<pid>/cmdline is mode 0444, so every local account on the box could read
+// it for as long as the command ran. It is still accepted so existing scripts do
+// not break, but it warns loudly.
 // =============================================================================
 
 require('dotenv').config();
@@ -61,23 +68,23 @@ function promptHidden(question) {
 /**
  * Resolve the password for a command, preferring channels that never reach argv.
  *
- * Order: ADMIN_PASSWORD (environment — /proc/<pid>/environ is 0400, owner only)
- * → interactive prompt → the deprecated flag, which works but warns.
+ * Order: FIREISP_ADMIN_PASSWORD (environment — /proc/<pid>/environ is 0400,
+ * owner only) → interactive prompt → the deprecated flag, which works but warns.
  */
 async function resolvePassword(args, { confirm = false } = {}) {
-  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
+  if (process.env.FIREISP_ADMIN_PASSWORD) return process.env.FIREISP_ADMIN_PASSWORD;
 
   if (args.password && args.password !== true) {
     logger.warn(
       'The --password flag puts the password in this process\'s command line, which every '
-      + 'local account can read from /proc/<pid>/cmdline. Use ADMIN_PASSWORD=... instead, '
+      + 'local account can read from /proc/<pid>/cmdline. Use FIREISP_ADMIN_PASSWORD=... instead, '
       + 'or omit it and be prompted.',
     );
     return args.password;
   }
 
   if (!process.stdin.isTTY) {
-    logger.error('No password supplied. Set ADMIN_PASSWORD in the environment, or run this attached to a terminal to be prompted.');
+    logger.error('No password supplied. Set FIREISP_ADMIN_PASSWORD in the environment, or run this attached to a terminal to be prompted.');
     process.exit(1);
   }
 
@@ -111,7 +118,7 @@ function parseArgs(argv) {
 
 async function createUser(args) {
   if (!args.email) {
-    logger.error('Usage: ADMIN_PASSWORD=<password> admin.js create-user --email <email> [--role admin]');
+    logger.error('Usage: FIREISP_ADMIN_PASSWORD=<password> admin.js create-user --email <email> [--role admin]');
     process.exit(1);
   }
 
@@ -148,7 +155,7 @@ async function createUser(args) {
 
 async function resetPassword(args) {
   if (!args.email) {
-    logger.error('Usage: ADMIN_PASSWORD=<new-password> admin.js reset-password --email <email>');
+    logger.error('Usage: FIREISP_ADMIN_PASSWORD=<new-password> admin.js reset-password --email <email>');
     process.exit(1);
   }
 
@@ -334,10 +341,12 @@ async function main() {
     reset-password     Reset a user's password
       --email <email>        (required) User email
 
-  THE PASSWORD (min 8 chars) IS NOT A FLAG. Supply it as the ADMIN_PASSWORD
-  environment variable, or omit it and you will be prompted without echo:
+  THE PASSWORD (min 8 chars) IS NOT A FLAG. Supply it as the
+  FIREISP_ADMIN_PASSWORD environment variable (NOT ADMIN_PASSWORD — that one is
+  the seeded admin's initial password and lives in .env.prod), or omit it and
+  you will be prompted without echo:
 
-      ADMIN_PASSWORD='...' node src/scripts/admin.js create-user --email a@b.c
+      FIREISP_ADMIN_PASSWORD='...' node src/scripts/admin.js create-user --email a@b.c
       node src/scripts/admin.js reset-password --email a@b.c        # prompts
 
   A command line is readable by every local account via /proc/<pid>/cmdline,

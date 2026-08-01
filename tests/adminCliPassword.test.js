@@ -9,8 +9,8 @@
 // credentials (PR #631).
 //
 // The password now arrives by a channel that is not world-readable: the
-// ADMIN_PASSWORD environment variable (/proc/<pid>/environ is 0400, owner only),
-// or an interactive prompt. The flag still works so existing scripts do not
+// FIREISP_ADMIN_PASSWORD environment variable (/proc/<pid>/environ is 0400,
+// owner only), or an interactive prompt. The flag still works so existing scripts do not
 // break, but it warns.
 //
 // resolvePassword is exercised for real rather than asserted on as text: the
@@ -54,6 +54,7 @@ function harnessPath() {
 function run(env, file) {
   const clean = { ...process.env };
   delete clean.ADMIN_PASSWORD;
+  delete clean.FIREISP_ADMIN_PASSWORD;
   return spawnSync('node', [file], { env: { ...clean, ...env }, input: '', encoding: 'utf8' });
 }
 
@@ -61,13 +62,13 @@ describe('the admin CLI takes the password off the command line', () => {
   let file;
   beforeAll(() => { file = harnessPath(); });
 
-  it('prefers ADMIN_PASSWORD from the environment', () => {
-    const r = run({ ADMIN_PASSWORD: 'from-env-123', TEST_ARGS: '{}' }, file);
+  it('prefers FIREISP_ADMIN_PASSWORD from the environment', () => {
+    const r = run({ FIREISP_ADMIN_PASSWORD: 'from-env-123', TEST_ARGS: '{}' }, file);
     expect(r.stdout).toContain('RESOLVED:from-env-123');
   });
 
   it('lets the environment win over the deprecated flag', () => {
-    const r = run({ ADMIN_PASSWORD: 'from-env-123', TEST_ARGS: JSON.stringify({ password: 'from-flag' }) }, file);
+    const r = run({ FIREISP_ADMIN_PASSWORD: 'from-env-123', TEST_ARGS: JSON.stringify({ password: 'from-flag' }) }, file);
     expect(r.stdout).toContain('RESOLVED:from-env-123');
   });
 
@@ -85,7 +86,7 @@ describe('the admin CLI takes the password off the command line', () => {
     // A prompt written without this guard blocks forever under cron/CI.
     const r = run({ TEST_ARGS: '{}' }, file);
     expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/ADMIN_PASSWORD/);
+    expect(r.stderr).toMatch(/FIREISP_ADMIN_PASSWORD/);
   });
 });
 
@@ -98,8 +99,19 @@ describe('the shipped script and its docs agree', () => {
     expect(src).toContain('await resolvePassword(args');
   });
 
-  it('documents ADMIN_PASSWORD in the built-in help', () => {
-    expect(source()).toMatch(/ADMIN_PASSWORD/);
+  it('documents FIREISP_ADMIN_PASSWORD in the built-in help', () => {
+    expect(source()).toMatch(/FIREISP_ADMIN_PASSWORD/);
+  });
+
+  it('does NOT read ADMIN_PASSWORD, which belongs to the seeded account', () => {
+    // seed.js owns ADMIN_PASSWORD as the seeded admin's INITIAL password;
+    // install.sh writes it into .env.prod and the app container loads that file.
+    // Reading it here would make `reset-password` inside the container — the
+    // most likely place to run it — silently reset the account to the seed
+    // password instead of prompting. Asserted on code, not comments, because
+    // the file legitimately explains the collision in prose.
+    const code = source().split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    expect(code).not.toMatch(/process\.env\.ADMIN_PASSWORD/);
   });
 
   it('the header usage block no longer advertises --password', () => {
