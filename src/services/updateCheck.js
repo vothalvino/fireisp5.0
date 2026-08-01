@@ -46,9 +46,27 @@ const ENV_FLAG = 'FIREISP_UPDATE_CHECK';
 const REPO = process.env.FIREISP_UPDATE_REPO || 'vothalvino/fireisp5.0';
 const API = `https://api.github.com/repos/${REPO}/commits/main`;
 
-// One check per day. The banner is a nudge, not a monitor: checking more often
-// spends someone else's rate limit to tell them the same thing.
-const CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+// TWO DIFFERENT CADENCES, and conflating them made this feature useless.
+//
+// "Do not nag more than once a day" is about the BANNER, and is handled by its
+// dismissal (UpdateAvailableBanner keeps a per-day flag). "How stale may the
+// answer be" is this, and it was also set to a day — which meant the check ran
+// exactly ONCE PER DEPLOY: at the moment the operator had just deployed HEAD,
+// so the answer was guaranteed to be "up to date", and then froze for 24h.
+// Anyone deploying more often than daily would never once see an update
+// reported. Reproduced before changing it.
+//
+// 15 minutes is 4 requests/hour per install, against GitHub's unauthenticated
+// limit of 60/hour per IP — comfortable even for several installs behind one
+// NAT.
+const CHECK_TTL_MS = 15 * 60 * 1000;
+
+// Failures are cached far longer. An air-gapped or egress-blocked install
+// should not retry every 15 minutes forever; the original daily cadence was
+// right for THIS case and wrong for the other. Separating them is the whole
+// fix — shortening both would have made a broken install noisier.
+const FAILURE_TTL_MS = 6 * 60 * 60 * 1000;
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Process-local. A restart re-checks, which is fine and self-limiting; putting
@@ -96,7 +114,9 @@ function isEnabled() {
  * load.
  */
 async function fetchLatestSha() {
-  if (cache.at > 0 && Date.now() - cache.at < CHECK_TTL_MS) return cache.latestSha;
+  // A cached FAILURE holds for longer than a cached answer — see the constants.
+  const ttl = cache.error ? FAILURE_TTL_MS : CHECK_TTL_MS;
+  if (cache.at > 0 && Date.now() - cache.at < ttl) return cache.latestSha;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -162,4 +182,4 @@ function _resetCache() {
   cache = { at: 0, latestSha: null, error: null };
 }
 
-module.exports = { getStatus, runningSha, isEnabled, ENV_FLAG, _resetCache };
+module.exports = { getStatus, runningSha, isEnabled, ENV_FLAG, CHECK_TTL_MS, FAILURE_TTL_MS, _resetCache };

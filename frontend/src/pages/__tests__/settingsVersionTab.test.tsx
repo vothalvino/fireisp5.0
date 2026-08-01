@@ -54,10 +54,15 @@ const VERSION = {
   checked_at: '2026-08-01T00:00:00.000Z',
 };
 
-function respondWith(over: Record<string, unknown> = {}) {
+const DEPLOY = { request: null, agent_alive: false, agent_last_seen_at: null, agent_hostname: null };
+
+function respondWith(over: Record<string, unknown> = {}, deploy: Record<string, unknown> = {}) {
   mockFetch.mockImplementation(async (url: string) => {
     if (String(url).includes('/system/version')) {
       return { ok: true, status: 200, json: async () => ({ data: { ...VERSION, ...over } }) };
+    }
+    if (String(url).includes('/system/deploy')) {
+      return { ok: true, status: 200, json: async () => ({ data: { ...DEPLOY, ...deploy } }) };
     }
     return { ok: true, status: 200, json: async () => ({ data: [] }) };
   });
@@ -150,5 +155,72 @@ describe('what it shows', () => {
     renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Version/i }));
     expect(await screen.findByText(/not built by CI/i)).toBeInTheDocument();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The deploy panel
+// ---------------------------------------------------------------------------
+// The Update button only appears once a host agent has checked in — that is the
+// whole security design (#611): the container can only insert a row, and a root
+// systemd timer outside Docker services it. So the state an operator sees FIRST,
+// before installing anything, is the no-agent state — and if that renders as
+// nothing at all, the feature looks broken rather than unconfigured.
+//
+// This panel was shipped untested. Reported as "no update button yet", which is
+// correct behaviour; these assert that the alternative is actually shown.
+
+describe('deploy panel — before the agent is installed', () => {
+  it('does not offer a button that would 503', async () => {
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    await screen.findByText(/Installed version/i);
+    expect(screen.queryByRole('button', { name: /Update now/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the install commands instead of nothing', async () => {
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/No deploy agent has checked in/i)).toBeInTheDocument();
+    expect(screen.getByText(/fireisp-deploy-agent\.timer/)).toBeInTheDocument();
+  });
+
+  it('explains WHY there is an agent rather than a direct button', async () => {
+    // Without this the install step reads as busywork.
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/never given permission to restart/i)).toBeInTheDocument();
+  });
+});
+
+describe('deploy panel — once the agent is alive', () => {
+  it('offers the button', async () => {
+    respondWith({}, { agent_alive: true, agent_last_seen_at: '2026-08-01T00:00:00.000Z' });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByRole('button', { name: /Update now/i })).toBeInTheDocument();
+  });
+
+  it('disables it while a deploy is already running', async () => {
+    respondWith({}, {
+      agent_alive: true,
+      request: { id: 1, status: 'running', requested_at: '2026-08-01T00:00:00.000Z', started_at: null, finished_at: null, exit_code: null, output_tail: null },
+    });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    const btn = await screen.findByRole('button', { name: /Deploy in progress/i });
+    expect(btn).toBeDisabled();
+  });
+
+  it('shows the output tail when a deploy failed', async () => {
+    // A failed deploy with no detail is the worst of both worlds.
+    respondWith({}, {
+      agent_alive: true,
+      request: { id: 1, status: 'failed', requested_at: '2026-08-01T00:00:00.000Z', started_at: null, finished_at: '2026-08-01T00:05:00.000Z', exit_code: 1, output_tail: 'error: could not pull ghcr.io/...' },
+    });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/could not pull ghcr/i)).toBeInTheDocument();
   });
 });
