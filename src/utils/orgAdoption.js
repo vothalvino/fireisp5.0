@@ -76,7 +76,18 @@ function rejectOrgReassignment(label) {
 /**
  * Let the first tenant that writes to an unattributed row ADOPT it.
  *
- * Runs BEFORE the write so the model's `organization_id = ?` then matches.
+ * MUST BE MOUNTED AFTER validate(), NOT BEFORE IT.
+ *
+ * Adoption is a committed write with no transaction around it. Mounted ahead of
+ * validation, a request that then 422s STILL transfers the row: `PUT
+ * /outages/<legacy id> {"severity":"catastrophic"}` fails on the enum, nothing
+ * is updated — and the row now belongs to the caller. It vanishes from every
+ * other tenant's list (the `org = ? OR org IS NULL` predicate stops matching),
+ * their PUT/DELETE 404, and there is no route that can hand it back. A failed
+ * request must not have permanent side effects, least of all ownership ones.
+ *
+ * Still runs BEFORE the write itself, so the model's `organization_id = ?`
+ * matches once the request is known to be well-formed.
  * The UPDATE is itself guarded by `IS NULL` so that two tenants adopting
  * concurrently cannot have the second overwrite the first — the loser's
  * UPDATE matches zero rows and its subsequent write 404s, which is the

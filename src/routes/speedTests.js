@@ -80,7 +80,7 @@ const rejectMove = rejectOrgReassignment('speed test');
 const adopt = adoptUnattributed('speed_tests', 'speed test');
 
 router.post('/', requirePermission('speed_tests.create'), validate(createSpeedTest), ctrl.create);
-router.put('/:id', requirePermission('speed_tests.update'), rejectMove, adopt, validate(updateSpeedTest), ctrl.update);
+router.put('/:id', requirePermission('speed_tests.update'), rejectMove, validate(updateSpeedTest), adopt, ctrl.update);
 router.delete('/:id', requirePermission('speed_tests.delete'), adopt, ctrl.destroy);
 router.post('/:id/restore', requirePermission('speed_tests.update'), adopt, ctrl.restore);
 

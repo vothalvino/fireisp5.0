@@ -104,7 +104,7 @@ const rejectMove = rejectOrgReassignment('SNMP profile');
 const adopt = adoptUnattributed('snmp_profiles', 'SNMP profile');
 
 router.post('/', requirePermission('snmp_profiles.create'), validate(createSnmpProfile), ctrl.create);
-router.put('/:id', requirePermission('snmp_profiles.update'), rejectSystemProfile, rejectMove, adopt, validate(updateSnmpProfile), ctrl.update);
+router.put('/:id', requirePermission('snmp_profiles.update'), rejectSystemProfile, rejectMove, validate(updateSnmpProfile), adopt, ctrl.update);
 router.delete('/:id', requirePermission('snmp_profiles.delete'), rejectSystemProfile, adopt, ctrl.destroy);
 router.post('/:id/restore', requirePermission('snmp_profiles.update'), rejectSystemProfile, adopt, ctrl.restore);
 
