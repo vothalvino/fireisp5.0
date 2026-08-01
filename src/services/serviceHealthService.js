@@ -232,12 +232,21 @@ async function getRouterOsQueue(contractId) {
  */
 async function getLastSpeedTest(contractId) {
   try {
+    // Joined to the contract and matched on org, NOT keyed on contract_id
+    // alone. The FKs on speed_tests require the contract to exist, not to
+    // belong to anyone, so another tenant could post a measurement against THIS
+    // contract; that row carries their organization_id, and reading it here
+    // would report a fabricated result as this contract's latest test — into
+    // the service-health panel and into the AI reply context. `<=>` rather than
+    // `=` so a single-tenant install, where both are NULL, still matches.
     const [rows] = await db.query(
-      `SELECT download_mbps, upload_mbps, latency_ms, jitter_ms,
-              packet_loss_pct, tested_at
-       FROM speed_tests
-       WHERE contract_id = ? AND deleted_at IS NULL
-       ORDER BY tested_at DESC
+      `SELECT st.download_mbps, st.upload_mbps, st.latency_ms, st.jitter_ms,
+              st.packet_loss_pct, st.tested_at
+       FROM speed_tests st
+       JOIN contracts c ON c.id = st.contract_id
+       WHERE st.contract_id = ? AND st.deleted_at IS NULL
+         AND st.organization_id <=> c.organization_id
+       ORDER BY st.tested_at DESC
        LIMIT 1`,
       [contractId],
     );
