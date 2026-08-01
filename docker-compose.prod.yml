@@ -71,9 +71,15 @@ services:
       - db_primary_data:/var/lib/mysql
       - ./mysql/primary.cnf:/etc/mysql/conf.d/primary.cnf:ro
     command: mysqld --host-cache-size=0
+    # NO credentials, on purpose. The old form interpolated ${DB_ROOT_PASSWORD}
+    # into this command's argv, and a container process's argv is visible in the
+    # HOST's /proc — /proc/<pid>/cmdline is world-readable — so the root DB
+    # password was exposed to every local account, refreshed every 10s, forever.
+    # `mysqladmin ping` exits 0 whenever the server answers, including with
+    # "access denied" (documented: a refused connection proves mysqld is alive),
+    # so liveness needs no password. Dev and e2e already use this exact form.
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
-             '-u', 'root', '--password=${DB_ROOT_PASSWORD}']
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
       interval: 10s
       timeout:  5s
       retries:  10
@@ -110,9 +116,15 @@ services:
       - ./mysql/replica.cnf:/etc/mysql/conf.d/replica.cnf:ro
       - ./mysql/init-replica.sh:/docker-entrypoint-initdb.d/init-replica.sh:ro
     command: mysqld --host-cache-size=0
+    # NO credentials, on purpose. The old form interpolated ${DB_ROOT_PASSWORD}
+    # into this command's argv, and a container process's argv is visible in the
+    # HOST's /proc — /proc/<pid>/cmdline is world-readable — so the root DB
+    # password was exposed to every local account, refreshed every 10s, forever.
+    # `mysqladmin ping` exits 0 whenever the server answers, including with
+    # "access denied" (documented: a refused connection proves mysqld is alive),
+    # so liveness needs no password. Dev and e2e already use this exact form.
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost',
-             '-u', 'root', '--password=${DB_ROOT_PASSWORD}']
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
       interval: 10s
       timeout:  5s
       retries:  10
@@ -133,20 +145,74 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    command: >
-      redis-server
-        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-        --appendonly yes
-        --appendfsync everysec
-        --maxmemory ${REDIS_MAXMEMORY:-256mb}
-        --maxmemory-policy allkeys-lru
-        --save 900 1
-        --save 300 10
-        --save 60 10000
+    environment:
+      # Read by the entrypoint below and by the healthcheck. An env var is safe:
+      # /proc/<pid>/environ is mode 0400 (owner only), unlike argv.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    # The password is written into a config file from the environment, NOT put on
+    # redis-server's command line. `--requirepass ${REDIS_PASSWORD}` made compose
+    # interpolate the plaintext into the container's STORED CONFIGURATION, which
+    # is readable via `docker inspect` and written to
+    # /var/lib/docker/containers/<id>/config.v2.json on disk — so it also travels
+    # into any backup of that directory. It was additionally in the argv of PID 1
+    # (a container process's argv is visible in the host's /proc, and
+    # /proc/<pid>/cmdline is world-readable, 0444), though only briefly: Redis
+    # overwrites its own argv at startup, because set-proc-title defaults to yes
+    # and setproctitle reuses the argv memory. The healthcheck below had no such
+    # reprieve — redis-cli does not rewrite its title, so `redis-cli -a <pw>`
+    # republished the password to every local account every 10 seconds.
+    #
+    # The old form was also outright BROKEN for such a password, not merely
+    # leaky: `command: >` folds to one string that compose splits shell-style, so
+    # a `"` in the value made compose refuse the file entirely —
+    # "'services[redis].command' invalid command line string". Verified by
+    # restoring the old form in CI. This form takes the value through the
+    # environment, so no splitter ever sees it.
+    #
+    # $$REDIS_PASSWORD (doubled) so compose does NOT interpolate it here: the
+    # container's shell expands it from the environment into the heredoc, so the
+    # value reaches the file and nothing else. Then `docker-entrypoint.sh
+    # redis-server ...` is exec'd exactly as the image intends, preserving its
+    # chown of /data and its drop to the unprivileged `redis` user (both only
+    # happen when arg 1 is `redis-server`). Non-secret tuning stays on argv.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        umask 077
+        # redis.conf is parsed by sdssplitargs(), which treats \ and " inside a
+        # double-quoted value as syntax. Unescaped, a password containing " (or
+        # ending in \) is "Unbalanced quotes in configuration line" -> exit(1),
+        # and since app gates on `redis: service_healthy` that crash-loop wedges
+        # the WHOLE stack; an interior \ is worse than a crash — Redis starts
+        # having silently stored a DIFFERENT password (\n, \xNN are interpreted),
+        # so auth fails with everything looking alive. Escaping just \ and " is
+        # sufficient: Redis unescapes \" -> " and \\ -> \, and pre-escaping the
+        # backslash also neutralises the \n / \xNN forms. Verified against a port
+        # of the parser over 11 hostile inputs; all round-trip byte-exact.
+        esc=$$(printf '%s' "$$REDIS_PASSWORD" | sed 's/[\\"]/\\&/g')
+        cat > /tmp/redis.conf <<EOF
+        requirepass "$$esc"
+        EOF
+        # 0400 + owned by redis, NOT 0644: the entrypoint drops to the redis user
+        # before redis-server reads this file, so it must be readable by redis —
+        # but a world-readable plaintext password inside the container undoes the
+        # umask above for anything else running there.
+        chown redis /tmp/redis.conf || { echo "redis entrypoint: could not give the config to the redis user — refusing to start rather than crash-looping on an unreadable config" >&2; exit 1; }
+        chmod 0400 /tmp/redis.conf
+        exec docker-entrypoint.sh redis-server /tmp/redis.conf \
+          --appendonly yes \
+          --appendfsync everysec \
+          --maxmemory ${REDIS_MAXMEMORY:-256mb} \
+          --maxmemory-policy allkeys-lru \
+          --save 900 1 --save 300 10 --save 60 10000
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      # REDISCLI_AUTH (env, 0400) instead of `-a <password>` (argv, 0444). The
+      # sh -c script text carries only the literal $REDIS_PASSWORD; the value is
+      # placed in redis-cli's ENVIRON, never its argv.
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 10s
       timeout:  5s
       retries:  5

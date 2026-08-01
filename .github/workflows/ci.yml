@@ -888,3 +888,117 @@ jobs:
         with:
           charts_dir: charts
           skip_existing: true
+
+  # ---------------------------------------------------------------------------
+  # Production compose: the Redis service actually starts, and keeps its
+  # password out of argv
+  # ---------------------------------------------------------------------------
+  # docker-compose.prod.yml is the file every self-hoster runs and, until this
+  # job, the ONLY compose file CI never exercised — e2e uses the e2e compose,
+  # database-tests uses the test one. That gap mattered the moment the Redis
+  # password moved out of `redis-server --requirepass <pw>` (argv, and
+  # /proc/<pid>/cmdline is world-readable) into a config file: the new form
+  # inherits redis.conf's quoting rules, where a password containing `"` is a
+  # FATAL config error and one containing `\` silently becomes a DIFFERENT
+  # password. Because `app` waits on `redis: service_healthy`, either would
+  # wedge the whole stack on `up -d`.
+  #
+  # So the password here deliberately contains both characters. A unit test can
+  # prove the parser semantics; only this can prove Redis itself agrees.
+  prod-compose-redis:
+    name: Prod compose — Redis starts, no secret in argv
+    runs-on: ubuntu-latest
+
+    env:
+      COMPOSE: docker compose -f docker-compose.prod.yml --env-file .env.prod
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Throwaway values. The compose file requires the other three passwords to
+      # interpolate at all, even to start a single service.
+      - name: Write a throwaway .env.prod with a hostile Redis password
+        run: |
+          cat > .env.prod <<'EOF'
+          DB_PASSWORD=ci-db-password
+          DB_ROOT_PASSWORD=ci-root-password
+          MYSQL_REPL_PASSWORD=ci-repl-password
+          REDIS_PASSWORD=ci"pass\word-42
+          EOF
+
+      - name: Start only the redis service
+        run: $COMPOSE up -d redis
+
+      - name: Wait for the healthcheck to report healthy
+        run: |
+          for i in $(seq 1 30); do
+            state=$(docker inspect -f '{{.State.Health.Status}}' "$($COMPOSE ps -q redis)" 2>/dev/null || echo starting)
+            [ "$state" = healthy ] && exit 0
+            [ "$state" = unhealthy ] && break
+            sleep 2
+          done
+          echo "::error::redis did not become healthy — app gates on this, so the whole stack would be down"
+          $COMPOSE logs redis
+          exit 1
+
+      # SELF-VALIDATING. A scan that cannot see the container's processes would
+      # report "clean" forever while proving nothing — the way this very check
+      # passed a deliberate mutation the first time it was written. So it first
+      # proves it can see redis-server at all, and fails loudly if it cannot.
+      - name: The /proc scan can actually see into the container
+        run: |
+          if ! grep -slaF redis-server /proc/[0-9]*/cmdline >/dev/null 2>&1; then
+            echo "::error::cannot see the container's processes in /proc — this runner cannot verify argv exposure, so the check below would be vacuous"
+            exit 1
+          fi
+          echo "container processes are visible in /proc — the scan below is meaningful"
+
+      # The expected value is read back from the container rather than repeated
+      # as a literal: if compose's dotenv parser altered it, a hardcoded needle
+      # would simply not match and this would pass while proving nothing.
+      #
+      # NOTE ON WHAT THIS CAN AND CANNOT CATCH: redis-server overwrites its own
+      # argv at startup (set-proc-title defaults to yes, and setproctitle reuses
+      # the argv memory), so a password on ITS command line is only visible in a
+      # brief startup window and this scan may miss it. redis-cli does no such
+      # thing, so the healthcheck form is caught reliably. The durable surface is
+      # asserted in the next step, which does not race at all.
+      - name: The password must not appear in any process's argv
+        run: |
+          PW=$($COMPOSE exec -T redis printenv REDIS_PASSWORD | tr -d '\r\n')
+          [ -n "$PW" ] || { echo "::error::could not read REDIS_PASSWORD back from the container"; exit 1; }
+          for f in /proc/[0-9]*/cmdline; do
+            if tr '\0' ' ' < "$f" 2>/dev/null | grep -qF -- "$PW"; then
+              echo "::error::the Redis password is readable from $f"
+              tr '\0' ' ' < "$f"; exit 1
+            fi
+          done
+          echo "no process argv carries the password"
+
+      # THE DETERMINISTIC ONE. Whatever compose interpolates into Cmd, Entrypoint
+      # or Healthcheck.Test is stored in the container's configuration — readable
+      # via `docker inspect`, and written to /var/lib/docker/containers/<id>/
+      # config.v2.json on disk, where it also lands in host backups. That is what
+      # the old `--requirepass ${REDIS_PASSWORD}` and `redis-cli -a ${...}` forms
+      # did, and it does not depend on catching a process at the right moment.
+      #
+      # Env is deliberately NOT checked: the environment is the SAFE channel here
+      # (/proc/<pid>/environ is 0400), and the fix puts the password there on
+      # purpose.
+      - name: The password must not be baked into the container's command config
+        run: |
+          PW=$($COMPOSE exec -T redis printenv REDIS_PASSWORD | tr -d '\r\n')
+          CID=$($COMPOSE ps -q redis)
+          for field in '.Config.Cmd' '.Config.Entrypoint' '.Config.Healthcheck.Test'; do
+            value=$(docker inspect -f "{{json $field}}" "$CID")
+            if printf '%s' "$value" | grep -qF -- "$PW"; then
+              echo "::error::the Redis password is stored in $field — readable via docker inspect and in config.v2.json on disk"
+              printf '%s\n' "$value"
+              exit 1
+            fi
+          done
+          echo "no command/entrypoint/healthcheck config carries the password"
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
