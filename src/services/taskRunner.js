@@ -21,6 +21,7 @@ const smsTransport = require('./smsTransport');
 const webhookService = require('./webhookService');
 const checkoutService = require('./checkoutService');
 const alertService = require('./alertService');
+const networkHealthAggregator = require('./networkHealthAggregator');
 const retentionService = require('./retentionService');
 const paymentRetryService = require('./paymentRetryService');
 const configBackupService = require('./configBackupService');
@@ -109,10 +110,23 @@ async function runTask(taskName, organizationId = null) {
       ]).then(([accounts, tables]) => ({ ...accounts, freeradius: tables }));
     case 'check_certificate_expiry':
       return radiusService.checkCertificateExpiry(organizationId);
+    // Both of these used to return the string "populated by MySQL scheduled
+    // event" for an event that was never written, so they reported SUCCESS
+    // nightly while doing nothing — and the pages they feed had been empty
+    // since the tables were created. Returning a message counts as success, so
+    // the scheduled-tasks page showed a healthy green job feeding a blank page,
+    // which is the "stub whose UI fakes success" class CLAUDE.md calls out.
     case 'populate_revenue_summary':
-      return { message: 'Revenue summary is populated by MySQL scheduled event' };
+      // NOT YET IMPLEMENTED, and now says so instead of claiming success.
+      // Throwing marks the task FAILED, which is the honest state: an operator
+      // looking at the scheduled-tasks page can finally see that the revenue
+      // summary is not being produced. Implementing it is queued (j52).
+      throw new Error(
+        'populate_revenue_summary is not implemented — revenue_summary is not being populated. '
+        + 'Disable this task or track the follow-up; it previously reported success while doing nothing.',
+      );
     case 'populate_network_health_snapshots':
-      return { message: 'Network health snapshots are populated by MySQL scheduled event' };
+      return networkHealthAggregator.aggregateDay(organizationId);
     case 'tls_expiry_monitor':
       // The server's own TLS certificate — the one customers actually hit.
       // check_certificate_expiry covers subscriber_certificates (RADIUS) and

@@ -166,14 +166,25 @@ describe('taskRunner', () => {
       expect(result).toHaveProperty('total', 0);
     });
 
-    test('returns info message for populate_revenue_summary', async () => {
-      const result = await taskRunner.runTask('populate_revenue_summary');
-      expect(result.message).toContain('Revenue');
+    // These two used to assert `result.message` contained 'Revenue' /
+    // 'Network health' — i.e. they asserted the STUB, locking in a task that
+    // reported SUCCESS nightly while doing nothing. Returning a message counts
+    // as success, so the scheduled-tasks page showed a healthy green job
+    // feeding a page that had been empty since migration 117.
+
+    test('populate_revenue_summary FAILS rather than claiming success', async () => {
+      // Still unimplemented. A thrown error marks the task failed, which is the
+      // honest state and the only one an operator can act on.
+      await expect(taskRunner.runTask('populate_revenue_summary'))
+        .rejects.toThrow(/not implemented/);
     });
 
-    test('returns info message for populate_network_health_snapshots', async () => {
-      const result = await taskRunner.runTask('populate_network_health_snapshots');
-      expect(result.message).toContain('Network health');
+    test('populate_network_health_snapshots actually aggregates', async () => {
+      db.query.mockResolvedValue([[]]);
+      const result = await taskRunner.runTask('populate_network_health_snapshots', 42);
+      // Real return value from the aggregator, not a message.
+      expect(result).toHaveProperty('snapshot_date');
+      expect(result).toHaveProperty('devices', 0);
     });
 
     test('dispatches csd_expiry_monitor task', async () => {
