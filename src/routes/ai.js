@@ -381,6 +381,29 @@ router.post('/reply/draft', requirePermission('ai.reply.draft'), validate(replyD
   try {
     const { ticket_id, channel = 'portal', inbound_text, contract_id } = req.body;
 
+    // contract_id arrives from the REQUEST BODY and is handed straight to
+    // serviceHealthService.getSnapshot / topologyContextService.summarize,
+    // whose queries key on contract_id and device_id with no organization
+    // predicate of their own. Unchecked, a tenant could name another tenant's
+    // contract and read back its RADIUS session and username, connection
+    // logs, plan details, SNMP device metrics and last speed test — none of
+    // which GET /contracts/:id would have shown them.
+    //
+    // The platform's other two callers are already safe and stay that way:
+    // tickets.js derives the contract from a ticket it fetched WHERE
+    // organization_id = req.orgId, and the portal chat passes none at all.
+    // This route is the only one that trusts the caller.
+    //
+    // 404 rather than 403, matching GET /contracts/:id — a 403 would confirm
+    // the contract exists, which is itself the disclosure being prevented.
+    if (contract_id) {
+      const [[owned]] = await db.query(
+        'SELECT id FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [contract_id, req.orgId],
+      );
+      if (!owned) throw new NotFoundError('Contract not found');
+    }
+
     const result = await aiReplyService.generate({
       orgId:       req.orgId,
       ticketId:    ticket_id,
