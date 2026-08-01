@@ -161,6 +161,35 @@ because that image only knows its own already-applied files. Old code against a
 forward schema is fine for additive migrations and breaks on a `DROP`, `RENAME`
 or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
 
+#### New settings arrive on their own
+
+`redeploy` appends any **managed setting** your `.env.prod` does not yet mention,
+with its default and a comment explaining it, so a new option does not require
+knowing that a variable name exists. Turning one on is then editing a line
+already in front of you:
+
+```
+# Show the install operator a once-a-day banner when a newer FireISP release …
+FIREISP_UPDATE_CHECK=0      ← change to 1
+```
+
+The rules that make this safe against a file holding `DB_PASSWORD`,
+`JWT_SECRET` and `ENCRYPTION_KEY`:
+
+- **Append only.** No existing line is rewritten, reordered or removed, so a
+  value you chose is never reverted by a later deploy.
+- **Set *or* commented out both count as present.** Commenting a setting out is
+  an expressed intent; a deploy that silently re-added it would override you.
+- **A backup is taken** (`.env.prod.bak-<timestamp>`) before the first write of
+  a run, and an unwritable or missing file is skipped with a note rather than
+  failing the deploy.
+- **The list is an explicit allowlist in the script, never "every key in
+  `.env.prod.example`".** That file ships placeholder secrets
+  (`DB_PASSWORD=CHANGE_ME_…`, `ENCRYPTION_KEY=CHANGE_ME_…`); introducing one
+  into a working install would lock out the database or make every stored CSD
+  and payment credential undecryptable. Only inert settings whose default
+  preserves current behaviour belong there.
+
 #### Deploying a commit CI hasn't published yet
 
 The most common "failure" is not one: you merge, immediately run `sudo

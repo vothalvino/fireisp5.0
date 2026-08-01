@@ -60,6 +60,93 @@ KEEP_IMAGES="${FIREISP_IMAGE_KEEP:-3}"
 # 0 disables the wait and fails immediately.
 IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
 
+# -----------------------------------------------------------------------------
+# Settings this script may INTRODUCE into an existing .env.prod
+# -----------------------------------------------------------------------------
+# An upgrade that needs the operator to hand-edit a secrets file is an upgrade
+# most operators will not perform. New options therefore arrive in .env.prod on
+# the next deploy, already carrying their default and their explanation, so
+# turning one on is editing a line that is in front of you rather than knowing
+# a variable name exists.
+#
+# AN EXPLICIT ALLOWLIST, NEVER "every key in .env.prod.example". That file
+# carries PLACEHOLDER SECRETS — DB_PASSWORD=CHANGE_ME_strong_db_password,
+# ENCRYPTION_KEY=CHANGE_ME_64_char_random_hex_string. Introducing one of those
+# into a working install would lock out the database, or make every stored CSD
+# and payment credential undecryptable. Only inert, non-secret settings with a
+# default that preserves current behaviour belong here.
+#
+# Format: KEY=default|one-line explanation written into the file as a comment.
+MANAGED_ENV_KEYS=(
+  "FIREISP_UPDATE_CHECK=0|Show the install operator a once-a-day banner when a newer FireISP release exists. Set to 1 to enable. OFF by default: this is the only outbound request FireISP makes on its own behalf (an unauthenticated read of the newest public commit). No install data, version or identifiers are sent."
+)
+
+# Append any managed setting the operator's .env.prod does not already mention.
+#
+# Rules that make this safe to run against a live secrets file:
+#   * APPEND ONLY. No existing line is ever rewritten, reordered or removed, so
+#     a chosen value cannot be reverted by a later deploy.
+#   * A key counts as present whether it is SET or COMMENTED OUT. Someone who
+#     deliberately commented a setting out has expressed an intent, and a deploy
+#     that silently re-added it would be overriding them.
+#   * A backup is taken before the first write of each run.
+#   * Unwritable or missing file: skip with a note. Never fail the deploy over a
+#     cosmetic setting.
+sync_managed_env() {
+  local env_file="$1"
+  local added=0 backed_up=0 entry key default comment
+
+  [[ -f "$env_file" ]] || { echo "    (no $env_file — skipping settings sync)"; return 0; }
+
+  for entry in "${MANAGED_ENV_KEYS[@]}"; do
+    key="${entry%%=*}"
+    default="${entry#*=}"; default="${default%%|*}"
+    comment="${entry#*|}"
+
+    # Present in any form — set, or commented out on purpose.
+    if grep -qE "^[[:space:]]*#?[[:space:]]*${key}=" "$env_file"; then
+      continue
+    fi
+
+    if [[ ! -w "$env_file" ]]; then
+      echo "    (cannot write $env_file — add ${key}=${default} by hand to use it)" >&2
+      return 0
+    fi
+
+    if (( ! backed_up )); then
+      cp -p "$env_file" "${env_file}.bak-$(date +%Y%m%d-%H%M%S)"
+      backed_up=1
+    fi
+
+    # A file not ending in a newline would otherwise have the new key glued to
+    # the end of the last line — which for a secrets file means corrupting the
+    # value above it.
+    #
+    # Belt and braces: the block below already opens with a newline, so today
+    # this line changes nothing and mutating it away is an EQUIVALENT mutant
+    # (confirmed — the test suite cannot distinguish it, correctly). It stays
+    # because it is the only thing protecting that invariant if the separator
+    # is ever dropped from the printf below.
+    [[ -n "$(tail -c1 "$env_file")" ]] && printf '\n' >>"$env_file"
+
+    {
+      printf '\n# %s\n' "$comment"
+      printf '%s=%s\n' "$key" "$default"
+    } >>"$env_file"
+    echo "    + added ${key}=${default}"
+    added=$(( added + 1 ))
+  done
+
+  if (( added )); then
+    echo "    ${added} new setting(s) written to $env_file (backup alongside it)"
+  fi
+}
+
+# Sourced by tests to get the functions above without running a deploy.
+if [[ "${FIREISP_LIB_ONLY:-}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "error: $COMPOSE_FILE not found — set FIREISP_DIR to your FireISP install path" >&2
   exit 1
@@ -106,6 +193,9 @@ fi
 # to be permanent costs one wait and then reports honestly.
 STAY_MSG="  Nothing has been changed on this host: the previous containers are still
   running and still serving."
+
+echo "==> Syncing new settings into $(basename "$ENV_FILE")"
+sync_managed_env "$ENV_FILE"
 
 echo "==> Pulling image"
 PULL_OUT="$(dc pull app 2>&1)" && PULL_OK=1 || PULL_OK=0
