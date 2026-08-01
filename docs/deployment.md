@@ -165,17 +165,23 @@ or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
 
 The most common "failure" is not one: you merge, immediately run `sudo
 redeploy`, and the image does not exist yet because CI publishes only *after*
-the security scan passes — a few minutes later. `redeploy` now **waits** for
-the image instead of failing, up to `FIREISP_IMAGE_WAIT` seconds (default
-`300`, `0` disables):
+the security scan passes — several minutes later. `redeploy` **retries the
+pull** until it succeeds, up to `FIREISP_IMAGE_WAIT` seconds (default `600`,
+`0` disables):
 
 ```bash
-FIREISP_IMAGE_WAIT=900 sudo -E redeploy    # note -E: sudo strips the variable otherwise
+FIREISP_IMAGE_WAIT=1800 sudo -E redeploy    # note -E: sudo strips the variable otherwise
 ```
 
-It waits only when the registry positively reports the tag as absent. An auth
-or network error is not something waiting can fix, so those fall straight
-through to the real diagnosis.
+It retries the real pull rather than probing first, because **GHCR answers
+`401 unauthorized` for a tag that does not exist**, not `404`. A not-yet-built
+image is therefore indistinguishable by message from a private package, and
+any logic keyed on that wording skips the wait exactly when it is needed. Only
+two conditions fail fast, because waiting cannot fix them: an architecture
+mismatch, and a full disk.
+
+That same GHCR quirk is why the failure message lists *both* causes in
+likelihood order instead of asserting one.
 
 If the pull then fails, nothing on the host has changed and the previous
 containers are still serving. The script names the **one** cause that applies

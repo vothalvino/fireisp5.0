@@ -58,7 +58,7 @@ KEEP_IMAGES="${FIREISP_IMAGE_KEEP:-3}"
 # "failure" is redeploying in the few minutes between merging and CI finishing
 # the publish, which is not a failure at all — it is a race worth waiting out.
 # 0 disables the wait and fails immediately.
-IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-300}"
+IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "error: $COMPOSE_FILE not found — set FIREISP_DIR to your FireISP install path" >&2
@@ -84,61 +84,59 @@ if [[ -n "${1:-}" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Wait for the image, then diagnose ONE cause — not a menu of three.
+# Wait for the image by RETRYING THE REAL PULL, then diagnose one cause.
 # -----------------------------------------------------------------------------
-# `docker manifest inspect` asks the registry whether a tag exists without
-# downloading any layers, so it is cheap to poll and its stderr says WHICH
-# problem this is. The previous version printed all three possible causes and
-# left the operator to work out which applied; in practice it was almost always
-# "CI has not published yet", which is a wait, not an error.
+# Merging and immediately redeploying is a race, not an error: CI publishes only
+# after the security scan passes. So the pull is retried until the deadline
+# rather than failing on the first attempt.
 #
-# This block can only ever HELP: it never fails the deploy on its own. If
-# `docker manifest` is unavailable or unreliable on this host, the pull below
-# runs exactly as it always did. Nothing here is load-bearing.
+# It retries `dc pull` itself rather than probing with `docker manifest
+# inspect`. Probing meant classifying a DIFFERENT command's error text, and
+# GHCR makes that unreliable in the one way that matters:
+#
+#   GHCR answers 401 "unauthorized" for a tag that does not exist, not 404.
+#
+# So a not-yet-published image is indistinguishable from a private package by
+# message alone. Keying the wait off that text skipped the wait exactly when it
+# was needed, and then reported "your package is private" — wrong twice.
+# Retrying the real operation removes the guesswork: the thing being retried is
+# the thing that has to succeed.
+#
+# Waiting is bounded and side-effect free, so retrying an error that turns out
+# to be permanent costs one wait and then reports honestly.
 STAY_MSG="  Nothing has been changed on this host: the previous containers are still
   running and still serving."
 
-manifest_ok()  { docker manifest inspect "$FIREISP_IMAGE" >/dev/null 2>&1; }
-manifest_err() { docker manifest inspect "$FIREISP_IMAGE" 2>&1 >/dev/null || true; }
+echo "==> Pulling image"
+PULL_OUT="$(dc pull app 2>&1)" && PULL_OK=1 || PULL_OK=0
 
-if docker manifest inspect --help >/dev/null 2>&1 && (( IMAGE_WAIT > 0 )) && ! manifest_ok; then
-  # Only wait when the registry positively says the tag is absent. Any other
-  # error (auth, experimental-CLI, DNS) is not something waiting can fix, so
-  # fall straight through to the pull and let it produce the real diagnosis.
-  if [[ "$(manifest_err)" == *manifest\ unknown* || "$(manifest_err)" == *"not found"* ]]; then
-    echo "==> Image not published yet — waiting up to ${IMAGE_WAIT}s"
-    echo "    (CI publishes only after the security scan passes, so a commit"
-    echo "     merged moments ago takes a few minutes to become deployable)"
-    deadline=$(( SECONDS + IMAGE_WAIT ))
-    until manifest_ok; do
-      (( SECONDS >= deadline )) && break
-      sleep 10
-      printf '    ...still waiting (%ds elapsed)\n' "$(( IMAGE_WAIT - (deadline - SECONDS) ))"
-    done
-    manifest_ok && echo "==> Image published — continuing"
-  fi
+if (( ! PULL_OK )) && (( IMAGE_WAIT > 0 )); then
+  case "$PULL_OUT" in
+    # Permanent conditions: waiting cannot make the image match this CPU, and
+    # cannot free disk. Everything else is retried, because GHCR's wording
+    # cannot tell "not published yet" from "private".
+    *"no matching manifest"*|*"no match for platform"*|*"no space left on device"*) ;;
+    *)
+      echo "==> Not pullable yet — retrying for up to ${IMAGE_WAIT}s"
+      echo "    (CI publishes only after the security scan passes, so a commit"
+      echo "     merged moments ago takes several minutes to become deployable)"
+      deadline=$(( SECONDS + IMAGE_WAIT ))
+      while (( SECONDS < deadline )); do
+        sleep 15
+        printf '    ...retrying (%ds elapsed)\n' "$(( IMAGE_WAIT - (deadline - SECONDS) ))"
+        if PULL_OUT="$(dc pull app 2>&1)"; then PULL_OK=1; break; fi
+      done
+      (( PULL_OK )) && echo "==> Image published — continuing"
+      ;;
+  esac
 fi
 
-echo "==> Pulling image"
-if ! PULL_OUT="$(dc pull app 2>&1)"; then
+if (( ! PULL_OK )); then
   printf '%s\n' "$PULL_OUT" >&2
   echo >&2
   echo "error: could not pull ${FIREISP_IMAGE}" >&2
   echo >&2
-  # Name the ONE cause that matches, rather than listing every possibility and
-  # making the operator diagnose their own deploy.
   case "$PULL_OUT" in
-    *nauthorized*|*denied*|*"authentication required"*)
-      cat >&2 <<EOF
-  The registry refused this host: the ghcr package is PRIVATE and this host is
-  not logged in. GitHub makes container packages private by DEFAULT even for a
-  public repository, so this bites once on a new install and never again.
-  Either make the package public (GitHub -> Packages -> fireisp5.0 -> Package
-  settings -> Change visibility), or authenticate here:
-
-      echo "\$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
-EOF
-      ;;
     *"no matching manifest"*|*"no match for platform"*)
       cat >&2 <<EOF
   The image exists but not for this machine's architecture. Published builds
@@ -148,26 +146,48 @@ EOF
       cd ${APP_DIR} && docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
 EOF
       ;;
-    *"manifest unknown"*|*"not found"*)
+    *nauthorized*|*denied*|*"authentication required"*|*"manifest unknown"*|*"no such manifest"*|*"not found"*)
       cat >&2 <<EOF
-  No image exists for this commit$( (( IMAGE_WAIT > 0 )) && printf ', and none appeared within %ss' "$IMAGE_WAIT" ).
-  Either CI is still running, or the build was SKIPPED because Docker Hub was
-  unreachable -- that case leaves the run GREEN with only a warning annotation,
-  so a green tick is not proof an image exists. Open the run and check
-  container-scan for "Container scan SKIPPED".
+  Two causes look identical here, because GHCR answers 401 "unauthorized" for a
+  tag that does not exist rather than 404. After waiting ${IMAGE_WAIT}s, in
+  order of likelihood:
 
-      https://github.com/vothalvino/fireisp5.0/actions
+  1. No image for this commit yet. CI publishes only after the security scan
+     passes. The container-scan job is also allowed to go GREEN WITHOUT
+     BUILDING when Docker Hub is unreachable, so a green tick is not proof an
+     image exists -- open the run and look for "Container scan SKIPPED".
 
-  Re-run that job, wait longer (FIREISP_IMAGE_WAIT=900 sudo -E redeploy), or
-  deploy the last commit that does have an image:
+         https://github.com/vothalvino/fireisp5.0/actions
 
-      sudo redeploy <previous-commit-sha>
+     Wait longer, or deploy the last commit that does have an image:
+
+         FIREISP_IMAGE_WAIT=1800 sudo -E redeploy
+         sudo redeploy <previous-commit-sha>
+
+  2. The ghcr package is private and this host is not logged in. GitHub makes
+     container packages private by DEFAULT even for a public repository, so
+     this bites once on a new install and never again. Make the package public
+     (GitHub -> Packages -> fireisp5.0 -> Package settings -> Change
+     visibility), or authenticate:
+
+         echo "\$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
+EOF
+      ;;
+    *"no space left on device"*)
+      cat >&2 <<EOF
+  The host is out of disk. Retained images are the usual cause -- this script
+  keeps ${KEEP_IMAGES} for rollback and prunes the rest, but only after a
+  SUCCESSFUL deploy, so a run of failures lets them accumulate.
+
+      df -h ${APP_DIR}
+      docker system df
+      docker image prune -a --filter "until=168h"
 EOF
       ;;
     *)
       cat >&2 <<EOF
   The pull failed for a reason this script does not recognise -- the registry
-  output is above. Common causes are a full disk and a network drop mid-layer:
+  output is above. Worth checking disk and connectivity:
 
       df -h ${APP_DIR}
 EOF
