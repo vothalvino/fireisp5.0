@@ -31,7 +31,7 @@ const db = require('../src/config/database');
 const Organization = require('../src/models/Organization');
 const agg = require('../src/services/revenueSummaryAggregator');
 
-function wire({ contracts = {}, flow = {}, money = {}, currency = 'MXN' } = {}) {
+function wire({ contracts = {}, flow = {}, money = {}, currency = 'MXN', orgs = [{ id: 1 }, { id: 2 }] } = {}) {
   Organization.getCurrency.mockResolvedValue(currency);
   db.query.mockImplementation(async (sql) => {
     if (/FROM contracts c\s+JOIN plans p/.test(sql)) {
@@ -44,6 +44,7 @@ function wire({ contracts = {}, flow = {}, money = {}, currency = 'MXN' } = {}) 
       return [[{ total_revenue: '0', total_collected: '0', total_outstanding: '0', ...money }]];
     }
     if (/^INSERT INTO revenue_summary/.test(sql)) return [{ affectedRows: 1 }];
+    if (/FROM organizations/.test(sql)) return [orgs];
     return [[]];
   });
 }
@@ -177,10 +178,35 @@ describe('writing', () => {
     expect(res.period_date).toBe(expected);
   });
 
-  it('refuses to run without an organisation', async () => {
-    // revenue_summary.organization_id is NOT NULL. Writing under a guessed
-    // tenant would be worse than failing.
-    await expect(agg.populate(null)).rejects.toThrow(/organizationId is required/);
+  it('fans out across every active organisation when given none', async () => {
+    // The seeded task (migration 123) carries organization_id NULL, meaning
+    // "the whole install". An earlier version of this threw instead — which
+    // would have turned a task that silently did nothing into one that FAILED
+    // every night on every install, unfixable without editing the database.
+    const res = await agg.populate(null, '2026-07-01');
+    expect(res.organizations).toBe(2);
+    const inserts = db.query.mock.calls.filter(([s]) => /^INSERT INTO revenue_summary/.test(s));
+    expect(inserts).toHaveLength(2);
+  });
+
+  it('only fans out to ACTIVE organisations', async () => {
+    await agg.populate(null, '2026-07-01');
+    const q = db.query.mock.calls.find(([s]) => /FROM organizations/.test(s))[0];
+    expect(q).toMatch(/status = 'active'/);
+    expect(q).toMatch(/deleted_at IS NULL/);
+  });
+
+  it("one organisation's failure does not stop the others", async () => {
+    // A nightly reporting job, not a transaction: bad data in one tenant must
+    // not leave the rest of the install unsummarised.
+    let n = 0;
+    const real = db.query.getMockImplementation();
+    db.query.mockImplementation(async (sql, params) => {
+      if (/JOIN plans p/.test(sql) && ++n === 1) throw new Error('bad data');
+      return real(sql, params);
+    });
+    const res = await agg.populate(null, '2026-07-01');
+    expect(res.organizations).toBe(1);
   });
 });
 
@@ -193,8 +219,11 @@ describe('the task dispatches it', () => {
     expect(src()).toMatch(/return revenueSummaryAggregator\.populate\(organizationId\)/);
   });
 
-  it('fails loudly when scheduled without an organisation', () => {
-    expect(src()).toMatch(/populate_revenue_summary requires an organization_id/);
+  it('passes the organisation straight through, null included', () => {
+    // null means "the whole install" and the service fans out; the task must
+    // not second-guess that by refusing.
+    expect(src()).toMatch(/return revenueSummaryAggregator\.populate\(organizationId\)/);
+    expect(src()).not.toMatch(/requires an organization_id/);
   });
 
   it('no task still claims a MySQL event populates it', () => {
