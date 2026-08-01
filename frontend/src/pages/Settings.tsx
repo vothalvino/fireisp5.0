@@ -1058,6 +1058,14 @@ function VersionTab() {
     },
   });
 
+  // Forces a fresh look upstream. The answer is otherwise at most 15 minutes
+  // old, which is fine passively but not when someone has deliberately come
+  // here to ask.
+  const checkMutation = useMutation({
+    mutationFn: () => apiFetch(`${API_BASE}/system/version/check`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system-version'] }),
+  });
+
   const deployMutation = useMutation({
     mutationFn: () => apiFetch(`${API_BASE}/system/deploy`, { method: 'POST' }),
     onSuccess: () => { setDeployError(null); qc.invalidateQueries({ queryKey: ['system-deploy'] }); },
@@ -1118,9 +1126,16 @@ function VersionTab() {
         )}
       </dl>
 
-      {v.update_available && (
+      {v.check_enabled && (
         <p style={sty.verNote}>
-          {t('version.howToUpdate')} <code style={sty.code}>sudo redeploy</code>
+          <button
+            type="button"
+            style={{ ...sty.btnGhost, ...(checkMutation.isPending ? sty.btnDisabled : {}) }}
+            disabled={checkMutation.isPending}
+            onClick={() => checkMutation.mutate()}
+          >
+            {checkMutation.isPending ? t('version.checking') : t('version.checkNow')}
+          </button>
         </p>
       )}
 
@@ -1152,17 +1167,33 @@ sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/sy
 sudo systemctl daemon-reload
 sudo systemctl enable --now fireisp-deploy-agent.timer`}</pre>
           <p style={sty.verNote}>{t('deploy.agentMissingWhy')}</p>
+          {/* The CLI fallback belongs HERE rather than in the version section:
+              this is the state where the operator has an update and no button
+              to press. Keeping it as its own <code> makes it copyable. */}
+          <p style={sty.verNote}>
+            {t('deploy.cliFallback')} <code style={sty.code}>sudo redeploy</code>
+          </p>
         </div>
       ) : (
         <div>
-          <button
-            type="button"
-            style={{ ...sty.btnPrimary, ...(busy || deployMutation.isPending ? sty.btnDisabled : {}) }}
-            disabled={busy || deployMutation.isPending}
-            onClick={() => deployMutation.mutate()}
-          >
-            {busy ? t('deploy.inProgress') : t('deploy.button')}
-          </button>
+          {/* Offered only when there is actually something to deploy. A button
+              that redeploys the commit you are already on is at best a no-op
+              and at worst a restart nobody asked for — and hiding it silently
+              would read as broken, so the up-to-date case says so. */}
+          {v.update_available ? (
+            <button
+              type="button"
+              style={{ ...sty.btnPrimary, ...(busy || deployMutation.isPending ? sty.btnDisabled : {}) }}
+              disabled={busy || deployMutation.isPending}
+              onClick={() => deployMutation.mutate()}
+            >
+              {busy ? t('deploy.inProgress') : t('deploy.button')}
+            </button>
+          ) : (
+            <p style={sty.muted}>
+              {v.check_enabled ? t('deploy.nothingToDeploy') : t('deploy.enableCheckFirst')}
+            </p>
+          )}
 
           {deployError && <p style={sty.errorText}>{deployError}</p>}
 

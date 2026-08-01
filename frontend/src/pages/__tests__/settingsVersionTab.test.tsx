@@ -224,3 +224,76 @@ describe('deploy panel — once the agent is alive', () => {
     expect(await screen.findByText(/could not pull ghcr/i)).toBeInTheDocument();
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Check now / Update now
+// ---------------------------------------------------------------------------
+// Two separate asks: a button that forces a fresh look upstream, and an Update
+// button that appears only when there is actually something to deploy.
+//
+// The second half matters more than it looks: a button that redeploys the
+// commit you are already on is at best a no-op and at worst a restart nobody
+// asked for. But hiding it silently would read as broken — which is exactly the
+// complaint that produced this change — so the up-to-date case says so.
+
+describe('Check for updates now', () => {
+  it('is offered when checks are enabled', async () => {
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByRole('button', { name: /Check for updates now/i })).toBeInTheDocument();
+  });
+
+  it('POSTs to the force endpoint', async () => {
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Check for updates now/i }));
+    await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([u]) => String(u).includes('/system/version/check'));
+      expect(call).toBeDefined();
+      expect(call[1]?.method).toBe('POST');
+    });
+  });
+
+  it('is hidden when checks are switched off — there is nothing to check', async () => {
+    respondWith({ check_enabled: false, latest_sha: null, update_available: false, checked_at: null });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    await screen.findByText(/Disabled/i);
+    expect(screen.queryByRole('button', { name: /Check for updates now/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Update now appears only when there is an update', () => {
+  it('is offered when an update exists and the agent is alive', async () => {
+    respondWith({}, { agent_alive: true });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByRole('button', { name: /Update now/i })).toBeInTheDocument();
+  });
+
+  it('is NOT offered when already on the latest', async () => {
+    respondWith({ latest_sha: 'abcdef1234567890', update_available: false }, { agent_alive: true });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    await screen.findByText(/Up to date/i);
+    expect(screen.queryByRole('button', { name: /Update now/i })).not.toBeInTheDocument();
+  });
+
+  it('says WHY rather than showing an empty panel', async () => {
+    // Hiding it silently is what made the previous version look broken.
+    respondWith({ latest_sha: 'abcdef1234567890', update_available: false }, { agent_alive: true });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/nothing to deploy/i)).toBeInTheDocument();
+  });
+
+  it('explains the disabled-checks case differently', async () => {
+    // No update_available is knowable at all, which is a different situation
+    // from being up to date and deserves different words.
+    respondWith({ check_enabled: false, latest_sha: null, update_available: false, checked_at: null }, { agent_alive: true });
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/nothing to compare against/i)).toBeInTheDocument();
+  });
+});

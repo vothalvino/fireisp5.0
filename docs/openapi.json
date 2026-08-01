@@ -20992,6 +20992,32 @@
         }
       }
     },
+    "/system/version/check": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Force a fresh update check, bypassing the cache",
+        "operationId": "forceSystemVersionCheck",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SystemVersion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/system/deploy": {
       "get": {
         "tags": [

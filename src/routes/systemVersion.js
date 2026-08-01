@@ -94,6 +94,20 @@ async function readDeployState() {
   };
 }
 
+/**
+ * Force a fresh look upstream, bypassing the cache.
+ *
+ * A POST rather than a GET because it has a side effect the operator asked for
+ * — an outbound request — and because it must not be issued by a prefetcher or
+ * a link crawler. The service still applies its own floor, so holding the
+ * button down cannot turn into a burst against GitHub's rate limit.
+ */
+router.post('/version/check', installOperatorOnly, async (req, res, next) => {
+  try {
+    res.json({ data: await updateCheck.getStatus({ force: true }) });
+  } catch (err) { next(err); }
+});
+
 router.get('/deploy', installOperatorOnly, async (req, res, next) => {
   try {
     res.json({ data: await readDeployState() });

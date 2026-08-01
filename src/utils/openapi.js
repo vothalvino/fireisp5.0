@@ -1029,6 +1029,11 @@ function generateSpec() {
       // Install-operator only. POST inserts a request row and nothing else —
       // a root systemd timer OUTSIDE the container services it. 503 when no
       // agent has checked in, so a request is never queued for nobody.
+      // POST, not GET: it has a side effect the operator asked for (an outbound
+      // request), and must not be issued by a prefetcher.
+      '/system/version/check': {
+        post: { tags: ['System'], summary: 'Force a fresh update check, bypassing the cache', operationId: 'forceSystemVersionCheck', security: [{ bearerAuth: [] }], responses: r200('SystemVersion') },
+      },
       '/system/deploy': {
         get: { tags: ['System'], summary: 'Newest deploy request and host agent liveness', operationId: 'getSystemDeploy', security: [{ bearerAuth: [] }], responses: r200('SystemDeploy') },
         post: { tags: ['System'], summary: 'Ask the host to redeploy', operationId: 'requestSystemDeploy', security: [{ bearerAuth: [] }], responses: r201('SystemDeploy') },

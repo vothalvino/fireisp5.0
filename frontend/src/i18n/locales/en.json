@@ -4855,7 +4855,9 @@
     "checkedAt": "Last checked",
     "howToUpdate": "To update, run on the server:",
     "howToEnable": "Update checks are on by default. This is the only outbound request FireISP makes on its own, and no install data is sent. To switch it off, set",
-    "howToEnableTail": "in .env.prod and redeploy."
+    "howToEnableTail": "in .env.prod and redeploy.",
+    "checkNow": "Check for updates now",
+    "checking": "Checking…"
   },
   "deploy": {
     "title": "Deploy",
@@ -4865,12 +4867,15 @@
     "requestedAt": "Requested",
     "finishedAt": "Finished",
     "agentMissing": "No deploy agent has checked in from the host, so there is nothing to carry out a deploy. Install it once:",
-    "agentMissingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine. Until the agent is installed, deploy from the CLI with sudo redeploy.",
+    "agentMissingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine.",
     "status": {
       "pending": "Queued",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed"
-    }
+    },
+    "nothingToDeploy": "You are on the latest release — nothing to deploy.",
+    "enableCheckFirst": "Update checks are off, so there is nothing to compare against. Enable them to deploy from here.",
+    "cliFallback": "Until then, deploy from the server with:"
   }
 }

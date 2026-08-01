@@ -206,6 +206,72 @@ describe('the answer stays FRESH enough to be useful', () => {
   });
 });
 
+describe('a FORCED check bypasses the cache', () => {
+  // The passive answer is at most 15 minutes old, which is fine in the
+  // background and not fine when the operator has deliberately come to the
+  // Version tab and asked.
+  beforeEach(() => { process.env.FIREISP_GIT_SHA = RUNNING; });
+
+  it('sees a commit the cached answer missed', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: RUNNING }) });
+    expect((await updateCheck.getStatus()).update_available).toBe(false);
+
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    expect((await updateCheck.getStatus()).update_available).toBe(false);          // cached
+    expect((await updateCheck.getStatus({ force: true })).update_available).toBe(true);
+  });
+
+  it('holds a floor so a double-click is not a burst', async () => {
+    // GitHub allows 60/hour unauthenticated. A stuck button must not spend it.
+    await updateCheck.getStatus({ force: true });
+    const after = fetchSpy.mock.calls.length;
+    await updateCheck.getStatus({ force: true });
+    await updateCheck.getStatus({ force: true });
+    expect(fetchSpy).toHaveBeenCalledTimes(after);
+  });
+
+  it('within the floor it still returns a real answer, not an error', async () => {
+    // Serving a ten-second-old value is not a lie; refusing would be worse UX
+    // than being marginally stale.
+    await updateCheck.getStatus({ force: true });
+    const status = await updateCheck.getStatus({ force: true });
+    expect(status.latest_sha).toBe(LATEST);
+  });
+
+  it('forces again once the floor has passed', async () => {
+    await updateCheck.getStatus({ force: true });
+    const after = fetchSpy.mock.calls.length;
+    const realNow = Date.now;
+    Date.now = () => realNow() + updateCheck.MIN_FORCED_INTERVAL_MS + 1000;
+    try {
+      await updateCheck.getStatus({ force: true });
+      expect(fetchSpy).toHaveBeenCalledTimes(after + 1);
+    } finally { Date.now = realNow; }
+  });
+
+  it('does not force when the operator has not enabled checks at all', async () => {
+    process.env.FIREISP_UPDATE_CHECK = '0';
+    await updateCheck.getStatus({ force: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /system/version/check', () => {
+  it('is install-operator only', async () => {
+    wireUser(TENANT);
+    const res = await asUser(TENANT)(request(app).post('/api/v1/system/version/check'));
+    expect(res.status).toBe(404);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns a freshly-checked status for the operator', async () => {
+    wireUser(ADMIN);
+    const res = await asUser(ADMIN)(request(app).post('/api/v1/system/version/check'));
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ running_sha: RUNNING, latest_sha: LATEST });
+  });
+});
+
 describe('the upstream lookup is cached', () => {
 
   it('checks once across many calls', async () => {

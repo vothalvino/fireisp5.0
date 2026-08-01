@@ -69,6 +69,13 @@ const FAILURE_TTL_MS = 6 * 60 * 60 * 1000;
 
 const REQUEST_TIMEOUT_MS = 8000;
 
+// Floor between FORCED checks. The operator pressing "Check now" should feel
+// instant, but a double-click or a stuck finger must not turn into a burst
+// against GitHub's 60/hour. Short enough to be invisible, long enough to make a
+// storm impossible.
+const MIN_FORCED_INTERVAL_MS = 10 * 1000;
+let lastForcedAt = 0;
+
 // Process-local. A restart re-checks, which is fine and self-limiting; putting
 // this in the database would mean a write on a read path for a cosmetic banner.
 // `at` alone decides freshness. An earlier version keyed it on
@@ -113,10 +120,20 @@ function isEnabled() {
  * so an install with no egress retries once a day rather than on every page
  * load.
  */
-async function fetchLatestSha() {
-  // A cached FAILURE holds for longer than a cached answer — see the constants.
-  const ttl = cache.error ? FAILURE_TTL_MS : CHECK_TTL_MS;
-  if (cache.at > 0 && Date.now() - cache.at < ttl) return cache.latestSha;
+async function fetchLatestSha({ force = false } = {}) {
+  if (force) {
+    // Honour the floor even when forced, so the button cannot be used as a
+    // hammer; within the floor the caller simply gets the cached answer, which
+    // is at most ten seconds old and therefore not a lie.
+    if (Date.now() - lastForcedAt < MIN_FORCED_INTERVAL_MS && cache.at > 0) {
+      return cache.latestSha;
+    }
+    lastForcedAt = Date.now();
+  } else {
+    // A cached FAILURE holds for longer than a cached answer — see the constants.
+    const ttl = cache.error ? FAILURE_TTL_MS : CHECK_TTL_MS;
+    if (cache.at > 0 && Date.now() - cache.at < ttl) return cache.latestSha;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -155,7 +172,7 @@ async function fetchLatestSha() {
  * honestly and update_available false — claiming an update exists when we
  * cannot tell what is running would send someone to redeploy for no reason.
  */
-async function getStatus() {
+async function getStatus({ force = false } = {}) {
   const running = runningSha();
   if (!isEnabled()) {
     return {
@@ -167,7 +184,7 @@ async function getStatus() {
     };
   }
 
-  const latest = await fetchLatestSha();
+  const latest = await fetchLatestSha({ force });
   return {
     running_sha: running,
     latest_sha: latest,
@@ -180,6 +197,11 @@ async function getStatus() {
 /** Test seam — the module-level cache would otherwise leak between cases. */
 function _resetCache() {
   cache = { at: 0, latestSha: null, error: null };
+  lastForcedAt = 0;
 }
 
-module.exports = { getStatus, runningSha, isEnabled, ENV_FLAG, CHECK_TTL_MS, FAILURE_TTL_MS, _resetCache };
+module.exports = {
+  getStatus, runningSha, isEnabled,
+  ENV_FLAG, CHECK_TTL_MS, FAILURE_TTL_MS, MIN_FORCED_INTERVAL_MS,
+  _resetCache,
+};
