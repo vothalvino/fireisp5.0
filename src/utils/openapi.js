@@ -1024,6 +1024,9 @@ function generateSpec() {
       '/metrics': { get: { tags: ['Metrics'], summary: 'Prometheus metrics', operationId: 'getMetrics', responses: { 200: { description: 'Prometheus exposition format', content: { 'text/plain': { schema: { type: 'string' } } } } } } },
 
       // ---- FireRelay ----
+      // Install-operator only (legacy users.role='admin'); 404s for anyone else
+      // rather than 403, so a tenant admin cannot learn it exists.
+      '/system/version': { get: { tags: ['System'], summary: 'Running commit, and whether a newer release exists', operationId: 'getSystemVersion', security: [{ bearerAuth: [] }], responses: r200('SystemVersion') } },
       '/firerelay/health': { get: { tags: ['FireRelay'], summary: 'Node health (no auth)', operationId: 'firerelayHealth', responses: r200('NodeHealth') } },
       '/firerelay/nodes': {
         get: { tags: ['FireRelay'], summary: 'List cluster nodes', operationId: 'listFirerelayNodes', security: [{ bearerAuth: [] }], responses: r200('Node[]') },

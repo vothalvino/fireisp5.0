@@ -10,6 +10,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
+import { UpdateAvailableBanner } from '@/components/UpdateAvailableBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { useAccent } from '@/auth/AccentContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
@@ -339,6 +340,7 @@ export function Layout() {
         </header>
         <DrDrillBanner />
         <EmailVerificationBanner />
+        <UpdateAvailableBanner />
         <Outlet />
       </main>
 

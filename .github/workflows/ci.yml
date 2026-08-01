@@ -561,6 +561,13 @@ jobs:
           push: false
           load: true
           platforms: ${{ matrix.platform }}
+          # Bakes the commit into the image so the running app can report what it
+          # actually is. The image tag already carries the SHA, but a container
+          # cannot read its own tag — and the source tree on the host is NOT a
+          # reliable substitute, because a rollback pins an older image against a
+          # newer checkout, which is exactly when the question gets asked.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             fireisp/fireisp:ci-${{ github.sha }}-${{ matrix.arch }}
             ${{ env.RELEASE_IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
