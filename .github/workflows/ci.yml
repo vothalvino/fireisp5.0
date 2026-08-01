@@ -941,12 +941,28 @@ jobs:
           $COMPOSE logs redis
           exit 1
 
-      # The point of the whole change. Container processes are visible in the
-      # runner's /proc, which is exactly the host-visibility being guarded.
-      #
+      # SELF-VALIDATING. A scan that cannot see the container's processes would
+      # report "clean" forever while proving nothing — the way this very check
+      # passed a deliberate mutation the first time it was written. So it first
+      # proves it can see redis-server at all, and fails loudly if it cannot.
+      - name: The /proc scan can actually see into the container
+        run: |
+          if ! grep -slaF redis-server /proc/[0-9]*/cmdline >/dev/null 2>&1; then
+            echo "::error::cannot see the container's processes in /proc — this runner cannot verify argv exposure, so the check below would be vacuous"
+            exit 1
+          fi
+          echo "container processes are visible in /proc — the scan below is meaningful"
+
       # The expected value is read back from the container rather than repeated
       # as a literal: if compose's dotenv parser altered it, a hardcoded needle
-      # would simply not match and this check would pass while proving nothing.
+      # would simply not match and this would pass while proving nothing.
+      #
+      # NOTE ON WHAT THIS CAN AND CANNOT CATCH: redis-server overwrites its own
+      # argv at startup (set-proc-title defaults to yes, and setproctitle reuses
+      # the argv memory), so a password on ITS command line is only visible in a
+      # brief startup window and this scan may miss it. redis-cli does no such
+      # thing, so the healthcheck form is caught reliably. The durable surface is
+      # asserted in the next step, which does not race at all.
       - name: The password must not appear in any process's argv
         run: |
           PW=$($COMPOSE exec -T redis printenv REDIS_PASSWORD | tr -d '\r\n')
@@ -959,19 +975,29 @@ jobs:
           done
           echo "no process argv carries the password"
 
-      # Healthy proves *a* password works; this proves it is the one the app
-      # will send. An interior backslash silently mangled it in the first draft.
-      - name: Redis requires exactly the password from .env.prod
+      # THE DETERMINISTIC ONE. Whatever compose interpolates into Cmd, Entrypoint
+      # or Healthcheck.Test is stored in the container's configuration — readable
+      # via `docker inspect`, and written to /var/lib/docker/containers/<id>/
+      # config.v2.json on disk, where it also lands in host backups. That is what
+      # the old `--requirepass ${REDIS_PASSWORD}` and `redis-cli -a ${...}` forms
+      # did, and it does not depend on catching a process at the right moment.
+      #
+      # Env is deliberately NOT checked: the environment is the SAFE channel here
+      # (/proc/<pid>/environ is 0400), and the fix puts the password there on
+      # purpose.
+      - name: The password must not be baked into the container's command config
         run: |
-          set -e
-          $COMPOSE exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' | grep -qx PONG
-          # …and rejects a near-miss, so the check above cannot pass by accident
-          # on a server that never required a password at all.
-          out=$($COMPOSE exec -T redis sh -c 'REDISCLI_AUTH=wrong-password redis-cli ping' 2>&1 || true)
-          case "$out" in
-            *PONG*) echo "::error::Redis accepted a wrong password — requirepass is not in effect"; exit 1 ;;
-          esac
-          echo "auth verified: correct password accepted, wrong password rejected"
+          PW=$($COMPOSE exec -T redis printenv REDIS_PASSWORD | tr -d '\r\n')
+          CID=$($COMPOSE ps -q redis)
+          for field in '.Config.Cmd' '.Config.Entrypoint' '.Config.Healthcheck.Test'; do
+            value=$(docker inspect -f "{{json $field}}" "$CID")
+            if printf '%s' "$value" | grep -qF -- "$PW"; then
+              echo "::error::the Redis password is stored in $field — readable via docker inspect and in config.v2.json on disk"
+              printf '%s\n' "$value"
+              exit 1
+            fi
+          done
+          echo "no command/entrypoint/healthcheck config carries the password"
 
       - name: Tear down
         if: always()

@@ -150,11 +150,17 @@ services:
       # /proc/<pid>/environ is mode 0400 (owner only), unlike argv.
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     # The password is written into a config file from the environment, NOT put on
-    # redis-server's command line. `--requirepass ${REDIS_PASSWORD}` interpolated
-    # the plaintext into the argv of PID 1, and a container process's argv is
-    # visible in the HOST's /proc — /proc/<pid>/cmdline is world-readable (0444)
-    # — so every local account on the box could read the Redis password with a
-    # bare `ps`, continuously, for the life of the stack.
+    # redis-server's command line. `--requirepass ${REDIS_PASSWORD}` made compose
+    # interpolate the plaintext into the container's STORED CONFIGURATION, which
+    # is readable via `docker inspect` and written to
+    # /var/lib/docker/containers/<id>/config.v2.json on disk — so it also travels
+    # into any backup of that directory. It was additionally in the argv of PID 1
+    # (a container process's argv is visible in the host's /proc, and
+    # /proc/<pid>/cmdline is world-readable, 0444), though only briefly: Redis
+    # overwrites its own argv at startup, because set-proc-title defaults to yes
+    # and setproctitle reuses the argv memory. The healthcheck below had no such
+    # reprieve — redis-cli does not rewrite its title, so `redis-cli -a <pw>`
+    # republished the password to every local account every 10 seconds.
     #
     # $$REDIS_PASSWORD (doubled) so compose does NOT interpolate it here: the
     # container's shell expands it from the environment into the heredoc, so the
