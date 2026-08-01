@@ -8,6 +8,7 @@
 const db = require('../config/database');
 const auditLog = require('../services/auditLog');
 const { bustCache } = require('../middleware/httpCache');
+const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'crudController' });
 
 /**
@@ -197,6 +198,37 @@ function crudController(Model, _options = {}) {
   }
 
   async function applyUpdate(req) {
+    // A record can never be moved between tenants through generic CRUD.
+    //
+    // This is not defence in depth — it closed a live cross-tenant WRITE.
+    // organization_id is in `fillable` on 134 models (it has to be: create
+    // injects it), the update validation schemas do not declare it, and
+    // validate() IGNORES undeclared fields rather than stripping them. So
+    // `PUT /clients/:id {"organization_id": 2}` reached Model.update and was
+    // written: the record left the caller's tenant and appeared in the target
+    // org, carrying attacker-controlled fields. It even returned 500 rather
+    // than 200 — the post-update re-fetch is scoped to the OLD org, finds
+    // nothing and throws — so it looked like it had failed while having
+    // succeeded.
+    //
+    // 66 routes mount ctrl.update; before this, 4 guarded it individually.
+    // The check belongs here, once, where every one of them passes through.
+    //
+    // Only `update` is guarded, never `create` — create legitimately injects
+    // organization_id a few lines below, and adoption of an unattributed row
+    // is a direct db.query that does not come through here.
+    if (
+      Model.hasOrgScope
+      && req.body
+      && Object.prototype.hasOwnProperty.call(req.body, 'organization_id')
+    ) {
+      throw new AppError(
+        'A record cannot be moved to another organization.',
+        422,
+        'ORG_IMMUTABLE',
+      );
+    }
+
     if (!transactionalWrites) {
       const old = await Model.findByIdOrFail(req.params.id, req.orgId);
       if (beforeUpdateHook) await beforeUpdateHook(old, req, db.query);
