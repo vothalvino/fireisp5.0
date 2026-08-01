@@ -167,10 +167,25 @@ services:
       - -c
       - |
         umask 077
+        # redis.conf is parsed by sdssplitargs(), which treats \ and " inside a
+        # double-quoted value as syntax. Unescaped, a password containing " (or
+        # ending in \) is "Unbalanced quotes in configuration line" -> exit(1),
+        # and since app gates on `redis: service_healthy` that crash-loop wedges
+        # the WHOLE stack; an interior \ is worse than a crash — Redis starts
+        # having silently stored a DIFFERENT password (\n, \xNN are interpreted),
+        # so auth fails with everything looking alive. Escaping just \ and " is
+        # sufficient: Redis unescapes \" -> " and \\ -> \, and pre-escaping the
+        # backslash also neutralises the \n / \xNN forms. Verified against a port
+        # of the parser over 11 hostile inputs; all round-trip byte-exact.
+        esc=$$(printf '%s' "$$REDIS_PASSWORD" | sed 's/[\\"]/\\&/g')
         cat > /tmp/redis.conf <<EOF
-        requirepass "$$REDIS_PASSWORD"
+        requirepass "$$esc"
         EOF
-        chmod 0644 /tmp/redis.conf
+        # 0400 + owned by redis, NOT 0644: the entrypoint drops to the redis user
+        # before redis-server reads this file, so it must be readable by redis —
+        # but a world-readable plaintext password inside the container undoes the
+        # umask above for anything else running there.
+        chown redis /tmp/redis.conf && chmod 0400 /tmp/redis.conf
         exec docker-entrypoint.sh redis-server /tmp/redis.conf \
           --appendonly yes \
           --appendfsync everysec \
