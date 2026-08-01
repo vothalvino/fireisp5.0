@@ -163,17 +163,19 @@ or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
 
 #### New settings arrive on their own
 
-`redeploy` appends any **managed setting** your `.env.prod` does not yet mention,
-with its default and a comment explaining it, so a new option does not require
-knowing that a variable name exists. Turning one on is then editing a line
-already in front of you:
+`redeploy` appends any **managed setting** your `.env.prod` does not yet
+mention, with its default and a comment explaining it, so a new option does not
+require knowing that a variable name exists.
 
-```
-# Show the install operator a once-a-day banner when a newer FireISP release …
-FIREISP_UPDATE_CHECK=0      ← change to 1
-```
+It can also **withdraw** one, and that is the only case in which this script
+removes a line. When a setting's default changes, installs that received the
+old default explicitly would be pinned to it — needing exactly the hand-edit
+this mechanism exists to avoid. A line is withdrawn only when it *still matches
+the default we wrote* **and** still carries the comment we wrote beside it. An
+operator's own line has no such comment and is never touched, so this can
+withdraw a suggestion nobody acted on but never reverse a decision.
 
-The rules that make this safe against a file holding `DB_PASSWORD`,
+The rules that make all of this safe against a file holding `DB_PASSWORD`,
 `JWT_SECRET` and `ENCRYPTION_KEY`:
 
 - **Append only.** No existing line is rewritten, reordered or removed, so a
@@ -183,6 +185,10 @@ The rules that make this safe against a file holding `DB_PASSWORD`,
 - **A backup is taken** (`.env.prod.bak-<timestamp>`) before the first write of
   a run, and an unwritable or missing file is skipped with a note rather than
   failing the deploy.
+- **Permissions survive.** A withdrawal rewrites the original file in place
+  rather than `mv`-ing a temp over it — `mv` would replace the inode and hand
+  the file the temp's umask-derived mode, quietly turning a `0600` secrets file
+  world-readable.
 - **The list is an explicit allowlist in the script, never "every key in
   `.env.prod.example`".** That file ships placeholder secrets
   (`DB_PASSWORD=CHANGE_ME_…`, `ENCRYPTION_KEY=CHANGE_ME_…`); introducing one
@@ -191,6 +197,24 @@ The rules that make this safe against a file holding `DB_PASSWORD`,
   preserves current behaviour belong there.
 
 #### Deploying a commit CI hasn't published yet
+
+#### Update notification
+
+On by default. The install operator gets a once-a-day banner and a
+**Settings → Version** tab when a newer release exists, with no configuration
+on a fresh install.
+
+This is the only outbound request FireISP makes on its own behalf: an
+unauthenticated read of the newest commit on the public repo. No install data,
+no version and no identifiers are sent. On an air-gapped or isolated management
+network, switch it off:
+
+```bash
+FIREISP_UPDATE_CHECK=0
+```
+
+An unrecognised value is read as the default rather than as "off", so a typo
+cannot silently disable it.
 
 The most common "failure" is not one: you merge, immediately run `sudo
 redeploy`, and the image does not exist yet because CI publishes only *after*

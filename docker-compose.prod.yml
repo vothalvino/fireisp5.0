@@ -219,15 +219,16 @@ services:
       # config. Opt out by setting WG_SERVER_ENABLED=false in .env.prod.
       WG_SERVER_ENABLED:     ${WG_SERVER_ENABLED:-true}
       WG_KEY_DIR:            /etc/wireguard
-      # "A newer release is available" banner for the install operator. OFF by
-      # default: this is the only outbound request FireISP makes on its own
-      # behalf (an unauthenticated read of the newest commit — no install data,
-      # no telemetry). Set FIREISP_UPDATE_CHECK=1 in .env.prod to opt in.
+      # "A newer release is available" banner for the install operator. ON by
+      # default so a fresh install works with no configuration. This is the only
+      # outbound request FireISP makes on its own behalf: an unauthenticated
+      # read of the newest public commit — no install data, no telemetry.
+      # Set FIREISP_UPDATE_CHECK=0 in .env.prod to switch it off.
       #
       # An env var, NOT a row in `settings`, deliberately: only whoever edits
-      # .env.prod can set this, which is exactly the install operator. A
+      # .env.prod can change this, which is exactly the install operator. A
       # settings row would be writable by any tenant's admin.
-      FIREISP_UPDATE_CHECK:  ${FIREISP_UPDATE_CHECK:-0}
+      FIREISP_UPDATE_CHECK:  ${FIREISP_UPDATE_CHECK:-1}
     volumes:
       # Named volume, NOT a host bind mount: the previous `./storage` bind mount
       # was root-owned on the host, so the non-root `fireisp` container user hit

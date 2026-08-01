@@ -68,24 +68,24 @@ afterEach(() => {
   delete process.env.FIREISP_UPDATE_CHECK;
 });
 
-describe('no outbound request unless the operator opted in', () => {
-  it('makes NO network call when the flag is unset', async () => {
+describe('on by default, explicit opt-OUT', () => {
+  it('checks when the flag is unset — a fresh install works with no config', async () => {
     const status = await updateCheck.getStatus();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(status.check_enabled).toBe(false);
-    expect(status.update_available).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(status.check_enabled).toBe(true);
   });
 
-  it.each([['0'], ['false'], ['no'], [''], ['  ']])(
+  it.each([['0'], ['false'], ['no'], ['off'], ['OFF'], ['  0  ']])(
     'makes NO network call for FIREISP_UPDATE_CHECK=%j', async (val) => {
+      // The opt-out has to actually stop the request, not just report disabled.
       process.env.FIREISP_UPDATE_CHECK = val;
       await updateCheck.getStatus();
       expect(fetchSpy).not.toHaveBeenCalled();
     },
   );
 
-  it.each([['1'], ['true'], ['TRUE'], ['yes']])(
-    'checks when explicitly enabled with %j', async (val) => {
+  it.each([['1'], ['true'], ['TRUE'], ['yes'], ['']])(
+    'checks for FIREISP_UPDATE_CHECK=%j', async (val) => {
       process.env.FIREISP_UPDATE_CHECK = val;
       const status = await updateCheck.getStatus();
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -93,14 +93,22 @@ describe('no outbound request unless the operator opted in', () => {
     },
   );
 
+  it('reads an unrecognised value as the DEFAULT, not as off', async () => {
+    // A typo must fail toward the documented default. Silently disabling a
+    // feature on a typo leaves an operator unable to explain why it is dead.
+    process.env.FIREISP_UPDATE_CHECK = 'ture';
+    expect((await updateCheck.getStatus()).check_enabled).toBe(true);
+  });
+
   it('still reports the running commit while disabled', async () => {
     // Knowing what you are running needs no network and must not be gated.
+    process.env.FIREISP_UPDATE_CHECK = '0';
     const status = await updateCheck.getStatus();
     expect(status.running_sha).toBe(RUNNING);
+    expect(status.check_enabled).toBe(false);
   });
 
   it('sends no identifying data', async () => {
-    process.env.FIREISP_UPDATE_CHECK = '1';
     await updateCheck.getStatus();
     const [url, opts] = fetchSpy.mock.calls[0];
     expect(url).toMatch(/^https:\/\/api\.github\.com\//);
@@ -111,7 +119,6 @@ describe('no outbound request unless the operator opted in', () => {
 });
 
 describe('update_available is only claimed when it is knowable', () => {
-  beforeEach(() => { process.env.FIREISP_UPDATE_CHECK = '1'; });
 
   it('true when the two commits differ', async () => {
     expect((await updateCheck.getStatus()).update_available).toBe(true);
@@ -145,7 +152,6 @@ describe('update_available is only claimed when it is knowable', () => {
 });
 
 describe('the upstream lookup is cached', () => {
-  beforeEach(() => { process.env.FIREISP_UPDATE_CHECK = '1'; });
 
   it('checks once across many calls', async () => {
     await updateCheck.getStatus();
@@ -170,14 +176,12 @@ describe('GET /system/version is install-operator only', () => {
   });
 
   it('does not run the check for a tenant user', async () => {
-    process.env.FIREISP_UPDATE_CHECK = '1';
     wireUser(TENANT);
     await asUser(TENANT)(request(app).get('/api/v1/system/version'));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('serves the install operator', async () => {
-    process.env.FIREISP_UPDATE_CHECK = '1';
     wireUser(ADMIN);
     const res = await asUser(ADMIN)(request(app).get('/api/v1/system/version'));
     expect(res.status).toBe(200);

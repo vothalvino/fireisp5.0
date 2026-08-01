@@ -4854,7 +4854,7 @@
     "upToDate": "Atualizado",
     "checkedAt": "Última verificação",
     "howToUpdate": "Para atualizar, execute no servidor:",
-    "howToEnable": "Para verificar novas versões, defina",
-    "howToEnableTail": "em .env.prod e reimplante. É a única requisição externa que o FireISP faz por conta própria; nenhum dado da instalação é enviado."
+    "howToEnable": "A verificação de atualizações vem ativada por padrão. É a única requisição externa que o FireISP faz por conta própria e nenhum dado da instalação é enviado. Para desativá-la, defina",
+    "howToEnableTail": "em .env.prod e reimplante."
   }
 }

@@ -78,7 +78,29 @@ IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
 #
 # Format: KEY=default|one-line explanation written into the file as a comment.
 MANAGED_ENV_KEYS=(
-  "FIREISP_UPDATE_CHECK=0|Show the install operator a once-a-day banner when a newer FireISP release exists. Set to 1 to enable. OFF by default: this is the only outbound request FireISP makes on its own behalf (an unauthenticated read of the newest public commit). No install data, version or identifiers are sent."
+  # (none currently — see MANAGED_ENV_RETIRE below for FIREISP_UPDATE_CHECK)
+)
+
+# Settings this script may REMOVE from an existing .env.prod.
+#
+# The counterpart to the list above: when a setting's default flips, installs
+# that received the OLD default explicitly are pinned to it, and would need the
+# hand-edit the sync exists to avoid.
+#
+# ONLY a line that still exactly equals the default WE wrote is removed. If the
+# operator changed the value, that is a decision and it stands — this can never
+# overwrite a choice, only withdraw a suggestion nobody acted on. Removing the
+# line rather than rewriting it leaves the file identical to a fresh install's.
+#
+# A value match alone is NOT enough to prove we wrote the line: an operator who
+# typed `FIREISP_UPDATE_CHECK=0` by hand produces a byte-identical line, and
+# withdrawing that would re-enable something they deliberately switched off.
+# So the comment block we wrote alongside it must also be there. An operator's
+# own line has no such comment and is left completely alone.
+#
+# Format: KEY=old-default|marker in our comment|why it is being withdrawn.
+MANAGED_ENV_RETIRE=(
+  "FIREISP_UPDATE_CHECK=0|once-a-day banner|the update check is now ON by default, so the line we previously added would pin this install to the old default"
 )
 
 # Append any managed setting the operator's .env.prod does not already mention.
@@ -142,6 +164,74 @@ sync_managed_env() {
   fi
 }
 
+# Withdraw a managed setting whose default has changed, when the operator never
+# touched the value we suggested.
+#
+# This is the ONE place this script removes a line from .env.prod, so the
+# constraints are tighter than for appending:
+#   * The line must match `KEY=old-default` EXACTLY (grep -qxF). Any edit by the
+#     operator — including whitespace — makes it theirs, and it is left alone.
+#   * The contiguous comment block above it goes too, since that is what we
+#     wrote alongside it; an orphaned comment explaining an absent key is worse
+#     than either.
+#   * The file is rewritten by TRUNCATING THE ORIGINAL (`> "$env_file"`), never
+#     by mv-ing a temp file over it. mv would replace the inode and hand the
+#     file the temp's permissions — turning a 0600 secrets file into whatever
+#     the umask says, which is a silent credential exposure.
+#   * A non-empty result is required before writing. An awk failure must not be
+#     able to blank a file containing DB_PASSWORD and ENCRYPTION_KEY.
+retire_managed_env() {
+  local env_file="$1"
+  local entry key rest oldval marker cleaned backed_up=0
+
+  [[ -f "$env_file" ]] || return 0
+
+  for entry in "${MANAGED_ENV_RETIRE[@]}"; do
+    key="${entry%%=*}"
+    rest="${entry#*=}"
+    oldval="${rest%%|*}"
+    marker="${rest#*|}"; marker="${marker%%|*}"
+
+    grep -qxF "${key}=${oldval}" "$env_file" || continue
+    # Proof we wrote it. Without this the operator's own opt-out is undone.
+    grep -qF "$marker" "$env_file" || {
+      echo "    (leaving ${key}=${oldval} alone — set by hand, not by this script)"
+      continue
+    }
+
+    if [[ ! -w "$env_file" ]]; then
+      echo "    (cannot write $env_file — remove the line ${key}=${oldval} by hand)" >&2
+      continue
+    fi
+
+    cleaned="$(awk -v target="${key}=${oldval}" '
+      { lines[NR] = $0 }
+      END {
+        t = 0
+        for (i = 1; i <= NR; i++) if (lines[i] == target) { t = i; break }
+        if (t == 0) { for (i = 1; i <= NR; i++) print lines[i]; exit }
+        s = t
+        while (s > 1 && lines[s-1] ~ /^[[:space:]]*#/) s--
+        if (s > 1 && lines[s-1] ~ /^[[:space:]]*$/) s--
+        for (i = 1; i <= NR; i++) if (i < s || i > t) print lines[i]
+      }
+    ' "$env_file")" || continue
+
+    [[ -n "$cleaned" ]] || {
+      echo "    (skipped retiring ${key} — refusing to write an empty $env_file)" >&2
+      continue
+    }
+
+    if (( ! backed_up )); then
+      cp -p "$env_file" "${env_file}.bak-$(date +%Y%m%d-%H%M%S)"
+      backed_up=1
+    fi
+
+    printf '%s\n' "$cleaned" > "$env_file"
+    echo "    - withdrew ${key}=${oldval} (default changed; backup alongside)"
+  done
+}
+
 # Sourced by tests to get the functions above without running a deploy.
 if [[ "${FIREISP_LIB_ONLY:-}" == "1" ]]; then
   return 0 2>/dev/null || exit 0
@@ -196,6 +286,7 @@ STAY_MSG="  Nothing has been changed on this host: the previous containers are s
 
 echo "==> Syncing new settings into $(basename "$ENV_FILE")"
 sync_managed_env "$ENV_FILE"
+retire_managed_env "$ENV_FILE"
 
 echo "==> Pulling image"
 PULL_OUT="$(dc pull app 2>&1)" && PULL_OK=1 || PULL_OK=0

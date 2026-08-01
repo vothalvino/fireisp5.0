@@ -1086,7 +1086,7 @@ function VersionTab() {
 
       {!v.check_enabled && (
         <p style={sty.verNote}>
-          {t('version.howToEnable')} <code style={sty.code}>FIREISP_UPDATE_CHECK=1</code>
+          {t('version.howToEnable')} <code style={sty.code}>FIREISP_UPDATE_CHECK=0</code>
           {' '}{t('version.howToEnableTail')}
         </p>
       )}
