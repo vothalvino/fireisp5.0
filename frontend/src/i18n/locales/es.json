@@ -4856,5 +4856,21 @@
     "howToUpdate": "Para actualizar, ejecuta en el servidor:",
     "howToEnable": "La comprobación de actualizaciones está activada de forma predeterminada. Es la única petición externa que FireISP realiza por sí mismo y no se envía ningún dato de la instalación. Para desactivarla, define",
     "howToEnableTail": "en .env.prod y vuelve a desplegar."
+  },
+  "deploy": {
+    "title": "Despliegue",
+    "button": "Actualizar ahora",
+    "inProgress": "Despliegue en curso…",
+    "lastStatus": "Último despliegue",
+    "requestedAt": "Solicitado",
+    "finishedAt": "Finalizado",
+    "agentMissing": "Ningún agente de despliegue se ha registrado desde el servidor, por lo que no hay nada que ejecute el despliegue. Instálalo una vez:",
+    "agentMissingWhy": "El agente se ejecuta en el servidor, fuera de Docker. FireISP nunca recibe permiso para reiniciar la pila: solo puede registrar tu solicitud, y por eso una intrusión aquí no permite tomar el control de la máquina. Hasta instalar el agente, despliega desde la línea de comandos con sudo redeploy.",
+    "status": {
+      "pending": "En cola",
+      "running": "En ejecución",
+      "succeeded": "Correcto",
+      "failed": "Fallido"
+    }
   }
 }
