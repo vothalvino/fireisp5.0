@@ -224,12 +224,11 @@ describe('the task no longer lies about doing nothing', () => {
     expect(src()).toMatch(/case 'populate_network_health_snapshots':\s*\n\s*return networkHealthAggregator\.aggregateDay/);
   });
 
-  it('populate_revenue_summary FAILS instead of claiming success', () => {
-    // Still unimplemented — but a task that throws is marked failed, so the
-    // scheduled-tasks page finally shows the truth. Returning a message counted
-    // as success, which is how this went unnoticed since migration 117.
+  it('populate_revenue_summary does real work too', () => {
+    // Implemented in the sibling PR. It briefly threw "not implemented" — an
+    // honest interim state — and now aggregates.
     const s = src();
-    expect(s).toMatch(/case 'populate_revenue_summary':[\s\S]{0,600}throw new Error/);
+    expect(s).toMatch(/return revenueSummaryAggregator\.populate\(organizationId\)/);
     expect(s).not.toMatch(/Revenue summary is populated by MySQL scheduled event/);
   });
 

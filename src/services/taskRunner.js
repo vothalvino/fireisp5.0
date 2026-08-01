@@ -118,12 +118,8 @@ async function runTask(taskName, organizationId = null) {
     // the scheduled-tasks page showed a healthy green job feeding a blank page,
     // which is the "stub whose UI fakes success" class CLAUDE.md calls out.
     case 'populate_revenue_summary':
-      // revenue_summary.organization_id is NOT NULL, so unlike network health
-      // there is no all-orgs mode: a task scheduled without one cannot produce
-      // a row, and failing loudly beats writing under a guessed tenant.
-      if (!organizationId) {
-        throw new Error('populate_revenue_summary requires an organization_id — schedule it per organization.');
-      }
+      // null organizationId fans out across every active organisation — the
+      // seeded task (migration 123) carries NULL, meaning the whole install.
       return revenueSummaryAggregator.populate(organizationId);
     case 'populate_network_health_snapshots':
       return networkHealthAggregator.aggregateDay(organizationId);

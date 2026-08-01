@@ -172,11 +172,12 @@ describe('taskRunner', () => {
     // as success, so the scheduled-tasks page showed a healthy green job
     // feeding a page that had been empty since migration 117.
 
-    test('populate_revenue_summary refuses to run without an organization', async () => {
-      // revenue_summary.organization_id is NOT NULL, so there is no all-orgs
-      // mode: writing under a guessed tenant would be worse than failing.
-      await expect(taskRunner.runTask('populate_revenue_summary'))
-        .rejects.toThrow(/requires an organization_id/);
+    test('populate_revenue_summary fans out when scheduled install-wide', async () => {
+      // The seeded task carries organization_id NULL. Requiring one would make
+      // it fail nightly on every install.
+      db.query.mockResolvedValue([[]]);
+      const result = await taskRunner.runTask('populate_revenue_summary');
+      expect(result).toHaveProperty('organizations');
     });
 
     test('populate_revenue_summary aggregates when given one', async () => {

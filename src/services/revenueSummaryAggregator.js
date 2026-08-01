@@ -56,15 +56,39 @@ const CYCLE_SQL = `
   END`;
 
 /**
- * Recompute one month for one organisation.
+ * Recompute one month for EVERY active organisation.
  *
- * @param {number} organizationId  required — revenue_summary.organization_id is
- *   NOT NULL, so unlike network health there is no "all orgs" mode here.
- * @param {string} [month]  YYYY-MM-01; defaults to the current month, so the
- *   dashboard tracks live rather than only settling once a month.
+ * The seeded scheduled task (migration 123) carries organization_id NULL,
+ * meaning "the whole install" — so a null here must fan out, not fail.
+ * Requiring a caller-supplied org looked reasonable because
+ * revenue_summary.organization_id is NOT NULL, but it would have turned a task
+ * that silently did nothing into a task that FAILS every night on every
+ * install, which the operator cannot fix without editing the database.
+ *
+ * @param {number|null} organizationId  null = every active organisation.
+ * @param {string} [month]  YYYY-MM-01; defaults to the current month.
  */
-async function populate(organizationId, month = null) {
-  if (!organizationId) throw new Error('revenueSummaryAggregator: organizationId is required');
+async function populate(organizationId = null, month = null) {
+  if (organizationId) return populateOne(organizationId, month);
+
+  const [orgs] = await db.query(
+    "SELECT id FROM organizations WHERE status = 'active' AND deleted_at IS NULL",
+  );
+  const results = [];
+  for (const org of orgs) {
+    // One organisation's bad data must not stop the rest of the install from
+    // being summarised — this is a nightly reporting job, not a transaction.
+    try {
+      results.push(await populateOne(org.id, month));
+    } catch (err) {
+      logger.warn({ organizationId: org.id, err: err.message }, 'Revenue summary failed for organization');
+    }
+  }
+  return { organizations: results.length, period_date: month || firstOfThisMonth() };
+}
+
+/** Recompute one month for one organisation. */
+async function populateOne(organizationId, month = null) {
   const periodDate = month || firstOfThisMonth();
   const currency = (await Organization.getCurrency(organizationId)) || 'MXN';
 
@@ -167,4 +191,4 @@ function firstOfThisMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
-module.exports = { populate, CYCLE_MONTHS, _firstOfThisMonth: firstOfThisMonth };
+module.exports = { populate, populateOne, CYCLE_MONTHS, _firstOfThisMonth: firstOfThisMonth };
