@@ -162,6 +162,13 @@ services:
     # reprieve — redis-cli does not rewrite its title, so `redis-cli -a <pw>`
     # republished the password to every local account every 10 seconds.
     #
+    # The old form was also outright BROKEN for such a password, not merely
+    # leaky: `command: >` folds to one string that compose splits shell-style, so
+    # a `"` in the value made compose refuse the file entirely —
+    # "'services[redis].command' invalid command line string". Verified by
+    # restoring the old form in CI. This form takes the value through the
+    # environment, so no splitter ever sees it.
+    #
     # $$REDIS_PASSWORD (doubled) so compose does NOT interpolate it here: the
     # container's shell expands it from the environment into the heredoc, so the
     # value reaches the file and nothing else. Then `docker-entrypoint.sh
