@@ -86,6 +86,12 @@ let lastForcedAt = 0;
 // stamped on every outcome, so it cannot have that hole.
 let cache = { at: 0, latestSha: null, error: null };
 
+// The in-flight request, shared by every concurrent caller. Without it, several
+// widgets mounting at once each issue an identical outbound call — and with
+// stale-while-revalidate below, a burst of page loads would each kick off their
+// own background refresh.
+let inFlight = null;
+
 /**
  * The commit this image was built from, or null when it was not built by CI.
  *
@@ -120,6 +126,16 @@ function isEnabled() {
  * so an install with no egress retries once a day rather than on every page
  * load.
  */
+/**
+ * The actual network call, deduplicated. Every concurrent caller awaits the same
+ * promise, so a burst of page loads costs one request.
+ */
+function refresh() {
+  if (inFlight) return inFlight;
+  inFlight = doFetch().finally(() => { inFlight = null; });
+  return inFlight;
+}
+
 async function fetchLatestSha({ force = false } = {}) {
   if (force) {
     // Honour the floor even when forced, so the button cannot be used as a
@@ -129,12 +145,34 @@ async function fetchLatestSha({ force = false } = {}) {
       return cache.latestSha;
     }
     lastForcedAt = Date.now();
-  } else {
-    // A cached FAILURE holds for longer than a cached answer — see the constants.
-    const ttl = cache.error ? FAILURE_TTL_MS : CHECK_TTL_MS;
-    if (cache.at > 0 && Date.now() - cache.at < ttl) return cache.latestSha;
+    // A forced check is the operator asking; they expect to wait for it.
+    return refresh();
   }
 
+  const ttl = cache.error ? FAILURE_TTL_MS : CHECK_TTL_MS;
+  if (cache.at > 0 && Date.now() - cache.at < ttl) return cache.latestSha;
+
+  // STALE-WHILE-REVALIDATE. Once there is ANY cached answer, never block a page
+  // render on a third party again: hand back what we have and refresh behind
+  // the request. The Version tab was waiting on a round trip to api.github.com
+  // before it could paint — ~300ms normally, and up to REQUEST_TIMEOUT_MS when
+  // GitHub is slow, rate-limiting, or unreachable from this host. None of that
+  // is the operator's problem, and none of it is worth a spinner.
+  //
+  // The value handed back is at most one TTL old, and the fresh one lands on the
+  // next poll. "Check now" exists for when that is not good enough.
+  if (cache.at > 0) {
+    refresh().catch(() => {});   // errors are recorded in the cache by doFetch
+    return cache.latestSha;
+  }
+
+  // First call of this process: there is nothing to serve, so this one waits.
+  // warmCache() below exists so that it happens at boot rather than in front of
+  // an operator.
+  return refresh();
+}
+
+async function doFetch() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -191,17 +229,37 @@ async function getStatus({ force = false } = {}) {
     update_available: Boolean(running && latest && running !== latest),
     check_enabled: true,
     checked_at: cache.at ? new Date(cache.at).toISOString() : null,
+    // True when this response was served stale and a refresh is running behind
+    // it. The client polls again shortly instead of leaving the operator
+    // looking at a value it already knows is being replaced — which is what
+    // makes "fast" and "accurate" compatible rather than a trade.
+    refreshing: Boolean(inFlight),
   };
+}
+
+/**
+ * Populate the cache at boot, so the FIRST visit to the Version tab is served
+ * from memory like every later one.
+ *
+ * Fire-and-forget by design: nothing may wait on it, and a failure is already
+ * recorded in the cache with its own longer retry window. Does nothing at all
+ * when the operator has not enabled checks — startup must not make a network
+ * call they declined.
+ */
+function warmCache() {
+  if (!isEnabled()) return;
+  fetchLatestSha().catch(() => {});
 }
 
 /** Test seam — the module-level cache would otherwise leak between cases. */
 function _resetCache() {
   cache = { at: 0, latestSha: null, error: null };
   lastForcedAt = 0;
+  inFlight = null;
 }
 
 module.exports = {
-  getStatus, runningSha, isEnabled,
+  getStatus, runningSha, isEnabled, warmCache,
   ENV_FLAG, CHECK_TTL_MS, FAILURE_TTL_MS, MIN_FORCED_INTERVAL_MS,
   _resetCache,
 };

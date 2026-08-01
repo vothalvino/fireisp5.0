@@ -9,6 +9,7 @@ const db = require('./config/database');
 const scheduler = require('./services/scheduler');
 const jobQueue = require('./services/jobQueueService');
 const workers = require('./workers');
+const updateCheck = require('./services/updateCheck');
 const { tunnelServer } = require('./services/firerelayTunnel');
 const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
@@ -71,6 +72,17 @@ async function start() {
     workers.registerWorkers();
   } catch (err) {
     logger.warn({ err }, 'Worker registration failed');
+  }
+
+  // Populate the update-check cache so the first visit to Settings -> Version is
+  // served from memory rather than waiting on api.github.com. Deliberately NOT
+  // awaited: boot must not depend on a third party being reachable, and a
+  // failure is cached with its own retry window. No-op unless the operator
+  // enabled checks.
+  try {
+    updateCheck.warmCache();
+  } catch (err) {
+    logger.warn({ err }, 'Update-check warm failed');
   }
 
   // Bring up the WireGuard host interfaces (no-op unless WG_SERVER_ENABLED=true).
