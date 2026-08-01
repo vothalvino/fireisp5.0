@@ -9,6 +9,18 @@ class SpeedTest extends BaseModel {
 
   static get fillable() {
     return [
+      // organization_id is fillable so crudController can inject it on create
+      // and so the route can ADOPT an unattributed legacy row. It is never
+      // accepted from a request body — the route rejects that explicitly,
+      // because validate() ignores undeclared fields rather than stripping
+      // them, and a PUT could otherwise move a record between tenants.
+      //
+      // Omitting it does NOT fail loudly: crudController sets
+      // req.body.organization_id, BaseModel.create then filters strictly to
+      // fillable and drops it, and the row is born NULL-org — unattributed,
+      // and therefore visible to every tenant. That silently reopens the leak
+      // migration 438 closed, for every new row.
+      'organization_id',
       'client_id', 'contract_id', 'device_id',
       'test_source', 'server_location',
       'download_mbps', 'upload_mbps', 'latency_ms', 'jitter_ms',

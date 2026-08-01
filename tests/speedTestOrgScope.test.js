@@ -180,6 +180,23 @@ describe('POST /speed-tests works at all', () => {
     expect(res.status).toBe(201);
   });
 
+  it('STAMPS the acting org on the INSERT', async () => {
+    // A 201 is not enough, and asserting only that shipped a live bug in #600.
+    // crudController sets req.body.organization_id, but BaseModel.create
+    // filters strictly to `fillable` — omit the column there and the value is
+    // dropped, the INSERT never names it, and the row is born NULL-org, i.e.
+    // unattributed and visible to every tenant. Silently reopens the leak
+    // migration 438 closed, one new row at a time. Assert the emitted SQL.
+    wireDb();
+    await auth(request(app).post('/api/v1/speed-tests')).send({
+      download_mbps: 95.5, upload_mbps: 20.1, test_source: 'technician',
+    });
+    const ins = db.query.mock.calls.find(([s]) => /^INSERT INTO `?speed_tests`?/i.test(s));
+    expect(ins).toBeDefined();
+    expect(ins[0]).toMatch(/`organization_id`/);
+    expect(ins[1]).toContain(1);
+  });
+
   it('the column now carries a DEFAULT so the INSERT can omit tested_at', () => {
     const schema = require('node:fs').readFileSync(
       require('node:path').join(__dirname, '../database/schema.sql'), 'utf8',
