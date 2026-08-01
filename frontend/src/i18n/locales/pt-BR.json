@@ -4866,8 +4866,6 @@
     "lastStatus": "Última implantação",
     "requestedAt": "Solicitada",
     "finishedAt": "Concluída",
-    "agentMissing": "Nenhum agente de implantação se registrou a partir do servidor, portanto não há nada que execute a implantação. Instale-o uma vez:",
-    "agentMissingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina.",
     "status": {
       "pending": "Na fila",
       "running": "Em execução",
@@ -4876,6 +4874,7 @@
     },
     "nothingToDeploy": "Você está na versão mais recente — nada a implantar.",
     "enableCheckFirst": "A verificação de atualizações está desativada, portanto não há com o que comparar. Ative-a para implantar daqui.",
-    "cliFallback": "Até lá, implante a partir do servidor com:"
+    "agentPending": "O agente de implantação ainda não se registrou. Ele é instalado automaticamente pelo redeploy e se registra em cerca de 30 segundos; se isso persistir, execute: journalctl -u fireisp-deploy-agent -n 30",
+    "agentPendingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina."
   }
 }

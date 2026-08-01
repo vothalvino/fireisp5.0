@@ -1170,17 +1170,8 @@ function VersionTab() {
         <p style={sty.muted}>{t('version.loading')}</p>
       ) : !dep.agent_alive ? (
         <div>
-          <p style={sty.verNote}>{t('deploy.agentMissing')}</p>
-          <pre style={sty.verPre}>{`sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now fireisp-deploy-agent.timer`}</pre>
-          <p style={sty.verNote}>{t('deploy.agentMissingWhy')}</p>
-          {/* The CLI fallback belongs HERE rather than in the version section:
-              this is the state where the operator has an update and no button
-              to press. Keeping it as its own <code> makes it copyable. */}
-          <p style={sty.verNote}>
-            {t('deploy.cliFallback')} <code style={sty.code}>sudo redeploy</code>
-          </p>
+          <p style={sty.verNote}>{t('deploy.agentPending')}</p>
+          <p style={sty.verNote}>{t('deploy.agentPendingWhy')}</p>
         </div>
       ) : (
         <div>

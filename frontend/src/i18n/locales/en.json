@@ -4866,8 +4866,6 @@
     "lastStatus": "Last deploy",
     "requestedAt": "Requested",
     "finishedAt": "Finished",
-    "agentMissing": "No deploy agent has checked in from the host, so there is nothing to carry out a deploy. Install it once:",
-    "agentMissingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine.",
     "status": {
       "pending": "Queued",
       "running": "Running",
@@ -4876,6 +4874,7 @@
     },
     "nothingToDeploy": "You are on the latest release — nothing to deploy.",
     "enableCheckFirst": "Update checks are off, so there is nothing to compare against. Enable them to deploy from here.",
-    "cliFallback": "Until then, deploy from the server with:"
+    "agentPending": "The deploy agent has not reported in yet. It is installed automatically by redeploy and checks in within about 30 seconds — if this persists, run: journalctl -u fireisp-deploy-agent -n 30",
+    "agentPendingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine."
   }
 }

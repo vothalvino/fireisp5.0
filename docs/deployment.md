@@ -200,15 +200,16 @@ The rules that make all of this safe against a file holding `DB_PASSWORD`,
 
 ### Deploying from the web GUI (optional)
 
-**Settings → Version → Update now**, once a small agent is installed on the
-host. Without it the button is not shown and the panel says so — a request is
-never queued for something that will not service it.
+**Settings → Version → Update now**. Nothing to install: `redeploy` puts the
+agent's systemd units in place and keeps them current, the same way it applies
+migrations. The button appears once the timer has ticked once (≤30s).
 
-```bash
-sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now fireisp-deploy-agent.timer
-```
+Set `FIREISP_DEPLOY_AGENT=0` in `.env.prod` if you would rather not have a timer
+on the box; GUI deploys are then unavailable and the CLI is unaffected. A host
+without systemd is skipped automatically.
+
+Until the timer has run, the panel says so rather than showing a button that
+would fail — a request is never queued for something that will not service it.
 
 #### Why an agent instead of just letting the app do it
 
