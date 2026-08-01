@@ -62,7 +62,42 @@ IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
 # Install/refresh the systemd units for the GUI deploy agent as part of every
 # deploy. 0 disables it entirely for an operator who would rather not have a
 # timer on the box.
+#
 DEPLOY_AGENT="${FIREISP_DEPLOY_AGENT:-1}"
+
+# The opt-out is read from .env.prod because that is the only place that
+# survives `sudo`: sudoers' env_reset strips a `FIREISP_DEPLOY_AGENT=0 sudo
+# redeploy` prefix silently — the same trap the rollback argument exists for —
+# so the docs point operators at the file. A value in the real environment
+# still wins when one genuinely survives (root shell, `sudo -E` with SETENV).
+#
+# Called from install_deploy_agent, NOT at source time: this shells out to five
+# externals, and the test that proves a host without systemd is skipped runs
+# with PATH=/nonexistent, which would otherwise fail here — on the deploy target
+# itself, where /opt/fireisp/.env.prod is exactly the file that exists.
+#
+# Quotes, CRLF, an `export` prefix and a trailing comment are all tolerated
+# because this file is hand-edited. Unlike FIREISP_UPDATE_CHECK — where reading
+# a typo as the default is right, because the default is an inert banner — an
+# unrecognised value here is WARNED about rather than silently ignored: the
+# default grants a root timer the power to service GUI-initiated deploys, so
+# "off" must never be mistaken for "on".
+resolve_deploy_agent_flag() {
+  local raw
+  [[ -z "${FIREISP_DEPLOY_AGENT:-}" ]] || return 0
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  raw="$( { grep -E '^[[:space:]]*(export[[:space:]]+)?FIREISP_DEPLOY_AGENT[[:space:]]*=' "$ENV_FILE" || true; } 2>/dev/null \
+    | tail -n1 | cut -d= -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '\r"'"'"' \t' | tr '[:upper:]' '[:lower:]' )" || return 0
+
+  case "$raw" in
+    '')            ;;                      # no such line — leave the default
+    0|false|no|off) DEPLOY_AGENT=0 ;;
+    1|true|yes|on)  DEPLOY_AGENT=1 ;;
+    *)
+      echo "    warning: FIREISP_DEPLOY_AGENT=${raw} in $(basename "$ENV_FILE") is not a recognised value — the deploy agent stays ENABLED. Use 0 to turn it off." >&2 ;;
+  esac
+}
 
 # -----------------------------------------------------------------------------
 # Settings this script may INTRODUCE into an existing .env.prod
@@ -264,7 +299,36 @@ retire_managed_env() {
 install_deploy_agent() {
   local unit src dst changed=0
 
-  [[ "$DEPLOY_AGENT" != "0" ]] || { echo "    (FIREISP_DEPLOY_AGENT=0 — skipping)"; return 0; }
+  resolve_deploy_agent_flag
+
+  # Opting out has to STOP an agent that is already running, not merely decline
+  # to install one. The units are installed by the first deploy that carries
+  # them (nothing surfaces the setting beforehand), so by the time an operator
+  # reads the docs and sets the flag, the timer is already enabled — and
+  # "skipping" would have left a root poller servicing GUI deploy requests on a
+  # box whose operator had just been told GUI deploys were off.
+  if [[ "$DEPLOY_AGENT" == "0" ]]; then
+    if ! command -v systemctl >/dev/null 2>&1; then
+      echo "    (FIREISP_DEPLOY_AGENT=0 — no systemd here anyway; GUI deploys are off)"
+      return 0
+    fi
+    # Deliberately NOT preconditioned on /etc/systemd/system being writable: the
+    # question is whether a timer is RUNNING, and answering "GUI deploys are
+    # off" because a directory was read-only would be a claim this function had
+    # not checked. If the disable then fails, that is said out loud.
+    if systemctl is-enabled fireisp-deploy-agent.timer >/dev/null 2>&1 \
+       || systemctl is-active fireisp-deploy-agent.timer >/dev/null 2>&1; then
+      if systemctl disable --now fireisp-deploy-agent.timer >/dev/null 2>&1; then
+        echo "    FIREISP_DEPLOY_AGENT=0 — timer stopped and disabled; GUI deploys are off"
+      else
+        echo "    WARNING: FIREISP_DEPLOY_AGENT=0 but the timer could NOT be disabled — GUI deploys are STILL ENABLED. Run: systemctl disable --now fireisp-deploy-agent.timer" >&2
+      fi
+    else
+      echo "    (FIREISP_DEPLOY_AGENT=0 — no timer installed; GUI deploys are off)"
+    fi
+    return 0
+  fi
+
   command -v systemctl >/dev/null 2>&1 || { echo "    (no systemctl on this host — GUI deploys unavailable, CLI unaffected)"; return 0; }
   [[ -w /etc/systemd/system ]] || { echo "    (need root to install the units — run via sudo to enable GUI deploys)" >&2; return 0; }
 

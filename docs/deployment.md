@@ -208,6 +208,19 @@ Set `FIREISP_DEPLOY_AGENT=0` in `.env.prod` if you would rather not have a timer
 on the box; GUI deploys are then unavailable and the CLI is unaffected. A host
 without systemd is skipped automatically.
 
+Put it in **`.env.prod`**, not in front of the command: `sudo` clears the
+environment, so `FIREISP_DEPLOY_AGENT=0 sudo redeploy` is discarded silently —
+the same trap that makes the rollback target a positional argument.
+
+The next `sudo redeploy` **stops and disables** an agent that is already
+running, rather than merely declining to install one — the units ship with the
+deploy, so by the time you set the flag the timer is normally already enabled.
+The agent also re-reads the flag on each tick and exits before writing a
+heartbeat, so the button disappears from the GUI even before you redeploy.
+`0`, `false`, `no` and `off` all mean off (any capitalisation); anything else is
+**warned about and treated as on**, because a typo must never leave you
+believing a root-privileged path is disabled when it is not.
+
 Until the timer has run, the panel says so rather than showing a button that
 would fail — a request is never queued for something that will not service it.
 
@@ -241,9 +254,19 @@ anyway. Compare that with handing out root.
   'pending'` rather than select-then-update.
 - A deploy that never reports back is marked failed after an hour rather than
   retried forever.
-- The agent reads DB credentials from `.env.prod` (it is root on the host) and
-  passes them via `MYSQL_PWD`, never on the command line where `ps` would show
-  them to every user on the box. It has no API token and opens no port.
+- The agent authenticates to MySQL with the `MYSQL_USER`/`MYSQL_PASSWORD` that
+  compose already injected into the database container — the same parse of
+  `.env.prod` the running stack uses, so any file format that works for the app
+  works for the agent. It has no API token and opens no port.
+- Nothing sensitive reaches the argv of a **host** process: `/proc/<pid>/cmdline`
+  is world-readable, so a local account could otherwise poll for the argv of the
+  root agent. The password is passed as `MYSQL_PWD` and expanded inside the
+  container; the SQL goes in on **stdin** (an `exec -e SQL_STMT=…` form was
+  tried and rejected — it lands in host argv, carrying `output_tail`).
+- A failing query is reported to the journal **classified, never verbatim**:
+  compose is invoked with `--env-file .env.prod` and its parser quotes the
+  offending line back on a parse error, which would otherwise print secrets into
+  the journal every 30 seconds.
 - Rolling back is still CLI-only and deliberately so: `sudo redeploy <sha>`.
   Rollback needs a target, and a target is exactly what this path must never
   accept.
