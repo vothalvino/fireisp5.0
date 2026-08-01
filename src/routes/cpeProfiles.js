@@ -20,6 +20,7 @@ const {
   updateCpeParameterMapping,
 } = require('../middleware/schemas/cpeParameterMappings');
 const cpeProfileService = require('../services/cpeProfileService');
+const { NotFoundError } = require('../utils/errors');
 
 const router = Router();
 
@@ -91,12 +92,51 @@ router.delete('/:id', requirePermission('cpe_profiles.delete'), async (req, res,
 // Parameter mappings for a profile
 // ---------------------------------------------------------------------------
 
+// Every handler below was missing its tenancy check entirely (j58):
+//
+//   * `CpeProfile.findByIdOrFail(req.params.id)` was called with NO orgId, so
+//     BaseModel omitted the org predicate and a FOREIGN profile passed the
+//     existence check that was supposed to authorise the rest of the handler.
+//   * the mappings SELECT had no org predicate of its own;
+//   * update/delete passed no orgId, so BaseModel emitted
+//     `WHERE id = ?` alone — any tenant could rewrite or destroy any mapping
+//     by guessing an id.
+//
+// TR-069 parameter mappings decide what gets provisioned onto a subscriber's
+// CPE, so a cross-tenant write here is a configuration-integrity problem, not
+// only a disclosure one.
+//
+// Belt and braces on purpose: the parent profile is verified against the org
+// AND every mapping query is scoped again. The second check also fixes a
+// smaller correctness bug — a mapping belonging to a DIFFERENT profile of the
+// same org could be edited through the wrong URL.
+
+/**
+ * The mapping named in the URL, proven to belong to both the named profile and
+ * the calling organization. 404 rather than 403: which mappings exist is
+ * exactly what must not be confirmed.
+ */
+async function findMappingOrFail(req) {
+  const [rows] = await db.query(
+    `SELECT id FROM cpe_parameter_mappings
+      WHERE id = ? AND cpe_profile_id = ?
+        AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL))
+      LIMIT 1`,
+    [req.params.mappingId, req.params.id, req.orgId, req.orgId],
+  );
+  if (!rows.length) throw new NotFoundError('CPE parameter mapping');
+  return rows[0];
+}
+
 router.get('/:id/mappings', requirePermission('cpe_mappings.view'), async (req, res, next) => {
   try {
-    await CpeProfile.findByIdOrFail(req.params.id);
+    await CpeProfile.findByIdOrFail(req.params.id, req.orgId);
     const [rows] = await db.query(
-      'SELECT * FROM cpe_parameter_mappings WHERE cpe_profile_id = ? ORDER BY id ASC',
-      [req.params.id],
+      `SELECT * FROM cpe_parameter_mappings
+        WHERE cpe_profile_id = ?
+          AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL))
+        ORDER BY id ASC`,
+      [req.params.id, req.orgId, req.orgId],
     );
     res.json({ data: rows });
   } catch (err) { next(err); }
@@ -104,7 +144,7 @@ router.get('/:id/mappings', requirePermission('cpe_mappings.view'), async (req, 
 
 router.post('/:id/mappings', requirePermission('cpe_mappings.create'), validate(createCpeParameterMapping), async (req, res, next) => {
   try {
-    await CpeProfile.findByIdOrFail(req.params.id);
+    await CpeProfile.findByIdOrFail(req.params.id, req.orgId);
     const record = await CpeParameterMapping.create({
       ...req.body,
       organization_id: req.orgId,
@@ -116,16 +156,18 @@ router.post('/:id/mappings', requirePermission('cpe_mappings.create'), validate(
 
 router.put('/:id/mappings/:mappingId', requirePermission('cpe_mappings.update'), validate(updateCpeParameterMapping), async (req, res, next) => {
   try {
-    await CpeProfile.findByIdOrFail(req.params.id);
-    const record = await CpeParameterMapping.update(req.params.mappingId, req.body);
+    await CpeProfile.findByIdOrFail(req.params.id, req.orgId);
+    await findMappingOrFail(req);
+    const record = await CpeParameterMapping.update(req.params.mappingId, req.body, req.orgId);
     res.json({ data: record });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/mappings/:mappingId', requirePermission('cpe_mappings.delete'), async (req, res, next) => {
   try {
-    await CpeProfile.findByIdOrFail(req.params.id);
-    await CpeParameterMapping.delete(req.params.mappingId);
+    await CpeProfile.findByIdOrFail(req.params.id, req.orgId);
+    await findMappingOrFail(req);
+    await CpeParameterMapping.delete(req.params.mappingId, req.orgId);
     res.status(204).send();
   } catch (err) { next(err); }
 });
