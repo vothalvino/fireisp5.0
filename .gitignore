@@ -11,6 +11,12 @@ package-lock.json
 .env
 .env.prod
 .env.local
+# redeploy.sh writes .env.prod.bak-<timestamp> before it edits the file. Those
+# are byte-identical copies of the secrets (DB_ROOT_PASSWORD, JWT_SECRET,
+# ENCRYPTION_KEY, ADMIN_PASSWORD), living in the git working tree on the
+# production host. The literal `.env.prod` above does NOT match them.
+.env.prod.bak-*
+.env*.bak-*
 
 # TLS credentials (never commit secrets)
 nginx/certs/

@@ -125,8 +125,15 @@ sync_managed_env() {
     default="${entry#*=}"; default="${default%%|*}"
     comment="${entry#*|}"
 
-    # Present in any form — set, or commented out on purpose.
-    if grep -qE "^[[:space:]]*#?[[:space:]]*${key}=" "$env_file"; then
+    # Present in any form — set, commented out on purpose, `export`-prefixed,
+    # or spaced around the `=`. compose-go's dotenv parser accepts all of these
+    # (it has an explicit export-prefix rule and trims whitespace before `=`),
+    # and so does `set -a; source .env.prod`. Missing one of them is not
+    # cosmetic: the key looks absent, a second definition gets appended, and
+    # because the parser builds its map sequentially THE LATER ONE WINS —
+    # silently reverting the value the operator chose, and leaving the file
+    # holding two contradictory definitions.
+    if grep -qE "^[[:space:]]*#?[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$env_file"; then
       continue
     fi
 
@@ -291,7 +298,16 @@ retire_managed_env "$ENV_FILE"
 echo "==> Pulling image"
 PULL_OUT="$(dc pull app 2>&1)" && PULL_OK=1 || PULL_OK=0
 
-if (( ! PULL_OK )) && (( IMAGE_WAIT > 0 )); then
+# A ROLLBACK must never wait. `sudo redeploy <sha>` is the emergency path, run
+# when production is already broken — and CI only ever publishes the full 40-hex
+# sha, `-amd64`/`-arm64` and `:latest`, so an abbreviated or mistyped tag does
+# not exist and never will. Retrying it burns the full FIREISP_IMAGE_WAIT
+# (600s by default) of `sleep 15` before failing, which is ten minutes of
+# outage spent waiting for something that cannot arrive. Waiting only makes
+# sense for HEAD, where CI genuinely is still publishing.
+if [[ -n "${1:-}" ]] && (( ! PULL_OK )); then
+  echo "    (pinned tag — not retrying: a rollback target either exists or does not)" >&2
+elif (( ! PULL_OK )) && (( IMAGE_WAIT > 0 )); then
   case "$PULL_OUT" in
     # Permanent conditions: waiting cannot make the image match this CPU, and
     # cannot free disk. Everything else is retried, because GHCR's wording

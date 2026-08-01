@@ -92,6 +92,22 @@ describe('it never overrides what the operator decided', () => {
     `set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; MANAGED_ENV_KEYS=("FIREISP_DEMO_KEY=7|synthetic setting for the test suite"); sync_managed_env "$2"`,
     'bash', SCRIPT, file], { encoding: 'utf8' });
 
+  it.each([
+    ['export FIREISP_DEMO_KEY=1'],
+    ['FIREISP_DEMO_KEY = 1'],
+    ['  export  FIREISP_DEMO_KEY  =  1'],
+  ])('recognises %j as already present', (line) => {
+    // compose-go's dotenv parser accepts an export prefix and whitespace around
+    // the `=`, and so does `set -a; source`. If the presence check misses one,
+    // a SECOND definition is appended — and the parser builds its map
+    // sequentially, so the later one wins and silently reverts the operator's
+    // choice, leaving two contradictory lines in the file.
+    const f = write('.env.prod', `${line}\n`);
+    withKey(f);
+    expect(read(f).match(/FIREISP_DEMO_KEY/g)).toHaveLength(1);
+    expect(read(f)).toBe(`${line}\n`);
+  });
+
   it('does not re-add a key they deliberately commented out', () => {
     // Commenting something out is an expressed intent, not an absence.
     const f = write('.env.prod', '# FIREISP_DEMO_KEY=7\n');

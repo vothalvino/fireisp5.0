@@ -345,3 +345,33 @@ describe('operator-facing guidance matches what CI actually publishes', () => {
     for (const platform of published) expect(docs).toContain(platform);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A rollback must not sit in the retry loop
+// ---------------------------------------------------------------------------
+// `sudo redeploy <sha>` is the emergency path, run when production is already
+// broken. CI only ever publishes the full 40-hex sha, -amd64/-arm64 and
+// :latest, so an abbreviated or mistyped rollback tag does not exist and never
+// will. Retrying it burns the whole FIREISP_IMAGE_WAIT — 600s of `sleep 15`
+// before failing — which is ten minutes of outage spent waiting for something
+// that cannot arrive.
+describe('redeploy.sh — rollback does not wait', () => {
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../redeploy.sh'), 'utf8',
+  );
+
+  it('exempts an explicitly pinned tag from the retry loop', () => {
+    expect(src).toMatch(/if \[\[ -n "\$\{1:-\}" \]\] && \(\( ! PULL_OK \)\); then/);
+  });
+
+  it('still retries when no tag was pinned', () => {
+    // The HEAD case is the one where waiting is correct — CI may genuinely
+    // still be publishing.
+    expect(src).toMatch(/elif \(\( ! PULL_OK \)\) && \(\( IMAGE_WAIT > 0 \)\); then/);
+  });
+
+  it('says why, rather than failing silently faster', () => {
+    expect(src).toMatch(/pinned tag — not retrying/);
+  });
+});
