@@ -62,12 +62,22 @@ helm install sealed-secrets sealed-secrets/sealed-secrets \
   --set fullnameOverride=sealed-secrets-controller
 
 # 2. Create a plain Secret (do NOT commit this)
+#    Values are passed through a 0600 file, never on the command line:
+#    /proc/<pid>/cmdline is world-readable, so any local account can read the
+#    arguments of a running process — including root's.
+umask 077
+cat > /tmp/fireisp-secrets.env <<EOF
+JWT_SECRET=$(openssl rand -base64 48)
+ENCRYPTION_KEY=$(openssl rand -hex 32)
+DB_PASSWORD=$(openssl rand -base64 24)
+EOF
+
 kubectl create secret generic fireisp-secret \
   --namespace fireisp \
-  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
-  --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  --from-literal=DB_PASSWORD="$(openssl rand -base64 24)" \
+  --from-env-file=/tmp/fireisp-secrets.env \
   --dry-run=client -o yaml > /tmp/fireisp-plain.yaml
+
+rm -f /tmp/fireisp-secrets.env   # discard the plaintext env file immediately
 
 # 3. Seal it
 kubeseal --controller-namespace kube-system \
@@ -135,15 +145,25 @@ helm install external-secrets external-secrets/external-secrets \
 Create the secret in AWS:
 
 ```bash
+# Write the payload to a 0600 file and hand AWS the path: an inline
+# --secret-string would put every value in the world-readable
+# /proc/<pid>/cmdline for the life of the call.
+umask 077
+cat > fireisp-production.json <<'EOF'
+{
+  "JWT_SECRET": "<value>",
+  "ENCRYPTION_KEY": "<value>",
+  "DB_PASSWORD": "<value>",
+  "SMTP_PASS": "<value>",
+  "REDIS_PASSWORD": "<value>"
+}
+EOF
+
 aws secretsmanager create-secret \
   --name "fireisp/production" \
-  --secret-string '{
-    "JWT_SECRET": "<value>",
-    "ENCRYPTION_KEY": "<value>",
-    "DB_PASSWORD": "<value>",
-    "SMTP_PASS": "<value>",
-    "REDIS_PASSWORD": "<value>"
-  }'
+  --secret-string file://fireisp-production.json
+
+rm -f fireisp-production.json
 ```
 
 Create an IAM role with `secretsmanager:GetSecretValue` on `fireisp/*` and
@@ -276,7 +296,7 @@ Enable Vault's Kubernetes auth method:
 vault auth enable kubernetes
 
 vault write auth/kubernetes/config \
-  token_reviewer_jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+  token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token \
   kubernetes_host="https://$(kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}'):443" \
   kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 
@@ -296,10 +316,15 @@ vault write auth/kubernetes/role/fireisp \
 Write the secrets to Vault:
 
 ```bash
-vault kv put secret/fireisp/production \
-  JWT_SECRET="$(openssl rand -base64 48)" \
-  ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  DB_PASSWORD="$(openssl rand -base64 24)"
+# Given `-` as the data argument, vault reads the JSON payload from stdin, so
+# no secret value ever appears in the world-readable /proc/<pid>/cmdline.
+vault kv put secret/fireisp/production - <<EOF
+{
+  "JWT_SECRET": "$(openssl rand -base64 48)",
+  "ENCRYPTION_KEY": "$(openssl rand -hex 32)",
+  "DB_PASSWORD": "$(openssl rand -base64 24)"
+}
+EOF
 ```
 
 Add annotations to the `fireisp` Deployment pod template to inject secrets:
@@ -461,17 +486,31 @@ SELECT list; the encrypted blob never leaves the backend.
 
 #### Via the REST API
 
+The admin token and the new API key are passed through 0600 files rather than
+as arguments — `/proc/<pid>/cmdline` is world-readable, so any local account
+can read the arguments of a running `curl`.
+
 ```bash
+umask 077
+cat > auth.curl <<'EOF'
+header = "Authorization: Bearer <admin_token>"
+EOF
+cat > new-key.json <<'EOF'
+{"api_key": "<NEW_KEY>"}
+EOF
+
 # 1. Update the provider with the new key (old encrypted value is overwritten)
 curl -X PUT "https://your-fireisp.domain/api/v1/ai/providers/<provider_id>" \
-  -H "Authorization: Bearer <admin_token>" \
+  --config auth.curl \
   -H "Content-Type: application/json" \
-  -d '{"api_key": "<NEW_KEY>"}'
+  -d @new-key.json
 
 # 2. Verify the connection
 curl -X POST "https://your-fireisp.domain/api/v1/ai/providers/<provider_id>/verify" \
-  -H "Authorization: Bearer <admin_token>"
+  --config auth.curl
 # Expected: { "success": true, "message": "Connection OK", ... }
+
+rm -f auth.curl new-key.json
 ```
 
 ### Rotating the ENCRYPTION_KEY

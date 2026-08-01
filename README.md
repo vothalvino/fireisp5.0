@@ -1333,7 +1333,7 @@ docker compose up -d
 | `pnpm --filter fireisp-frontend run lint` | Run frontend type-check / lint step |
 | `pnpm --filter fireisp-frontend build` | Build the frontend bundle |
 | `pnpm --filter fireisp-e2e test` | Run Playwright smoke tests |
-| `pnpm run admin -- create-user --email admin@example.com --password secret --role admin` | Create admin user |
+| `FIREISP_ADMIN_PASSWORD='...' pnpm run admin -- create-user --email admin@example.com --role admin` | Create admin user — the password comes from `FIREISP_ADMIN_PASSWORD` (not `ADMIN_PASSWORD`, which is the seeded admin's initial password), or is prompted for when run in a terminal. Never pass it as a flag: argv is world-readable via `/proc/<pid>/cmdline` |
 | `pnpm run backup` | Back up the database |
 
 ## Contributing

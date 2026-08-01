@@ -9,11 +9,25 @@
 //   node src/scripts/admin.js <command> [options]
 //
 // Commands:
-//   create-user    --email <email> --password <password> [--role admin|support|billing|technician|readonly]
-//   reset-password --email <email> --password <new-password>
+//   create-user    --email <email> [--role admin|support|billing|technician|readonly]
+//   reset-password --email <email>
 //   list-users     [--role <role>] [--status active|inactive]
 //   db-health      Check database connectivity and table counts
 //   migration-status  Show applied vs pending migrations
+//
+// THE PASSWORD IS NEVER A COMMAND-LINE ARGUMENT. It is read from the
+// FIREISP_ADMIN_PASSWORD environment variable, or prompted for interactively.
+//
+// NOT `ADMIN_PASSWORD`: seed.js already owns that name for the INITIAL password
+// of the seeded admin account, install.sh writes it into .env.prod, and the app
+// container loads that file. Reusing it would make `reset-password` run inside
+// the container — which is exactly where an operator would run it — silently
+// reset the account to the seed password instead of prompting.
+//
+// The old `--password <pw>` flag put the value in this process's argv, and
+// /proc/<pid>/cmdline is mode 0444, so every local account on the box could read
+// it for as long as the command ran. It is still accepted so existing scripts do
+// not break, but it warns loudly.
 // =============================================================================
 
 require('dotenv').config();
@@ -21,10 +35,69 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const path = require('path');
 const fs = require('fs');
+const readline = require('readline');
 const logger = require('../utils/logger').child({ script: 'admin' });
 
 const SALT_ROUNDS = 12;
 const COMMANDS = ['create-user', 'reset-password', 'list-users', 'db-health', 'migration-status'];
+
+/**
+ * Prompt for a password without echoing it.
+ *
+ * Muting is done by intercepting the writes readline makes while the question
+ * is open, rather than by putting the TTY in raw mode by hand — raw mode has to
+ * be undone on every exit path, and a missed one leaves the operator with a
+ * terminal that no longer echoes.
+ */
+function promptHidden(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    let muted = false;
+    const realWrite = rl.output.write.bind(rl.output);
+    rl.output.write = (chunk, ...rest) => (muted ? true : realWrite(chunk, ...rest));
+    rl.question(question, (answer) => {
+      rl.output.write = realWrite;
+      rl.output.write('\n');
+      rl.close();
+      resolve(answer);
+    });
+    muted = true;
+  });
+}
+
+/**
+ * Resolve the password for a command, preferring channels that never reach argv.
+ *
+ * Order: FIREISP_ADMIN_PASSWORD (environment — /proc/<pid>/environ is 0400,
+ * owner only) → interactive prompt → the deprecated flag, which works but warns.
+ */
+async function resolvePassword(args, { confirm = false } = {}) {
+  if (process.env.FIREISP_ADMIN_PASSWORD) return process.env.FIREISP_ADMIN_PASSWORD;
+
+  if (args.password && args.password !== true) {
+    logger.warn(
+      'The --password flag puts the password in this process\'s command line, which every '
+      + 'local account can read from /proc/<pid>/cmdline. Use FIREISP_ADMIN_PASSWORD=... instead, '
+      + 'or omit it and be prompted.',
+    );
+    return args.password;
+  }
+
+  if (!process.stdin.isTTY) {
+    logger.error('No password supplied. Set FIREISP_ADMIN_PASSWORD in the environment, or run this attached to a terminal to be prompted.');
+    process.exit(1);
+  }
+
+  const password = await promptHidden('Password: ');
+  if (confirm) {
+    const again = await promptHidden('Confirm password: ');
+    if (again !== password) {
+      logger.error('Passwords did not match');
+      process.exit(1);
+    }
+  }
+  return password;
+}
 
 function parseArgs(argv) {
   const args = {};
@@ -44,8 +117,8 @@ function parseArgs(argv) {
 // =============================================================================
 
 async function createUser(args) {
-  if (!args.email || !args.password) {
-    logger.error('Usage: admin.js create-user --email <email> --password <password> [--role admin]');
+  if (!args.email) {
+    logger.error('Usage: FIREISP_ADMIN_PASSWORD=<password> admin.js create-user --email <email> [--role admin]');
     process.exit(1);
   }
 
@@ -56,19 +129,21 @@ async function createUser(args) {
     process.exit(1);
   }
 
-  if (args.password.length < 8) {
-    logger.error('Password must be at least 8 characters');
-    process.exit(1);
-  }
-
-  // Check for existing user
+  // Check for an existing user BEFORE asking for a password, so the operator is
+  // not prompted for a secret only to be told the account already exists.
   const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL', [args.email]);
   if (existing.length > 0) {
     logger.error({ email: args.email, existingId: existing[0].id }, 'User already exists');
     process.exit(1);
   }
 
-  const passwordHash = await bcrypt.hash(args.password, SALT_ROUNDS);
+  const password = await resolvePassword(args, { confirm: true });
+  if (password.length < 8) {
+    logger.error('Password must be at least 8 characters');
+    process.exit(1);
+  }
+
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const [result] = await db.query(
     `INSERT INTO users (first_name, last_name, email, password_hash, role, group_id, status)
      VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = ? AND deleted_at IS NULL LIMIT 1), 'active')`,
@@ -79,23 +154,26 @@ async function createUser(args) {
 }
 
 async function resetPassword(args) {
-  if (!args.email || !args.password) {
-    logger.error('Usage: admin.js reset-password --email <email> --password <new-password>');
+  if (!args.email) {
+    logger.error('Usage: FIREISP_ADMIN_PASSWORD=<new-password> admin.js reset-password --email <email>');
     process.exit(1);
   }
 
-  if (args.password.length < 8) {
-    logger.error('Password must be at least 8 characters');
-    process.exit(1);
-  }
-
+  // Resolve the user first: no point prompting for a new password for an
+  // account that does not exist.
   const [users] = await db.query('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL', [args.email]);
   if (users.length === 0) {
     logger.error({ email: args.email }, 'No user found with email');
     process.exit(1);
   }
 
-  const passwordHash = await bcrypt.hash(args.password, SALT_ROUNDS);
+  const password = await resolvePassword(args, { confirm: true });
+  if (password.length < 8) {
+    logger.error('Password must be at least 8 characters');
+    process.exit(1);
+  }
+
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   await db.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, users[0].id]);
 
   // Invalidate all sessions
@@ -256,14 +334,23 @@ async function main() {
   Commands:
     create-user        Create a new user
       --email <email>        (required) User email
-      --password <password>  (required) User password (min 8 chars)
       --role <role>          User role (admin|support|billing|technician|readonly)
       --first-name <name>    First name (default: Admin)
       --last-name <name>     Last name (default: User)
 
     reset-password     Reset a user's password
       --email <email>        (required) User email
-      --password <password>  (required) New password (min 8 chars)
+
+  THE PASSWORD (min 8 chars) IS NOT A FLAG. Supply it as the
+  FIREISP_ADMIN_PASSWORD environment variable (NOT ADMIN_PASSWORD — that one is
+  the seeded admin's initial password and lives in .env.prod), or omit it and
+  you will be prompted without echo:
+
+      FIREISP_ADMIN_PASSWORD='...' node src/scripts/admin.js create-user --email a@b.c
+      node src/scripts/admin.js reset-password --email a@b.c        # prompts
+
+  A command line is readable by every local account via /proc/<pid>/cmdline,
+  which is why --password is deprecated; it still works but warns.
 
     list-users         List all users
       --role <role>          Filter by role
