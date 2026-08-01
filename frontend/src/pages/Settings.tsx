@@ -1171,8 +1171,7 @@ function VersionTab() {
       ) : !dep.agent_alive ? (
         <div>
           <p style={sty.verNote}>{t('deploy.agentMissing')}</p>
-          <pre style={sty.verPre}>{`sudo install -m 0755 /opt/fireisp/deploy-agent.sh /usr/local/bin/fireisp-deploy-agent
-sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
+          <pre style={sty.verPre}>{`sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now fireisp-deploy-agent.timer`}</pre>
           <p style={sty.verNote}>{t('deploy.agentMissingWhy')}</p>

@@ -205,7 +205,6 @@ host. Without it the button is not shown and the panel says so — a request is
 never queued for something that will not service it.
 
 ```bash
-sudo install -m 0755 /opt/fireisp/deploy-agent.sh /usr/local/bin/fireisp-deploy-agent
 sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now fireisp-deploy-agent.timer

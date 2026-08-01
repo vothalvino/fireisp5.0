@@ -189,6 +189,46 @@ describe('the agent script keeps the invariant', () => {
     expect(s.indexOf('deploy_agent_status')).toBeLessThan(s.indexOf('redeploy.sh" 2>&1'));
   });
 
+  it('names a compose service that ACTUALLY EXISTS', () => {
+    // This is the test that was missing, and its absence cost a live outage of
+    // the feature: the agent shipped calling `docker compose exec -T db`, but
+    // the MySQL service is `db-primary`. Every run died with "no such service",
+    // so the heartbeat was never written, agent_alive stayed false and the
+    // Update button never appeared — with the UI correctly reporting "no agent
+    // installed" to an operator who had installed one.
+    //
+    // Asserting on the script's TEXT (which the tests above do) cannot catch a
+    // name that is well-formed but wrong. This reads the compose file.
+    const compose = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../docker-compose.prod.yml'), 'utf8',
+    );
+    const services = compose
+      .slice(compose.indexOf('\nservices:'))
+      .split('\n')
+      .map(l => l.match(/^ {2}([a-z][a-z0-9_-]*):/))
+      .filter(Boolean)
+      .map(m => m[1]);
+
+    const declared = src().match(/DB_SERVICE="\$\{FIREISP_DB_SERVICE:-([a-z0-9_-]+)\}"/);
+    expect(declared).not.toBeNull();
+    expect(services).toContain(declared[1]);
+  });
+
+  it('runs from the checkout, not a copy in /usr/local/bin', () => {
+    // A copy is a second thing to keep in step: redeploy pulls a fixed agent
+    // into /opt/fireisp, the copy stays stale, and the symptom is an agent that
+    // silently keeps failing the old way.
+    const unit = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../deploy/fireisp-deploy-agent.service'), 'utf8',
+    );
+    expect(unit).toMatch(/^ExecStart=\/opt\/fireisp\/deploy-agent\.sh$/m);
+    // Directives only — the comment above ExecStart legitimately explains why
+    // /usr/local/bin is NOT used, and a blunt string match flags its own
+    // rationale.
+    const directives = unit.split('\n').filter(l => /^[A-Z][A-Za-z]*=/.test(l));
+    expect(directives.join('\n')).not.toMatch(/\/usr\/local\/bin/);
+  });
+
   it('sweeps a deploy that never reported back', () => {
     // A run killed mid-deploy would otherwise leave a 'running' row that the
     // agent re-claims forever.
