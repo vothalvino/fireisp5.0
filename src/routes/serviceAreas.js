@@ -25,12 +25,25 @@ router.put('/:id', requirePermission('service_areas.update'), validate(updateSer
 router.delete('/:id', requirePermission('service_areas.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('service_areas.update'), ctrl.restore);
 
-// List coverage zones for a service area
+// List coverage zones for a service area.
+//
+// The service_area_id arrived straight from the URL and coverage_zones was
+// queried without an org predicate, so any tenant could enumerate another
+// tenant's coverage polygons by guessing an id — where a competitor sells, and
+// where they do not. Every sibling verb above goes through crudController and
+// is scoped; only this hand-written one was not.
+//
+// Both halves, as elsewhere: prove the parent is the caller's, then scope the
+// child query anyway.
 router.get('/:id/coverage-zones', requirePermission('service_areas.view'), async (req, res, next) => {
   try {
+    await ServiceArea.findByIdOrFail(req.params.id, req.orgId);
     const [rows] = await db.query(
-      'SELECT * FROM coverage_zones WHERE service_area_id = ? AND deleted_at IS NULL ORDER BY id',
-      [req.params.id],
+      `SELECT * FROM coverage_zones
+        WHERE service_area_id = ? AND deleted_at IS NULL
+          AND (organization_id = ? OR (? IS NULL AND organization_id IS NULL))
+        ORDER BY id`,
+      [req.params.id, req.orgId, req.orgId],
     );
     res.json({ data: rows });
   } catch (err) {
