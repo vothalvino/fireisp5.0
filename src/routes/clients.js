@@ -302,6 +302,15 @@ router.get('/:id/timeline', requirePermission('clients.view'), async (req, res, 
   try {
     const interactionService = require('../services/interactionService');
     const { userHasPermission } = require('../middleware/rbac');
+
+    // Prove the client is this tenant's before assembling anything about them.
+    // Every branch of the timeline query carries its own org predicate, but
+    // relying on five separate predicates staying correct is how the email_logs
+    // branch came to be missing one for however long since migration 386 — and
+    // the symptom was a 200 with a partly-populated timeline rather than a 404,
+    // which reads as "this client has little history" rather than as a refusal.
+    await Client.findByIdOrFail(req.params.id, req.orgId);
+
     const timeline = await interactionService.activityTimeline(req.params.id, req.orgId, {
       limit: req.query.limit,
       // Billing-category tickets are gated by tickets.view_billing (mig 394)
