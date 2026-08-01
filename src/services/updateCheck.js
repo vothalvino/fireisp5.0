@@ -53,6 +53,12 @@ const REQUEST_TIMEOUT_MS = 8000;
 
 // Process-local. A restart re-checks, which is fine and self-limiting; putting
 // this in the database would mean a write on a read path for a cosmetic banner.
+// `at` alone decides freshness. An earlier version keyed it on
+// `latestSha || error`, which left one case uncached: a 200 whose body has no
+// string `sha` — a rate-limit message, or an intercepting corporate/ISP TLS
+// proxy, both realistic for this product. Both fields end up null, the guard
+// reads falsy, and the outbound call repeats on EVERY request forever. `at` is
+// stamped on every outcome, so it cannot have that hole.
 let cache = { at: 0, latestSha: null, error: null };
 
 /**
@@ -90,8 +96,7 @@ function isEnabled() {
  * load.
  */
 async function fetchLatestSha() {
-  const fresh = Date.now() - cache.at < CHECK_TTL_MS;
-  if (fresh && (cache.latestSha || cache.error)) return cache.latestSha;
+  if (cache.at > 0 && Date.now() - cache.at < CHECK_TTL_MS) return cache.latestSha;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -107,7 +112,9 @@ async function fetchLatestSha() {
     if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
     const body = await res.json();
     const sha = typeof body?.sha === 'string' ? body.sha : null;
-    cache = { at: Date.now(), latestSha: sha, error: null };
+    // A 200 with no usable sha is a FAILED check, recorded as such — not a
+    // success that happens to know nothing.
+    cache = { at: Date.now(), latestSha: sha, error: sha ? null : 'response carried no commit sha' };
     return sha;
   } catch (err) {
     // Never throws to the caller: an unreachable github.com must not break the

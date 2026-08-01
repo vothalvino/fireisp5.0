@@ -166,6 +166,26 @@ describe('the upstream lookup is cached', () => {
     await updateCheck.getStatus();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('caches a 200 that carries no sha — the case that leaked', async () => {
+    // GitHub rate-limiting, or an intercepting corporate/ISP TLS proxy, answers
+    // 200 with a body that has no string `sha`. Both fields then ended up null
+    // and the freshness guard — keyed on `latestSha || error` — read falsy, so
+    // the outbound call repeated on EVERY request, forever. Reproduced against
+    // the real module: 3 getStatus() calls made 3 requests.
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ message: 'API rate limit exceeded' }) });
+    await updateCheck.getStatus();
+    await updateCheck.getStatus();
+    await updateCheck.getStatus();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports no update when the response carried no sha', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const status = await updateCheck.getStatus();
+    expect(status.latest_sha).toBeNull();
+    expect(status.update_available).toBe(false);
+  });
 });
 
 describe('GET /system/version is install-operator only', () => {
