@@ -185,7 +185,8 @@ services:
         # before redis-server reads this file, so it must be readable by redis —
         # but a world-readable plaintext password inside the container undoes the
         # umask above for anything else running there.
-        chown redis /tmp/redis.conf && chmod 0400 /tmp/redis.conf
+        chown redis /tmp/redis.conf || { echo "redis entrypoint: could not give the config to the redis user — refusing to start rather than crash-looping on an unreadable config" >&2; exit 1; }
+        chmod 0400 /tmp/redis.conf
         exec docker-entrypoint.sh redis-server /tmp/redis.conf \
           --appendonly yes \
           --appendfsync everysec \

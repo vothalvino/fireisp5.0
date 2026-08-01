@@ -110,7 +110,7 @@ function sdssplitargs(line) {
  * Run the real entrypoint script with REDIS_PASSWORD set, against stubs for the
  * things only a container provides, and return the requirepass line it wrote.
  */
-function requirepassLineFor(password) {
+function requirepassLineFor(password, { chownFails = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-redis-'));
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
@@ -119,7 +119,7 @@ function requirepassLineFor(password) {
   fs.writeFileSync(path.join(bin, 'docker-entrypoint.sh'),
     '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$STUB_ARGV_OUT"\n');
   // chown needs root in a container; here it must simply not abort the script.
-  fs.writeFileSync(path.join(bin, 'chown'), '#!/bin/sh\nexit 0\n');
+  fs.writeFileSync(path.join(bin, 'chown'), `#!/bin/sh\nexit ${chownFails ? 1 : 0}\n`);
   for (const f of ['docker-entrypoint.sh', 'chown']) fs.chmodSync(path.join(bin, f), 0o755);
 
   const argvOut = path.join(dir, 'argv.txt');
@@ -143,6 +143,16 @@ function requirepassLineFor(password) {
     argv: fs.readFileSync(argvOut, 'utf8').trim().split('\n'),
     mode: fs.statSync(conf).mode & 0o777,
   };
+}
+
+/** Same, but expects the script to abort; returns its exit status and stderr. */
+function runExpectingFailure(password, opts) {
+  try {
+    requirepassLineFor(password, opts);
+    return null;
+  } catch (e) {
+    return { status: e.status, stderr: String(e.stderr || '') };
+  }
 }
 
 // Alphanumeric is what install.sh's gen_pass produces; the rest are what an
@@ -193,5 +203,17 @@ describe('the entrypoint keeps its other guarantees', () => {
   it('does not leave the plaintext config world-readable inside the container', () => {
     const { mode } = requirepassLineFor('AbC123xyzQ9');
     expect(mode & 0o077).toBe(0);
+  });
+
+  it('fails loudly if the config cannot be handed to the redis user', () => {
+    // The file is created 0600 root-owned (umask 077) and the image entrypoint
+    // drops to the redis user before redis-server reads it. If the chown were
+    // skipped, redis-server would die on an unreadable config — a crash loop
+    // whose message points at the file, not at the cause. Better to stop here
+    // and say so.
+    const failed = runExpectingFailure('AbC123xyzQ9', { chownFails: true });
+    expect(failed).not.toBeNull();
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toMatch(/could not give the config to the redis user/);
   });
 });
