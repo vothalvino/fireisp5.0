@@ -1963,6 +1963,8 @@ INSERT IGNORE INTO snmp_rollup_state (rollup_name, last_processed) VALUES
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snmp_profiles (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NULL   COMMENT 'Owning org. NULL = a system profile (is_system=1) or an unattributed legacy row, adoptable on write (migration 440)',
+    is_system     BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Ships with FireISP: visible to every tenant, editable by none (migration 440)',
     name          VARCHAR(100)    NOT NULL COMMENT 'Profile name e.g. Ubiquiti airOS, MikroTik RouterOS',
     manufacturer  VARCHAR(100)    NULL     COMMENT 'Match devices.manufacturer (NULL = any)',
     model_pattern VARCHAR(100)    NULL     COMMENT 'SQL LIKE pattern to match devices.model (NULL = any)',
@@ -1979,10 +1981,13 @@ CREATE TABLE IF NOT EXISTS snmp_profiles (
     active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_snmp_profiles_name (name, active_flag),
+    UNIQUE KEY uq_snmp_profiles_name (organization_id, name, active_flag),
+    KEY idx_snmp_profiles_org (organization_id, status),
     KEY idx_snmp_profiles_manufacturer (manufacturer),
     KEY idx_snmp_profiles_status (status),
-    KEY idx_snmp_profiles_deleted_at (deleted_at)
+    KEY idx_snmp_profiles_deleted_at (deleted_at),
+    CONSTRAINT fk_snmp_profiles_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
