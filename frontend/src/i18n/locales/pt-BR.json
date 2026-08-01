@@ -4837,5 +4837,24 @@
   "updateBanner": {
     "message": "Há uma versão mais recente do FireISP — em execução {{running}}, a mais recente é {{latest}}.",
     "dismiss": "Ocultar até amanhã"
+  },
+  "version": {
+    "title": "Versão instalada",
+    "loading": "Verificando…",
+    "running": "Commit em execução",
+    "unknownBuild": "desconhecido",
+    "unknownBuildNote": "Esta imagem não foi compilada pelo CI, portanto não carrega marca de commit. Implante uma compilação publicada para ver a versão exata.",
+    "checkState": "Verificação de atualizações",
+    "checkOn": "Ativada",
+    "checkOff": "Desativada — nenhuma requisição externa é feita",
+    "latest": "Mais recente disponível",
+    "unreachable": "não foi possível contatar o github.com",
+    "status": "Status",
+    "updateAvailable": "Há uma versão mais recente disponível",
+    "upToDate": "Atualizado",
+    "checkedAt": "Última verificação",
+    "howToUpdate": "Para atualizar, execute no servidor:",
+    "howToEnable": "Para verificar novas versões, defina",
+    "howToEnableTail": "em .env.prod e reimplante. É a única requisição externa que o FireISP faz por conta própria; nenhum dado da instalação é enviado."
   }
 }

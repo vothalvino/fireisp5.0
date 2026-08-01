@@ -14,6 +14,18 @@ import { Settings } from '../Settings';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Settings now reads useAuth() to decide whether to show the install-operator
+// Version tab. Without a provider useAuth throws, so this file needs the mock
+// even though it only exercises the Email tab.
+vi.mock('@/auth/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/auth/AuthContext')>()),
+  useAuth: () => ({
+    user: { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', organization_id: 1, is_active: true, email_verified_at: null, twofa_enabled: false },
+    loading: false, initialized: true,
+    login: vi.fn(), logout: vi.fn(), refresh: vi.fn(), switchOrganization: vi.fn(),
+  }),
+}));
+
 vi.mock('@/api/client', () => ({
   api: { GET: vi.fn() },
   tokenStore: {

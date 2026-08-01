@@ -1,12 +1,17 @@
 // =============================================================================
 // FireISP 5.0 — Settings Page
 // =============================================================================
-// Admin-only page at /settings. Provides four tabs:
+// Admin-only page at /settings. Tabs:
 //
 //   1. Org Config       — key/value settings from GET/PUT /api/v1/settings
 //   2. Alert Rules      — CRUD on alert rules via /api/v1/alerts/rules
 //   3. Payment Gateways — CRUD on payment gateways via /api/v1/payment-gateways
 //   4. Quotas           — per-tenant resource usage + limit management
+//   5. Email            — per-organization outbound SMTP
+//   6. Version          — what this instance is running, and whether a newer
+//                         release exists. INSTALL OPERATOR ONLY (legacy
+//                         users.role='admin'); hidden for everyone else,
+//                         because the endpoint behind it 404s them.
 //
 // Message templates were promoted into their own page at /message-templates.
 // =============================================================================
@@ -22,7 +27,7 @@ import { useAuth } from '@/auth/AuthContext';
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas' | 'emailSettings';
+type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas' | 'emailSettings' | 'version';
 
 interface Setting {
   key: string;
@@ -995,6 +1000,105 @@ function EmailSettingsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Version tab — what am I running, and is there anything newer?
+// ---------------------------------------------------------------------------
+// Before this, the answer lived nowhere in the product: package.json carries a
+// static "5.0.0", and the update banner only appears when an update IS
+// available AND the check is switched on — so an operator asking "what version
+// is this?" or "is the check even working?" had nothing to look at.
+//
+// Deliberately READ-ONLY. The opt-in is an env var precisely because the
+// `settings` table is writable by any org admin, so offering a toggle here
+// would either not work or would reintroduce that hole.
+
+interface SystemVersion {
+  running_sha: string | null;
+  latest_sha: string | null;
+  update_available: boolean;
+  check_enabled: boolean;
+  checked_at: string | null;
+}
+
+function VersionTab() {
+  const { t } = useTranslation();
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['system-version'],
+    queryFn: () => apiFetch<{ data: SystemVersion }>(`${API_BASE}/system/version`),
+    retry: false,
+  });
+
+  if (isLoading) return <p style={sty.muted}>{t('version.loading')}</p>;
+  if (error) return <p style={sty.errorText}>{(error as Error).message}</p>;
+
+  const v = data?.data;
+  if (!v) return null;
+
+  const short = (sha: string | null) => (sha ? sha.slice(0, 7) : '—');
+
+  return (
+    <div>
+      <h3 style={sty.sectionTitle}>{t('version.title')}</h3>
+
+      <dl style={sty.verList}>
+        <dt style={sty.verKey}>{t('version.running')}</dt>
+        <dd style={sty.verVal}>
+          {v.running_sha
+            ? <code style={sty.code}>{short(v.running_sha)}</code>
+            : <span style={sty.muted}>{t('version.unknownBuild')}</span>}
+        </dd>
+
+        <dt style={sty.verKey}>{t('version.checkState')}</dt>
+        <dd style={sty.verVal}>
+          {v.check_enabled ? t('version.checkOn') : t('version.checkOff')}
+        </dd>
+
+        {v.check_enabled && (
+          <>
+            <dt style={sty.verKey}>{t('version.latest')}</dt>
+            <dd style={sty.verVal}>
+              {v.latest_sha
+                ? <code style={sty.code}>{short(v.latest_sha)}</code>
+                : <span style={sty.muted}>{t('version.unreachable')}</span>}
+            </dd>
+
+            <dt style={sty.verKey}>{t('version.status')}</dt>
+            <dd style={sty.verVal}>
+              {v.update_available
+                ? <strong>{t('version.updateAvailable')}</strong>
+                : t('version.upToDate')}
+            </dd>
+
+            {v.checked_at && (
+              <>
+                <dt style={sty.verKey}>{t('version.checkedAt')}</dt>
+                <dd style={sty.verVal}>{new Date(v.checked_at).toLocaleString()}</dd>
+              </>
+            )}
+          </>
+        )}
+      </dl>
+
+      {v.update_available && (
+        <p style={sty.verNote}>
+          {t('version.howToUpdate')} <code style={sty.code}>sudo redeploy</code>
+        </p>
+      )}
+
+      {!v.check_enabled && (
+        <p style={sty.verNote}>
+          {t('version.howToEnable')} <code style={sty.code}>FIREISP_UPDATE_CHECK=1</code>
+          {' '}{t('version.howToEnableTail')}
+        </p>
+      )}
+
+      {!v.running_sha && (
+        <p style={sty.verNote}>{t('version.unknownBuildNote')}</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Settings page
 // ---------------------------------------------------------------------------
 
@@ -1006,8 +1110,18 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'emailSettings', label: '📧 Email' },
 ];
 
+// Install-operator only. Appended rather than listed above so the array is
+// unchanged for every other role — the endpoint behind it 404s a tenant admin,
+// so showing them the tab would guarantee an error.
+const VERSION_TAB: { id: SettingsTab; label: string } = { id: 'version', label: '⬆️ Version' };
+
 export function Settings() {
   const [tab, setTab] = useState<SettingsTab>('orgConfig');
+  const { user } = useAuth();
+  // EXACT check, matching Layout.tsx and UpdateAvailableBanner.tsx — the
+  // version of the software is a property of the INSTALL, not of a tenant.
+  const isInstallOperator = user?.role === 'admin';
+  const visibleTabs = isInstallOperator ? [...TABS, VERSION_TAB] : TABS;
 
   return (
     <div style={sty.page}>
@@ -1015,7 +1129,7 @@ export function Settings() {
 
       {/* Tab bar */}
       <div style={sty.tabs}>
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button
             key={t.id}
             style={{ ...sty.tabBtn, ...(tab === t.id ? sty.tabBtnActive : {}) }}
@@ -1033,6 +1147,7 @@ export function Settings() {
         {tab === 'paymentGateways' && <PaymentGatewaysTab />}
         {tab === 'quotas' && <QuotasTab />}
         {tab === 'emailSettings' && <EmailSettingsTab />}
+        {tab === 'version' && isInstallOperator && <VersionTab />}
       </div>
     </div>
   );
@@ -1077,6 +1192,10 @@ const sty = {
   input: { padding: '0.45rem 0.65rem', border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem', width: '100%', boxSizing: 'border-box' as const },
   select: { padding: '0.45rem 0.65rem', border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem', background: 'var(--input-bg)', width: '100%', boxSizing: 'border-box' as const },
   row2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
+  verList: { display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '0.5rem 1.25rem', margin: 0, fontSize: '0.9rem' },
+  verKey: { color: 'var(--text-secondary)', fontWeight: 500 },
+  verVal: { margin: 0 },
+  verNote: { marginTop: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 },
   checkRow: { display: 'flex', gap: 24, fontSize: '0.875rem' },
   // buttons
   btnPrimary: { padding: '0.4rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
