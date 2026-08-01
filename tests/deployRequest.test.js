@@ -189,9 +189,110 @@ describe('the agent script keeps the invariant', () => {
     expect(s.indexOf('deploy_agent_status')).toBeLessThan(s.indexOf('redeploy.sh" 2>&1'));
   });
 
+  it('names a compose service that ACTUALLY EXISTS', () => {
+    // This is the test that was missing, and its absence cost a live outage of
+    // the feature: the agent shipped calling `docker compose exec -T db`, but
+    // the MySQL service is `db-primary`. Every run died with "no such service",
+    // so the heartbeat was never written, agent_alive stayed false and the
+    // Update button never appeared — with the UI correctly reporting "no agent
+    // installed" to an operator who had installed one.
+    //
+    // Asserting on the script's TEXT (which the tests above do) cannot catch a
+    // name that is well-formed but wrong. This reads the compose file.
+    const compose = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../docker-compose.prod.yml'), 'utf8',
+    );
+    const services = compose
+      .slice(compose.indexOf('\nservices:'))
+      .split('\n')
+      .map(l => l.match(/^ {2}([a-z][a-z0-9_-]*):/))
+      .filter(Boolean)
+      .map(m => m[1]);
+
+    const declared = src().match(/DB_SERVICE="\$\{FIREISP_DB_SERVICE:-([a-z0-9_-]+)\}"/);
+    expect(declared).not.toBeNull();
+    expect(services).toContain(declared[1]);
+  });
+
+  it('runs from the checkout, not a copy in /usr/local/bin', () => {
+    // A copy is a second thing to keep in step: redeploy pulls a fixed agent
+    // into /opt/fireisp, the copy stays stale, and the symptom is an agent that
+    // silently keeps failing the old way.
+    const unit = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../deploy/fireisp-deploy-agent.service'), 'utf8',
+    );
+    expect(unit).toMatch(/^ExecStart=\/opt\/fireisp\/deploy-agent\.sh$/m);
+    // Directives only — the comment above ExecStart legitimately explains why
+    // /usr/local/bin is NOT used, and a blunt string match flags its own
+    // rationale.
+    const directives = unit.split('\n').filter(l => /^[A-Z][A-Za-z]*=/.test(l));
+    expect(directives.join('\n')).not.toMatch(/\/usr\/local\/bin/);
+  });
+
   it('sweeps a deploy that never reported back', () => {
     // A run killed mid-deploy would otherwise leave a 'running' row that the
     // agent re-claims forever.
     expect(src()).toMatch(/status = 'failed'[\s\S]{0,400}INTERVAL 1 HOUR/);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The agent installs itself
+// ---------------------------------------------------------------------------
+// The units used to be a four-command manual step in the docs, which meant the
+// Update button only worked for an operator who had read them — and, worse,
+// that a FIX to the agent never reached anyone who had already installed it,
+// because the install copied the script somewhere redeploy does not touch.
+// Both were real: the agent shipped naming a compose service that does not
+// exist, and the copy would have kept failing the same way after the fix
+// landed.
+//
+// So the deploy installs its own units, the same way it applies its own
+// migrations. These assert the guards that make that safe — every one of them
+// must SKIP rather than fail, because a cosmetic convenience must never be able
+// to break a deploy.
+
+describe('redeploy installs the deploy-agent units', () => {
+  const script = require('node:path').join(__dirname, '../redeploy.sh');
+  const run = (env) => require('node:child_process').execFileSync(
+    'bash',
+    ['-c', `set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; ${env} install_deploy_agent`, 'bash', script],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+
+  it('is wired into the deploy flow, not just defined', () => {
+    const src = require('node:fs').readFileSync(script, 'utf8');
+    expect(src).toMatch(/^install_deploy_agent$/m);
+  });
+
+  it('honours an operator who does not want a timer', () => {
+    expect(run('DEPLOY_AGENT=0;')).toMatch(/skipping/);
+  });
+
+  it('skips a host with no systemd rather than failing the deploy', () => {
+    const out = require('node:child_process').execFileSync(
+      'bash',
+      ['-c', 'set -euo pipefail; PATH=/nonexistent; FIREISP_LIB_ONLY=1 source "$1"; install_deploy_agent', 'bash', script],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    expect(out).toMatch(/no systemctl/);
+  });
+
+  it('compares before writing, so an unchanged deploy does not churn systemd', () => {
+    // Rewriting identical files every deploy would restart the timer for
+    // nothing, on every single deploy.
+    const src = require('node:fs').readFileSync(script, 'utf8');
+    expect(src).toMatch(/if ! cmp -s "\$src" "\$dst"; then/);
+    expect(src).toMatch(/if \(\( changed \)\); then\s*\n\s*systemctl daemon-reload/);
+  });
+
+  it('never lets a unit-install failure fail the deploy', () => {
+    // Every branch returns 0. A deploy that succeeded must not be reported as
+    // failed because a convenience feature could not be set up.
+    const src = require('node:fs').readFileSync(script, 'utf8');
+    const fn = src.slice(src.indexOf('install_deploy_agent() {'), src.indexOf('\n}', src.indexOf('install_deploy_agent() {')));
+    expect(fn).not.toMatch(/exit 1/);
+    expect((fn.match(/return 0/g) || []).length).toBeGreaterThanOrEqual(4);
   });
 });

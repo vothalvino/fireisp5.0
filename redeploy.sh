@@ -59,6 +59,10 @@ KEEP_IMAGES="${FIREISP_IMAGE_KEEP:-3}"
 # the publish, which is not a failure at all — it is a race worth waiting out.
 # 0 disables the wait and fails immediately.
 IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
+# Install/refresh the systemd units for the GUI deploy agent as part of every
+# deploy. 0 disables it entirely for an operator who would rather not have a
+# timer on the box.
+DEPLOY_AGENT="${FIREISP_DEPLOY_AGENT:-1}"
 
 # -----------------------------------------------------------------------------
 # Settings this script may INTRODUCE into an existing .env.prod
@@ -239,6 +243,61 @@ retire_managed_env() {
   done
 }
 
+# -----------------------------------------------------------------------------
+# Keep the GUI deploy agent installed and current
+# -----------------------------------------------------------------------------
+# The units used to be a four-command manual step in the docs, which meant the
+# Update button only worked for someone who had read them — and, worse, that a
+# FIX to the agent never reached anyone who had installed it, because the
+# install copied the script somewhere redeploy does not touch. Both of those
+# were real: the agent shipped naming a compose service that does not exist, and
+# the copy would have kept failing the same way after the fix landed.
+#
+# So the deploy installs its own units, the same way it applies its own
+# migrations. This script already runs as root and already restarts the whole
+# stack; writing two unit files that run a script from this same checkout is
+# well inside that envelope, and adds no authority the deploy did not have.
+#
+# Idempotent and quiet: the files are compared before writing, and systemd is
+# only reloaded when something actually changed. A host without systemd, or
+# without root, is skipped with a note rather than failing the deploy.
+install_deploy_agent() {
+  local unit src dst changed=0
+
+  [[ "$DEPLOY_AGENT" != "0" ]] || { echo "    (FIREISP_DEPLOY_AGENT=0 — skipping)"; return 0; }
+  command -v systemctl >/dev/null 2>&1 || { echo "    (no systemctl on this host — GUI deploys unavailable, CLI unaffected)"; return 0; }
+  [[ -w /etc/systemd/system ]] || { echo "    (need root to install the units — run via sudo to enable GUI deploys)" >&2; return 0; }
+
+  for unit in fireisp-deploy-agent.service fireisp-deploy-agent.timer; do
+    src="$APP_DIR/deploy/$unit"
+    dst="/etc/systemd/system/$unit"
+    [[ -f "$src" ]] || continue
+    # cmp, not cp: rewriting an identical file every deploy would churn systemd
+    # and restart the timer for nothing.
+    if ! cmp -s "$src" "$dst"; then
+      install -m 0644 "$src" "$dst"
+      echo "    + ${unit}"
+      changed=1
+    fi
+  done
+
+  if (( changed )); then
+    systemctl daemon-reload
+  fi
+  # enable --now is idempotent, and is what picks the agent up on a host where
+  # it was never installed at all.
+  systemctl enable --now fireisp-deploy-agent.timer >/dev/null 2>&1 || {
+    echo "    (could not enable the timer — see: systemctl status fireisp-deploy-agent.timer)" >&2
+    return 0
+  }
+  if (( changed )); then
+    systemctl restart fireisp-deploy-agent.timer
+    echo "    units updated and timer restarted"
+  else
+    echo "    already current"
+  fi
+}
+
 # Sourced by tests to get the functions above without running a deploy.
 if [[ "${FIREISP_LIB_ONLY:-}" == "1" ]]; then
   return 0 2>/dev/null || exit 0
@@ -290,6 +349,9 @@ fi
 # to be permanent costs one wait and then reports honestly.
 STAY_MSG="  Nothing has been changed on this host: the previous containers are still
   running and still serving."
+
+echo "==> Deploy agent"
+install_deploy_agent
 
 echo "==> Syncing new settings into $(basename "$ENV_FILE")"
 sync_managed_env "$ENV_FILE"

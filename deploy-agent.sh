@@ -6,10 +6,12 @@
 # row from deploy_requests and runs redeploy.sh. That is the whole job.
 #
 # Install (one time):
-#     sudo install -m 0755 /opt/fireisp/deploy-agent.sh /usr/local/bin/fireisp-deploy-agent
 #     sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
 #     sudo systemctl daemon-reload
 #     sudo systemctl enable --now fireisp-deploy-agent.timer
+#
+# The unit runs this file from the checkout, so `redeploy` keeps the agent up to
+# date on its own — there is no copy in /usr/local/bin to fall out of step.
 #
 # ── Why this exists at all ───────────────────────────────────────────────────
 #
@@ -57,12 +59,19 @@ DB_PASSWORD="$(grep -E '^DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
 DB_NAME="${DB_NAME:-fireisp}"
 DB_USER="${DB_USER:-fireisp}"
 
+# The compose service that runs MySQL. `db-primary`, NOT `db` — this script
+# originally guessed `db` and every run died with "no such service: db", so the
+# heartbeat was never written and the Update button never appeared. Overridable
+# for a non-standard compose file; tests cross-check the default against
+# docker-compose.prod.yml so it cannot silently drift again.
+DB_SERVICE="${FIREISP_DB_SERVICE:-db-primary}"
+
 dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
 # MYSQL_PWD rather than -p on the command line: an argv password is visible in
 # `ps` to every user on the box for the lifetime of the query.
 sql() {
-  MYSQL_PWD="$DB_PASSWORD" dc exec -T db \
+  MYSQL_PWD="$DB_PASSWORD" dc exec -T "$DB_SERVICE" \
     mysql --batch --skip-column-names --default-character-set=utf8mb4 \
           -u "$DB_USER" "$DB_NAME" -e "$1" 2>/dev/null
 }
@@ -81,7 +90,7 @@ sql "INSERT INTO deploy_agent_status (id, last_seen_at, agent_version, hostname)
      ON DUPLICATE KEY UPDATE last_seen_at = NOW(),
                              agent_version = VALUES(agent_version),
                              hostname = VALUES(hostname);" || {
-  echo "deploy-agent: could not reach the database — is the stack up?" >&2
+  echo "deploy-agent: could not reach the database via compose service '$DB_SERVICE' — is the stack up?" >&2
   exit 0   # exit 0: a stopped stack is not an agent failure worth alerting on
 }
 

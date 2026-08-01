@@ -13,7 +13,12 @@ Type=oneshot
 # here, on the host, outside Docker.
 User=root
 Environment=FIREISP_DIR=/opt/fireisp
-ExecStart=/usr/local/bin/fireisp-deploy-agent
+# Points at the file IN THE REPO, not a copy in /usr/local/bin. A copy is a
+# second thing to keep in step: `redeploy` pulls a fixed agent into
+# /opt/fireisp, the copy stays stale, and the symptom is an agent that silently
+# keeps failing the old way. Running it from the checkout means agent fixes
+# arrive with every deploy, like the rest of the code.
+ExecStart=/opt/fireisp/deploy-agent.sh
 
 # A deploy pulls an image and waits for the stack to come back. Generous, but
 # bounded — the agent's own one-hour sweep marks anything longer as failed.

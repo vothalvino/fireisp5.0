@@ -122,11 +122,14 @@ describe('what it shows', () => {
     expect(await screen.findByText(/Up to date/i)).toBeInTheDocument();
   });
 
-  it('flags an available update and names the command', async () => {
+  it('flags an available update', async () => {
+    // No longer asserts a CLI command alongside it: the agent installs itself
+    // with the deploy now, so the panel offers the Update button rather than
+    // instructions. The command is still in docs/deployment.md for anyone whose
+    // host has no systemd.
     renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Version/i }));
     expect(await screen.findByText(/newer release is available/i)).toBeInTheDocument();
-    expect(screen.getByText('sudo redeploy')).toBeInTheDocument();
   });
 
   it('explains how to switch the check OFF, since on is now the default', async () => {
@@ -179,15 +182,26 @@ describe('deploy panel — before the agent is installed', () => {
     expect(screen.queryByRole('button', { name: /Update now/i })).not.toBeInTheDocument();
   });
 
-  it('shows the install commands instead of nothing', async () => {
+  it('says the agent is pending rather than showing nothing', async () => {
+    // The units are installed by redeploy now, so there is no command list to
+    // show — but an empty panel would read as broken, which is the complaint
+    // that produced this whole thread.
     renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Version/i }));
-    expect(await screen.findByText(/No deploy agent has checked in/i)).toBeInTheDocument();
-    expect(screen.getByText(/fireisp-deploy-agent\.timer/)).toBeInTheDocument();
+    expect(await screen.findByText(/has not reported in yet/i)).toBeInTheDocument();
+  });
+
+  it('names the one command that diagnoses a stuck agent', async () => {
+    // If it never checks in, this is the single line that says why — which is
+    // what was missing when the agent was calling a compose service that did
+    // not exist.
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText(/journalctl -u fireisp-deploy-agent/)).toBeInTheDocument();
   });
 
   it('explains WHY there is an agent rather than a direct button', async () => {
-    // Without this the install step reads as busywork.
+    // Without this the indirection reads as busywork.
     renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Version/i }));
     expect(await screen.findByText(/never given permission to restart/i)).toBeInTheDocument();
