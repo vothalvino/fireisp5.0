@@ -151,6 +151,61 @@ describe('update_available is only claimed when it is knowable', () => {
   });
 });
 
+describe('the answer stays FRESH enough to be useful', () => {
+  // The bug this replaces: a 24h TTL meant the check ran exactly once per
+  // deploy — at the moment the operator had just deployed HEAD, so the answer
+  // was guaranteed to be "up to date" — and then froze. Anyone deploying more
+  // often than daily would never once see an update reported.
+  beforeEach(() => { process.env.FIREISP_GIT_SHA = RUNNING; });
+
+  it('re-checks within a working session, not once a day', () => {
+    expect(updateCheck.CHECK_TTL_MS).toBeLessThanOrEqual(30 * 60 * 1000);
+  });
+
+  it('notices commits that land after the first check', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: RUNNING }) });
+    expect((await updateCheck.getStatus()).update_available).toBe(false);
+
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, json: async () => ({ sha: LATEST }) });
+    const realNow = Date.now;
+    Date.now = () => realNow() + updateCheck.CHECK_TTL_MS + 1000;
+    try {
+      const status = await updateCheck.getStatus();
+      expect(status.latest_sha).toBe(LATEST);
+      expect(status.update_available).toBe(true);
+    } finally { Date.now = realNow; }
+  });
+
+  it('holds a FAILURE far longer than an answer', async () => {
+    // An air-gapped or egress-blocked install must not retry every 15 minutes
+    // forever. Shortening both TTLs would have made a broken install noisier —
+    // separating them is the actual fix.
+    expect(updateCheck.FAILURE_TTL_MS).toBeGreaterThan(updateCheck.CHECK_TTL_MS * 4);
+  });
+
+  it('does not retry a failure at the success cadence', async () => {
+    fetchSpy.mockRejectedValue(new Error('ENOTFOUND'));
+    await updateCheck.getStatus();
+    const realNow = Date.now;
+    Date.now = () => realNow() + updateCheck.CHECK_TTL_MS + 1000;
+    try {
+      await updateCheck.getStatus();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally { Date.now = realNow; }
+  });
+
+  it('does retry a failure once its own window passes', async () => {
+    fetchSpy.mockRejectedValue(new Error('ENOTFOUND'));
+    await updateCheck.getStatus();
+    const realNow = Date.now;
+    Date.now = () => realNow() + updateCheck.FAILURE_TTL_MS + 1000;
+    try {
+      await updateCheck.getStatus();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally { Date.now = realNow; }
+  });
+});
+
 describe('the upstream lookup is cached', () => {
 
   it('checks once across many calls', async () => {
