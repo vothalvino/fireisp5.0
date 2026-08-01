@@ -110,7 +110,7 @@ const rejectMove = rejectOrgReassignment('outage');
 const adopt = adoptUnattributed('outages', 'outage');
 
 router.post('/', requirePermission('outages.create'), validate(createOutage), ctrl.create);
-router.put('/:id', requirePermission('outages.update'), rejectMove, adopt, validate(updateOutage), ctrl.update);
+router.put('/:id', requirePermission('outages.update'), rejectMove, validate(updateOutage), adopt, ctrl.update);
 router.delete('/:id', requirePermission('outages.delete'), adopt, ctrl.destroy);
 router.post('/:id/restore', requirePermission('outages.update'), adopt, ctrl.restore);
 

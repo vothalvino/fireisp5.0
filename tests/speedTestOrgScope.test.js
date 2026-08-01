@@ -240,3 +240,29 @@ describe('POST /speed-tests works at all', () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe('a REJECTED request must not transfer ownership', () => {
+  it('does not adopt when validation fails', async () => {
+    // Adoption is a committed write with no transaction around it. Mounted
+    // ahead of validate(), a request that then 422s STILL took the row: it
+    // vanishes from every other tenant's list, their PUT/DELETE 404, and no
+    // route can hand it back. A failed request must not have permanent side
+    // effects, least of all ownership ones.
+    wireDb({ rows: [LEGACY], targetOrg: null });
+    const res = await auth(request(app).put('/api/v1/speed-tests/11')).send({ download_mbps: -1 });
+    expect(res.status).toBe(422);
+    const adopt = db.query.mock.calls.find(
+      ([s]) => /SET organization_id = \? WHERE id = \? AND organization_id IS NULL/.test(s),
+    );
+    expect(adopt).toBeUndefined();
+  });
+
+  it('still adopts when the request is valid', async () => {
+    wireDb({ rows: [LEGACY], targetOrg: null });
+    await auth(request(app).put('/api/v1/speed-tests/11')).send({ notes: 'ok' });
+    const adopt = db.query.mock.calls.find(
+      ([s]) => /SET organization_id = \? WHERE id = \? AND organization_id IS NULL/.test(s),
+    );
+    expect(adopt).toBeDefined();
+  });
+});
