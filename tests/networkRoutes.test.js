@@ -784,6 +784,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
     test('updates an SNMP profile', async () => {
       mockAuthUser();
       db.query
+        // migration 440: rejectSystemProfile probe
+        .mockResolvedValueOnce([[{ is_system: 0 }]])
+        // migration 440: adoptUnattributed probe (owned → no adopt write)
+        .mockResolvedValueOnce([[{ organization_id: 1 }]])
         .mockResolvedValueOnce([[mockSnmpProfile]])                                    // findByIdOrFail
         .mockResolvedValueOnce([{ affectedRows: 1 }])                                 // UPDATE
         .mockResolvedValueOnce([[{ ...mockSnmpProfile, name: 'MikroTik Default' }]])   // findById
@@ -804,6 +808,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
     test('deletes an SNMP profile and returns 204', async () => {
       mockAuthUser();
       db.query
+        // migration 440: rejectSystemProfile probe
+        .mockResolvedValueOnce([[{ is_system: 0 }]])
+        // migration 440: adoptUnattributed probe (owned → no adopt write)
+        .mockResolvedValueOnce([[{ organization_id: 1 }]])
         .mockResolvedValueOnce([[mockSnmpProfile]])    // findByIdOrFail
         .mockResolvedValueOnce([{ affectedRows: 1 }])  // DELETE
         .mockResolvedValueOnce([{ affectedRows: 1 }]); // auditLog
@@ -820,7 +828,12 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
   describe('PUT /api/snmp-profiles/:id (not found)', () => {
     test('returns 404 when updating non-existent SNMP profile', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);  // findByIdOrFail → empty
+      db.query
+        // migration 440: both probes find nothing, so the guards fall through
+        // and the 404 still comes from findByIdOrFail, as this test intends.
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]]);  // findByIdOrFail → empty
 
       const res = await request(app)
         .put('/api/snmp-profiles/999')
@@ -835,7 +848,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
   describe('DELETE /api/snmp-profiles/:id (not found)', () => {
     test('returns 404 when deleting non-existent SNMP profile', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);  // findByIdOrFail → empty
+      db.query
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]]);  // findByIdOrFail → empty
 
       const res = await request(app)
         .delete('/api/snmp-profiles/999')
@@ -859,7 +875,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
   describe('GET /api/snmp-profiles/:id/oids', () => {
     test('returns OIDs for an SNMP profile', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[mockOid]]);
+      db.query
+        // migration 440: requireVisibleProfile probe
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        .mockResolvedValueOnce([[mockOid]]);
 
       const res = await request(app)
         .get('/api/snmp-profiles/1/oids')
@@ -873,7 +892,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
 
     test('returns empty array when no OIDs exist', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);
+      db.query
+        // migration 440: requireVisibleProfile probe
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        .mockResolvedValueOnce([[]]);
 
       const res = await request(app)
         .get('/api/snmp-profiles/1/oids')
@@ -896,6 +918,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
         metric_column: 'uptime_ticks',
       };
       db.query
+        // migration 440: requireVisibleProfile probe
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        // migration 440: rejectSystemProfile probe
+        .mockResolvedValueOnce([[{ is_system: 0 }]])
         .mockResolvedValueOnce([{ insertId: 2 }])   // INSERT into snmp_profile_oids
         .mockResolvedValueOnce([[newOid]]);           // SELECT new OID
 
@@ -912,6 +938,10 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
     test('persists aggregate and transform through to the INSERT (migration 401)', async () => {
       mockAuthUser();
       db.query
+        // migration 440: requireVisibleProfile probe
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        // migration 440: rejectSystemProfile probe
+        .mockResolvedValueOnce([[{ is_system: 0 }]])
         .mockResolvedValueOnce([{ insertId: 3 }])   // INSERT into snmp_profile_oids
         .mockResolvedValueOnce([[{
           id: 3, profile_id: 1, oid: '1.3.6.1.2.1.25.3.3.1.2', label: 'CPU',
@@ -941,7 +971,12 @@ describe('SNMP Profile Routes — /api/snmp-profiles', () => {
   describe('DELETE /api/snmp-profiles/:id/oids/:oidId', () => {
     test('deletes an OID from an SNMP profile and returns 204', async () => {
       mockAuthUser();
-      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);  // DELETE
+      db.query
+        // migration 440: requireVisibleProfile probe
+        .mockResolvedValueOnce([[{ id: 1 }]])
+        // migration 440: rejectSystemProfile probe
+        .mockResolvedValueOnce([[{ is_system: 0 }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // DELETE
 
       const res = await request(app)
         .delete('/api/snmp-profiles/1/oids/1')
