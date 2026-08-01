@@ -62,6 +62,21 @@ IMAGE_WAIT="${FIREISP_IMAGE_WAIT:-600}"
 # Install/refresh the systemd units for the GUI deploy agent as part of every
 # deploy. 0 disables it entirely for an operator who would rather not have a
 # timer on the box.
+#
+# The opt-out is read from .env.prod because that is the only place that
+# survives `sudo`: sudoers' env_reset strips a `FIREISP_DEPLOY_AGENT=0 sudo
+# redeploy` prefix silently — the same trap the rollback argument exists for —
+# so the docs point operators at the file. A value in the real environment
+# still wins when one genuinely survives (root shell, `sudo -E` with SETENV).
+# Only an explicit 0 is honoured; quotes, CRLF and a trailing comment are
+# tolerated because the file is hand-edited.
+if [[ -z "${FIREISP_DEPLOY_AGENT:-}" && -f "$ENV_FILE" ]]; then
+  _flag="$( (grep -E '^[[:space:]]*(export[[:space:]]+)?FIREISP_DEPLOY_AGENT[[:space:]]*=' "$ENV_FILE" || true) \
+    | tail -n1 | cut -d= -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '\r"'"'"' \t' )"
+  # `if`, not `[[ ]] &&` — under set -e a false && at top level kills the script.
+  if [[ "$_flag" == "0" ]]; then FIREISP_DEPLOY_AGENT=0; fi
+  unset _flag
+fi
 DEPLOY_AGENT="${FIREISP_DEPLOY_AGENT:-1}"
 
 # -----------------------------------------------------------------------------

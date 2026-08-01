@@ -241,9 +241,12 @@ anyway. Compare that with handing out root.
   'pending'` rather than select-then-update.
 - A deploy that never reports back is marked failed after an hour rather than
   retried forever.
-- The agent reads DB credentials from `.env.prod` (it is root on the host) and
-  passes them via `MYSQL_PWD`, never on the command line where `ps` would show
-  them to every user on the box. It has no API token and opens no port.
+- The agent authenticates to MySQL with the `MYSQL_USER`/`MYSQL_PASSWORD` that
+  compose already injected into the database container — the same parse of
+  `.env.prod` the running stack uses, so any file format that works for the app
+  works for the agent. Credentials are expanded inside the container and passed
+  via `MYSQL_PWD`, never on a host command line where `ps` would show them to
+  every user on the box. It has no API token and opens no port.
 - Rolling back is still CLI-only and deliberately so: `sudo redeploy <sha>`.
   Rollback needs a target, and a target is exactly what this path must never
   accept.

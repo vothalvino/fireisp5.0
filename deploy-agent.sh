@@ -48,16 +48,20 @@ OUTPUT_TAIL_BYTES="${FIREISP_DEPLOY_TAIL_BYTES:-4000}"
 [[ -f "$COMPOSE_FILE" ]] || { echo "deploy-agent: $COMPOSE_FILE not found" >&2; exit 1; }
 [[ -f "$ENV_FILE" ]]     || { echo "deploy-agent: $ENV_FILE not found" >&2; exit 1; }
 
-# Credentials come from .env.prod, which is root-readable on the host. The agent
-# deliberately has NO API token and no network listener: it talks to MySQL
-# through the existing compose stack, so there is no new credential to leak and
-# no new port to reach.
-# shellcheck disable=SC1090
-DB_NAME="$(grep -E '^DB_NAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-DB_USER="$(grep -E '^DB_USER=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-DB_PASSWORD="$(grep -E '^DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-DB_NAME="${DB_NAME:-fireisp}"
-DB_USER="${DB_USER:-fireisp}"
+# The agent deliberately has NO API token and no network listener: it talks to
+# MySQL through the existing compose stack, so there is no new credential to
+# leak and no new port to reach.
+#
+# It does NOT re-parse .env.prod for credentials. An earlier version did
+# (grep | cut), and any file format compose's dotenv parser accepts but a naive
+# grep does not — quoted values, an `export` prefix, CRLF endings, a repeated
+# key where the later definition wins — made every run fail "Access denied" on
+# a box where the app itself was connecting fine. Instead the query runs with
+# the MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE that compose already
+# injected into the MySQL container: the same parse, of the same file, that the
+# running stack authenticates with. If the app can log in, so can the agent —
+# by construction. (.env.prod stays required above: compose itself needs it to
+# interpolate the stack; this script just never re-reads its values.)
 
 # The compose service that runs MySQL. `db-primary`, NOT `db` — this script
 # originally guessed `db` and every run died with "no such service: db", so the
@@ -68,12 +72,22 @@ DB_SERVICE="${FIREISP_DB_SERVICE:-db-primary}"
 
 dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
-# MYSQL_PWD rather than -p on the command line: an argv password is visible in
-# `ps` to every user on the box for the lifetime of the query.
+# Each query's stderr lands here so a failure can be REPORTED, not guessed at.
+# The first version discarded it (2>/dev/null) and printed "is the stack up?" —
+# while the stack was up and mysql was answering "Access denied", which sent
+# the diagnosis in exactly the wrong direction.
+ERR_FILE="$(mktemp)"
+trap 'rm -f "$ERR_FILE"' EXIT
+
+# The statement travels as an environment variable (compose exec -e), never
+# interpolated into the shell command line. The credentials are expanded by the
+# shell INSIDE the container — the single quotes are the point: neither the
+# password nor the SQL is visible in host argv, where `ps` shows arguments to
+# every user on the box. MYSQL_PWD rather than -p for the same reason.
 sql() {
-  MYSQL_PWD="$DB_PASSWORD" dc exec -T "$DB_SERVICE" \
-    mysql --batch --skip-column-names --default-character-set=utf8mb4 \
-          -u "$DB_USER" "$DB_NAME" -e "$1" 2>/dev/null
+  dc exec -T -e SQL_STMT="$1" "$DB_SERVICE" sh -c \
+    'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --batch --skip-column-names --default-character-set=utf8mb4 -u "$MYSQL_USER" "$MYSQL_DATABASE" -e "$SQL_STMT"' \
+    2>"$ERR_FILE"
 }
 
 # Escape a value for single-quoted SQL. Only ever applied to strings this script
@@ -90,7 +104,17 @@ sql "INSERT INTO deploy_agent_status (id, last_seen_at, agent_version, hostname)
      ON DUPLICATE KEY UPDATE last_seen_at = NOW(),
                              agent_version = VALUES(agent_version),
                              hostname = VALUES(hostname);" || {
-  echo "deploy-agent: could not reach the database via compose service '$DB_SERVICE' — is the stack up?" >&2
+  ERR_TAIL="$(head -c 400 "$ERR_FILE" | tr '\n' ' ')"
+  case "$ERR_TAIL" in
+    *"Access denied"*)
+      echo "deploy-agent: MySQL rejected the credentials the stack itself runs with — the '$DB_SERVICE' container's MYSQL_USER/MYSQL_PASSWORD no longer match the database (changed after first init?): ${ERR_TAIL}" >&2 ;;
+    *"doesn't exist"*)
+      echo "deploy-agent: schema missing — migration 439 has not been applied; run a deploy or the migrations: ${ERR_TAIL}" >&2 ;;
+    *"no such service"*|*"is not running"*|*"no container found"*|*"Cannot connect to the Docker daemon"*|"")
+      echo "deploy-agent: could not reach the database via compose service '$DB_SERVICE' — is the stack up? ${ERR_TAIL}" >&2 ;;
+    *)
+      echo "deploy-agent: heartbeat write via compose service '$DB_SERVICE' failed: ${ERR_TAIL}" >&2 ;;
+  esac
   exit 0   # exit 0: a stopped stack is not an agent failure worth alerting on
 }
 

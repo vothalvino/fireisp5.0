@@ -184,6 +184,46 @@ describe('the agent script keeps the invariant', () => {
     expect(src()).not.toMatch(/mysql[^\n]*-p\$/);
   });
 
+  it('authenticates with the values compose gave the container, never a re-parse of .env.prod', () => {
+    // The old grep|cut of DB_* out of .env.prod failed "Access denied" on any
+    // format compose's dotenv parser accepts but a naive grep does not —
+    // quoted values, an `export` prefix, CRLF endings, a duplicate key where
+    // the later definition wins — on a box where the app itself was connecting
+    // fine (live outage #2 of this feature). The container's MYSQL_* env IS
+    // compose's parse of the same file, so app-can-connect implies
+    // agent-can-connect by construction.
+    const s = src();
+    expect(s).toMatch(/-u "\$MYSQL_USER" "\$MYSQL_DATABASE"/);
+    expect(s).toMatch(/MYSQL_PWD="\$MYSQL_PASSWORD"/);
+    expect(s).not.toMatch(/grep -E '\^DB_/);
+  });
+
+  it('expands credentials inside the container and passes SQL as an env var — nothing secret in host argv', () => {
+    const s = src();
+    // Load-bearing constructs, not prose: the -e flag carrying the statement…
+    expect(s).toMatch(/exec -T -e SQL_STMT="\$1"/);
+    // …and the single-quoted container command, so the host shell can expand
+    // neither the credentials nor the statement.
+    const cmd = s.split('\n').find((l) => l.includes('MYSQL_PWD='));
+    expect(cmd).toBeDefined();
+    expect(cmd.trim().startsWith("'MYSQL_PWD=")).toBe(true);
+  });
+
+  it('reports the real database error instead of guessing', () => {
+    // The first version discarded stderr and printed "is the stack up?" while
+    // mysql was answering "Access denied" — which sent the live diagnosis in
+    // exactly the wrong direction.
+    const s = src();
+    expect(s).toMatch(/2>"\$ERR_FILE"/); // stderr captured…
+    // …never discarded. Comment lines are excluded: the script legitimately
+    // NAMES 2>/dev/null while explaining why it no longer uses it, and a bare
+    // substring match would flag its own rationale (the toContain-on-prose
+    // trap that bit the redeploy tests twice).
+    const code = s.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    expect(code).not.toMatch(/2>\/dev\/null/);
+    expect(s).toMatch(/Access denied/); // and classified for the journal
+  });
+
   it('stamps the heartbeat before doing any work', () => {
     const s = src();
     expect(s.indexOf('deploy_agent_status')).toBeLessThan(s.indexOf('redeploy.sh" 2>&1'));
@@ -285,6 +325,41 @@ describe('redeploy installs the deploy-agent units', () => {
     const src = require('node:fs').readFileSync(script, 'utf8');
     expect(src).toMatch(/if ! cmp -s "\$src" "\$dst"; then/);
     expect(src).toMatch(/if \(\( changed \)\); then\s*\n\s*systemctl daemon-reload/);
+  });
+
+  it('honours FIREISP_DEPLOY_AGENT=0 written in .env.prod — the one place sudo cannot strip it', () => {
+    // The docs always pointed operators at .env.prod, but the script only read
+    // the process environment — which sudoers' env_reset empties, so the
+    // documented opt-out could never work. Quotes, a trailing comment and a CR
+    // are all present here because hand-edited files have all three.
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-agent-flag-'));
+    fs.writeFileSync(path.join(tmp, '.env.prod'), 'DB_PASSWORD=x\nFIREISP_DEPLOY_AGENT="0" # no timer on this box\r\n');
+    const out = require('node:child_process').execFileSync(
+      'bash',
+      ['-c', 'set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; install_deploy_agent', 'bash', script],
+      { encoding: 'utf8', env: { ...process.env, FIREISP_DIR: tmp }, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    expect(out).toMatch(/skipping/);
+  });
+
+  it('an environment value that genuinely survives still wins over the file', () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-agent-flag-'));
+    fs.writeFileSync(path.join(tmp, '.env.prod'), 'FIREISP_DEPLOY_AGENT=0\n');
+    // PATH=/nonexistent stops install_deploy_agent at the systemctl probe, so
+    // this test can never touch the real /etc/systemd/system wherever it runs.
+    const out = require('node:child_process').execFileSync(
+      'bash',
+      ['-c', 'set -euo pipefail; FIREISP_LIB_ONLY=1 source "$1"; PATH=/nonexistent install_deploy_agent', 'bash', script],
+      { encoding: 'utf8', env: { ...process.env, FIREISP_DIR: tmp, FIREISP_DEPLOY_AGENT: '1' }, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    expect(out).toMatch(/no systemctl/);
+    expect(out).not.toMatch(/skipping/);
   });
 
   it('never lets a unit-install failure fail the deploy', () => {
