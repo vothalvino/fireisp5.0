@@ -172,11 +172,18 @@ describe('taskRunner', () => {
     // as success, so the scheduled-tasks page showed a healthy green job
     // feeding a page that had been empty since migration 117.
 
-    test('populate_revenue_summary FAILS rather than claiming success', async () => {
-      // Still unimplemented. A thrown error marks the task failed, which is the
-      // honest state and the only one an operator can act on.
+    test('populate_revenue_summary refuses to run without an organization', async () => {
+      // revenue_summary.organization_id is NOT NULL, so there is no all-orgs
+      // mode: writing under a guessed tenant would be worse than failing.
       await expect(taskRunner.runTask('populate_revenue_summary'))
-        .rejects.toThrow(/not implemented/);
+        .rejects.toThrow(/requires an organization_id/);
+    });
+
+    test('populate_revenue_summary aggregates when given one', async () => {
+      db.query.mockResolvedValue([[{}]]);
+      const result = await taskRunner.runTask('populate_revenue_summary', 42);
+      expect(result).toHaveProperty('period_date');
+      expect(result).toHaveProperty('total_mrr');
     });
 
     test('populate_network_health_snapshots actually aggregates', async () => {
