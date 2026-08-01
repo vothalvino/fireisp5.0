@@ -6,7 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
-const { NotFoundError } = require('../utils/errors');
+const { NotFoundError, AppError } = require('../utils/errors');
 
 class BaseModel {
   /** @returns {string} The database table name */
@@ -204,8 +204,40 @@ class BaseModel {
 
   /**
    * Update a record by ID. Only `fillable` columns are accepted.
+   *
+   * A record can NEVER be moved between tenants through here.
+   *
+   * #604 put this check in crudController.applyUpdate, which was the right
+   * idea at the wrong altitude: 12 routes call Model.update(req.params.id,
+   * req.body, req.orgId) DIRECTLY and never touch crudController, so the exact
+   * exploit #604 closed stayed reachable on contracts, devices, chargebacks,
+   * billing disputes, refund requests, IP pools, network links, CPE profiles
+   * and firmware versions/campaigns. Reproduced at runtime on nine of them.
+   *
+   * The chain that makes it reachable is three individually-sensible pieces:
+   * organization_id MUST be in `fillable` (create injects it), the update
+   * schemas do not declare it, and validate() IGNORES undeclared fields rather
+   * than stripping them. So the field flows from the request body into the SET
+   * clause. The WHERE binds req.orgId, so a caller can only PUSH their own row
+   * into another tenant — but that is still an authenticated user injecting a
+   * contract, dispute or firmware campaign into an org that never created it.
+   *
+   * Enforced here because this is the narrowest point every caller passes
+   * through. No escape hatch: nothing in src/ passes organization_id to
+   * update() deliberately (verified by grep across all 32 call sites), so a
+   * legitimate re-home does not exist to accommodate. If one is ever needed it
+   * should be an explicit, separately-audited method — not a flag on the
+   * generic path that every route already uses.
    */
   static async update(id, data, orgId = null, opts = {}) {
+    if (this.hasOrgScope && data && Object.prototype.hasOwnProperty.call(data, 'organization_id')) {
+      throw new AppError(
+        'A record cannot be moved to another organization.',
+        422,
+        'ORG_IMMUTABLE',
+      );
+    }
+
     const filtered = {};
     for (const key of this.fillable) {
       if (data[key] !== undefined) filtered[key] = data[key];
