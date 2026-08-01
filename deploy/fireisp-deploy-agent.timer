@@ -1,0 +1,17 @@
+[Unit]
+Description=Poll for FireISP deploy requests made from the web GUI
+
+[Timer]
+# First check shortly after boot, then every 30s. The interval is the worst-case
+# delay between pressing the button and the deploy starting; 30s keeps that
+# comfortably under a minute while costing one trivial query per poll.
+OnBootSec=60
+OnUnitActiveSec=30s
+AccuracySec=5s
+# Overlapping runs are prevented by the unit itself (Type=oneshot will not start
+# a second instance while the first is running) AND by claim-by-update in the
+# agent, which is what actually guarantees redeploy.sh cannot run twice.
+Unit=fireisp-deploy-agent.service
+
+[Install]
+WantedBy=timers.target

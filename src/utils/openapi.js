@@ -1026,6 +1026,13 @@ function generateSpec() {
       // ---- FireRelay ----
       // Install-operator only (legacy users.role='admin'); 404s for anyone else
       // rather than 403, so a tenant admin cannot learn it exists.
+      // Install-operator only. POST inserts a request row and nothing else —
+      // a root systemd timer OUTSIDE the container services it. 503 when no
+      // agent has checked in, so a request is never queued for nobody.
+      '/system/deploy': {
+        get: { tags: ['System'], summary: 'Newest deploy request and host agent liveness', operationId: 'getSystemDeploy', security: [{ bearerAuth: [] }], responses: r200('SystemDeploy') },
+        post: { tags: ['System'], summary: 'Ask the host to redeploy', operationId: 'requestSystemDeploy', security: [{ bearerAuth: [] }], responses: r201('SystemDeploy') },
+      },
       '/system/version': { get: { tags: ['System'], summary: 'Running commit, and whether a newer release exists', operationId: 'getSystemVersion', security: [{ bearerAuth: [] }], responses: r200('SystemVersion') } },
       '/firerelay/health': { get: { tags: ['FireRelay'], summary: 'Node health (no auth)', operationId: 'firerelayHealth', responses: r200('NodeHealth') } },
       '/firerelay/nodes': {

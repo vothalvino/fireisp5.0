@@ -20992,6 +20992,56 @@
         }
       }
     },
+    "/system/deploy": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Newest deploy request and host agent liveness",
+        "operationId": "getSystemDeploy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SystemDeploy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Ask the host to redeploy",
+        "operationId": "requestSystemDeploy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "SystemDeploy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/system/version": {
       "get": {
         "tags": [

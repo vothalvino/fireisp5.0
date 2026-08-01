@@ -4856,5 +4856,21 @@
     "howToUpdate": "Para atualizar, execute no servidor:",
     "howToEnable": "A verificação de atualizações vem ativada por padrão. É a única requisição externa que o FireISP faz por conta própria e nenhum dado da instalação é enviado. Para desativá-la, defina",
     "howToEnableTail": "em .env.prod e reimplante."
+  },
+  "deploy": {
+    "title": "Implantação",
+    "button": "Atualizar agora",
+    "inProgress": "Implantação em andamento…",
+    "lastStatus": "Última implantação",
+    "requestedAt": "Solicitada",
+    "finishedAt": "Concluída",
+    "agentMissing": "Nenhum agente de implantação se registrou a partir do servidor, portanto não há nada que execute a implantação. Instale-o uma vez:",
+    "agentMissingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina. Até instalar o agente, implante pela linha de comando com sudo redeploy.",
+    "status": {
+      "pending": "Na fila",
+      "running": "Em execução",
+      "succeeded": "Concluída",
+      "failed": "Falhou"
+    }
   }
 }

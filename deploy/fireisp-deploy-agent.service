@@ -1,0 +1,28 @@
+[Unit]
+Description=FireISP deploy agent — services redeploy requests made from the web GUI
+Documentation=file:///opt/fireisp/docs/deployment.md
+# Docker must be up: the agent talks to MySQL through the compose stack.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Root is required, and is the entire point of this unit: it exists so the
+# APPLICATION CONTAINER does not need this privilege. The container can only
+# insert a row; everything that can actually change the running system lives
+# here, on the host, outside Docker.
+User=root
+Environment=FIREISP_DIR=/opt/fireisp
+ExecStart=/usr/local/bin/fireisp-deploy-agent
+
+# A deploy pulls an image and waits for the stack to come back. Generous, but
+# bounded — the agent's own one-hour sweep marks anything longer as failed.
+TimeoutStartSec=3600
+
+# Deliberately NOT hardened with ProtectSystem/PrivateDevices/etc: this unit's
+# job is to run docker compose against the host, which those settings break.
+# The isolation that matters here is architectural (the container cannot reach
+# this), not sandboxing of a unit that must be privileged to function.
+
+[Install]
+WantedBy=multi-user.target

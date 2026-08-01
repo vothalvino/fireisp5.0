@@ -1011,6 +1011,23 @@ function EmailSettingsTab() {
 // `settings` table is writable by any org admin, so offering a toggle here
 // would either not work or would reintroduce that hole.
 
+interface DeployRequest {
+  id: number;
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  exit_code: number | null;
+  output_tail: string | null;
+}
+
+interface DeployState {
+  request: DeployRequest | null;
+  agent_alive: boolean;
+  agent_last_seen_at: string | null;
+  agent_hostname: string | null;
+}
+
 interface SystemVersion {
   running_sha: string | null;
   latest_sha: string | null;
@@ -1021,10 +1038,30 @@ interface SystemVersion {
 
 function VersionTab() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ['system-version'],
     queryFn: () => apiFetch<{ data: SystemVersion }>(`${API_BASE}/system/version`),
     retry: false,
+  });
+
+  // Polled only while something is in flight — an idle Settings page has no
+  // business hitting the server every few seconds forever.
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const { data: deployData } = useQuery({
+    queryKey: ['system-deploy'],
+    queryFn: () => apiFetch<{ data: DeployState }>(`${API_BASE}/system/deploy`),
+    retry: false,
+    refetchInterval: (q) => {
+      const st = (q.state.data as { data: DeployState } | undefined)?.data?.request?.status;
+      return st === 'pending' || st === 'running' ? 5000 : false;
+    },
+  });
+
+  const deployMutation = useMutation({
+    mutationFn: () => apiFetch(`${API_BASE}/system/deploy`, { method: 'POST' }),
+    onSuccess: () => { setDeployError(null); qc.invalidateQueries({ queryKey: ['system-deploy'] }); },
+    onError: (e: Error) => setDeployError(e.message),
   });
 
   if (isLoading) return <p style={sty.muted}>{t('version.loading')}</p>;
@@ -1032,6 +1069,9 @@ function VersionTab() {
 
   const v = data?.data;
   if (!v) return null;
+
+  const dep = deployData?.data;
+  const busy = dep?.request?.status === 'pending' || dep?.request?.status === 'running';
 
   const short = (sha: string | null) => (sha ? sha.slice(0, 7) : '—');
 
@@ -1093,6 +1133,58 @@ function VersionTab() {
 
       {!v.running_sha && (
         <p style={sty.verNote}>{t('version.unknownBuildNote')}</p>
+      )}
+
+      {/* ── Deploy from here ────────────────────────────────────────────────
+          The button only appears when a host agent has actually checked in.
+          Without that check this would queue a request nobody services while
+          the UI implied work was happening — a stub that fakes success. */}
+      <hr style={sty.verRule} />
+      <h3 style={sty.sectionTitle}>{t('deploy.title')}</h3>
+
+      {!dep ? (
+        <p style={sty.muted}>{t('version.loading')}</p>
+      ) : !dep.agent_alive ? (
+        <div>
+          <p style={sty.verNote}>{t('deploy.agentMissing')}</p>
+          <pre style={sty.verPre}>{`sudo install -m 0755 /opt/fireisp/deploy-agent.sh /usr/local/bin/fireisp-deploy-agent
+sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now fireisp-deploy-agent.timer`}</pre>
+          <p style={sty.verNote}>{t('deploy.agentMissingWhy')}</p>
+        </div>
+      ) : (
+        <div>
+          <button
+            type="button"
+            style={{ ...sty.btnPrimary, ...(busy || deployMutation.isPending ? sty.btnDisabled : {}) }}
+            disabled={busy || deployMutation.isPending}
+            onClick={() => deployMutation.mutate()}
+          >
+            {busy ? t('deploy.inProgress') : t('deploy.button')}
+          </button>
+
+          {deployError && <p style={sty.errorText}>{deployError}</p>}
+
+          {dep.request && (
+            <dl style={{ ...sty.verList, marginTop: '1rem' }}>
+              <dt style={sty.verKey}>{t('deploy.lastStatus')}</dt>
+              <dd style={sty.verVal}>{t(`deploy.status.${dep.request.status}`)}</dd>
+              <dt style={sty.verKey}>{t('deploy.requestedAt')}</dt>
+              <dd style={sty.verVal}>{new Date(dep.request.requested_at).toLocaleString()}</dd>
+              {dep.request.finished_at && (
+                <>
+                  <dt style={sty.verKey}>{t('deploy.finishedAt')}</dt>
+                  <dd style={sty.verVal}>{new Date(dep.request.finished_at).toLocaleString()}</dd>
+                </>
+              )}
+            </dl>
+          )}
+
+          {dep.request?.output_tail && dep.request.status === 'failed' && (
+            <pre style={sty.verPre}>{dep.request.output_tail}</pre>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1196,6 +1288,9 @@ const sty = {
   verKey: { color: 'var(--text-secondary)', fontWeight: 500 },
   verVal: { margin: 0 },
   verNote: { marginTop: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 },
+  verRule: { border: 0, borderTop: '1px solid var(--border)', margin: '1.75rem 0 1.25rem' },
+  verPre: { background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.75rem', fontSize: '0.78rem', overflowX: 'auto' as const, whiteSpace: 'pre' as const, margin: '0.75rem 0' },
+  btnDisabled: { opacity: 0.55, cursor: 'not-allowed' as const },
   checkRow: { display: 'flex', gap: 24, fontSize: '0.875rem' },
   // buttons
   btnPrimary: { padding: '0.4rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },

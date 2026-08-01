@@ -198,6 +198,56 @@ The rules that make all of this safe against a file holding `DB_PASSWORD`,
 
 #### Deploying a commit CI hasn't published yet
 
+### Deploying from the web GUI (optional)
+
+**Settings → Version → Update now**, once a small agent is installed on the
+host. Without it the button is not shown and the panel says so — a request is
+never queued for something that will not service it.
+
+```bash
+sudo install -m 0755 /opt/fireisp/deploy-agent.sh /usr/local/bin/fireisp-deploy-agent
+sudo cp /opt/fireisp/deploy/fireisp-deploy-agent.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now fireisp-deploy-agent.timer
+```
+
+#### Why an agent instead of just letting the app do it
+
+The obvious implementation mounts the Docker socket into the app container.
+**That is root on the host**: any RCE or path traversal in FireISP would own the
+machine rather than the application. Nothing about a convenience button is worth
+that, so the privilege lives outside the container instead.
+
+| | can do |
+|---|---|
+| app container | `INSERT` one row into `deploy_requests` |
+| host agent (root, outside Docker) | run `redeploy.sh`, with **no arguments** |
+
+**The request carries no target.** There is deliberately no commit, tag or image
+column: a request that could name what to deploy would hand a compromised app an
+arbitrary-image-deploy primitive — most of what the socket would have given
+away. The agent always deploys whatever CI published for current `main`.
+
+So the worst case, with the application **fully compromised**, is: an attacker
+can trigger a redeploy of the signed image that was going to be deployed
+anyway. Compare that with handing out root.
+
+#### Operational notes
+
+- The timer polls every 30s, so that is the worst-case delay before a deploy
+  starts.
+- Overlap is prevented twice over: `Type=oneshot` will not start a second
+  instance, and the agent claims work with an `UPDATE ... WHERE status =
+  'pending'` rather than select-then-update.
+- A deploy that never reports back is marked failed after an hour rather than
+  retried forever.
+- The agent reads DB credentials from `.env.prod` (it is root on the host) and
+  passes them via `MYSQL_PWD`, never on the command line where `ps` would show
+  them to every user on the box. It has no API token and opens no port.
+- Rolling back is still CLI-only and deliberately so: `sudo redeploy <sha>`.
+  Rollback needs a target, and a target is exactly what this path must never
+  accept.
+
 #### Update notification
 
 On by default. The install operator gets a once-a-day banner and a
