@@ -44,13 +44,13 @@ const tokenFor = (u) => jwt.sign(
 );
 const asUser = (u) => (r) => r.set('Authorization', `Bearer ${tokenFor(u)}`);
 
-function wireUser(u, orgCount = 1) {
+function wireUser(u, isOperator = true) {
   db.query.mockImplementation(async (sql) => {
     if (typeof sql === 'string' && sql.includes('`users`')) return [[u]];
-    // The install-operator gate counts active organisations: on a
-    // single-organisation install the legacy admin IS the operator.
-    if (typeof sql === 'string' && sql.includes('COUNT(*) AS total FROM organizations')) {
-      return [[{ total: orgCount }]];
+    // The operator is a STORED fact (users.is_install_operator, migration 444),
+    // not an inference from the role or from how many organisations exist.
+    if (typeof sql === 'string' && sql.includes('SELECT is_install_operator FROM users')) {
+      return [[{ is_install_operator: isOperator ? 1 : 0 }]];
     }
     return [[]];
   });
@@ -447,21 +447,21 @@ describe('GET /system/version is install-operator only', () => {
   // every tenant's admin carries it. Gating on the role alone therefore let
   // any tenant admin on a multi-organisation install read the host's version
   // state and POST /deploy, i.e. redeploy the whole box.
-  it('404s a TENANT ADMIN once the install has more than one organisation', async () => {
-    wireUser(ADMIN, 3);
+  it('404s a TENANT ADMIN — same legacy role, not flagged as the operator', async () => {
+    wireUser(ADMIN, false);
     const res = await asUser(ADMIN)(request(app).get('/api/v1/system/version'));
     expect(res.status).toBe(404);
   });
 
   it('refuses the deploy trigger to that same caller', async () => {
-    wireUser(ADMIN, 3);
+    wireUser(ADMIN, false);
     const res = await asUser(ADMIN)(request(app).post('/api/v1/system/deploy').send({}));
     expect(res.status).toBe(404);
   });
 
-  it('serves an INSTALL_OPERATOR_EMAILS account on a multi-organisation install', async () => {
-    jest.replaceProperty(config, 'installOperatorEmails', ['a@b.c']);
-    wireUser(ADMIN, 3);
+  it('serves an INSTALL_OPERATOR_USER_IDS account even when the flag is unset', async () => {
+    jest.replaceProperty(config, 'installOperatorUserIds', [ADMIN.id]);
+    wireUser(ADMIN, false);
     const res = await asUser(ADMIN)(request(app).get('/api/v1/system/version'));
     expect(res.status).toBe(200);
   });

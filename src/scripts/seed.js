@@ -45,10 +45,15 @@ async function seed() {
       logger.warn(`ADMIN_PASSWORD not set — generated a random admin password: ${adminPassword}`);
     }
     const passwordHash = await bcrypt.hash(adminPassword, 12);
+    // is_install_operator: this account runs the box (migration 444). It is not
+    // a tenant role and cannot be granted through the API — the column is
+    // absent from User.fillable and from every validation schema — so a fresh
+    // install has to be given it here, or the operator would find the update
+    // and install-settings controls refusing them on their own machine.
     await conn.execute(`
-      INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, group_id, organization_id, status)
+      INSERT IGNORE INTO users (id, first_name, last_name, email, password_hash, role, group_id, organization_id, status, is_install_operator)
       VALUES (1, 'Admin', 'User', 'admin@demo-isp.com', ?, 'admin',
-              (SELECT id FROM roles WHERE name = 'admin' AND deleted_at IS NULL LIMIT 1), 1, 'active')
+              (SELECT id FROM roles WHERE name = 'admin' AND deleted_at IS NULL LIMIT 1), 1, 'active', 1)
     `, [passwordHash]);
 
     // Organization-user membership

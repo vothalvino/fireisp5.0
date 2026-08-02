@@ -62,6 +62,16 @@ router.use(authenticate);
  */
 async function installOperatorOnly(req, res, next) {
   try {
+    // API tokens are refused outright, not merely scope-checked. Token scopes
+    // are enforced inside requirePermission()/userHasPermission(), and these
+    // routes use neither — so a token deliberately narrowed to, say,
+    // clients.view still presented its owner's role and could queue a host
+    // redeploy, the most privileged action in the product. The host agent
+    // talks to MySQL directly and holds no token, so nothing legitimate here
+    // is a token caller.
+    if (req.user?.apiTokenId) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
     if (!await isInstallOperator(req)) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
     }

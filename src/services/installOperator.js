@@ -1,10 +1,10 @@
 // =============================================================================
 // FireISP 5.0 — who is the INSTALL OPERATOR? (j56)
 // =============================================================================
-// Some settings belong to the deployment, not to a tenant: where the install's
+// Some things belong to the deployment, not to a tenant: where the install's
 // infrastructure alerts go (ops_alert_email), which tile server every map
-// loads. Writing those needs "the person who runs this box" — and FireISP had
-// no way to say that.
+// loads, and whether the box redeploys itself. FireISP had no way to say who
+// is allowed to touch them.
 //
 // THE TRAP THIS MODULE EXISTS TO AVOID: `users.role === 'admin'` looks like an
 // install-operator check and is not one. `roles` is a GLOBAL table (no
@@ -12,74 +12,63 @@
 // groups with kind='admin', and User.resolveGroupMirror copies group.kind into
 // users.role — so EVERY organisation's admin has users.role='admin'. The repo
 // relies on that per-org meaning elsewhere (countOtherAdminKindUsers refuses to
-// demote "the org's final active admin-kind user"). Gating install writes on it
-// would have admitted the exact caller the gate is meant to exclude: a tenant
-// admin redirecting the whole install's alerts to themselves.
+// demote "the org's final active admin-kind user"). Gating on it admitted the
+// exact caller the gate is meant to exclude.
 //
-// So the operator is resolved from something a tenant cannot forge:
+// AND WHY IT DOES NOT INFER. A previous attempt derived the answer from the
+// number of organisations on the install: one org meant the admin was
+// obviously the operator. Adversarial review broke it in the direction I had
+// not considered — the count MOVES, in both directions. Counting only live
+// organisations let a tenant admin delete the neighbours to promote
+// themselves; counting every row instead meant the ordinary onboarding move
+// (create your real org, delete the seeded demo one) left a soft-deleted row
+// behind and permanently, silently took the update button away from the box
+// owner, unrecoverable without shell access. Every inferred signal has some
+// version of this. So the fact is STORED, not deduced:
 //
-//   1. INSTALL_OPERATOR_EMAILS — an explicit allowlist in the environment,
-//      which only whoever edits .env can set. When present it is authoritative.
-//   2. Otherwise: a legacy admin counts as the operator ONLY while the install
-//      has at most ONE organisation. On a single-ISP self-hosted box —
-//      the common case — the admin demonstrably IS the operator, and nothing
-//      about their experience changes. The moment a second organisation
-//      exists, "any admin" stops being a safe answer and the allowlist becomes
-//      required; the write 403s with a message naming the variable to set.
-//      The count is over ALL organisation rows, so it cannot be gamed down
-//      by deleting the neighbours — see organizationCount().
+//   1. INSTALL_OPERATOR_USER_IDS — user ids in the environment, authoritative
+//      when set. Ids, not emails: users.email is in User.fillable and a tenant
+//      admin can create an account with any unclaimed address, so an email
+//      allowlist would be tenant-writable. A user id is not.
+//   2. Otherwise users.is_install_operator (migration 444), which is set by
+//      that migration for the oldest active admin, by the seeder on a fresh
+//      install, and by nothing else — the column is absent from User.fillable
+//      and from every validation schema, so no request can grant it.
 //
-// Fails CLOSED: no allowlist plus more than one org means nobody writes
-// install settings through the API until the operator opts in by name.
+// Fails CLOSED: an account that is neither listed nor flagged is not the
+// operator, whatever its role. Creating or deleting organisations, switching
+// orgs, and editing users cannot change the answer.
 // =============================================================================
 
 const db = require('../config/database');
 const config = require('../config');
 
 /**
- * Organisations on this install — ALL of them, including soft-deleted and
- * inactive ones.
- *
- * Deliberately unfiltered. If the count only saw live organisations, a tenant
- * admin could shrink it back to 1 by removing the others and promote
- * themselves to operator; the gate would then depend on the very isolation it
- * is protecting. Counting rows makes the answer monotonic: an install that has
- * ever held more than one organisation requires the allowlist from then on,
- * whatever happens to those rows afterwards.
- *
- * The failure direction is safe — a stale row can only make the gate STRICTER,
- * never looser, and the 403 says which variable to set.
- */
-async function organizationCount() {
-  const [rows] = await db.query('SELECT COUNT(*) AS total FROM organizations');
-  return Number(rows[0]?.total ?? 0);
-}
-
-/**
  * Is this request the install operator?
  *
- * Deliberately not cached: creating a second organisation must tighten the
- * gate immediately, and install-setting writes are rare enough that one COUNT
- * is irrelevant next to a cross-tenant write.
+ * Legacy admin remains NECESSARY — the flag decides which admin, it does not
+ * hand the role's powers to anyone else.
  *
  * @param {import('express').Request} req
  * @returns {Promise<boolean>}
  */
 async function isInstallOperator(req) {
-  // Necessary but NOT sufficient — see the header.
   if (req.user?.role !== 'admin') return false;
+  const userId = Number(req.user.id);
+  if (!Number.isInteger(userId)) return false;
 
-  const allowlist = config.installOperatorEmails;
-  if (allowlist.length > 0) {
-    const email = String(req.user.email || '').trim().toLowerCase();
-    return email.length > 0 && allowlist.includes(email);
-  }
+  const allowlist = config.installOperatorUserIds;
+  if (allowlist.length > 0) return allowlist.includes(userId);
 
-  return (await organizationCount()) <= 1;
+  const [rows] = await db.query(
+    'SELECT is_install_operator FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [userId],
+  );
+  return rows.length > 0 && Number(rows[0].is_install_operator) === 1;
 }
 
-/** Why a write was refused — surfaced to the operator, not to a tenant. */
+/** Why a write was refused — written for the operator, not for a tenant. */
 const OPERATOR_ONLY_MESSAGE =
-  'This setting applies to the whole installation. On an install with more than one organisation it can only be changed by an account listed in INSTALL_OPERATOR_EMAILS.';
+  'This applies to the whole installation, so only the install operator can change it. If that should be you, set INSTALL_OPERATOR_USER_IDS in the environment (see docs/deployment.md).';
 
-module.exports = { isInstallOperator, organizationCount, OPERATOR_ONLY_MESSAGE };
+module.exports = { isInstallOperator, OPERATOR_ONLY_MESSAGE };

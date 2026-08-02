@@ -37,10 +37,13 @@ const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`')
 // GLOBAL table and User.resolveGroupMirror copies group.kind into users.role,
 // so EVERY tenant's admin has users.role='admin'. A test that does not use
 // that exact shape does not test this hole.
-const TENANT_ADMIN = { id: 2, email: 'admin@tenant2.mx', role: 'admin', status: 'active', organization_id: 2 };
-// The install operator differs from a tenant admin only by something a tenant
-// cannot forge — being alone on the install, or being named in the env.
-const OPERATOR = { id: 1, email: 'op@isp.mx', role: 'admin', status: 'active', organization_id: 1 };
+const TENANT_ADMIN = { id: 2, email: 'admin@tenant2.mx', role: 'admin', status: 'active', organization_id: 2, is_install_operator: 0 };
+// The install operator differs from a tenant admin only by a STORED fact no
+// request can set: users.is_install_operator (migration 444), or an id listed
+// in INSTALL_OPERATOR_USER_IDS. An earlier design inferred it from the number
+// of organisations; that broke both ways, so the tests below pin that
+// organisation churn cannot move it.
+const OPERATOR = { id: 1, email: 'op@isp.mx', role: 'admin', status: 'active', organization_id: 1, is_install_operator: 1 };
 // A non-admin who holds settings.view but NOT settings.update.
 const VIEWER = { id: 3, email: 'readonly@tenant2.mx', role: 'readonly', status: 'active', organization_id: 2 };
 
@@ -51,14 +54,18 @@ const tokenFor = (u) => jwt.sign(
 );
 
 /**
- * @param orgCount active organisations on the install — the signal that
- *   decides whether a legacy admin counts as the install operator. Default 2
- *   (multi-tenant), because that is the case the gate exists for.
+ * @param orgCount how many organisation rows the install has. It must NOT
+ *   affect operator status — the tests below assert exactly that, because a
+ *   previous design derived the gate from this number and broke when ordinary
+ *   onboarding changed it.
  */
 function wireDb({ user = OPERATOR, orgRows = [], installRows = [], orgCount = 2 } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (isUserLookup(sql)) return [[user]];
-    if (/COUNT\(\*\) AS total FROM organizations/.test(sql)) return [[{ total: orgCount }]];
+    if (/COUNT\(\*\).*FROM organizations/.test(sql)) return [[{ total: orgCount }]];
+    if (/SELECT is_install_operator FROM users/.test(sql)) {
+      return [[{ is_install_operator: user.is_install_operator ?? 0 }]];
+    }
     if (/FROM organization_settings/.test(sql)) return [orgRows];
     if (/FROM settings/.test(sql)) return [installRows];
     return [[{ affectedRows: 1 }]];
@@ -172,7 +179,7 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
     expect(db.query.mock.calls.some(([sql]) => sql.startsWith('INSERT') || sql.startsWith('UPDATE'))).toBe(false);
   });
 
-  it('lets the admin of a SINGLE-organisation install write — there they are the operator', async () => {
+  it('lets the flagged operator write', async () => {
     wireDb({ user: OPERATOR, orgCount: 1 });
     const res = await request(app)
       .put('/api/v1/settings/ops_alert_email')
@@ -186,8 +193,8 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
   });
 
   it('lets an INSTALL_OPERATOR_EMAILS account write on a multi-org install', async () => {
-    jest.replaceProperty(config, 'installOperatorEmails', ['op@isp.mx']);
-    wireDb({ user: OPERATOR, orgCount: 5 });
+    jest.replaceProperty(config, 'installOperatorUserIds', [OPERATOR.id]);
+    wireDb({ user: { ...OPERATOR, is_install_operator: 0 }, orgCount: 5 });
     const res = await request(app)
       .put('/api/v1/settings/map_tile_url')
       .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
@@ -196,7 +203,7 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
   });
 
   it('still 403s a tenant admin who is NOT on the allowlist', async () => {
-    jest.replaceProperty(config, 'installOperatorEmails', ['op@isp.mx']);
+    jest.replaceProperty(config, 'installOperatorUserIds', [OPERATOR.id]);
     wireDb({ user: TENANT_ADMIN, orgCount: 5 });
     const res = await request(app)
       .put('/api/v1/settings/map_tile_url')
@@ -305,17 +312,111 @@ describe('DELETE/POST /organizations/:id — cross-tenant destruction', () => {
   });
 });
 
-describe('the operator count cannot be gamed down', () => {
-  it('counts ALL organisation rows, not just live ones', async () => {
-    // If the count filtered on deleted_at/status, a tenant admin could remove
-    // the neighbours and promote themselves back to operator.
+describe('organisation churn cannot move operator status', () => {
+  // A previous design read the gate off a COUNT of organisations. It broke in
+  // both directions: counting live rows let a tenant admin delete the
+  // neighbours to promote themselves; counting every row meant the ordinary
+  // onboarding move (create your real org, delete the seeded demo one) left a
+  // soft-deleted row behind and permanently took the update button away from
+  // the box owner. The stored flag is immune to both, and these cases say so.
+  it.each([[1], [2], [7]])('the flagged operator still writes with %i organisations', async (orgCount) => {
+    wireDb({ user: OPERATOR, orgCount });
+    const res = await request(app)
+      .put('/api/v1/settings/ops_alert_email')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: 'noc@isp.mx' });
+    expect(res.status).toBe(200);
+  });
+
+  it.each([[1], [2], [7]])('an unflagged tenant admin never writes, at %i organisations', async (orgCount) => {
+    wireDb({ user: TENANT_ADMIN, orgCount });
+    const res = await request(app)
+      .put('/api/v1/settings/ops_alert_email')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ value: 'attacker@evil.example' });
+    expect(res.status).toBe(403);
+  });
+
+  it('never asks how many organisations there are', async () => {
     wireDb({ user: OPERATOR, orgCount: 1 });
     await request(app)
       .put('/api/v1/settings/ops_alert_email')
       .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
       .send({ value: 'noc@isp.mx' });
-    const countCall = db.query.mock.calls.find(([sql]) => /COUNT\(\*\) AS total FROM organizations/.test(sql));
-    expect(countCall).toBeDefined();
-    expect(countCall[0]).not.toMatch(/deleted_at|status/);
+    expect(db.query.mock.calls.some(([sql]) => /COUNT\(\*\).*FROM organizations/.test(sql))).toBe(false);
+  });
+});
+
+describe('is_install_operator on GET /auth/me', () => {
+  it('tells the frontend who runs the install, so UI is not gated on users.role', async () => {
+    wireDb({ user: OPERATOR, orgCount: 1 });
+    jest.spyOn(User, 'findById').mockResolvedValue(OPERATOR);
+    jest.spyOn(User, 'getOrganizations').mockResolvedValue([{ id: 1, name: 'Home' }]);
+    const res = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.is_install_operator).toBe(true);
+  });
+
+  it('is false for a tenant admin on a multi-organisation install', async () => {
+    wireDb({ user: TENANT_ADMIN, orgCount: 4 });
+    jest.spyOn(User, 'findById').mockResolvedValue(TENANT_ADMIN);
+    jest.spyOn(User, 'getOrganizations').mockResolvedValue([{ id: 2, name: 'Tenant 2' }]);
+    const res = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.is_install_operator).toBe(false);
+  });
+
+  it('degrades to false instead of 500ing when the count cannot be read', async () => {
+    // /auth/me is the session bootstrap. A hint about which controls to render
+    // must never be able to lock everyone out of the app.
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[OPERATOR]];
+      // ONLY the operator lookup fails — a throw elsewhere is a genuine 500.
+      if (/SELECT is_install_operator FROM users/.test(sql)) throw new Error('lookup failed');
+      return [[]];
+    });
+    jest.spyOn(User, 'findById').mockResolvedValue(OPERATOR);
+    jest.spyOn(User, 'getOrganizations').mockResolvedValue([]);
+    const res = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.is_install_operator).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API tokens on /system/* — the scope enforcement that never ran
+// ---------------------------------------------------------------------------
+// enforceTokenScopes only runs inside requirePermission()/userHasPermission().
+// The /system routes use neither, so a token deliberately narrowed to (say)
+// clients.view still presented its owner's role and could queue a host
+// redeploy — the most privileged action in the product. The host agent talks
+// to MySQL directly and holds no token, so refusing token callers outright
+// costs nothing legitimate.
+
+describe('/system/* refuses API tokens outright', () => {
+  const TOKEN_ROW = {
+    id: 900, user_id: OPERATOR.id, email: OPERATOR.email, role: 'admin',
+    status: 'active', organization_id: 1, scopes: '["clients.view"]',
+  };
+
+  function wireToken() {
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM api_tokens/.test(sql)) return [[TOKEN_ROW]];
+      if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 1 }]];
+      return [[{ affectedRows: 1 }]];
+    });
+  }
+
+  it('404s a narrowed token on the deploy trigger, even one owned by the operator', async () => {
+    wireToken();
+    const res = await request(app).post('/api/v1/system/deploy').set('X-API-Key', 'k').send({});
+    expect(res.status).toBe(404);
+    expect(db.query.mock.calls.some(([sql]) => /INSERT INTO deploy_requests/.test(sql))).toBe(false);
+  });
+
+  it('404s it on the version read too', async () => {
+    wireToken();
+    const res = await request(app).get('/api/v1/system/version').set('X-API-Key', 'k');
+    expect(res.status).toBe(404);
   });
 });

@@ -39,8 +39,14 @@ const base = {
   email_verified_at: '2026-01-01T00:00:00.000Z',
   twofa_enabled: false,
 };
-const operator: AuthUser = { id: 1, email: 'op@test.com', name: 'Op', role: 'admin', ...base };
+// The install operator is now identified by a BACKEND-resolved flag, not by
+// users.role: `role === 'admin'` is the per-tenant Admin persona, so every
+// tenant has one and the banner would offer them an update they cannot apply.
+const operator: AuthUser = { id: 1, email: 'op@test.com', name: 'Op', role: 'admin', is_install_operator: true, ...base };
 const tenantAdmin: AuthUser = { id: 2, email: 'ta@test.com', name: 'TA', role: 'manager', ...base };
+// Same legacy role as the operator, but NOT the operator — the case the old
+// role check could not distinguish.
+const tenantAdminWithAdminRole: AuthUser = { id: 3, email: 'ta2@test.com', name: 'TA2', role: 'admin', is_install_operator: false, ...base };
 
 const DISMISS_KEY = 'fireispUpdateBannerDismissedOn';
 
@@ -95,6 +101,15 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('who sees it', () => {
+  it('stays hidden from a tenant admin who carries the legacy admin role', async () => {
+    // They cannot deploy, so telling them an update exists is noise at best
+    // and an invitation to a 404 at worst.
+    mockUseAuth(tenantAdminWithAdminRole);
+    respond();
+    renderBanner();
+    expect(screen.queryByText(/update/i)).not.toBeInTheDocument();
+  });
+
   it('shows for the install operator when an update exists', async () => {
     mockUseAuth(operator);
     renderBanner();

@@ -1296,9 +1296,11 @@ const VERSION_TAB: { id: SettingsTab; label: string } = { id: 'version', label: 
 export function Settings() {
   const [tab, setTab] = useState<SettingsTab>('orgConfig');
   const { user } = useAuth();
-  // EXACT check, matching Layout.tsx and UpdateAvailableBanner.tsx — the
-  // version of the software is a property of the INSTALL, not of a tenant.
-  const isInstallOperator = user?.role === 'admin';
+  // Resolved by the backend (GET /auth/me), not guessed from users.role: the
+  // version of the software is a property of the INSTALL, and role === 'admin'
+  // is the per-TENANT admin persona, so it would show this tab to every
+  // tenant admin — whose /system/version calls answer 404.
+  const isInstallOperator = user?.is_install_operator === true;
   const visibleTabs = isInstallOperator ? [...TABS, VERSION_TAB] : TABS;
 
   return (

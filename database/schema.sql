@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
+    is_install_operator TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Runs this INSTALL (deploy, install-wide settings) — NOT a tenant role. Never settable through the API: absent from User.fillable and from every validation schema (migration 444).',
     active_flag TINYINT(1) GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) STORED COMMENT 'NULL when soft-deleted; appended to business unique keys so they ignore soft-deleted rows (migration 361)',
 
     PRIMARY KEY (id),
