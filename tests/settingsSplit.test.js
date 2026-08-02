@@ -29,12 +29,20 @@ const User = require('../src/models/User');
 
 const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
 
-// The install operator: legacy users.role='admin' (bypasses permission checks
-// AND is the only writer of install keys).
+// THE ATTACKER IS AN ADMIN, and that is the whole point.
+//
+// A first version of this suite built the attacker as {role:'billing'} with
+// settings.update mocked in — a combination migration 119 never produces —
+// so it went green against a gate that was still wide open. `roles` is a
+// GLOBAL table and User.resolveGroupMirror copies group.kind into users.role,
+// so EVERY tenant's admin has users.role='admin'. A test that does not use
+// that exact shape does not test this hole.
+const TENANT_ADMIN = { id: 2, email: 'admin@tenant2.mx', role: 'admin', status: 'active', organization_id: 2 };
+// The install operator differs from a tenant admin only by something a tenant
+// cannot forge — being alone on the install, or being named in the env.
 const OPERATOR = { id: 1, email: 'op@isp.mx', role: 'admin', status: 'active', organization_id: 1 };
-// An org-level user who HOLDS settings.view/update through their membership
-// role but is NOT the install operator — the caller the old code let through.
-const ORG_USER = { id: 2, email: 'billing@tenant2.mx', role: 'billing', status: 'active', organization_id: 2 };
+// A non-admin who holds settings.view but NOT settings.update.
+const VIEWER = { id: 3, email: 'readonly@tenant2.mx', role: 'readonly', status: 'active', organization_id: 2 };
 
 const tokenFor = (u) => jwt.sign(
   { sub: u.id, email: u.email, role: u.role, orgId: u.organization_id },
@@ -42,9 +50,15 @@ const tokenFor = (u) => jwt.sign(
   { expiresIn: '1h' },
 );
 
-function wireDb({ user = OPERATOR, orgRows = [], installRows = [] } = {}) {
+/**
+ * @param orgCount active organisations on the install — the signal that
+ *   decides whether a legacy admin counts as the install operator. Default 2
+ *   (multi-tenant), because that is the case the gate exists for.
+ */
+function wireDb({ user = OPERATOR, orgRows = [], installRows = [], orgCount = 2 } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (isUserLookup(sql)) return [[user]];
+    if (/COUNT\(\*\) AS total FROM organizations/.test(sql)) return [[{ total: orgCount }]];
     if (/FROM organization_settings/.test(sql)) return [orgRows];
     if (/FROM settings/.test(sql)) return [installRows];
     return [[{ affectedRows: 1 }]];
@@ -60,19 +74,19 @@ const INSTALL_ROWS = [
 beforeEach(() => {
   jest.restoreAllMocks();
   jest.clearAllMocks();
-  // Non-admin callers resolve permissions through User.getPermissions; give
-  // the org user the slugs migration 119 grants their role.
-  jest.spyOn(User, 'getPermissions').mockResolvedValue(['settings.view', 'settings.update']);
+  // Non-admin callers resolve permissions through User.getPermissions. Legacy
+  // admins bypass it entirely (rbac.js), so this only shapes VIEWER.
+  jest.spyOn(User, 'getPermissions').mockResolvedValue(['settings.view']);
 });
 
 describe('GET /settings — one list, two scopes, per-caller editability', () => {
   it('returns org entries (defaults filled in) plus install entries', async () => {
     wireDb({
-      user: ORG_USER,
+      user: TENANT_ADMIN,
       orgRows: [{ setting_key: 'mab_password_mode', setting_value: 'cleartext' }],
       installRows: INSTALL_ROWS,
     });
-    const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(ORG_USER)}`);
+    const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
     expect(res.status).toBe(200);
 
     const byKey = Object.fromEntries(res.body.data.map((e) => [e.key, e]));
@@ -85,7 +99,9 @@ describe('GET /settings — one list, two scopes, per-caller editability', () =>
   });
 
   it('marks install entries editable for the install operator', async () => {
-    wireDb({ user: OPERATOR, installRows: INSTALL_ROWS });
+    // orgCount 1: a single-organisation install, where the legacy admin
+    // genuinely is the operator.
+    wireDb({ user: OPERATOR, orgCount: 1, installRows: INSTALL_ROWS });
     const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
     expect(res.status).toBe(200);
     const install = res.body.data.filter((e) => e.scope === 'install');
@@ -94,46 +110,46 @@ describe('GET /settings — one list, two scopes, per-caller editability', () =>
   });
 
   it('reads org values scoped to the CALLER\'s org', async () => {
-    wireDb({ user: ORG_USER, installRows: INSTALL_ROWS });
-    await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(ORG_USER)}`);
+    wireDb({ user: TENANT_ADMIN, installRows: INSTALL_ROWS });
+    await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
     const orgRead = db.query.mock.calls.find(([sql]) => /FROM organization_settings/.test(sql));
     expect(orgRead).toBeDefined();
-    expect(orgRead[1]).toEqual([ORG_USER.organization_id]);
+    expect(orgRead[1]).toEqual([TENANT_ADMIN.organization_id]);
   });
 });
 
 describe('PUT /settings/:key — org keys', () => {
   it('upserts an allowlisted key into organization_settings for the caller\'s org', async () => {
-    wireDb({ user: ORG_USER });
+    wireDb({ user: TENANT_ADMIN });
     const res = await request(app)
       .put('/api/v1/settings/mab_password_mode')
-      .set('Authorization', `Bearer ${tokenFor(ORG_USER)}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
       .send({ value: 'cleartext' });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ key: 'mab_password_mode', value: 'cleartext', scope: 'org' });
 
     const upsert = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO organization_settings'));
     expect(upsert).toBeDefined();
-    expect(upsert[1]).toEqual([ORG_USER.organization_id, 'mab_password_mode', 'cleartext']);
+    expect(upsert[1]).toEqual([TENANT_ADMIN.organization_id, 'mab_password_mode', 'cleartext']);
     // And it must never touch the install table.
     expect(db.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO settings'))).toBe(false);
   });
 
   it('422s an enum value outside the catalog', async () => {
-    wireDb({ user: ORG_USER });
+    wireDb({ user: TENANT_ADMIN });
     const res = await request(app)
       .put('/api/v1/settings/mab_password_mode')
-      .set('Authorization', `Bearer ${tokenFor(ORG_USER)}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
       .send({ value: 'plaintext-please' });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('INVALID_SETTING_VALUE');
   });
 
   it('422s a non-positive-integer threshold', async () => {
-    wireDb({ user: ORG_USER });
+    wireDb({ user: TENANT_ADMIN });
     const res = await request(app)
       .put('/api/v1/settings/pppoe_auth_failure_threshold')
-      .set('Authorization', `Bearer ${tokenFor(ORG_USER)}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
       .send({ value: '0' });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('INVALID_SETTING_VALUE');
@@ -141,11 +157,14 @@ describe('PUT /settings/:key — org keys', () => {
 });
 
 describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)', () => {
-  it('403s an org user who holds settings.update — the exact caller the old code let through', async () => {
-    wireDb({ user: ORG_USER });
+  it('403s a TENANT ADMIN on a multi-organisation install — the real attacker', async () => {
+    // users.role='admin' is the per-tenant Admin persona, so this caller looks
+    // identical to the operator at the role level. Only the install shape
+    // (more than one active org, no allowlist) tells them apart.
+    wireDb({ user: TENANT_ADMIN, orgCount: 2 });
     const res = await request(app)
       .put('/api/v1/settings/ops_alert_email')
-      .set('Authorization', `Bearer ${tokenFor(ORG_USER)}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
       .send({ value: 'attacker@evil.example' });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('INSTALL_SETTING_OPERATOR_ONLY');
@@ -153,8 +172,8 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
     expect(db.query.mock.calls.some(([sql]) => sql.startsWith('INSERT') || sql.startsWith('UPDATE'))).toBe(false);
   });
 
-  it('lets the install operator update an install key in the settings table', async () => {
-    wireDb({ user: OPERATOR });
+  it('lets the admin of a SINGLE-organisation install write — there they are the operator', async () => {
+    wireDb({ user: OPERATOR, orgCount: 1 });
     const res = await request(app)
       .put('/api/v1/settings/ops_alert_email')
       .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
@@ -165,11 +184,45 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
     expect(write).toBeDefined();
     expect(write[1]).toEqual(['ops_alert_email', 'noc@isp.mx']);
   });
+
+  it('lets an INSTALL_OPERATOR_EMAILS account write on a multi-org install', async () => {
+    jest.replaceProperty(config, 'installOperatorEmails', ['op@isp.mx']);
+    wireDb({ user: OPERATOR, orgCount: 5 });
+    const res = await request(app)
+      .put('/api/v1/settings/map_tile_url')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: 'https://tiles.isp.mx/{z}/{x}/{y}.png' });
+    expect(res.status).toBe(200);
+  });
+
+  it('still 403s a tenant admin who is NOT on the allowlist', async () => {
+    jest.replaceProperty(config, 'installOperatorEmails', ['op@isp.mx']);
+    wireDb({ user: TENANT_ADMIN, orgCount: 5 });
+    const res = await request(app)
+      .put('/api/v1/settings/map_tile_url')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ value: 'https://evil.example/{z}/{x}/{y}.png' });
+    expect(res.status).toBe(403);
+  });
+
+  it('accepts a BLANK value — clearing an install key restores its documented default', async () => {
+    // Blank map_tile_url means "use OpenStreetMap"; blank ops_alert_email means
+    // "notify every org admin". Both are supported states, so `required` must
+    // not reject them.
+    wireDb({ user: OPERATOR, orgCount: 1 });
+    const res = await request(app)
+      .put('/api/v1/settings/map_tile_url')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: '' });
+    expect(res.status).toBe(200);
+    const write = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO settings'));
+    expect(write[1]).toEqual(['map_tile_url', '']);
+  });
 });
 
-describe('PUT /settings/:key — unknown keys', () => {
-  it('422s instead of upserting a dead row (the pre-443 failure mode)', async () => {
-    wireDb({ user: OPERATOR });
+describe('PUT /settings/:key — rejected keys and values', () => {
+  it('422s an unknown key instead of upserting a dead row (the pre-443 failure mode)', async () => {
+    wireDb({ user: OPERATOR, orgCount: 1 });
     const res = await request(app)
       .put('/api/v1/settings/smtp_host')
       .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
@@ -177,5 +230,39 @@ describe('PUT /settings/:key — unknown keys', () => {
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('UNKNOWN_SETTING');
     expect(db.query.mock.calls.some(([sql]) => sql.startsWith('INSERT'))).toBe(false);
+  });
+
+  it('422s a prototype-named key rather than 500ing on it', async () => {
+    // ORG_SETTING_DEFS['constructor'] is truthy on any plain object, so a bare
+    // lookup would call def.validate and throw.
+    wireDb({ user: OPERATOR, orgCount: 1 });
+    for (const key of ['constructor', 'toString', '__proto__']) {
+      const res = await request(app)
+        .put(`/api/v1/settings/${encodeURIComponent(key)}`)
+        .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+        .send({ value: 'x' });
+      expect(res.status).toBe(422);
+    }
+  });
+
+  it('422s a MISSING value even though blank is allowed', async () => {
+    wireDb({ user: OPERATOR, orgCount: 1 });
+    const res = await request(app)
+      .put('/api/v1/settings/map_tile_url')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({});
+    expect(res.status).toBe(422);
+    expect(db.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO settings'))).toBe(false);
+  });
+});
+
+describe('editable reflects the caller\'s real permissions', () => {
+  it('marks org rows NOT editable for a viewer who lacks settings.update', async () => {
+    // This route needs only settings.view, so a readonly user reaches it.
+    // Hardcoding editable:true would hand them an Edit button that 403s.
+    wireDb({ user: VIEWER, orgCount: 1, installRows: INSTALL_ROWS });
+    const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(VIEWER)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.every((e) => e.editable === false)).toBe(true);
   });
 });

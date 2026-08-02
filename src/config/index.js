@@ -104,6 +104,15 @@ const config = {
     secret: process.env.RADIUS_SERVER_SECRET || '',
   },
 
+  // Who may change INSTALL-wide settings (ops_alert_email, map tiles) through
+  // the API. Comma-separated emails; only whoever edits .env can set it, which
+  // is the point — `users.role='admin'` is the per-TENANT admin persona and
+  // cannot express "runs this box" (see services/installOperator.js). Empty on
+  // a single-organisation install means the admin is the operator; empty on a
+  // multi-organisation install means nobody writes install settings via API.
+  installOperatorEmails: (process.env.INSTALL_OPERATOR_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+
   // How long an open accounting session (start/interim with no stop) still
   // counts as LIVE for duplicate-session enforcement. A NAS reboot or a lost
   // Acct-Stop leaves a ghost "open" row forever; without this window the

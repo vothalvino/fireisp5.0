@@ -371,7 +371,12 @@ async function syncFreeradiusTables(organizationId) {
             r.service_profile_id AS account_profile_id,
             r.ipv4_pool_id,
             ip.service_profile_id AS pool_profile_id,
-            c.organization_id,
+            -- The account's own org first: radius.organization_id is populated
+            -- (migration 426) and contract_id is NULLABLE, so a MAB account
+            -- with no contract would otherwise resolve to no org and silently
+            -- fall back to auth_type_accept — i.e. accept ANY password for
+            -- that MAC on an install that chose cleartext.
+            COALESCE(r.organization_id, c.organization_id) AS organization_id,
             c.plan_id,
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,

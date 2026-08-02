@@ -350,35 +350,61 @@ async function scanAuthFailures(orgId) {
       entry.reasons.add(f.reason);
     }
 
-    // Determine threshold — the org's own setting (organization_settings,
-    // migration 443; this used to read the install-level table, so one
-    // tenant's threshold silently applied to every org). A null-org scan has
-    // no per-username org to resolve (the radius table carries none — see the
-    // event emission below), so it uses the default.
-    let threshold = DEFAULT_AUTH_FAILURE_THRESHOLD;
-    if (orgId) {
+    // Resolve each username's OWNING org, then apply that org's threshold.
+    //
+    // This scan is seeded as a GLOBAL task (migration 240 inserts it with
+    // organization_id NULL), so orgId is null on every scheduled run. Reading
+    // the threshold from `orgId` alone therefore never read anyone's setting:
+    // the per-org control would have been editable in the UI, validated on
+    // write, stored — and completely ignored by the only thing that consumes
+    // it. radius.organization_id exists (migration 426), so the org is
+    // resolvable per username; that also stamps the emitted event with a real
+    // organizationId instead of null, which is what routes the notification.
+    const usernames = [...byUsername.keys()];
+    const orgByUsername = new Map();
+    if (usernames.length > 0) {
       try {
-        const [settingRows] = await db.query(
-          "SELECT setting_value FROM organization_settings WHERE organization_id = ? AND setting_key = 'pppoe_auth_failure_threshold' LIMIT 1",
-          [orgId],
+        // Placeholders are expanded explicitly: IN (?) does not expand under
+        // the execute-backed db.query.
+        const [ownerRows] = await db.query(
+          `SELECT username, organization_id FROM radius
+            WHERE username IN (${usernames.map(() => '?').join(', ')})
+              AND deleted_at IS NULL`,
+          usernames,
         );
-        if (settingRows.length > 0) {
-          const parsed = parseInt(settingRows[0].setting_value, 10);
-          if (!isNaN(parsed) && parsed > 0) threshold = parsed;
+        for (const row of ownerRows) {
+          if (row.organization_id !== null) orgByUsername.set(row.username, row.organization_id);
         }
       } catch (_err) {
-        // fall back to default
+        // Fall through: every username keeps the caller-supplied org.
       }
     }
 
-    // Emit events for usernames exceeding threshold
-    for (const [username, entry] of byUsername) {
-      if (entry.count >= threshold) {
-        // The radius subscriber table has no organization_id column
-        // (single-tenant per ISP), so there is no per-username org to resolve;
-        // emit with the caller-supplied orgId (may be null for global scans).
-        const resolvedOrgId = orgId;
+    // One query for every org in play, rather than one per username.
+    const thresholdByOrg = new Map();
+    const orgsInPlay = [...new Set([...orgByUsername.values(), ...(orgId ? [orgId] : [])])];
+    if (orgsInPlay.length > 0) {
+      try {
+        const [settingRows] = await db.query(
+          `SELECT organization_id, setting_value FROM organization_settings
+            WHERE setting_key = 'pppoe_auth_failure_threshold'
+              AND organization_id IN (${orgsInPlay.map(() => '?').join(', ')})`,
+          orgsInPlay,
+        );
+        for (const row of settingRows) {
+          const parsed = parseInt(row.setting_value, 10);
+          if (!isNaN(parsed) && parsed > 0) thresholdByOrg.set(row.organization_id, parsed);
+        }
+      } catch (_err) {
+        // fall back to the default for every org
+      }
+    }
 
+    // Emit events for usernames exceeding THEIR org's threshold
+    for (const [username, entry] of byUsername) {
+      const resolvedOrgId = orgByUsername.get(username) ?? orgId;
+      const threshold = thresholdByOrg.get(resolvedOrgId) ?? DEFAULT_AUTH_FAILURE_THRESHOLD;
+      if (entry.count >= threshold) {
         eventBus.emit('pppoe.auth_failures', {
           organizationId: resolvedOrgId,
           username,

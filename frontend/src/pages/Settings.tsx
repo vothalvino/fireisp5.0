@@ -112,8 +112,17 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-    throw new Error(body.error ?? body.message ?? `HTTP ${res.status}`);
+    // The API returns `error` as an OBJECT ({code, message}) on most routes and
+    // as a bare string on a few older ones. Reading it as a string turned every
+    // failure on this page into "[object Object]" — including the new
+    // install-setting 403, whose message is the only thing telling an operator
+    // what to do about it.
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string | { code?: string; message?: string };
+      message?: string;
+    };
+    const detail = typeof body.error === 'string' ? body.error : body.error?.message;
+    throw new Error(detail ?? body.message ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }

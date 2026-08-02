@@ -44,9 +44,14 @@ const tokenFor = (u) => jwt.sign(
 );
 const asUser = (u) => (r) => r.set('Authorization', `Bearer ${tokenFor(u)}`);
 
-function wireUser(u) {
+function wireUser(u, orgCount = 1) {
   db.query.mockImplementation(async (sql) => {
     if (typeof sql === 'string' && sql.includes('`users`')) return [[u]];
+    // The install-operator gate counts active organisations: on a
+    // single-organisation install the legacy admin IS the operator.
+    if (typeof sql === 'string' && sql.includes('COUNT(*) AS total FROM organizations')) {
+      return [[{ total: orgCount }]];
+    }
     return [[]];
   });
   db.execute.mockImplementation(db.query.getMockImplementation());
@@ -435,5 +440,29 @@ describe('GET /system/version is install-operator only', () => {
     wireUser(ADMIN);
     const res = await request(app).get('/api/v1/system/version');
     expect([401, 403]).toContain(res.status);
+  });
+
+  // users.role='admin' is the per-TENANT admin persona — `roles` is a global
+  // table and User.resolveGroupMirror copies group.kind into users.role, so
+  // every tenant's admin carries it. Gating on the role alone therefore let
+  // any tenant admin on a multi-organisation install read the host's version
+  // state and POST /deploy, i.e. redeploy the whole box.
+  it('404s a TENANT ADMIN once the install has more than one organisation', async () => {
+    wireUser(ADMIN, 3);
+    const res = await asUser(ADMIN)(request(app).get('/api/v1/system/version'));
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses the deploy trigger to that same caller', async () => {
+    wireUser(ADMIN, 3);
+    const res = await asUser(ADMIN)(request(app).post('/api/v1/system/deploy').send({}));
+    expect(res.status).toBe(404);
+  });
+
+  it('serves an INSTALL_OPERATOR_EMAILS account on a multi-organisation install', async () => {
+    jest.replaceProperty(config, 'installOperatorEmails', ['a@b.c']);
+    wireUser(ADMIN, 3);
+    const res = await asUser(ADMIN)(request(app).get('/api/v1/system/version'));
+    expect(res.status).toBe(200);
   });
 });

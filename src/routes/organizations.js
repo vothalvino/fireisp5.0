@@ -61,6 +61,7 @@ router.post('/:id/restore', requirePermission('organizations.update'), ctrl.rest
 // have, so the :id was attacker-chosen on top of being ignored. Install keys
 // are edited on /settings by the install operator, never through this door.
 const { ORG_SETTING_DEFS } = require('../services/settingsCatalog');
+const { isInstallOperator } = require('../services/installOperator');
 
 /** The target org's settings as a key→value map, catalog defaults filled in. */
 async function orgSettingsMap(orgId) {
@@ -72,7 +73,29 @@ async function orgSettingsMap(orgId) {
   return map;
 }
 
-router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerCanManageOrg, async (req, res, next) => {
+/**
+ * Stricter than the shared assertCallerCanManageOrg, on purpose.
+ *
+ * That helper waves through anyone with users.role='admin' — which is the
+ * per-TENANT admin persona (roles is a global table; User.resolveGroupMirror
+ * copies group.kind into users.role), so it would let org A's admin edit org
+ * B's settings through this door. Here the caller must either be acting on
+ * their OWN organisation or be a verified install operator.
+ */
+async function assertCallerOwnsTargetOrgSettings(req, res, next) {
+  try {
+    if (Number(req.params.id) === Number(req.orgId)) return next();
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: "You can only manage your own organization's settings.",
+      },
+    });
+  } catch (err) { return next(err); }
+}
+
+router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerOwnsTargetOrgSettings, async (req, res, next) => {
   try {
     res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
@@ -80,9 +103,11 @@ router.get('/:id/settings', orgScope, requirePermission('settings.view'), assert
   }
 });
 
-router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerCanManageOrg, validate(updateSetting), async (req, res, next) => {
+router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerOwnsTargetOrgSettings, validate(updateSetting), async (req, res, next) => {
   try {
-    const def = ORG_SETTING_DEFS[req.params.key];
+    // Object.hasOwn, not a bare lookup — 'constructor' is truthy on any plain
+    // object and would 500 on def.validate instead of 422ing.
+    const def = Object.hasOwn(ORG_SETTING_DEFS, req.params.key) ? ORG_SETTING_DEFS[req.params.key] : null;
     if (!def) {
       return res.status(422).json({
         error: { code: 'UNKNOWN_SETTING', message: `'${req.params.key}' is not a per-organization setting.` },

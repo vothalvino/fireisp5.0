@@ -67291,10 +67291,7 @@
             "type": "string",
             "maximum": 500
           }
-        },
-        "required": [
-          "value"
-        ]
+        }
       },
       "sfpInventory_createSfpInventory": {
         "type": "object",

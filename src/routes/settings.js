@@ -27,34 +27,39 @@ const { Router } = require('express');
 const Organization = require('../models/Organization');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { updateSetting } = require('../middleware/schemas/settings');
 const { INSTALL_SETTING_KEYS, ORG_SETTING_DEFS } = require('../services/settingsCatalog');
+const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
 
 const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
 
-/** Legacy install-operator check — mirrors routes/systemVersion.js. */
-const isInstallOperator = (req) => req.user?.role === 'admin';
-
 // All settings visible to this caller: the org's own rows (catalog defaults
 // filled in) plus the install-wide rows, each stamped with its scope and
 // whether THIS caller may edit it — so the frontend never has to guess.
+//
+// `editable` is derived from the caller's REAL permissions, not assumed: this
+// route only needs settings.view, so a readonly or billing user reaches it
+// without settings.update. Hardcoding editable:true would give them an Edit
+// button that 403s — the visible-but-forbidden action this codebase keeps
+// re-growing.
 router.get('/', requirePermission('settings.view'), async (req, res, next) => {
   try {
     const orgValues = await Organization.getOrgSettings(req.orgId);
     const installRows = await Organization.getInstallSettings();
-    const operator = isInstallOperator(req);
+    const canUpdate = await userHasPermission(req, 'settings.update');
+    const operator = canUpdate && await isInstallOperator(req);
     const data = [
       ...Object.entries(ORG_SETTING_DEFS).map(([key, def]) => ({
         key,
         value: orgValues[key] ?? def.default,
         description: def.description,
         scope: 'org',
-        editable: true,
+        editable: canUpdate,
       })),
       ...installRows.map((row) => ({
         key: row.setting_key,
@@ -78,7 +83,21 @@ router.put('/:key', requirePermission('settings.update'), validate(updateSetting
     const { key } = req.params;
     const { value } = req.body;
 
-    const def = ORG_SETTING_DEFS[key];
+    // The schema allows '' (blanking an install key is how you fall back to
+    // its documented default — blank map_tile_url means OpenStreetMap, blank
+    // ops_alert_email means notify every org admin), so `required` cannot do
+    // this check; a missing value must still be a 422 rather than writing the
+    // string "undefined".
+    if (typeof value !== 'string') {
+      return res.status(422).json({
+        error: { code: 'VALIDATION_ERROR', message: 'value is required' },
+      });
+    }
+
+    // Object.hasOwn, not a bare lookup: `constructor`/`toString` are truthy on
+    // any plain object, so ORG_SETTING_DEFS['constructor'] would sail past the
+    // guard and then 500 on def.validate.
+    const def = Object.hasOwn(ORG_SETTING_DEFS, key) ? ORG_SETTING_DEFS[key] : null;
     if (def) {
       const problem = def.validate(value);
       if (problem) {
@@ -91,12 +110,9 @@ router.put('/:key', requirePermission('settings.update'), validate(updateSetting
     }
 
     if (INSTALL_SETTING_KEYS.includes(key)) {
-      if (!isInstallOperator(req)) {
+      if (!await isInstallOperator(req)) {
         return res.status(403).json({
-          error: {
-            code: 'INSTALL_SETTING_OPERATOR_ONLY',
-            message: 'This setting applies to the whole installation and can only be changed by the install operator.',
-          },
+          error: { code: 'INSTALL_SETTING_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
         });
       }
       await Organization.setInstallSetting(key, value);

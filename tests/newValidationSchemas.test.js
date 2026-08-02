@@ -819,10 +819,16 @@ describe('SnmpProfile validation schemas', () => {
 describe('Settings validation schemas', () => {
   const { updateSetting } = require('../src/middleware/schemas/settings');
 
-  test('updateSetting requires value', () => {
-    const next = run(updateSetting, {});
-    expectReject(next);
-    expect(errorFields(next)).toContain('value');
+  // `value` is deliberately NOT required at the schema layer: validate()
+  // treats '' as absent when required is true, and blanking an install key is
+  // how an operator restores its documented default (blank map_tile_url =
+  // OpenStreetMap, blank ops_alert_email = notify every org admin). A
+  // genuinely missing value is still a 422 — routes/settings.js checks
+  // typeof value === 'string' explicitly, which distinguishes the two cases
+  // the schema cannot.
+  test('updateSetting accepts a BLANK value — clearing a setting is legal', () => {
+    const next = run(updateSetting, { value: '' });
+    expectPass(next);
   });
 
   test('updateSetting accepts valid data', () => {
