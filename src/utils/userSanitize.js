@@ -14,6 +14,11 @@ const SENSITIVE_USER_FIELDS = [
   'reset_token_hash',
   'reset_token_expires',
   'email_verify_token_hash',
+  // Which account runs the install (migration 444). Not a secret in itself,
+  // but GET /users would otherwise point every staff user at the one account
+  // whose takeover reaches the deploy trigger. /auth/login and /auth/me
+  // re-add it as an explicit boolean for the CALLER's own record only.
+  'is_install_operator',
 ];
 
 /**

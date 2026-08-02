@@ -75,9 +75,14 @@ export function Layout() {
   // member of every org, so isAdmin=true here would enable the all-orgs query,
   // and swapping `orgs` to that result (dropping the `memberships` fallback)
   // for a role with no actual all-org access — mirrors how the backend gates
-  // switch-organization (an exact users.role==='admin'/membership check, not a
-  // permission slug).
-  const isAdmin = !!user && user.role === 'admin';
+  // switch-organization, which is now membership OR the install operator.
+  //
+  // It reads the backend-resolved flag rather than users.role, because that
+  // role is the per-TENANT admin persona: every organisation has one, so the
+  // old check offered every tenant admin an all-orgs switcher listing ISPs
+  // they can neither see nor switch into. GET /organizations is scoped to
+  // memberships for them now, and switch-organization refuses them (j67).
+  const isAdmin = user?.is_install_operator === true;
 
   // Accordion state: which sections are open. Persisted per browser; starts
   // fully collapsed (see loadExpanded) unless a stored value says otherwise.

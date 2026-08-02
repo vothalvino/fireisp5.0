@@ -69,7 +69,7 @@ describe('authService.switchOrganization', () => {
     expect(payload.orgId).toBe(7);
   });
 
-  test('admin can switch to an org they are NOT a member of', async () => {
+  test('the INSTALL OPERATOR can switch to an org they are NOT a member of', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
 
@@ -77,6 +77,7 @@ describe('authService.switchOrganization', () => {
       .mockResolvedValueOnce([[{ id: 1, email: 'admin@x', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
       .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
       .mockResolvedValueOnce([[]]) // NO membership
+      .mockResolvedValueOnce([[{ is_install_operator: 1 }]]) // ...but they run the install
       .mockResolvedValueOnce([[{ id: 5, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: FUTURE() }]]);
     mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 6 }]);
 
@@ -85,6 +86,18 @@ describe('authService.switchOrganization', () => {
     expect(result.organization).toEqual({ id: 42, name: 'Other ISP', membership_role: 'admin' });
     const payload = jwt.verify(result.accessToken, config.jwt.secret);
     expect(payload.orgId).toBe(42);
+  });
+
+  test('a TENANT admin cannot — same legacy role, no operator flag (j67)', async () => {
+    // This is the case the old carve-out could not distinguish: users.role
+    // ='admin' is the per-tenant admin persona, so every organisation has one.
+    db.query
+      .mockResolvedValueOnce([[{ id: 9, email: 'admin@tenant', role: 'admin', status: 'active', organization_id: 3 }]])
+      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]])
+      .mockResolvedValueOnce([[]])                              // no membership
+      .mockResolvedValueOnce([[{ is_install_operator: 0 }]]);   // not the operator
+
+    await expect(authService.switchOrganization(9, 42, 'rt')).rejects.toThrow(/not a member/i);
   });
 
   test('non-admin CANNOT switch to an org they are not a member of', async () => {

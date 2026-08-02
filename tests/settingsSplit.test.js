@@ -476,3 +476,195 @@ describe('per-org config sub-routes are ownership-guarded', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /organizations is scoped to memberships (j67)
+// ---------------------------------------------------------------------------
+// Organization.hasOrgScope is false, so the generic list returned EVERY ISP on
+// the box to anyone with organizations.view — which migration 119 grants every
+// org admin. Under real isolation that is enumeration of the neighbours, and it
+// hands over the very ids every other guard is keyed on.
+
+describe('GET /organizations scoping', () => {
+  it('returns only the caller\'s memberships for a tenant admin', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[TENANT_ADMIN]];
+      if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 0 }]];
+      if (/JOIN organization_users/.test(sql) && /COUNT/.test(sql)) return [[{ total: 1 }]];
+      if (/JOIN organization_users/.test(sql)) return [[{ id: 2, name: 'Tenant A' }]];
+      return [[]];
+    });
+    const res = await request(app).get('/api/v1/organizations').set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([{ id: 2, name: 'Tenant A' }]);
+    // The membership join is keyed on the CALLER, and the unscoped list never runs.
+    const listQuery = db.query.mock.calls.find(([sql]) => /JOIN organization_users/.test(sql));
+    expect(listQuery[1]).toEqual([TENANT_ADMIN.id]);
+  });
+
+  it('returns every organisation for the install operator', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[OPERATOR]];
+      if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 1 }]];
+      if (/COUNT/.test(sql)) return [[{ total: 3 }]];
+      return [[{ id: 1 }, { id: 2 }, { id: 3 }]];
+    });
+    const res = await request(app).get('/api/v1/organizations').set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(3);
+    // The operator takes the generic list, not the membership join.
+    expect(db.query.mock.calls.some(([sql]) => /JOIN organization_users/.test(sql))).toBe(false);
+  });
+});
+
+describe('fiscal identity is editable only from inside the org (j66)', () => {
+  it('403s the install operator acting on another org from outside it', async () => {
+    // The user chose strict: switch into the org first, so the act is
+    // attributable to that org rather than to a god-mode caller.
+    wireDb({ user: OPERATOR });
+    const res = await request(app)
+      .get('/api/v1/organizations/9/mx-profile')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('403s a tenant admin reaching another org\'s fiscal identity', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .put('/api/v1/organizations/1/mx-profile')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ rfc: 'XAXX010101000', razon_social: 'Owned', regimen_fiscal: '601', codigo_postal_fiscal: '06600' });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Constraints imposed ON a tenant are not the tenant's to change
+// ---------------------------------------------------------------------------
+// Owning the organisation is not enough for these: a tenant that can raise its
+// own quota has no quota, database isolation is deployment infrastructure, and
+// an organisation the operator suspended must not resurrect itself.
+
+describe('operator-only surfaces reject even the org that owns them', () => {
+  const own = TENANT_ADMIN.organization_id;
+
+  it('403s a tenant admin raising their OWN quota', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .put(`/api/v1/organizations/${own}/quota`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ max_clients: 999999 });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+  });
+
+  it('still lets them READ their own quota — they should see their limits', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .get(`/api/v1/organizations/${own}/quota`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).not.toBe(403);
+  });
+
+  it('403s a tenant admin reading their own database isolation config', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .get(`/api/v1/organizations/${own}/database-isolation`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('403s a tenant admin restoring their own soft-deleted organisation', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .post(`/api/v1/organizations/${own}/restore`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('lets the install operator do all of it', async () => {
+    wireDb({ user: OPERATOR });
+    const res = await request(app)
+      .put('/api/v1/organizations/9/quota')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ max_clients: 500 });
+    expect(res.status).not.toBe(403);
+  });
+});
+
+describe('organization_ids cannot mint membership in someone else\'s org', () => {
+  // Manufactured membership defeats every boundary that trusts
+  // organization_users — switch-organization above all.
+  it('403s a tenant admin granting a user access to another org', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({
+        first_name: 'Walk', last_name: 'In', email: 'walkin@tenant2.mx',
+        password: 'Sup3rSecret!23', role: 'admin',
+        organization_ids: [1, TENANT_ADMIN.organization_id],
+      });
+    expect(res.status).toBe(403);
+    expect(db.query.mock.calls.some(([sql]) => /INSERT INTO organization_users/.test(sql))).toBe(false);
+  });
+});
+
+describe('the operator ACCOUNT cannot be taken over', () => {
+  // The flag is un-writable, but the row that carries it was not: every field
+  // restrictRoleAssignment guards is a takeover primitive (set a password, or
+  // repoint the email and use the reset flow), and its own gate was
+  // `role === 'admin'` — the per-tenant persona. A co-org admin could log in
+  // AS the operator and reach the deploy trigger.
+  function wireUsers(actor, target) {
+    db.query.mockImplementation(async (sql) => {
+      if (isUserLookup(sql)) return [[actor]];
+      if (/SELECT is_install_operator FROM users/.test(sql)) {
+        return [[{ is_install_operator: actor.is_install_operator ?? 0 }]];
+      }
+      return [[{ affectedRows: 1 }]];
+    });
+    jest.spyOn(User, 'findById').mockImplementation(async (id) => (
+      Number(id) === Number(target.id) ? target : actor
+    ));
+  }
+
+  it('403s a co-org admin resetting the operator\'s password', async () => {
+    wireUsers({ ...TENANT_ADMIN, organization_id: 1 }, { ...OPERATOR, is_install_operator: 1 });
+    const res = await request(app)
+      .put(`/api/v1/users/${OPERATOR.id}`)
+      .set('Authorization', `Bearer ${tokenFor({ ...TENANT_ADMIN, organization_id: 1 })}`)
+      .send({ password: 'AttackerPass123!' });
+    expect(res.status).toBe(403);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE `?users`?/i.test(sql))).toBe(false);
+  });
+
+  it('403s repointing the operator\'s email', async () => {
+    wireUsers({ ...TENANT_ADMIN, organization_id: 1 }, { ...OPERATOR, is_install_operator: 1 });
+    const res = await request(app)
+      .put(`/api/v1/users/${OPERATOR.id}`)
+      .set('Authorization', `Bearer ${tokenFor({ ...TENANT_ADMIN, organization_id: 1 })}`)
+      .send({ email: 'attacker@evil.example' });
+    expect(res.status).toBe(403);
+  });
+
+  it('lets the operator change their OWN credentials', async () => {
+    const op = { ...OPERATOR, is_install_operator: 1 };
+    wireUsers(op, op);
+    const res = await request(app)
+      .put(`/api/v1/users/${OPERATOR.id}`)
+      .set('Authorization', `Bearer ${tokenFor(op)}`)
+      .send({ password: 'MyOwnNewPass123!' });
+    expect(res.status).not.toBe(403);
+  });
+
+  it('leaves ordinary staff edits alone', async () => {
+    const actor = { ...TENANT_ADMIN, organization_id: 1 };
+    wireUsers(actor, { id: 55, role: 'billing', status: 'active', organization_id: 1, is_install_operator: 0 });
+    const res = await request(app)
+      .put('/api/v1/users/55')
+      .set('Authorization', `Bearer ${tokenFor(actor)}`)
+      .send({ password: 'RoutineReset123!' });
+    expect(res.status).not.toBe(403);
+  });
+});

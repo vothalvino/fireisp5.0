@@ -53,22 +53,56 @@ const config = require('../config');
  * @returns {Promise<boolean>}
  */
 async function isInstallOperator(req) {
-  if (req.user?.role !== 'admin') return false;
-  const userId = Number(req.user.id);
+  return isInstallOperatorUser(req.user);
+}
+
+/**
+ * The same question asked about a user record rather than a request — for
+ * callers outside the request pipeline (authService.switchOrganization).
+ *
+ * Accepts either shape: req.user or a row from User.findById. Both carry the
+ * id and role this needs; a row may also already carry is_install_operator,
+ * which is used when present to save a query.
+ *
+ * @param {{id?: number, role?: string, is_install_operator?: number|boolean}} user
+ * @returns {Promise<boolean>}
+ */
+async function isInstallOperatorUser(user) {
+  const userId = Number(user?.id);
   if (!Number.isInteger(userId)) return false;
 
+  // The environment is the highest authority and stands ALONE — it does not
+  // also require users.role='admin'. It is the recovery hatch for an install
+  // whose flag is on the wrong account, and a hatch that silently does nothing
+  // unless the named account happens to hold a particular legacy role is not a
+  // hatch.
   const allowlist = config.installOperatorUserIds;
   if (allowlist.length > 0) return allowlist.includes(userId);
 
-  const [rows] = await db.query(
-    'SELECT is_install_operator FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-    [userId],
-  );
-  return rows.length > 0 && Number(rows[0].is_install_operator) === 1;
+  // Otherwise: legacy admin is necessary (the flag decides WHICH admin, it does
+  // not hand the role's powers to anyone else) plus the stored flag.
+  if (user.role !== 'admin') return false;
+
+  if (user.is_install_operator !== undefined) {
+    return Number(user.is_install_operator) === 1;
+  }
+
+  try {
+    const [rows] = await db.query(
+      'SELECT is_install_operator FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [userId],
+    );
+    return rows.length > 0 && Number(rows[0].is_install_operator) === 1;
+  } catch (_err) {
+    // Includes the un-migrated / rolled-back case where the column does not
+    // exist. Fail CLOSED and quietly: install-wide UI hides, install-wide
+    // writes refuse, and the app keeps serving everything else.
+    return false;
+  }
 }
 
 /** Why a write was refused — written for the operator, not for a tenant. */
 const OPERATOR_ONLY_MESSAGE =
   'This applies to the whole installation, so only the install operator can change it. If that should be you, set INSTALL_OPERATOR_USER_IDS in the environment (see docs/deployment.md).';
 
-module.exports = { isInstallOperator, OPERATOR_ONLY_MESSAGE };
+module.exports = { isInstallOperator, isInstallOperatorUser, OPERATOR_ONLY_MESSAGE };

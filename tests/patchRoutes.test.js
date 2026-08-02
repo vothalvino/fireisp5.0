@@ -87,11 +87,12 @@ function describePatch(name, path, mockRecord, patchBody, updatedRecord) {
         .set('Authorization', `Bearer ${authToken}`)
         .send(patchBody);
 
-      // 404 for org-scoped resources (id 999 is not in the caller's org).
-      // /organizations is the exception: its ownership guard runs BEFORE the
-      // lookup and answers 403, which is the better answer anyway — a tenant
-      // should not be able to probe which organisation ids exist (j56).
-      expect([403, 404]).toContain(res.status);
+      // Org-scoped resources 404: the row is simply not in the caller's org.
+      // /organizations is different in kind — its ownership guard runs BEFORE
+      // the lookup and answers 403, deliberately, so a tenant cannot probe
+      // which organisation ids exist (j56/j67). Asserting the exact status per
+      // resource keeps this from quietly accepting either answer everywhere.
+      expect(res.status).toBe(path === '/api/organizations' ? 403 : 404);
     });
 
     test('returns 401 without auth header', async () => {

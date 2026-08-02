@@ -821,8 +821,12 @@ async function syncFreeradiusTables(organizationId) {
 async function kickDuplicateSessions(organizationId) {
   logger.info({ organizationId }, 'Checking for duplicate sessions to kick');
 
-  // Scope by the contract's organization — radius has no organization_id column.
-  const orgFilter = organizationId ? 'AND c.organization_id = ?' : '';
+  // Scope by the account's own org, falling back to its contract's. A plain
+  // `c.organization_id = ?` silently dropped every contract-less account from a
+  // per-org sync (radius.contract_id is nullable), so a MAC allowlisted before
+  // provisioning never got radcheck rows at all — it simply failed to
+  // authenticate, with nothing in the logs to say why.
+  const orgFilter = organizationId ? 'AND COALESCE(r.organization_id, c.organization_id) = ?' : '';
   const orgParams = organizationId ? [organizationId] : [];
 
   // Liveness window for the ghost guard below. Coerced to a safe positive

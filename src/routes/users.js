@@ -17,6 +17,8 @@ const userTunnelService = require('../services/userTunnelService');
 const auditLog = require('../services/auditLog');
 const { ValidationError } = require('../utils/errors');
 
+const { isInstallOperator } = require('../services/installOperator');
+
 const router = Router();
 
 /**
@@ -29,7 +31,13 @@ const router = Router();
 async function syncUserOrgAccess(user, req) {
   const ids = req.body?.organization_ids;
   if (Array.isArray(ids) && ids.length > 0) {
-    await User.setUserOrganizations(user.id, ids, user.role);
+    // Which organisations may this ACTOR grant? Their own, unless they run the
+    // install. Before this, `organization_ids: [1, 2]` on any create/update
+    // minted an admin membership in organisations the actor had no relationship
+    // with — and manufactured membership defeats every boundary that trusts
+    // organization_users, switch-organization included.
+    const allowedOrgIds = await isInstallOperator(req) ? null : [req.orgId];
+    await User.setUserOrganizations(user.id, ids, user.role, allowedOrgIds);
   } else if (req.body?.group_id !== undefined || req.body?.role !== undefined) {
     await User.refreshMembershipRoles(user.id, user.role);
   }
