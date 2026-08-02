@@ -103,6 +103,21 @@ const API_BASE = '/api/v1/ai';
 // Mirrors GET /ai/providers/catalog. 'openrouter' sits before 'custom' because
 // it is the friendlier route to the same hundreds of models (no endpoint URL).
 const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'openrouter', 'custom'];
+// Human labels for the kind dropdown. Without these the options render as raw
+// slugs, so "openrouter" (lowercase, sixth in the list) is easy to scan past
+// when you are looking for "OpenRouter" — which is exactly what happened. These
+// mirror PROVIDER_CATALOG[].label on the backend; the proper fix (driving the
+// whole form off GET /providers/catalog) is j62, but a slug in a dropdown is a
+// papercut worth removing now.
+const PROVIDER_KIND_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  azure_openai: 'Azure OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Google Gemini',
+  ollama: 'Ollama (local)',
+  openrouter: 'OpenRouter',
+  custom: 'Custom (OpenAI-compatible)',
+};
 const AI_MODES = ['draft_only', 'suggest', 'auto_send'];
 const TONES = ['formal', 'friendly', 'technical', 'empathetic'];
 const LOCALES = ['en', 'es', 'pt-BR'];
@@ -762,7 +777,7 @@ function ProvidersTab() {
                   </span>
                 </td>
                 <td style={sty.td}>{p.name}</td>
-                <td style={sty.td}><span style={sty.kindBadge}>{p.kind}</span></td>
+                <td style={sty.td}><span style={sty.kindBadge}>{PROVIDER_KIND_LABELS[p.kind] ?? p.kind}</span></td>
                 <td style={sty.td}><code style={sty.code}>{p.model ?? '—'}</code></td>
                 <td style={sty.td}>
                   <span style={{ ...sty.pill, background: p.enabled ? '#16a34a' : '#888' }}>
@@ -809,7 +824,7 @@ function ProvidersTab() {
             <label style={sty.label}>{t('aiAssistantSettings.providers.form.kind')} *
               <select style={sty.select} value={form.kind}
                 onChange={e => setForm(f => ({ ...f, kind: e.target.value }))}>
-                {PROVIDER_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                {PROVIDER_KINDS.map(k => <option key={k} value={k}>{PROVIDER_KIND_LABELS[k] ?? k}</option>)}
               </select>
             </label>
 
