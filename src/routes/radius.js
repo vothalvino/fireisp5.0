@@ -455,17 +455,25 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
     // updates the session row in place, so a live session reads
     // 'interim-update' after its first update.
     for (const sessionId of ids) {
+      // JOINED TO contracts SO THE SESSION MUST BELONG TO THE CALLER'S ORG.
+      // connection_logs has no organization_id of its own, so the contract is
+      // the only tenancy anchor — the same join kickDuplicateSessions uses.
+      // Without it, a session_id from another tenant resolved fine and was
+      // disconnected, with req.orgId reaching only the audit row.
       const [rows] = await db.query(
-        `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id FROM connection_logs cl
-         WHERE cl.session_id = ? AND cl.event_type IN ('start', 'interim-update')
-           AND NOT EXISTS (
-             SELECT 1 FROM connection_logs cl2
-             WHERE cl2.session_id = cl.session_id
-               AND cl2.contract_id = cl.contract_id
-               AND cl2.event_type = 'stop'
-           )
-         LIMIT 1`,
-        [sessionId],
+        `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id
+           FROM connection_logs cl
+           JOIN contracts c ON c.id = cl.contract_id
+          WHERE cl.session_id = ? AND cl.event_type IN ('start', 'interim-update')
+            AND (? IS NULL OR c.organization_id = ?)
+            AND NOT EXISTS (
+              SELECT 1 FROM connection_logs cl2
+              WHERE cl2.session_id = cl.session_id
+                AND cl2.contract_id = cl.contract_id
+                AND cl2.event_type = 'stop'
+            )
+          LIMIT 1`,
+        [sessionId, req.orgId ?? null, req.orgId ?? null],
       );
       // Use the DB-canonical session_id, not the raw request string: the PAD
       // SPACE collation matches 'abc   ' to the stored 'abc', and sending the
@@ -501,9 +509,22 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
 
     // Disconnect by usernames
     for (const username of names) {
+      // SAME TENANCY ANCHOR. `radius` does carry organization_id, but it is
+      // NULLable (single-tenant installs), so the contract's org is the
+      // reliable one and matches how the rest of this service scopes.
+      //
+      // This branch was the sharper edge of the two: uq_radius_username makes a
+      // username unique across the WHOLE INSTALL, so one from another tenant
+      // resolved unambiguously to that tenant's contract — and PPPoE usernames
+      // are routinely derived from a client number, so they are guessable.
       const [rows] = await db.query(
-        'SELECT contract_id FROM radius WHERE username = ? AND deleted_at IS NULL LIMIT 1',
-        [username],
+        `SELECT r.contract_id
+           FROM radius r
+           JOIN contracts c ON c.id = r.contract_id
+          WHERE r.username = ? AND r.deleted_at IS NULL
+            AND (? IS NULL OR c.organization_id = ?)
+          LIMIT 1`,
+        [username, req.orgId ?? null, req.orgId ?? null],
       );
       if (!rows.length) {
         results.push({ username, success: false, error: 'RADIUS account not found' });
