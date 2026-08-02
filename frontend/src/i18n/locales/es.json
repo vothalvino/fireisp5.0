@@ -1034,6 +1034,7 @@
       "addProvider": "+ Agregar proveedor",
       "loading": "Cargando proveedores…",
       "error": "Error al cargar proveedores.",
+      "catalogError": "No se pudo cargar el catálogo de proveedores; los tipos y campos pueden estar incompletos.",
       "empty": "No hay proveedores configurados. Agrega uno para habilitar las respuestas IA.",
       "cols": {
         "active": "Activo",

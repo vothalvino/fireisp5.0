@@ -106,6 +106,10 @@ const PROVIDER_CATALOG = [
     label: 'Azure OpenAI',
     requiresApiKey: true,
     requiresEndpoint: true,
+    // Azure addresses models by deployment name, not model id — the form
+    // needs an extra field for it. Part of the catalog so the frontend does
+    // not have to special-case the kind (j62).
+    requiresDeployment: true,
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
   },
   {
@@ -147,6 +151,11 @@ const PROVIDER_CATALOG = [
     label: 'Custom (OpenAI-compatible)',
     requiresApiKey: false,
     requiresEndpoint: true,
+    // Not REQUIRED (a LAN vLLM/llama.cpp endpoint has no auth) but many
+    // OpenAI-compatible gateways do take a key — the form must still offer
+    // the field. requiresApiKey alone cannot express "optional": ollama is
+    // also false but genuinely has no key field at all.
+    optionalApiKey: true,
     models: [],
   },
 ];

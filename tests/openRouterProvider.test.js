@@ -98,22 +98,35 @@ describe('the kind is declared consistently across the stack', () => {
     expect(dispatch).toMatch(/case 'openrouter':/);
   });
 
-  it('the UI offers every kind the backend accepts', () => {
-    // AIAssistantSettings.tsx keeps its OWN PROVIDER_KINDS list rather than
-    // reading GET /providers/catalog, so the two can drift — and the failure is
-    // silent in the worst direction: a kind the backend fully supports simply
-    // never appears in the dropdown, so nobody can select it and nobody sees an
-    // error. Driving the form off the catalog is the real fix and is filed
-    // separately; this at least makes the drift fail loudly here.
+  it('the catalog advertises every kind validate() accepts', async () => {
+    // The UI renders its kind dropdown and per-kind fields straight from
+    // GET /providers/catalog (j62), so the catalog IS the UI's kind list —
+    // a kind accepted by validation but missing here simply never appears in
+    // the dropdown, silently. This replaces the old grep of the frontend's
+    // own PROVIDER_KINDS copy, which j62 deleted.
+    const res = await get('/api/v1/ai/providers/catalog');
+    const catalogKinds = res.body.data.map((k) => k.kind);
+    for (const kind of PROVIDER_KINDS) {
+      expect(catalogKinds).toContain(kind);
+    }
+    // Every entry must carry what the form needs to render it.
+    for (const entry of res.body.data) {
+      expect(typeof entry.label).toBe('string');
+      expect(typeof entry.requiresApiKey).toBe('boolean');
+      expect(typeof entry.requiresEndpoint).toBe('boolean');
+      expect(Array.isArray(entry.models)).toBe(true);
+    }
+  });
+
+  it('the UI reads the catalog instead of keeping its own kind list', () => {
+    // Anti-regression for j62: a reintroduced local PROVIDER_KINDS/KIND_FIELDS
+    // constant would drift silently again.
     const page = fs.readFileSync(
       path.join(__dirname, '..', 'frontend', 'src', 'pages', 'AIAssistantSettings.tsx'), 'utf8',
     );
-    const line = page.split('\n').find((l) => l.startsWith('const PROVIDER_KINDS'));
-    expect(line).toBeDefined();
-    const uiKinds = [...line.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    for (const kind of PROVIDER_KINDS) {
-      expect(uiKinds).toContain(kind);
-    }
+    expect(page).toContain('/providers/catalog');
+    expect(page).not.toMatch(/^const PROVIDER_KINDS/m);
+    expect(page).not.toMatch(/^const KIND_FIELDS/m);
   });
 });
 
