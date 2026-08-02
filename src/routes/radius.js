@@ -127,9 +127,21 @@ router.post('/sync-freeradius', requirePermission('radius.sync'), async (req, re
 // Disconnect a subscriber's active PPPoE session via RADIUS Disconnect-Request
 router.post('/:id/disconnect', requirePermission('devices.update'), async (req, res, next) => {
   try {
+    // SAME TENANCY ANCHOR AS THE BATCH ROUTE BELOW. This lookup had no
+    // organisation filter and never touched req.orgId, so any id resolved —
+    // and radius ids are sequential and enumerable. `devices.update` is granted
+    // to admin AND technician (migration 119), so a technician at one reseller
+    // could drop another reseller's subscriber with a single POST.
+    //
+    // Also adds the deleted_at filter: a soft-deleted account should not be a
+    // live disconnect target.
     const [rows] = await db.query(
-      'SELECT contract_id FROM radius WHERE id = ?',
-      [req.params.id],
+      `SELECT r.contract_id
+         FROM radius r
+         JOIN contracts c ON c.id = r.contract_id
+        WHERE r.id = ? AND r.deleted_at IS NULL
+          AND (? IS NULL OR c.organization_id = ?)`,
+      [req.params.id, req.orgId ?? null, req.orgId ?? null],
     );
     if (!rows.length) {
       return res.status(404).json({ error: 'RADIUS account not found' });

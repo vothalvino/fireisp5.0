@@ -269,3 +269,58 @@ describe('disconnect-batch is organisation-scoped', () => {
     });
   });
 });
+
+// =============================================================================
+// The single-account disconnect route needs the same anchor
+// =============================================================================
+// POST /radius/:id/disconnect resolved its target with
+// `SELECT contract_id FROM radius WHERE id = ?` — no organisation filter, no
+// deleted_at, and req.orgId never referenced. radius ids are sequential and
+// enumerable, and `devices.update` is granted to admin AND technician
+// (migration 119), so a technician at one reseller could drop another
+// reseller's subscriber with a single POST. Verified reachable by execution
+// during review: HTTP 200 and a real disconnectSession call on a foreign row.
+describe('POST /radius/:id/disconnect is organisation-scoped', () => {
+  test("another org's account is not found, and no packet is sent", async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]); // scoped lookup matches nothing
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('the lookup filters on the contract organisation and excludes soft-deleted rows', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]);
+
+    await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/JOIN\s+contracts\s+c\s+ON\s+c\.id\s*=\s*r\.contract_id/i);
+    expect(sql).toMatch(/c\.organization_id/);
+    expect(sql).toMatch(/r\.deleted_at IS NULL/);
+    expect(params).toContain(1); // req.orgId
+  });
+
+  test('an in-org account still disconnects — the scope must not break the feature', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[{ contract_id: 42 }]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42);
+  });
+});
