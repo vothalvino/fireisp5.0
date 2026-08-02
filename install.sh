@@ -376,6 +376,16 @@ RADIUS_SECRET=
 RADIUS_HOST=127.0.0.1
 RADIUS_COA_PORT=3799
 
+# ---- Install operator --------------------------------------------------------
+# Who may change install-wide settings (ops_alert_email, map tiles), manage
+# poller nodes, and use the update/deploy controls. Comma-separated user IDs.
+#
+# Leave empty: the installer seeds this onto the admin account it creates, and
+# an upgrade grants it to your existing admin(s). Set it only to move the
+# capability to a different account — see "The install operator" in
+# docs/deployment.md. IDs, not emails: an email is editable inside the app.
+INSTALL_OPERATOR_USER_IDS=
+
 # ---- Optional: Sentry error tracking ----------------------------------------
 # SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
 ENVEOF
