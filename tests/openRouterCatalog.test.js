@@ -192,3 +192,43 @@ describe('cost estimation from the live rates', () => {
     expect(catalog.estimateCost('paid/model', 1000, 500)).toBeNull();
   });
 });
+
+describe('regressions found by adversarial review', () => {
+  it('does not restamp cached_at when a refresh fails, and keeps reporting stale', async () => {
+    // Overwriting `at` with the failure time made a stale list look freshly
+    // loaded, and reset `stale` to false on the very next read — hiding exactly
+    // the staleness the caller is being warned about.
+    fetchMock.mockResolvedValueOnce(okResponse([MODEL('a/b', '0.1', '0.2')]));
+    const good = await catalog.getModels();
+
+    fetchMock.mockRejectedValue(new Error('down'));
+    const afterFail = await catalog.getModels({ force: true });
+    expect(afterFail.stale).toBe(true);
+    expect(afterFail.cached_at).toBe(good.cached_at);
+
+    // …and the NEXT read still says stale rather than quietly claiming freshness.
+    const next = await catalog.getModels();
+    expect(next.stale).toBe(true);
+    expect(next.cached_at).toBe(good.cached_at);
+  });
+
+  it('throttles forced refreshes so a held-down button cannot hammer openrouter.ai', async () => {
+    // force=1 is reachable by anyone with ai.providers.read. The in-flight guard
+    // merges CONCURRENT callers but does nothing about a sequence.
+    fetchMock.mockResolvedValue(okResponse([MODEL('a/b', '0.1', '0.2')]));
+    await catalog.getModels();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await catalog.getModels({ force: true });   // allowed
+    for (let i = 0; i < 10; i++) await catalog.getModels({ force: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still serves the list while throttled, rather than erroring', async () => {
+    fetchMock.mockResolvedValue(okResponse([MODEL('a/b', '0.1', '0.2')]));
+    await catalog.getModels({ force: true });
+    const throttled = await catalog.getModels({ force: true });
+    expect(throttled.models).toHaveLength(1);
+    expect(throttled.error).toBeNull();
+  });
+});

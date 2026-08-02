@@ -42,12 +42,24 @@ const ERROR_TTL_MS = 60 * 1000;
 
 const FETCH_TIMEOUT_MS = 10000;
 
+// Floor between FORCED refreshes. The in-flight guard below merges callers that
+// overlap, but it does nothing about a sequence — and `force=1` is reachable by
+// anyone holding ai.providers.read, so without this an authenticated user could
+// drive unbounded outbound traffic to openrouter.ai from the operator's server
+// just by holding down the Refresh button. Well under the useful cadence for a
+// human who has just seen a model announced.
+const FORCE_MIN_INTERVAL_MS = 10 * 1000;
+
 // Guards against a malformed or hostile payload turning into unbounded memory.
 // OpenRouter listed ~340 models when this was written.
 const MAX_MODELS = 2000;
 
-let cache = null; // { at: number, models: [], error: string|null }
+// `at` is the time of the last SUCCESSFUL fetch, never of a failure — it is what
+// the UI shows as "list from HH:MM", and stamping it on a failed refresh made a
+// stale list look freshly loaded.
+let cache = null; // { at: number, models: [], error: string|null, stale: boolean }
 let inFlight = null;
+let lastForcedAt = 0;
 
 /** Coerce OpenRouter's string-encoded per-token rate to a number. */
 function _rate(value) {
@@ -119,36 +131,53 @@ async function _fetchCatalog() {
  */
 async function getModels({ force = false } = {}) {
   const now = Date.now();
+  const asResult = () => ({
+    models: cache.models,
+    error: cache.error,
+    cached_at: cache.at,
+    stale: cache.stale,
+  });
 
-  if (!force && cache) {
+  // A forced refresh that arrives inside the floor is served from cache, exactly
+  // as an unforced one would be, rather than rejected — the caller asked for the
+  // freshest list available and that is what it gets.
+  const forceAllowed = force && (now - lastForcedAt >= FORCE_MIN_INTERVAL_MS);
+
+  if (!forceAllowed && cache) {
     const ttl = cache.error ? ERROR_TTL_MS : TTL_MS;
-    if (now - cache.at < ttl) {
-      return { models: cache.models, error: cache.error, cached_at: cache.at, stale: false };
-    }
+    // `at` is the last SUCCESS, so a cached failure with a good list behind it
+    // is re-tried once ERROR_TTL_MS has passed since that success, not pinned
+    // for a full hour.
+    if (!force && now - cache.at < ttl) return asResult();
+    if (force) return asResult();
   }
 
   if (inFlight) return inFlight;
+  if (force) lastForcedAt = now;
 
   inFlight = (async () => {
     try {
       const models = await _fetchCatalog();
-      cache = { at: Date.now(), models, error: null };
+      cache = { at: Date.now(), models, error: null, stale: false };
       logger.info({ count: models.length }, 'openRouterCatalog: catalog refreshed');
-      return { models, error: null, cached_at: cache.at, stale: false };
+      return asResult();
     } catch (err) {
       const message = err.name === 'AbortError'
         ? `Timed out after ${FETCH_TIMEOUT_MS}ms`
         : err.message;
       logger.warn({ err: message }, 'openRouterCatalog: could not refresh catalog');
 
-      // Serve the last good catalog rather than nothing. A stale list is far
-      // more useful than an empty one, and the caller is told it is stale.
+      // Serve the last good catalog rather than nothing — a stale list is far
+      // more useful than an empty one — but do NOT restamp `at`. Overwriting it
+      // with the failure time made the list look freshly loaded and reset
+      // `stale` to false on the next read, hiding the very staleness the caller
+      // is being warned about.
       if (cache && cache.models.length) {
-        cache = { ...cache, at: Date.now(), error: message };
-        return { models: cache.models, error: message, cached_at: cache.at, stale: true };
+        cache = { ...cache, error: message, stale: true };
+      } else {
+        cache = { at: Date.now(), models: [], error: message, stale: false };
       }
-      cache = { at: Date.now(), models: [], error: message };
-      return { models: [], error: message, cached_at: cache.at, stale: false };
+      return asResult();
     } finally {
       inFlight = null;
     }
@@ -180,6 +209,7 @@ function estimateCost(modelId, promptTokens, completionTokens) {
 function _resetCache() {
   cache = null;
   inFlight = null;
+  lastForcedAt = 0;
 }
 
-module.exports = { getModels, estimateCost, _resetCache, MODELS_URL, TTL_MS, ERROR_TTL_MS };
+module.exports = { getModels, estimateCost, _resetCache, MODELS_URL, TTL_MS, ERROR_TTL_MS, FORCE_MIN_INTERVAL_MS };

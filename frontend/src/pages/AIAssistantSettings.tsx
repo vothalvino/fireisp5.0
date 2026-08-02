@@ -118,8 +118,19 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-    throw new Error(body.error ?? body.message ?? `HTTP ${res.status}`);
+    // The API's error envelope is `{ error: { code, message } }`, an OBJECT.
+    // This used to be typed as a string, so `new Error(body.error)` stringified
+    // it and every failure on this page read "[object Object]" — no code, no
+    // message, nothing to act on. Both shapes are accepted because a few older
+    // handlers still return a bare string.
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string | { code?: string; message?: string };
+      message?: string;
+    };
+    const detail = typeof body.error === 'string'
+      ? body.error
+      : body.error?.message ?? body.message;
+    throw new Error(detail ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -479,6 +490,12 @@ function LiveModelField({
         autoComplete="off"
         placeholder="anthropic/claude-sonnet-4.5"
         list={canPick ? 'ai-provider-model-options' : undefined}
+        // The status line below (loading / N models / stale / error / unknown
+        // model) is the only place the picker explains itself, so it has to be
+        // part of the field's accessible description — otherwise a screen-reader
+        // user gets an unlabelled text box and never hears that a list exists,
+        // that it failed to load, or that the id they typed is not in it.
+        aria-describedby="ai-provider-model-status"
         onChange={e => onChange(e.target.value)}
       />
       {canPick && (
@@ -496,6 +513,7 @@ function LiveModelField({
         </datalist>
       )}
 
+      <span id="ai-provider-model-status" role="status" aria-live="polite">
       {catalog.loading && (
         <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.loading')}</span>
       )}
@@ -523,6 +541,7 @@ function LiveModelField({
       {canPick && !selected && value.trim() !== '' && (
         <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.unknownModel')}</span>
       )}
+      </span>
     </div>
   );
 }

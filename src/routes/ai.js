@@ -152,6 +152,23 @@ const PROVIDER_CATALOG = [
 ];
 
 /**
+ * Kinds whose base URL is fixed by the adapter, so a stored endpoint_url would
+ * be dead data at best and misleading at worst.
+ *
+ * The provider form hides the endpoint field for these, but hiding a field does
+ * not clear it: switching an existing 'custom' provider to 'openrouter' used to
+ * carry the old URL along, and the row then displayed as plain "OpenRouter"
+ * while the adapter honoured the leftover host. The adapter no longer reads it
+ * (see OPENROUTER_BASE_URL), and this stops the stale value being stored at all,
+ * so what the operator sees and what runs cannot diverge.
+ */
+const FIXED_ENDPOINT_KINDS = ['openrouter'];
+
+function _normaliseEndpoint(kind, endpointUrl) {
+  return FIXED_ENDPOINT_KINDS.includes(kind) ? null : (endpointUrl || null);
+}
+
+/**
  * GET /api/v1/ai/providers/catalog
  * Static list of supported provider kinds + recommended models.
  * Must be declared BEFORE /:id to avoid routing conflicts.
@@ -255,7 +272,7 @@ router.post('/providers', requirePermission('ai.providers.write'), validate(crea
       name:              rest.name,
       kind:              rest.kind,
       model:             rest.model,
-      endpoint_url:      rest.endpoint_url      || null,
+      endpoint_url:      _normaliseEndpoint(rest.kind, rest.endpoint_url),
       api_key_encrypted: api_key ? encrypt(api_key) : null,
       extra_config:      rest.extra_config       ? JSON.stringify(rest.extra_config) : null,
       temperature:       rest.temperature        ?? 0.20,
@@ -289,6 +306,17 @@ router.put('/providers/:id', requirePermission('ai.providers.write'), validate(u
     }
     if (updates.extra_config !== undefined && typeof updates.extra_config === 'object') {
       updates.extra_config = JSON.stringify(updates.extra_config);
+    }
+
+    // Clear a stale endpoint when the (possibly new) kind has a fixed base URL.
+    // Written unconditionally rather than only when the client sent the field,
+    // because the form omits it entirely for these kinds — so an edit that
+    // switches TO one of them would otherwise leave the old value in place.
+    const effectiveKind = updates.kind || provider.kind;
+    if (FIXED_ENDPOINT_KINDS.includes(effectiveKind)) {
+      updates.endpoint_url = null;
+    } else if (updates.endpoint_url !== undefined) {
+      updates.endpoint_url = updates.endpoint_url || null;
     }
 
     await AiProvider.update(provider.id, updates);
