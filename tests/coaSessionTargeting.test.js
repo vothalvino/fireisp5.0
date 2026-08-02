@@ -304,20 +304,41 @@ describe('sendRadiusDisconnect()', () => {
     expect(r).toEqual({ sent: false, response: 'Disconnect-NAK', outcome: 'nak' });
   });
 
-  test('a NAK on the primary triggers failover to its secondary NAS', async () => {
+  test('a NAK does NOT trigger failover — it is an authoritative answer from a live NAS', async () => {
+    // Routine case: the subscriber is offline, the home NAS answers "no such
+    // session". Failing over would send an extra packet to a NAS that was
+    // never a resolved target — and for an Acct-Session-Id-scoped kill could
+    // hit a colliding session there.
     mockNasBehavior['10.0.0.9'] = 'nak';
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                  // account
+      .mockResolvedValueOnce([[]])                                               // no open sessions
+      .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]]); // home NAS
+    const r = await suspensionService.sendRadiusDisconnect(7);
+    expect(r).toEqual({ sent: false, response: 'Disconnect-NAK', outcome: 'nak' });
+    expect(mockSentPackets.map((p) => p.address)).toEqual(['10.0.0.9']); // no secondary send
+    expect(db.query).toHaveBeenCalledTimes(3); // secondary NAS never even looked up
+  });
+
+  test('a timeout (NAS never answers) is reported as failure and fails over', async () => {
+    jest.useFakeTimers();
+    mockNasBehavior['10.0.0.9'] = 'silent';
     db.query
       .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                          // account
       .mockResolvedValueOnce([[]])                                                       // no open sessions
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]])         // home NAS
       .mockResolvedValueOnce([[{ ip_address: '10.0.0.5', coa_port: 3799, secret: 's5' }]]); // secondary
     mockNasSecrets['10.0.0.5'] = 's5';
-    const r = await suspensionService.sendRadiusDisconnect(7);
-    expect(r.sent).toBe(true); // the secondary ACKed
+    const promise = suspensionService.sendRadiusDisconnect(7);
+    await jest.advanceTimersByTimeAsync(5000);
+    const r = await promise;
+    expect(r.sent).toBe(true); // the secondary ACKed after the primary timed out
+    expect(r.response).toContain('Disconnect-ACK');
+    expect(r.response).toContain('primary: Timeout');
     expect(mockSentPackets.map((p) => p.address)).toEqual(['10.0.0.9', '10.0.0.5']);
   });
 
-  test('a timeout (NAS never answers) is reported as failure', async () => {
+  test('a timeout with no secondary is reported as failure', async () => {
     jest.useFakeTimers();
     mockNasBehavior['10.0.0.2'] = 'silent';
     db.query

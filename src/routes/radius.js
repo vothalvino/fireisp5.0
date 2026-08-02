@@ -160,10 +160,19 @@ router.post('/:id/disconnect', requirePermission('devices.update'), validate(dis
     // longer exists — killing every session because one already stopped is
     // exactly the surprise this option exists to prevent.
     const { acct_session_id: acctSessionId, nas_ip_address: nasIpAddress } = req.body || {};
+    // A lone nas_ip_address would silently widen to a contract-wide kill on
+    // EVERY NAS (the opposite of what the caller asked for) — refuse it.
+    if (nasIpAddress && !acctSessionId) {
+      return res.status(400).json({ error: 'nas_ip_address requires acct_session_id' });
+    }
     let opts;
     if (acctSessionId) {
+      // Same shape as the batch route: all DISTINCT NAS rows for this
+      // session, so a same-contract cross-NAS id collision is DETECTED
+      // (refused) rather than resolved by row order, and a session recorded
+      // both with and without a NAS IP coalesces to the non-null one.
       const [sessionRows] = await db.query(
-        `SELECT cl.session_id, cl.nas_ip_address
+        `SELECT DISTINCT cl.session_id, cl.nas_ip_address
            FROM connection_logs cl
           WHERE cl.contract_id = ? AND cl.session_id = ?
             AND (? IS NULL OR cl.nas_ip_address = ?)
@@ -174,16 +183,19 @@ router.post('/:id/disconnect', requirePermission('devices.update'), validate(dis
                 AND cl2.contract_id = cl.contract_id
                 AND cl2.event_type = 'stop'
             )
-          ORDER BY cl.event_at DESC
-          LIMIT 1`,
+          LIMIT 25`,
         [contractId, acctSessionId, nasIpAddress ?? null, nasIpAddress ?? null],
       );
       if (!sessionRows.length) {
         return res.status(404).json({ error: 'Session not found or already stopped' });
       }
+      const nasIps = new Set(sessionRows.map((r) => r.nas_ip_address).filter((ip) => ip !== null));
+      if (nasIps.size > 1) {
+        return res.status(409).json({ error: 'Ambiguous session id — active on multiple NASes; retry with nas_ip_address' });
+      }
       opts = {
         acctSessionId: sessionRows[0].session_id,
-        nasIpAddress: sessionRows[0].nas_ip_address,
+        nasIpAddress: nasIps.size > 0 ? [...nasIps][0] : null,
       };
     }
 
@@ -461,7 +473,9 @@ router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
     // sendRadiusPacket handles User-Name + encoder + authenticator internally
     let result = await sendRadiusPacket(nas.nas_ip, nas.coa_port || 3799, nas.secret, 43, nas.username, attributes);
 
-    if (!result.sent && nas.secondary_nas_id) {
+    // Same failover rule as suspensionService.sendWithFailover: a NAK is an
+    // authoritative answer from a live NAS, not a delivery failure.
+    if (!result.sent && result.outcome !== 'nak' && nas.secondary_nas_id) {
       const [secRows] = await db.query(
         'SELECT ip_address, coa_port, secret FROM nas WHERE id = ? LIMIT 1',
         [nas.secondary_nas_id],
@@ -489,8 +503,15 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
     if (!acct_session_ids && !usernames && !sessions) {
       return res.status(400).json({ error: 'Provide acct_session_ids, sessions or usernames' });
     }
-    if ((acct_session_ids && !Array.isArray(acct_session_ids)) || (usernames && !Array.isArray(usernames))) {
-      return res.status(400).json({ error: 'acct_session_ids and usernames must be arrays' });
+    // Elements must be non-empty strings: session_id is a VARCHAR, and a
+    // number here makes MySQL coerce the COLUMN to numeric — discarding the
+    // index (a full scan of the largest table per element) and matching
+    // unrelated rows ('anything' = 0 is true under numeric coercion).
+    if ((acct_session_ids && (!Array.isArray(acct_session_ids)
+          || acct_session_ids.some((s) => typeof s !== 'string' || !s)))
+        || (usernames && (!Array.isArray(usernames)
+          || usernames.some((u) => typeof u !== 'string' || !u)))) {
+      return res.status(400).json({ error: 'acct_session_ids and usernames must be arrays of non-empty strings' });
     }
 
     // `sessions` entries carry the NAS the session lives on. Acct-Session-Id
@@ -535,7 +556,10 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
       //
       // No LIMIT 1: every DISTINCT (contract, NAS) match comes back so a
       // cross-NAS session-id collision is DETECTED instead of resolved by
-      // whichever row MySQL happened to return first.
+      // whichever row MySQL happened to return first. (LIMIT 25 is only a
+      // defensive cap — the branches below only distinguish 0 / 1 / more
+      // than 1 distinct combos, so capping a pathological result set
+      // changes nothing.)
       const [rows] = await db.query(
         `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id
            FROM connection_logs cl
@@ -548,7 +572,8 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
               WHERE cl2.session_id = cl.session_id
                 AND cl2.contract_id = cl.contract_id
                 AND cl2.event_type = 'stop'
-            )`,
+            )
+          LIMIT 25`,
         [target.session_id, target.nas_ip_address, target.nas_ip_address, req.orgId ?? null, req.orgId ?? null],
       );
       // Use the DB-canonical session_id, not the raw request string: the PAD

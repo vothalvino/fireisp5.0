@@ -145,6 +145,7 @@ async function applySpeedWindows(organizationId) {
     coa_sent: 0,
     coa_skipped_no_radius: 0,
     coa_skipped_vendor: 0,
+    coa_no_session: 0,
     coa_errors: 0,
     errors: 0,
   };
@@ -235,12 +236,19 @@ async function applySpeedWindows(organizationId) {
         try {
           const result = await radiusService.changeOfAuth(contract.id, 'update', named);
           // 'no_account'/'no_target' = nothing to CoA (contract without a
-          // RADIUS account or NAS) — a skip, not a failure. Any other unsent
-          // result is a real delivery failure (NAK/timeout/socket error) now
-          // that sent:true requires a CoA-ACK. The radgroupreply rows written
-          // above still cover these subscribers on their next re-auth.
+          // RADIUS account or NAS) — a skip, not a failure. An all-NAK
+          // result is the ROUTINE answer for an offline subscriber (the
+          // home-NAS safety net always gets a send, and a NAS with no
+          // session NAKs) — counted separately, never as an error, or every
+          // window transition would WARN once per powered-off CPE. Anything
+          // else unsent is a real delivery failure (timeout/socket error)
+          // now that sent:true requires a CoA-ACK. In every non-ACK case the
+          // radgroupreply rows written above still cover the subscriber on
+          // their next re-auth.
           if (result && (result.outcome === 'no_account' || result.outcome === 'no_target')) {
             summary.coa_skipped_no_radius++;
+          } else if (result && result.outcome === 'nak') {
+            summary.coa_no_session++;
           } else if (result && result.sent === false) {
             summary.coa_errors++;
             logger.warn({ contractId: contract.id, response: result.response }, 'Speed window CoA not acknowledged');

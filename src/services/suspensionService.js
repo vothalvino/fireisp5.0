@@ -532,9 +532,15 @@ async function sendToTargets(code, username, targets, extraAttributes = []) {
   const response = usable.length === 1
     ? results[0].response
     : usable.map((nas, i) => `${nas.ip_address}: ${results[i].response}`).join('; ');
-  // Single target keeps the specific failure outcome (nak/timeout/error);
-  // multi-target failures aggregate to 'failed'.
-  const outcome = sent ? 'ack' : (usable.length === 1 ? results[0].outcome : 'failed');
+  // All-NAK aggregates to 'nak' — every NAS answered and none holds a
+  // session, which callers treat differently from a delivery failure (an
+  // offline subscriber is routine; a dead NAS is not). Otherwise a single
+  // target keeps its specific failure outcome and mixed multi-target
+  // failures aggregate to 'failed'.
+  let outcome = 'failed';
+  if (sent) outcome = 'ack';
+  else if (results.every((r) => r.outcome === 'nak')) outcome = 'nak';
+  else if (usable.length === 1) outcome = results[0].outcome;
   return { sent, response, outcome };
 }
 
@@ -680,10 +686,20 @@ function sendRadiusPacket(nasIp, port, secret, code, username, extraAttributes =
         logger.warn({ nasIp, len: msg.length }, 'Ignoring RADIUS reply with mismatched identifier');
         return;
       }
+      // Only the octets inside the declared Length are authenticated — RFC
+      // 2865 §3 requires octets beyond it to be treated as padding and
+      // ignored, and some NASes pad replies to a minimum frame size. Hashing
+      // the whole datagram would reject those valid ACKs as "invalid
+      // authenticator".
+      const declaredLen = msg.readUInt16BE(2);
+      if (declaredLen < 20 || declaredLen > msg.length) {
+        logger.warn({ nasIp, declaredLen, len: msg.length }, 'Ignoring RADIUS reply with invalid Length field');
+        return;
+      }
       const md5 = crypto.createHash('md5');
       md5.update(msg.subarray(0, 4));
       md5.update(authenticator);
-      md5.update(msg.subarray(20));
+      md5.update(msg.subarray(20, declaredLen));
       md5.update(Buffer.from(secret, 'utf8'));
       if (!crypto.timingSafeEqual(md5.digest(), msg.subarray(4, 20))) {
         logger.warn({ nasIp }, 'Ignoring RADIUS reply with invalid Response Authenticator');
@@ -716,10 +732,14 @@ function sendRadiusPacket(nasIp, port, secret, code, username, extraAttributes =
 /**
  * Send a RADIUS packet with automatic failover to a secondary NAS.
  *
- * Failover fires on ANY primary failure — socket error, timeout, or NAK. A
- * NAK commonly means "no such session here", which in a redundant-router pair
- * is exactly when the secondary may be the one holding the session. Worst
- * case the secondary NAKs too — harmless.
+ * Failover fires when the primary gave NO usable answer — timeout (dead NAS,
+ * wrong secret: both stay silent) or socket error. A NAK does NOT fail over:
+ * it is an authoritative "no such session here" from a live NAS — routine
+ * whenever the subscriber is offline (the home-NAS safety net in
+ * resolveCoaTargets guarantees such sends) — and failing over on it would
+ * bypass the DB-resolved per-session targeting (an Acct-Session-Id-scoped
+ * kill could land on a colliding session at a NAS that was never a resolved
+ * target).
  *
  * @param {object} nas - NAS row with ip_address, coa_port, secret, secondary_nas_id
  * @param {number} code - RADIUS code (40=Disconnect, 43=CoA)
@@ -731,9 +751,9 @@ async function sendWithFailover(nas, code, username, extraAttributes = []) {
   const port = nas.coa_port || 3799;
   const result = await sendRadiusPacket(nas.ip_address, port, nas.secret, code, username, extraAttributes);
 
-  if (!result.sent && nas.secondary_nas_id) {
+  if (!result.sent && result.outcome !== 'nak' && nas.secondary_nas_id) {
     logger.warn(
-      { primaryNasIp: nas.ip_address, secondaryNasId: nas.secondary_nas_id },
+      { primaryNasIp: nas.ip_address, secondaryNasId: nas.secondary_nas_id, outcome: result.outcome },
       'Primary NAS send failed — attempting failover to secondary NAS',
     );
 
@@ -749,7 +769,14 @@ async function sendWithFailover(nas, code, username, extraAttributes = []) {
         { secondaryNasIp: secondary.ip_address, secondaryPort },
         'Sending RADIUS packet via secondary NAS',
       );
-      return sendRadiusPacket(secondary.ip_address, secondaryPort, secondary.secret, code, username, extraAttributes);
+      const secondaryResult = await sendRadiusPacket(secondary.ip_address, secondaryPort, secondary.secret, code, username, extraAttributes);
+      // Keep the primary's answer visible in audit rows: a "Timeout" that
+      // was really "primary silent, secondary NAKed" sends an operator
+      // chasing the wrong box.
+      return {
+        ...secondaryResult,
+        response: `${secondaryResult.response} (failover; primary: ${result.response})`,
+      };
     }
 
     logger.error({ secondaryNasId: nas.secondary_nas_id }, 'Secondary NAS not found — failover aborted');

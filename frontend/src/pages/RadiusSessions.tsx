@@ -345,12 +345,19 @@ export function RadiusSessions() {
           nas_ip_address: disconnectTarget.nas_ip_address,
         }
         : {};
-      await apiFetch(`/radius/${radiusId}/disconnect`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      setDisconnectSuccess(`Session for ${disconnectTarget.username} disconnected.`);
-      qc.invalidateQueries({ queryKey: ['radius-active-sessions'] });
+      const result = await apiFetch<{ data: { sent: boolean; response: string } }>(
+        `/radius/${radiusId}/disconnect`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      // The route returns 200 with sent:false when no NAS acknowledged the
+      // Disconnect (timeout/NAK) — the session is still up, so showing the
+      // green "disconnected" message would be a lie.
+      if (result.data?.sent) {
+        setDisconnectSuccess(`Session for ${disconnectTarget.username} disconnected.`);
+        qc.invalidateQueries({ queryKey: ['radius-active-sessions'] });
+      } else {
+        setDisconnectError(`Disconnect was not acknowledged by the NAS: ${result.data?.response ?? 'no response'}`);
+      }
     } catch (err) {
       setDisconnectError(err instanceof Error ? err.message : 'Disconnect failed');
     } finally {
@@ -523,11 +530,25 @@ export function RadiusSessions() {
       {/* Batch result (when no selection active) */}
       {batchResult && selectedIds.size === 0 && (
         <div style={s.batchResultBar}>
-          {t('radius_sessions.batch_success', {
-            succeeded: batchResult.meta.succeeded,
-            failed: batchResult.meta.failed,
-          })}
-          <button style={s.batchDismissBtn} onClick={() => setBatchResult(null)}>✕</button>
+          <div style={s.batchResultHead}>
+            {t('radius_sessions.batch_success', {
+              succeeded: batchResult.meta.succeeded,
+              failed: batchResult.meta.failed,
+            })}
+            <button style={s.batchDismissBtn} onClick={() => setBatchResult(null)}>✕</button>
+          </div>
+          {/* Per-item failures: some errors carry the required action (e.g.
+              "ambiguous — retry with nas_ip_address"); a bare failed-count
+              gives the operator nothing to act on. */}
+          {batchResult.data.some(r => !r.success) && (
+            <ul style={s.batchErrorList}>
+              {batchResult.data.filter(r => !r.success).map((r, i) => (
+                <li key={i}>
+                  {r.session_id ?? r.username ?? '—'} — {r.error ?? 'failed'}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -743,10 +764,17 @@ const s: Record<string, CSSProperties> = {
   },
   batchResult: { color: '#1d4ed8', fontSize: '0.85rem' },
   batchResultBar: {
-    display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between',
+    display: 'flex', flexDirection: 'column', gap: '0.25rem',
     marginBottom: '0.75rem', padding: '0.5rem 0.75rem',
     background: '#f0fdf4', borderRadius: 6, border: '1px solid #bbf7d0',
     color: '#15803d', fontSize: '0.85rem',
+  },
+  batchResultHead: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between',
+  },
+  batchErrorList: {
+    margin: '0.25rem 0 0', paddingLeft: '1.2rem',
+    color: '#b45309', fontSize: '0.8rem',
   },
   batchDismissBtn: {
     background: 'transparent', border: 'none', cursor: 'pointer',
