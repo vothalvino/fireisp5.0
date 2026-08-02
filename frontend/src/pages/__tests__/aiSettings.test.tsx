@@ -258,9 +258,12 @@ describe('AIAssistantSettings page', () => {
       await waitFor(() => expect(screen.getByText('OpenAI Main')).toBeInTheDocument());
     });
 
-    it('shows provider kind badge', async () => {
+    it('shows provider kind badge by its label, not the raw slug', async () => {
       goToProviders();
-      await waitFor(() => expect(screen.getByText('openai')).toBeInTheDocument());
+      // The badge now reads "OpenAI", not "openai". getByText is exact, so it
+      // will not collide with the provider's name "OpenAI Main".
+      await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument());
+      expect(screen.queryByText('openai')).not.toBeInTheDocument();
     });
 
     it('clicking Test button calls verify endpoint and shows success', async () => {
@@ -358,6 +361,16 @@ describe('AIAssistantSettings page', () => {
       await openAddProviderModal();
       const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
       expect([...kindSelect.options].map(o => o.value)).toContain('openrouter');
+    });
+
+    it('shows the OpenRouter option by its brand name, not the raw slug', async () => {
+      // The dropdown rendered raw slugs, so the option read "openrouter"
+      // (lowercase, sixth) and a user looking for "OpenRouter" could not find
+      // it. The value stays the slug; only the visible text is the label.
+      await openAddProviderModal();
+      const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
+      const opt = [...kindSelect.options].find(o => o.value === 'openrouter');
+      expect(opt?.textContent).toBe('OpenRouter');
     });
 
     it('does not fetch the live model list for other kinds', async () => {
