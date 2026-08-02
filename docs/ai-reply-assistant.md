@@ -64,7 +64,7 @@ Create migration **`database/migrations/169_ai_assistant.sql`** that adds:
 | `id` | BIGINT PK | |
 | `organization_id` | BIGINT FK | |
 | `name` | VARCHAR(100) | display name, e.g. "OpenAI prod" |
-| `kind` | ENUM('openai','azure_openai','anthropic','gemini','ollama','custom') | |
+| `kind` | ENUM('openai','azure_openai','anthropic','gemini','ollama','custom','openrouter') | `openrouter` added in migration 442 |
 | `model` | VARCHAR(100) | e.g. `gpt-4o-mini`, `claude-3-5-sonnet`, `llama3.1:8b` |
 | `endpoint_url` | VARCHAR(500) NULL | for self-hosted / Azure |
 | `api_key_encrypted` | TEXT NULL | encrypted via existing `Setting` encryption helper |
@@ -193,7 +193,24 @@ Internally dispatches by `provider.kind`:
 - `anthropic` → `@anthropic-ai/sdk`
 - `gemini` → `@google/generative-ai`
 - `ollama` → plain `fetch` to `endpoint_url`
+- `openrouter` → `openai` SDK with `baseURL` fixed to `https://openrouter.ai/api/v1`
 - `custom` → POST to `endpoint_url` with org-defined header map
+
+**OpenRouter** is one API in front of hundreds of models from many vendors. It
+needs only an API key and a model id — the endpoint is supplied by the app, and
+the model is chosen from a picker fed by OpenRouter's public catalog
+(`GET /ai/providers/models`, cached for an hour), so the list never goes stale.
+
+Two consequences worth knowing:
+
+- **Cost comes from that catalog, not the static price table.** The table knows
+  a handful of first-party model names; OpenRouter exposes hundreds under
+  namespaced ids like `anthropic/claude-sonnet-4.5`, so every call would
+  otherwise record `$0`. Rates are quoted per token and separately for prompt and
+  completion, which is also more accurate than the blended per-1k figure.
+- **The catalog is fetched only while an admin is configuring an OpenRouter
+  provider** — no timer, no startup call. An install that never touches
+  OpenRouter never contacts `openrouter.ai`.
 
 Behaviour:
 

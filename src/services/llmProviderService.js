@@ -38,7 +38,12 @@
 const AiProvider  = require('../models/AiProvider');
 const { decrypt } = require('../utils/encryption');
 const { AppError } = require('../utils/errors');
+const openRouterCatalog = require('./openRouterCatalog');
 const logger = require('../utils/logger').child({ service: 'llmProviderService' });
+
+// The one correct OpenRouter base URL, so an admin never has to supply it.
+// endpoint_url stays honoured when set, for a proxy or a private gateway.
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // ---------------------------------------------------------------------------
 // Retry config
@@ -411,6 +416,73 @@ async function _callCustom(provider, apiKey, messages, jsonSchema, signal) {
 }
 
 /**
+ * Call OpenRouter.
+ *
+ * OpenRouter speaks the OpenAI chat-completions API, so this reuses the OpenAI
+ * SDK with a different baseURL rather than reimplementing the protocol. That is
+ * also why it worked through the generic 'custom' kind before this existed —
+ * what a first-class kind adds is that the endpoint, the Bearer prefix and the
+ * attribution headers are supplied instead of hand-written into extra_config.
+ *
+ * COST IS NOT TAKEN FROM PRICE_TABLE. That table knows a handful of first-party
+ * model names; OpenRouter exposes hundreds under namespaced ids like
+ * `anthropic/claude-sonnet-4.5`, so every call would log "unknown model" and
+ * record 0. Rates come from the live catalog instead, which quotes prompt and
+ * completion separately — more accurate than the blended per-1k figure the
+ * static table uses. When the catalog is unreachable the cost is null, meaning
+ * "unknown", which the caller must not confuse with free.
+ */
+async function _callOpenRouter(provider, apiKey, messages, jsonSchema, signal) {
+  const { OpenAI } = require('openai');
+  const cfg = _parseExtraConfig(provider.extra_config);
+
+  // Optional and attribution-only: OpenRouter uses these to credit traffic on
+  // its public leaderboard. Nothing about the install is disclosed unless the
+  // operator sets them.
+  const headers = {};
+  if (cfg.site_url) headers['HTTP-Referer'] = cfg.site_url;
+  if (cfg.app_name) headers['X-Title'] = cfg.app_name;
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: (provider.endpoint_url || OPENROUTER_BASE_URL).replace(/\/$/, ''),
+    timeout: provider.timeout_ms || 20000,
+    defaultHeaders: headers,
+  });
+
+  const params = {
+    model: provider.model,
+    messages,
+    temperature: parseFloat(provider.temperature) || 0.2,
+    max_tokens: provider.max_tokens || 800,
+  };
+  if (jsonSchema) params.response_format = { type: 'json_object' };
+
+  const completion = await client.chat.completions.create(params, { signal });
+
+  const choice = completion.choices?.[0];
+  const text = choice?.message?.content || '';
+  const usage = completion.usage || {};
+  const promptTokens = usage.prompt_tokens || 0;
+  const completionTokens = usage.completion_tokens || 0;
+
+  const cost = openRouterCatalog.estimateCost(provider.model, promptTokens, completionTokens);
+  if (cost === null) {
+    logger.warn(
+      { kind: provider.kind, model: provider.model },
+      'llmProviderService: model not in the OpenRouter catalog — cost unknown, recorded as 0',
+    );
+  }
+
+  return {
+    text,
+    json: jsonSchema ? _parseJson(text) : null,
+    usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens },
+    cost_usd: cost === null ? 0 : cost,
+  };
+}
+
+/**
  * Dispatch to the correct per-kind adapter.
  */
 async function _callProviderOnce(provider, apiKey, messages, jsonSchema, signal) {
@@ -424,6 +496,8 @@ async function _callProviderOnce(provider, apiKey, messages, jsonSchema, signal)
       return _callGemini(provider, apiKey, messages, jsonSchema, signal);
     case 'ollama':
       return _callOllama(provider, apiKey, messages, jsonSchema, signal);
+    case 'openrouter':
+      return _callOpenRouter(provider, apiKey, messages, jsonSchema, signal);
     case 'custom':
       return _callCustom(provider, apiKey, messages, jsonSchema, signal);
     default:

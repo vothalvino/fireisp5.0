@@ -41,6 +41,7 @@ const AiProvider       = require('../models/AiProvider');
 const AiReplyLog       = require('../models/AiReplyLog');
 const phraseLibraryService = require('../services/phraseLibraryService');
 const llmProviderService   = require('../services/llmProviderService');
+const openRouterCatalog    = require('../services/openRouterCatalog');
 const aiReplyService       = require('../services/aiReplyService');
 const { encrypt }           = require('../utils/encryption');
 const { NotFoundError, ValidationError } = require('../utils/errors');
@@ -129,6 +130,19 @@ const PROVIDER_CATALOG = [
     models: ['llama3.1:8b', 'llama3.1:70b', 'mistral:7b', 'qwen2.5:14b'],
   },
   {
+    // Listed before 'custom' because it is the friendlier way to reach the same
+    // hundreds of models: no endpoint, no headers map, and a live picker.
+    kind: 'openrouter',
+    label: 'OpenRouter',
+    requiresApiKey: true,
+    requiresEndpoint: false,
+    // Empty on purpose. Any list here would be stale within weeks; the frontend
+    // loads GET /providers/models instead, which mirrors OpenRouter's live
+    // catalog. `dynamicModels` is the flag that tells it to.
+    models: [],
+    dynamicModels: true,
+  },
+  {
     kind: 'custom',
     label: 'Custom (OpenAI-compatible)',
     requiresApiKey: false,
@@ -144,6 +158,50 @@ const PROVIDER_CATALOG = [
  */
 router.get('/providers/catalog', requirePermission('ai.providers.read'), (_req, res) => {
   res.json({ data: PROVIDER_CATALOG });
+});
+
+/**
+ * GET /api/v1/ai/providers/models?kind=openrouter[&force=1]
+ *
+ * The live model list for a kind whose roster changes too often to hardcode.
+ * Only 'openrouter' has one today; every other kind's models come from the
+ * static catalog above.
+ *
+ * Must be declared BEFORE /:id — a literal path after a param route is
+ * unreachable, which is a mistake this file's route order already guards
+ * against for /catalog.
+ *
+ * NEVER 5xx's ON AN UPSTREAM FAILURE. The picker degrades to a free-text field,
+ * so a third party being down must not make the provider form unusable — it
+ * returns 200 with an empty list and an `error` the UI can show.
+ */
+router.get('/providers/models', requirePermission('ai.providers.read'), async (req, res, next) => {
+  try {
+    const kind = String(req.query.kind || 'openrouter');
+    if (kind !== 'openrouter') {
+      return res.status(400).json({
+        error: {
+          code: 'UNSUPPORTED_KIND',
+          message: `Kind "${kind}" has no live model catalog. Use GET /ai/providers/catalog for its recommended models.`,
+        },
+      });
+    }
+
+    // `force` bypasses the cache for an admin who just saw a model announced.
+    // The service still applies its own in-flight collapsing, so holding the
+    // button down cannot fan out into repeated upstream calls.
+    const result = await openRouterCatalog.getModels({ force: req.query.force === '1' });
+
+    res.json({
+      data: {
+        kind,
+        models: result.models,
+        cached_at: result.cached_at,
+        stale: result.stale,
+        error: result.error,
+      },
+    });
+  } catch (err) { next(err); }
 });
 
 /**
