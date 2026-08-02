@@ -166,6 +166,12 @@ authorize_reply_query = " \
 
 ### Accounting (write to connection_logs)
 
+> **Note:** `nas_id` is resolved from the packet's `NAS-IP-Address` (the
+> *serving* NAS), not copied from `radius.nas_id` (the home NAS).
+> Authentication is NAS-agnostic, so a subscriber may be online through any
+> registered NAS — FireISP's CoA/Disconnect targeting reads these rows to find
+> the router the session actually lives on.
+
 ```sql
 accounting_start_query = " \
     INSERT INTO connection_logs \
@@ -173,7 +179,7 @@ accounting_start_query = " \
          ip_address, nas_id, nas_ip_address, event_type, event_at) \
     SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
            '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           r.nas_id, '%{NAS-IP-Address}', 'start', NOW() \
+           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'start', NOW() \
     FROM radius r \
     WHERE r.username = '%{SQL-User-Name}' \
     LIMIT 1"
@@ -186,7 +192,7 @@ accounting_stop_query = " \
          session_duration, terminate_cause, event_at) \
     SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
            '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           r.nas_id, '%{NAS-IP-Address}', 'stop', \
+           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'stop', \
            '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
            '%{Acct-Input-Packets}', '%{Acct-Output-Packets}', \
            '%{Acct-Session-Time}', '%{Acct-Terminate-Cause}', NOW() \
@@ -201,7 +207,7 @@ accounting_update_query = " \
          bytes_in, bytes_out, session_duration, event_at) \
     SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
            '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           r.nas_id, '%{NAS-IP-Address}', 'interim-update', \
+           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'interim-update', \
            '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
            '%{Acct-Session-Time}', NOW() \
     FROM radius r \
@@ -269,10 +275,23 @@ FireISP sends RADIUS Change-of-Authorization (CoA) and Disconnect messages via U
 
 ### How it works
 
-1. The suspension service sends a **Disconnect-Request** to the NAS when a contract is suspended
+1. The suspension service sends a **Disconnect-Request** when a contract is suspended
 2. The NAS terminates the PPPoE session
 3. On reconnection attempt, the subscriber's `status = 'suspended'` causes FreeRADIUS to reject authentication
 4. When service is restored, the status is set back to `active`
+
+### NAS targeting (roaming-aware)
+
+Authentication is NAS-agnostic — any NAS registered in the `nas` table can
+authenticate any RADIUS account, so a subscriber may be online through a
+different router than the "home" NAS stored in `radius.nas_id`. CoA and
+Disconnect packets are therefore sent to **every NAS with an open session for
+the subscriber** (resolved from `connection_logs`), plus the home NAS as a
+safety net for deployments where accounting is disabled or lagging. A
+Disconnect/CoA for a username with no session on that NAS is answered with a
+harmless NAK. Per-session operations (duplicate-session kick, batch
+force-disconnect) additionally include an `Acct-Session-Id` attribute so only
+the targeted session is terminated.
 
 ### Environment variables
 

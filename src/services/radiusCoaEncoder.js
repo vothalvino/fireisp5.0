@@ -138,6 +138,28 @@ function encodeCiscoAvPair(avPairStr) {
 }
 
 /**
+ * Encode an Acct-Session-Id attribute (RFC 2866 §5.5, type 44).
+ * In a Disconnect-Request (RFC 5176) this narrows the kill to ONE session
+ * instead of every session matching User-Name — used by the duplicate-session
+ * kicker and the batch force-disconnect endpoint.
+ * @param {string} sessionId
+ * @returns {Buffer} type=44, length=2+len, value=utf8 string
+ */
+function encodeAcctSessionId(sessionId) {
+  const valueBytes = Buffer.from(String(sessionId), 'utf8');
+  // Same overflow guard as encodeAttributes: the single-byte TLV length would
+  // silently wrap mod 256 and emit a corrupt attribute.
+  if (valueBytes.length > 253) {
+    throw new Error(`Acct-Session-Id too long: ${valueBytes.length} bytes (max 253)`);
+  }
+  const buf = Buffer.alloc(2 + valueBytes.length);
+  buf[0] = 44;
+  buf[1] = 2 + valueBytes.length;
+  valueBytes.copy(buf, 2);
+  return buf;
+}
+
+/**
  * Encode a WISPr bandwidth attribute (vendor 14122). 32-bit integer, bits/sec.
  * Down = attr 7, Up = attr 8.
  */
@@ -186,6 +208,7 @@ function encodeAttributes(attrList) {
 const NAMED_ENCODERS = {
   'User-Name': encodeUserName,
   'Framed-IP-Address': encodeFramedIPAddress,
+  'Acct-Session-Id': encodeAcctSessionId,
   'Mikrotik-Rate-Limit': encodeMikrotikRateLimit,
   'Mikrotik-Address-List': encodeMikrotikAddressList,
   'Cisco-AVPair': encodeCiscoAvPair,
@@ -266,6 +289,7 @@ module.exports = {
   encodeMikrotikRateLimit,
   encodeMikrotikAddressList,
   encodeCiscoAvPair,
+  encodeAcctSessionId,
   encodeWisprBandwidthMaxDown,
   encodeWisprBandwidthMaxUp,
   encodeAttributes,
