@@ -215,7 +215,12 @@ function OrgConfigTab() {
               <td style={{ ...sty.td, color: '#888', fontSize: '0.82rem' }}>{setting.description ?? ''}</td>
               <td style={sty.td}>
                 {!setting.editable ? (
-                  <span style={sty.muted}>{t('settingsPage.operatorOnly')}</span>
+                  // Why it is not editable differs by scope: an install row
+                  // needs the operator, an org row just needs settings.update.
+                  // One label for both would tell a viewer something false.
+                  <span style={sty.muted}>
+                    {t(setting.scope === 'install' ? 'settingsPage.operatorOnly' : 'settingsPage.readOnly')}
+                  </span>
                 ) : editKey === setting.key ? (
                   <span style={sty.rowActions}>
                     <button style={sty.btnPrimary} disabled={updateMutation.isPending}

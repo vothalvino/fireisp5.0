@@ -12,7 +12,8 @@
     "save": "Salvar",
     "cancel": "Cancelar",
     "edit": "Editar",
-    "operatorOnly": "Somente o operador da instalação"
+    "operatorOnly": "Somente o operador da instalação",
+    "readOnly": "Somente leitura"
   },
   "common": {
     "email": "E-mail",

@@ -420,3 +420,59 @@ describe('/system/* refuses API tokens outright', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The rest of the /organizations/:id surface (same guard, same reason)
+// ---------------------------------------------------------------------------
+// These sub-routes had NO ownership check at all: :id was attacker-chosen and
+// GET / lists the ids. email-settings is the sharp one — it carries the org's
+// outbound mail identity and credentials state.
+
+describe('per-org config sub-routes are ownership-guarded', () => {
+  const OTHER_ORG = 1; // TENANT_ADMIN lives in org 2
+
+  it.each([
+    ['get', `/api/v1/organizations/${OTHER_ORG}/quota`],
+    ['get', `/api/v1/organizations/${OTHER_ORG}/email-settings`],
+    ['get', `/api/v1/organizations/${OTHER_ORG}/database-isolation`],
+    ['get', `/api/v1/organizations/${OTHER_ORG}/settings`],
+  ])('403s a tenant admin reading another org (%s %s)', async (method, path) => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)[method](path).set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('403s a tenant admin rewriting another org\'s quota', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .put(`/api/v1/organizations/${OTHER_ORG}/quota`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ max_clients: 999999 });
+    expect(res.status).toBe(403);
+  });
+
+  it('403s a tenant admin rewriting another org\'s name', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .patch(`/api/v1/organizations/${OTHER_ORG}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ name: 'Owned' });
+    expect(res.status).toBe(403);
+  });
+
+  it('lets the caller reach their OWN org', async () => {
+    wireDb({ user: TENANT_ADMIN });
+    const res = await request(app)
+      .get(`/api/v1/organizations/${TENANT_ADMIN.organization_id}/settings`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('lets the install operator reach any org', async () => {
+    wireDb({ user: OPERATOR });
+    const res = await request(app)
+      .get('/api/v1/organizations/7/settings')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
+    expect(res.status).toBe(200);
+  });
+});

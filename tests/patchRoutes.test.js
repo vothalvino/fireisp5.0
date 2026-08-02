@@ -78,7 +78,7 @@ function describePatch(name, path, mockRecord, patchBody, updatedRecord) {
       expect(res.body.data).toBeDefined();
     });
 
-    test('returns 404 when record not found', async () => {
+    test('does not update a record the caller cannot reach', async () => {
       mockAuthUser();
       db.query.mockResolvedValueOnce([[]]);
 
@@ -87,7 +87,11 @@ function describePatch(name, path, mockRecord, patchBody, updatedRecord) {
         .set('Authorization', `Bearer ${authToken}`)
         .send(patchBody);
 
-      expect(res.status).toBe(404);
+      // 404 for org-scoped resources (id 999 is not in the caller's org).
+      // /organizations is the exception: its ownership guard runs BEFORE the
+      // lookup and answers 403, which is the better answer anyway — a tenant
+      // should not be able to probe which organisation ids exist (j56).
+      expect([403, 404]).toContain(res.status);
     });
 
     test('returns 401 without auth header', async () => {

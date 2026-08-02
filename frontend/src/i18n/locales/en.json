@@ -12,7 +12,8 @@
     "save": "Save",
     "cancel": "Cancel",
     "edit": "Edit",
-    "operatorOnly": "Install operator only"
+    "operatorOnly": "Install operator only",
+    "readOnly": "Read only"
   },
   "common": {
     "email": "Email",
