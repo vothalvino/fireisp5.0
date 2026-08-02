@@ -59,6 +59,21 @@ const term1 = {
   id: 1, term: 'cancel', locale: 'en', created_at: '2025-01-01',
 };
 
+const openRouterModels = [
+  {
+    id: 'anthropic/claude-sonnet-4.5', name: 'Anthropic: Claude Sonnet 4.5',
+    context_length: 200000, prompt_price: 0.000003, completion_price: 0.000015, free: false,
+  },
+  {
+    id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Meta: Llama 3.1 8B Instruct (free)',
+    context_length: 131072, prompt_price: 0, completion_price: 0, free: true,
+  },
+  {
+    id: 'somevendor/mystery-model', name: 'SomeVendor: Mystery Model',
+    context_length: null, prompt_price: null, completion_price: null, free: false,
+  },
+];
+
 const metrics = {
   drafts_total: 42, auto_sent: 7, sent_or_edited: 30, discarded: 5,
   edit_rate: 0.71, auto_send_rate: 0.17, cost_usd_total: 0.0234,
@@ -83,11 +98,26 @@ function makeJsonResponse(body: unknown, ok = true) {
   } as Response;
 }
 
+/** Payload for GET /ai/providers/models — overridden per-test, reset in beforeEach. */
+const DEFAULT_MODELS_PAYLOAD = {
+  data: {
+    kind: 'openrouter',
+    models: openRouterModels,
+    cached_at: '2025-01-01T00:00:00Z',
+    stale: false,
+    error: null,
+  },
+};
+let modelsPayload: unknown = DEFAULT_MODELS_PAYLOAD;
+
 function setup() {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
     const path = typeof url === 'string' ? url.replace(/\?.*/, '') : '';
 
+    // Must be matched before /ai/providers — literal path, same prefix.
+    if (path.endsWith('/ai/providers/models') && method === 'GET')
+      return Promise.resolve(makeJsonResponse(modelsPayload));
     if (path.endsWith('/ai/policy') && method === 'GET')
       return Promise.resolve(makeJsonResponse({ data: defaultPolicy }));
     if (path.endsWith('/ai/policy') && method === 'PUT')
@@ -138,6 +168,7 @@ function setup() {
 describe('AIAssistantSettings page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    modelsPayload = DEFAULT_MODELS_PAYLOAD;
   });
 
   it('renders the page heading', () => {
@@ -298,6 +329,143 @@ describe('AIAssistantSettings page', () => {
       await waitFor(() => expect(screen.getByText(/\+ Add Provider/i)).toBeInTheDocument());
       fireEvent.click(screen.getByText(/\+ Add Provider/i));
       expect(screen.getByRole('dialog', { name: /Add Provider/i })).toBeInTheDocument();
+    });
+  });
+
+  // ---- OpenRouter live model picker ----------------------------------------
+
+  describe('OpenRouter model picker', () => {
+    async function openAddProviderModal() {
+      const rendered = setup();
+      fireEvent.click(screen.getByText(/🔌 Providers/i));
+      await waitFor(() => expect(screen.getByText(/\+ Add Provider/i)).toBeInTheDocument());
+      fireEvent.click(screen.getByText(/\+ Add Provider/i));
+      await waitFor(() => expect(screen.getByRole('dialog', { name: /Add Provider/i })).toBeInTheDocument());
+      return rendered;
+    }
+
+    function modelCalls() {
+      return (mockFetch.mock.calls as Array<[string, RequestInit?]>).filter(
+        ([url]) => typeof url === 'string' && url.includes('/ai/providers/models'),
+      );
+    }
+
+    function selectKind(kind: string) {
+      fireEvent.change(screen.getByLabelText(/Provider kind/i), { target: { value: kind } });
+    }
+
+    it('offers openrouter as a provider kind', async () => {
+      await openAddProviderModal();
+      const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
+      expect([...kindSelect.options].map(o => o.value)).toContain('openrouter');
+    });
+
+    it('does not fetch the live model list for other kinds', async () => {
+      await openAddProviderModal();
+      // Default kind is openai — its model field stays plain free text.
+      const input = screen.getByLabelText(/^Model/i);
+      expect(input).not.toHaveAttribute('list');
+      await waitFor(() => expect(screen.getByLabelText(/API key/i)).toBeInTheDocument());
+      expect(modelCalls()).toHaveLength(0);
+    });
+
+    it('selecting openrouter loads the list and shows a datalist-backed picker', async () => {
+      const { container } = await openAddProviderModal();
+      selectKind('openrouter');
+
+      await waitFor(() => expect(modelCalls()).toHaveLength(1));
+
+      const input = await screen.findByLabelText('Model');
+      expect(input).toHaveAttribute('list', 'ai-provider-model-options');
+
+      const options = [...container.querySelectorAll('datalist#ai-provider-model-options option')];
+      expect(options.map(o => o.getAttribute('value'))).toEqual([
+        'anthropic/claude-sonnet-4.5',
+        'meta-llama/llama-3.1-8b-instruct:free',
+        'somevendor/mystery-model',
+      ]);
+
+      // Prices are per token upstream; the picker quotes them per 1M tokens.
+      expect(options[0].getAttribute('label')).toContain('$3.00/M in');
+      expect(options[0].getAttribute('label')).toContain('$15.00/M out');
+      expect(options[0].getAttribute('label')).toContain('200K ctx');
+      // free === true is labelled Free …
+      expect(options[1].getAttribute('label')).toContain('Free');
+      // … while unknown prices show nothing at all, never "$0".
+      expect(options[2].getAttribute('label')).not.toContain('$');
+      expect(options[2].getAttribute('label')).not.toContain('Free');
+    });
+
+    it('does not refetch when the kind is switched away and back', async () => {
+      await openAddProviderModal();
+      selectKind('openrouter');
+      await waitFor(() => expect(modelCalls()).toHaveLength(1));
+
+      selectKind('openai');
+      await waitFor(() => expect(screen.getByLabelText(/^Model/i)).not.toHaveAttribute('list'));
+
+      selectKind('openrouter');
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveAttribute('list'));
+      expect(modelCalls()).toHaveLength(1);
+    });
+
+    it('Refresh refetches with force=1', async () => {
+      await openAddProviderModal();
+      selectKind('openrouter');
+      await waitFor(() => expect(modelCalls()).toHaveLength(1));
+
+      fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
+      await waitFor(() => expect(modelCalls()).toHaveLength(2));
+      expect(modelCalls()[1][0]).toContain('force=1');
+    });
+
+    it('flags a stale list but still uses it', async () => {
+      modelsPayload = { data: { ...DEFAULT_MODELS_PAYLOAD.data, stale: true } };
+      const { container } = await openAddProviderModal();
+      selectKind('openrouter');
+
+      await waitFor(() => expect(screen.getByText(/may be out of date/i)).toBeInTheDocument());
+      expect(container.querySelectorAll('datalist#ai-provider-model-options option')).toHaveLength(3);
+    });
+
+    it('an upstream error falls back to a free-text model field', async () => {
+      modelsPayload = {
+        data: {
+          kind: 'openrouter', models: [], cached_at: null, stale: false,
+          error: 'OpenRouter unreachable (502)',
+        },
+      };
+      const { container } = await openAddProviderModal();
+      selectKind('openrouter');
+
+      await waitFor(() => expect(screen.getByText(/OpenRouter unreachable \(502\)/)).toBeInTheDocument());
+
+      const input = screen.getByLabelText('Model') as HTMLInputElement;
+      expect(input).not.toHaveAttribute('list');
+      expect(container.querySelector('datalist')).toBeNull();
+
+      // The provider must still be configurable by typing the id.
+      fireEvent.change(input, { target: { value: 'anthropic/claude-sonnet-4.5' } });
+      expect(input.value).toBe('anthropic/claude-sonnet-4.5');
+    });
+
+    it('a thrown fetch error also falls back to free text', async () => {
+      const rendered = setup();
+      const realImpl = mockFetch.getMockImplementation()!;
+      mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (typeof url === 'string' && url.includes('/ai/providers/models'))
+          return Promise.resolve(makeJsonResponse({ error: 'Boom' }, false));
+        return realImpl(url, init);
+      });
+
+      fireEvent.click(screen.getByText(/🔌 Providers/i));
+      await waitFor(() => expect(screen.getByText(/\+ Add Provider/i)).toBeInTheDocument());
+      fireEvent.click(screen.getByText(/\+ Add Provider/i));
+      selectKind('openrouter');
+
+      await waitFor(() => expect(screen.getByText(/Boom/)).toBeInTheDocument());
+      expect(screen.getByLabelText('Model')).not.toHaveAttribute('list');
+      expect(rendered.container.querySelector('datalist')).toBeNull();
     });
   });
 

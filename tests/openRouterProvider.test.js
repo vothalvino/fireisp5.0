@@ -97,6 +97,24 @@ describe('the kind is declared consistently across the stack', () => {
     const dispatch = src.slice(src.indexOf('async function _callProviderOnce'));
     expect(dispatch).toMatch(/case 'openrouter':/);
   });
+
+  it('the UI offers every kind the backend accepts', () => {
+    // AIAssistantSettings.tsx keeps its OWN PROVIDER_KINDS list rather than
+    // reading GET /providers/catalog, so the two can drift — and the failure is
+    // silent in the worst direction: a kind the backend fully supports simply
+    // never appears in the dropdown, so nobody can select it and nobody sees an
+    // error. Driving the form off the catalog is the real fix and is filed
+    // separately; this at least makes the drift fail loudly here.
+    const page = fs.readFileSync(
+      path.join(__dirname, '..', 'frontend', 'src', 'pages', 'AIAssistantSettings.tsx'), 'utf8',
+    );
+    const line = page.split('\n').find((l) => l.startsWith('const PROVIDER_KINDS'));
+    expect(line).toBeDefined();
+    const uiKinds = [...line.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    for (const kind of PROVIDER_KINDS) {
+      expect(uiKinds).toContain(kind);
+    }
+  });
 });
 
 describe('GET /ai/providers/catalog advertises a live model list', () => {
