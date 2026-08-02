@@ -50,6 +50,13 @@ const sampleNode = {
 
 function mockDbDefault() {
   db.query.mockImplementation((sql) => {
+    // Install-operator lookup — poller nodes are a capacity unit of the
+    // DEPLOYMENT, so the write verbs belong to whoever runs the install rather
+    // than to any tenant's technician (j36). This admin is the operator; the
+    // refusal path has its own suite in pollerNodeOperatorWrites.test.js.
+    if (typeof sql === 'string' && sql.includes('SELECT is_install_operator FROM users')) {
+      return Promise.resolve([[{ is_install_operator: 1 }]]);
+    }
     // Auth user lookup
     if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('poller')) {
       return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);

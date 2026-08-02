@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/api/client';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 import { LoadingState } from '@/components/FetchStates';
@@ -178,6 +179,13 @@ function NodeForm({ initial, onSave, onClose, saving, editMode }: NodeFormProps)
 export function PollerNodeList() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  // A poller node is a capacity unit of the DEPLOYMENT, not tenant data — you
+  // add one when a single box can no longer keep up. Technicians need to SEE
+  // poller health for the network they are working on, but the writes belong to
+  // whoever runs the install (j36). Hiding them here matches the backend, which
+  // 403s: a visible button that fails is worse than no button.
+  const { user } = useAuth();
+  const canManage = user?.is_install_operator === true;
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('active');
   const [showForm, setShowForm] = useState(false);
@@ -235,9 +243,11 @@ export function PollerNodeList() {
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>{t('poller_nodes.title', 'Poller Nodes')}</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
-        <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowForm(true)}>
-          + {t('poller_nodes.new', 'New Poller Node')}
-        </button>
+        {canManage && (
+          <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowForm(true)}>
+            + {t('poller_nodes.new', 'New Poller Node')}
+          </button>
+        )}
       </div>
 
       {feedback && (
@@ -285,8 +295,16 @@ export function PollerNodeList() {
                     <td style={styles.td}>{n.avg_poll_duration_ms ?? '—'}</td>
                     <td style={styles.td}>{n.last_heartbeat_at ? new Date(n.last_heartbeat_at).toLocaleString() : '—'}</td>
                     <td style={styles.td}>
-                      <button style={{ ...styles.btnSecondary, fontSize: '0.78rem', padding: '0.25rem 0.6rem', marginRight: 4 }} onClick={() => setEditing(n)}>Edit</button>
-                      <button style={{ ...styles.btnDanger, fontSize: '0.78rem', padding: '0.25rem 0.6rem' }} onClick={() => setDeleteConfirm(n.id)}>Delete</button>
+                      {canManage ? (
+                        <>
+                          <button style={{ ...styles.btnSecondary, fontSize: '0.78rem', padding: '0.25rem 0.6rem', marginRight: 4 }} onClick={() => setEditing(n)}>Edit</button>
+                          <button style={{ ...styles.btnDanger, fontSize: '0.78rem', padding: '0.25rem 0.6rem' }} onClick={() => setDeleteConfirm(n.id)}>Delete</button>
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--text-faint)', fontSize: '0.78rem' }}>
+                          {t('poller_nodes.operatorOnly', 'Install operator only')}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
