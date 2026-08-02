@@ -234,8 +234,19 @@ async function applySpeedWindows(organizationId) {
       for (const contract of contracts) {
         try {
           const result = await radiusService.changeOfAuth(contract.id, 'update', named);
-          if (result && result.sent === false) summary.coa_skipped_no_radius++;
-          else summary.coa_sent++;
+          // 'no_account'/'no_target' = nothing to CoA (contract without a
+          // RADIUS account or NAS) — a skip, not a failure. Any other unsent
+          // result is a real delivery failure (NAK/timeout/socket error) now
+          // that sent:true requires a CoA-ACK. The radgroupreply rows written
+          // above still cover these subscribers on their next re-auth.
+          if (result && (result.outcome === 'no_account' || result.outcome === 'no_target')) {
+            summary.coa_skipped_no_radius++;
+          } else if (result && result.sent === false) {
+            summary.coa_errors++;
+            logger.warn({ contractId: contract.id, response: result.response }, 'Speed window CoA not acknowledged');
+          } else {
+            summary.coa_sent++;
+          }
         } catch (err) {
           summary.coa_errors++;
           logger.warn({ contractId: contract.id, err: err.message }, 'Speed window CoA failed');

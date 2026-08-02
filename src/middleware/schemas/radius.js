@@ -44,6 +44,16 @@ const updateRadius = {
   inner_vlan_id: { type: 'number', min: 1, max: 4094 },
 };
 
+// POST /:id/disconnect — optional per-session targeting. With
+// acct_session_id the kill is narrowed to that ONE session (nas_ip_address
+// further pins which NAS it lives on — Acct-Session-Id is only unique
+// per-NAS); an empty body keeps the historical behavior of disconnecting
+// EVERY session of the account on every NAS.
+const disconnectRadius = {
+  acct_session_id: { type: 'string', min: 1, max: 253 },
+  nas_ip_address: { type: 'string', min: 1, max: 45 },
+};
+
 const createRoute = {
   destination: { type: 'string', required: true, min: 1, max: 50 },
   gateway: { type: 'string', max: 45 },
@@ -57,4 +67,4 @@ const updateWalledGarden = {
   allowed_destinations: { type: 'string' },
 };
 
-module.exports = { createRadius, updateRadius, createRoute, updateWalledGarden };
+module.exports = { createRadius, updateRadius, disconnectRadius, createRoute, updateWalledGarden };

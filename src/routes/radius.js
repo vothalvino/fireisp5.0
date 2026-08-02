@@ -12,7 +12,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createRadius, updateRadius } = require('../middleware/schemas/radius');
+const { createRadius, updateRadius, disconnectRadius } = require('../middleware/schemas/radius');
 const {
   disconnectSession,
   syncFreeradiusTables,
@@ -124,8 +124,11 @@ router.post('/sync-freeradius', requirePermission('radius.sync'), async (req, re
   }
 });
 
-// Disconnect a subscriber's active PPPoE session via RADIUS Disconnect-Request
-router.post('/:id/disconnect', requirePermission('devices.update'), async (req, res, next) => {
+// Disconnect a subscriber's active PPPoE session via RADIUS Disconnect-Request.
+// With an optional body { acct_session_id, nas_ip_address } the kill is
+// narrowed to that ONE session; an empty body disconnects EVERY session of
+// the account on every NAS (the historical contract, kept for scripts).
+router.post('/:id/disconnect', requirePermission('devices.update'), validate(disconnectRadius), async (req, res, next) => {
   try {
     // SAME TENANCY ANCHOR AS THE BATCH ROUTE BELOW. This lookup had no
     // organisation filter and never touched req.orgId, so any id resolved —
@@ -146,7 +149,45 @@ router.post('/:id/disconnect', requirePermission('devices.update'), async (req, 
     if (!rows.length) {
       return res.status(404).json({ error: 'RADIUS account not found' });
     }
-    const result = await disconnectSession(rows[0].contract_id);
+    const contractId = rows[0].contract_id;
+
+    // Per-session targeting: resolve the DB-canonical session anchored on
+    // THIS contract, never trusting the request strings — the caller-supplied
+    // pair is only a lookup key. This (a) keeps the Acct-Session-Id sent to
+    // the NAS canonical (the PAD SPACE collation matches 'abc   ' to the
+    // stored 'abc', and sending the padded value would NAK), and (b) refuses
+    // to fall back to a contract-wide kill when the targeted session no
+    // longer exists — killing every session because one already stopped is
+    // exactly the surprise this option exists to prevent.
+    const { acct_session_id: acctSessionId, nas_ip_address: nasIpAddress } = req.body || {};
+    let opts;
+    if (acctSessionId) {
+      const [sessionRows] = await db.query(
+        `SELECT cl.session_id, cl.nas_ip_address
+           FROM connection_logs cl
+          WHERE cl.contract_id = ? AND cl.session_id = ?
+            AND (? IS NULL OR cl.nas_ip_address = ?)
+            AND cl.event_type IN ('start', 'interim-update')
+            AND NOT EXISTS (
+              SELECT 1 FROM connection_logs cl2
+              WHERE cl2.session_id = cl.session_id
+                AND cl2.contract_id = cl.contract_id
+                AND cl2.event_type = 'stop'
+            )
+          ORDER BY cl.event_at DESC
+          LIMIT 1`,
+        [contractId, acctSessionId, nasIpAddress ?? null, nasIpAddress ?? null],
+      );
+      if (!sessionRows.length) {
+        return res.status(404).json({ error: 'Session not found or already stopped' });
+      }
+      opts = {
+        acctSessionId: sessionRows[0].session_id,
+        nasIpAddress: sessionRows[0].nas_ip_address,
+      };
+    }
+
+    const result = opts ? await disconnectSession(contractId, opts) : await disconnectSession(contractId);
     res.json({ data: result });
   } catch (err) {
     next(err);
@@ -443,15 +484,34 @@ router.post('/coa', requirePermission('radius.coa'), async (req, res, next) => {
 
 router.post('/sessions/disconnect-batch', requirePermission('radius.batch_disconnect'), async (req, res, next) => {
   try {
-    const { acct_session_ids, usernames } = req.body;
+    const { acct_session_ids, usernames, sessions } = req.body;
 
-    if (!acct_session_ids && !usernames) {
-      return res.status(400).json({ error: 'Provide acct_session_ids or usernames' });
+    if (!acct_session_ids && !usernames && !sessions) {
+      return res.status(400).json({ error: 'Provide acct_session_ids, sessions or usernames' });
+    }
+    if ((acct_session_ids && !Array.isArray(acct_session_ids)) || (usernames && !Array.isArray(usernames))) {
+      return res.status(400).json({ error: 'acct_session_ids and usernames must be arrays' });
     }
 
-    const ids = acct_session_ids || [];
+    // `sessions` entries carry the NAS the session lives on. Acct-Session-Id
+    // is only unique PER NAS (MikroTik reuses short hex ids, so they collide
+    // across routers) — keying on (session_id, nas_ip_address) is the only
+    // way to name one session unambiguously. Bare `acct_session_ids` are
+    // still accepted, but a colliding id gets an explicit error below rather
+    // than the old LIMIT-1-without-ORDER-BY lottery, which could disconnect
+    // a DIFFERENT subscriber holding the same id on another NAS.
+    const sessionList = sessions || [];
+    if (!Array.isArray(sessionList)
+        || sessionList.some((s) => !s || typeof s.acct_session_id !== 'string' || !s.acct_session_id
+          || (s.nas_ip_address !== undefined && s.nas_ip_address !== null && typeof s.nas_ip_address !== 'string'))) {
+      return res.status(400).json({ error: 'Each sessions entry must be { acct_session_id, nas_ip_address? }' });
+    }
+    const sessionTargets = [
+      ...(acct_session_ids || []).map((sessionId) => ({ session_id: sessionId, nas_ip_address: null })),
+      ...sessionList.map((s) => ({ session_id: s.acct_session_id, nas_ip_address: s.nas_ip_address ?? null })),
+    ];
     const names = usernames || [];
-    const totalCount = ids.length + names.length;
+    const totalCount = sessionTargets.length + names.length;
 
     if (totalCount > 100) {
       return res.status(400).json({ error: 'Maximum 100 sessions per batch' });
@@ -462,60 +522,88 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
 
     const results = [];
 
-    // Disconnect by acct_session_ids (session_id values in connection_logs).
-    // 'interim-update' counts as open too — the embedded accounting path
-    // updates the session row in place, so a live session reads
-    // 'interim-update' after its first update.
-    for (const sessionId of ids) {
+    // Disconnect by session (session_id values in connection_logs, optionally
+    // pinned to a NAS). 'interim-update' counts as open too — the embedded
+    // accounting path updates the session row in place, so a live session
+    // reads 'interim-update' after its first update.
+    for (const target of sessionTargets) {
       // JOINED TO contracts SO THE SESSION MUST BELONG TO THE CALLER'S ORG.
       // connection_logs has no organization_id of its own, so the contract is
       // the only tenancy anchor — the same join kickDuplicateSessions uses.
       // Without it, a session_id from another tenant resolved fine and was
       // disconnected, with req.orgId reaching only the audit row.
+      //
+      // No LIMIT 1: every DISTINCT (contract, NAS) match comes back so a
+      // cross-NAS session-id collision is DETECTED instead of resolved by
+      // whichever row MySQL happened to return first.
       const [rows] = await db.query(
         `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id
            FROM connection_logs cl
            JOIN contracts c ON c.id = cl.contract_id
           WHERE cl.session_id = ? AND cl.event_type IN ('start', 'interim-update')
+            AND (? IS NULL OR cl.nas_ip_address = ?)
             AND (? IS NULL OR c.organization_id = ?)
             AND NOT EXISTS (
               SELECT 1 FROM connection_logs cl2
               WHERE cl2.session_id = cl.session_id
                 AND cl2.contract_id = cl.contract_id
                 AND cl2.event_type = 'stop'
-            )
-          LIMIT 1`,
-        [sessionId, req.orgId ?? null, req.orgId ?? null],
+            )`,
+        [target.session_id, target.nas_ip_address, target.nas_ip_address, req.orgId ?? null, req.orgId ?? null],
       );
       // Use the DB-canonical session_id, not the raw request string: the PAD
       // SPACE collation matches 'abc   ' to the stored 'abc', and sending the
       // padded request value in the Acct-Session-Id attribute would NAK.
       if (!rows.length || !rows[0].session_id) {
-        results.push({ session_id: sessionId, success: false, error: 'Session not found or already stopped' });
+        results.push({ session_id: target.session_id, success: false, error: 'Session not found or already stopped' });
         continue;
       }
+      // One real session can surface as two DISTINCT rows when accounting
+      // writers disagree about nas_ip_address (one row NULL, one set) — that
+      // is not a collision. Distinct CONTRACTS, or two different non-null
+      // NAS IPs, are: refuse to guess which session the operator meant.
+      const contractIds = new Set(rows.map((r) => r.contract_id));
+      const nasIps = new Set(rows.map((r) => r.nas_ip_address).filter((ip) => ip !== null));
+      if (contractIds.size > 1 || nasIps.size > 1) {
+        results.push({
+          session_id: target.session_id,
+          success: false,
+          error: 'Ambiguous session id — active on multiple NASes; retry with nas_ip_address',
+        });
+        continue;
+      }
+      const chosen = {
+        contract_id: rows[0].contract_id,
+        session_id: rows[0].session_id,
+        nas_ip_address: nasIps.size > 0 ? [...nasIps][0] : null,
+      };
       try {
         // Target the NAS this session actually lives on and narrow the kill
         // to this one session via Acct-Session-Id.
-        const r = await disconnectSession(rows[0].contract_id, {
-          acctSessionId: rows[0].session_id,
-          nasIpAddress: rows[0].nas_ip_address,
+        const r = await disconnectSession(chosen.contract_id, {
+          acctSessionId: chosen.session_id,
+          nasIpAddress: chosen.nas_ip_address,
         });
         await auditLog.log({
           userId: req.user.id,
           organizationId: req.orgId,
           action: 'disconnect',
           tableName: 'connection_logs',
-          recordId: rows[0].contract_id,
-          newValues: { session_id: rows[0].session_id, initiated_by: 'batch_disconnect', sent: r.sent },
+          recordId: chosen.contract_id,
+          newValues: {
+            session_id: chosen.session_id,
+            nas_ip_address: chosen.nas_ip_address,
+            initiated_by: 'batch_disconnect',
+            sent: r.sent,
+          },
         });
         if (r.sent) {
-          results.push({ session_id: sessionId, success: true });
+          results.push({ session_id: target.session_id, success: true });
         } else {
-          results.push({ session_id: sessionId, success: false, error: r.response });
+          results.push({ session_id: target.session_id, success: false, error: r.response });
         }
       } catch (err) {
-        results.push({ session_id: sessionId, success: false, error: err.message });
+        results.push({ session_id: target.session_id, success: false, error: err.message });
       }
     }
 

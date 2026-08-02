@@ -69,7 +69,8 @@ interface NasSummaryResponse {
 }
 
 interface BatchDisconnectResponse {
-  data: Array<{ username: string; success: boolean; error?: string }>;
+  // session-keyed entries carry session_id, username-keyed entries username
+  data: Array<{ session_id?: string; username?: string; success: boolean; error?: string }>;
   meta: { total: number; succeeded: number; failed: number };
 }
 
@@ -334,7 +335,20 @@ export function RadiusSessions() {
         return;
       }
       const radiusId = radiusAccounts[0].id;
-      await apiFetch(`/radius/${radiusId}/disconnect`, { method: 'POST' });
+      // Target THIS session: without the pair the route falls back to a
+      // contract-wide disconnect that kills every session of the subscriber
+      // on every NAS — a subscriber with two legitimate sessions would lose
+      // both when the operator kicks one row.
+      const body = disconnectTarget.session_id
+        ? {
+          acct_session_id: disconnectTarget.session_id,
+          nas_ip_address: disconnectTarget.nas_ip_address,
+        }
+        : {};
+      await apiFetch(`/radius/${radiusId}/disconnect`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
       setDisconnectSuccess(`Session for ${disconnectTarget.username} disconnected.`);
       qc.invalidateQueries({ queryKey: ['radius-active-sessions'] });
     } catch (err) {
@@ -346,14 +360,22 @@ export function RadiusSessions() {
 
   async function handleBatchDisconnect() {
     const selectedSessions = sessions.filter(session => selectedIds.has(session.id));
-    const sessionIds = selectedSessions.map(session => session.session_id).filter((id): id is string => id !== null);
-    if (!sessionIds.length) return;
+    // Send (session_id, nas_ip_address) pairs: Acct-Session-Id is only unique
+    // per NAS, so a bare id colliding across two routers would be rejected as
+    // ambiguous by the backend — the NAS IP from the row pins the session.
+    const targets = selectedSessions
+      .filter((session): session is ActiveSession & { session_id: string } => session.session_id !== null)
+      .map(session => ({
+        acct_session_id: session.session_id,
+        nas_ip_address: session.nas_ip_address,
+      }));
+    if (!targets.length) return;
     setBatchDisconnecting(true);
     setBatchResult(null);
     try {
       const result = await apiFetch<BatchDisconnectResponse>('/radius/sessions/disconnect-batch', {
         method: 'POST',
-        body: JSON.stringify({ acct_session_ids: sessionIds }),
+        body: JSON.stringify({ sessions: targets }),
       });
       setBatchResult(result);
       qc.invalidateQueries({ queryKey: ['radius-active-sessions'] });
