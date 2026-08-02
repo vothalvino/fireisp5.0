@@ -13,6 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile } = require('../middleware/schemas/organizations');
 const db = require('../config/database');
 const { getQuotaWithUsage } = require('../services/quotaService');
+const { isInstallOperator } = require('../services/installOperator');
 const {
   getDatabaseIsolation,
   saveDatabaseIsolation,
@@ -49,10 +50,37 @@ function assertCallerCanManageOrg(req, _res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Stricter than assertCallerCanManageOrg, on purpose.
+ *
+ * That helper waves through anyone with users.role='admin' — which is the
+ * per-TENANT admin persona (roles is a GLOBAL table and User.resolveGroupMirror
+ * copies group.kind into users.role), so on a multi-organisation install it
+ * lets org A's admin act on org B. Here the caller must either be acting on
+ * their OWN organisation or be a verified install operator.
+ */
+async function assertCallerOwnsTargetOrg(req, res, next) {
+  try {
+    if (Number(req.params.id) === Number(req.orgId)) return next();
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'FORBIDDEN', message: 'You can only manage your own organization.' },
+    });
+  } catch (err) { return next(err); }
+}
+
 router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(updateOrganization), ctrl.update);
 router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(patchOrganization), ctrl.partialUpdate);
-router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('organizations.update'), ctrl.restore);
+// Delete and restore had NO ownership guard at all, and Organization declares
+// hasOrgScope=false — so BaseModel omitted the org filter entirely (the j36
+// trap, on the organizations table itself) and any tenant admin could
+// soft-delete or resurrect ANOTHER tenant's organisation by id, with GET /
+// listing the ids for them. That is destructive on its own, and it also
+// undermined the install-operator gate, which counts organisations: deleting
+// the neighbours would have restored operator status. The count now spans all
+// rows (see services/installOperator.js) AND these two verbs are guarded.
+router.delete('/:id', orgScope, requirePermission('organizations.delete'), assertCallerOwnsTargetOrg, ctrl.destroy);
+router.post('/:id/restore', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, ctrl.restore);
 
 // Settings sub-routes — PER-ORG keys only (migration 443 split, j56).
 // Before the split these served the INSTALL-level table while taking an :id
@@ -61,7 +89,6 @@ router.post('/:id/restore', requirePermission('organizations.update'), ctrl.rest
 // have, so the :id was attacker-chosen on top of being ignored. Install keys
 // are edited on /settings by the install operator, never through this door.
 const { ORG_SETTING_DEFS } = require('../services/settingsCatalog');
-const { isInstallOperator } = require('../services/installOperator');
 
 /** The target org's settings as a key→value map, catalog defaults filled in. */
 async function orgSettingsMap(orgId) {
@@ -73,29 +100,7 @@ async function orgSettingsMap(orgId) {
   return map;
 }
 
-/**
- * Stricter than the shared assertCallerCanManageOrg, on purpose.
- *
- * That helper waves through anyone with users.role='admin' — which is the
- * per-TENANT admin persona (roles is a global table; User.resolveGroupMirror
- * copies group.kind into users.role), so it would let org A's admin edit org
- * B's settings through this door. Here the caller must either be acting on
- * their OWN organisation or be a verified install operator.
- */
-async function assertCallerOwnsTargetOrgSettings(req, res, next) {
-  try {
-    if (Number(req.params.id) === Number(req.orgId)) return next();
-    if (await isInstallOperator(req)) return next();
-    return res.status(403).json({
-      error: {
-        code: 'FORBIDDEN',
-        message: "You can only manage your own organization's settings.",
-      },
-    });
-  } catch (err) { return next(err); }
-}
-
-router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerOwnsTargetOrgSettings, async (req, res, next) => {
+router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
@@ -103,7 +108,7 @@ router.get('/:id/settings', orgScope, requirePermission('settings.view'), assert
   }
 });
 
-router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerOwnsTargetOrgSettings, validate(updateSetting), async (req, res, next) => {
+router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerOwnsTargetOrg, validate(updateSetting), async (req, res, next) => {
   try {
     // Object.hasOwn, not a bare lookup — 'constructor' is truthy on any plain
     // object and would 500 on def.validate instead of 422ing.

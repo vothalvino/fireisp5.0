@@ -21,11 +21,13 @@
 //   1. INSTALL_OPERATOR_EMAILS — an explicit allowlist in the environment,
 //      which only whoever edits .env can set. When present it is authoritative.
 //   2. Otherwise: a legacy admin counts as the operator ONLY while the install
-//      has at most ONE active organisation. On a single-ISP self-hosted box —
+//      has at most ONE organisation. On a single-ISP self-hosted box —
 //      the common case — the admin demonstrably IS the operator, and nothing
 //      about their experience changes. The moment a second organisation
 //      exists, "any admin" stops being a safe answer and the allowlist becomes
 //      required; the write 403s with a message naming the variable to set.
+//      The count is over ALL organisation rows, so it cannot be gamed down
+//      by deleting the neighbours — see organizationCount().
 //
 // Fails CLOSED: no allowlist plus more than one org means nobody writes
 // install settings through the API until the operator opts in by name.
@@ -34,11 +36,22 @@
 const db = require('../config/database');
 const config = require('../config');
 
-/** Active, non-deleted organisations on this install. */
-async function activeOrganizationCount() {
-  const [rows] = await db.query(
-    "SELECT COUNT(*) AS total FROM organizations WHERE deleted_at IS NULL AND status = 'active'",
-  );
+/**
+ * Organisations on this install — ALL of them, including soft-deleted and
+ * inactive ones.
+ *
+ * Deliberately unfiltered. If the count only saw live organisations, a tenant
+ * admin could shrink it back to 1 by removing the others and promote
+ * themselves to operator; the gate would then depend on the very isolation it
+ * is protecting. Counting rows makes the answer monotonic: an install that has
+ * ever held more than one organisation requires the allowlist from then on,
+ * whatever happens to those rows afterwards.
+ *
+ * The failure direction is safe — a stale row can only make the gate STRICTER,
+ * never looser, and the 403 says which variable to set.
+ */
+async function organizationCount() {
+  const [rows] = await db.query('SELECT COUNT(*) AS total FROM organizations');
   return Number(rows[0]?.total ?? 0);
 }
 
@@ -62,11 +75,11 @@ async function isInstallOperator(req) {
     return email.length > 0 && allowlist.includes(email);
   }
 
-  return (await activeOrganizationCount()) <= 1;
+  return (await organizationCount()) <= 1;
 }
 
 /** Why a write was refused — surfaced to the operator, not to a tenant. */
 const OPERATOR_ONLY_MESSAGE =
   'This setting applies to the whole installation. On an install with more than one organisation it can only be changed by an account listed in INSTALL_OPERATOR_EMAILS.';
 
-module.exports = { isInstallOperator, activeOrganizationCount, OPERATOR_ONLY_MESSAGE };
+module.exports = { isInstallOperator, organizationCount, OPERATOR_ONLY_MESSAGE };

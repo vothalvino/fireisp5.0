@@ -266,3 +266,56 @@ describe('editable reflects the caller\'s real permissions', () => {
     expect(res.body.data.every((e) => e.editable === false)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Organisation delete/restore — the gate's own foundation
+// ---------------------------------------------------------------------------
+// Organization.hasOrgScope is false, so BaseModel omits the tenant predicate
+// entirely (the j36 trap, here on the organizations table itself) and these two
+// verbs had NO ownership guard at all: any tenant admin could soft-delete or
+// resurrect another tenant's organisation by id, with GET / listing the ids.
+// It is destructive on its own AND it undermined the operator gate, which
+// counts organisations — deleting the neighbours would have bought operator
+// status back. (The count now spans all rows, so both halves are closed.)
+
+describe('DELETE/POST /organizations/:id — cross-tenant destruction', () => {
+  it('403s a tenant admin deleting ANOTHER org', async () => {
+    wireDb({ user: TENANT_ADMIN, orgCount: 5 });
+    const res = await request(app)
+      .delete('/api/v1/organizations/1')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE organizations|DELETE FROM organizations/i.test(sql))).toBe(false);
+  });
+
+  it('403s a tenant admin restoring ANOTHER org', async () => {
+    wireDb({ user: TENANT_ADMIN, orgCount: 5 });
+    const res = await request(app)
+      .post('/api/v1/organizations/1/restore')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('still lets a caller act on their OWN org', async () => {
+    wireDb({ user: TENANT_ADMIN, orgCount: 5 });
+    const res = await request(app)
+      .delete(`/api/v1/organizations/${TENANT_ADMIN.organization_id}`)
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).not.toBe(403);
+  });
+});
+
+describe('the operator count cannot be gamed down', () => {
+  it('counts ALL organisation rows, not just live ones', async () => {
+    // If the count filtered on deleted_at/status, a tenant admin could remove
+    // the neighbours and promote themselves back to operator.
+    wireDb({ user: OPERATOR, orgCount: 1 });
+    await request(app)
+      .put('/api/v1/settings/ops_alert_email')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: 'noc@isp.mx' });
+    const countCall = db.query.mock.calls.find(([sql]) => /COUNT\(\*\) AS total FROM organizations/.test(sql));
+    expect(countCall).toBeDefined();
+    expect(countCall[0]).not.toMatch(/deleted_at|status/);
+  });
+});
