@@ -13,8 +13,13 @@
 // subscribers and hashed into their consent records, so this was a channel for
 // putting attacker-authored legal text in front of another ISP's customers.
 //
-// The guard is the one this router already used for the fiscal sub-routes:
-// act on your own org, or be a platform admin (legacy users.role='admin').
+// The guard was originally the one this router used for the fiscal sub-routes:
+// act on your own org, or hold users.role='admin'. j56 tightened the second
+// half — that role is the per-TENANT admin persona (roles is a GLOBAL table and
+// User.resolveGroupMirror copies group.kind into users.role), so EVERY org has
+// one and the carve-out re-opened the hole for exactly the callers it excluded.
+// The escape is now the INSTALL OPERATOR: users.is_install_operator (migration
+// 444) or INSTALL_OPERATOR_USER_IDS, neither of which a request can grant.
 // =============================================================================
 
 const request = require('supertest');
@@ -40,9 +45,12 @@ const token = (role = 'manager') => jwt.sign(
 );
 const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
 
-function wireDb(role = 'manager') {
+function wireDb(role = 'manager', isOperator = false) {
   db.query.mockImplementation(async (sql) => {
     if (isUserLookup(sql)) return [[{ id: 1, email: 'a@b.c', role, status: 'active', organization_id: 1 }]];
+    if (/SELECT is_install_operator FROM users/.test(sql)) {
+      return [[{ is_install_operator: isOperator ? 1 : 0 }]];
+    }
     if (/^UPDATE `?organizations`?/i.test(sql)) return [{ affectedRows: 1 }];
     if (/FROM `?organizations`?/i.test(sql)) return [[{ id: 9, name: 'Other ISP' }]];
     return [[]];
@@ -87,15 +95,27 @@ describe('legitimate writes still work', () => {
     expect(updateOf()).toBeDefined();
   });
 
-  it('allows a platform admin (legacy users.role=admin) to update any org', async () => {
-    // Multi-tenant platform operators manage every tenant from one login; this
-    // is the same carve-out the fiscal sub-routes make.
-    wireDb('admin');
+  it('allows the INSTALL OPERATOR to update any org', async () => {
+    // A platform operator manages every tenant from one login. The carve-out
+    // now keys on the stored operator flag rather than on users.role.
+    wireDb('admin', true);
     const res = await request(app)
       .put('/api/v1/organizations/9')
       .set('Authorization', `Bearer ${token('admin')}`)
-      .send({ name: 'Renamed by platform admin' });
+      .send({ name: 'Renamed by the install operator' });
     expect(res.status).not.toBe(403);
     expect(updateOf()).toBeDefined();
+  });
+
+  it('403s a TENANT admin carrying the same legacy role', async () => {
+    // The regression that matters: role='admin' alone used to be the carve-out,
+    // and every organisation's admin has it.
+    wireDb('admin', false);
+    const res = await request(app)
+      .put('/api/v1/organizations/9')
+      .set('Authorization', `Bearer ${token('admin')}`)
+      .send({ name: 'Pwned by a tenant admin' });
+    expect(res.status).toBe(403);
+    expect(updateOf()).toBeUndefined();
   });
 });

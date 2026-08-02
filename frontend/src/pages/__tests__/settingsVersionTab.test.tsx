@@ -23,11 +23,14 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 let currentRole = 'admin';
+// Backend-resolved: role alone cannot identify the install operator.
+let currentIsOperator = true;
 vi.mock('@/auth/AuthContext', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/auth/AuthContext')>()),
   useAuth: () => ({
     user: {
       id: 1, email: 'u@test.com', name: 'U', role: currentRole,
+      is_install_operator: currentIsOperator,
       organization_id: 1, is_active: true, email_verified_at: null, twofa_enabled: false,
     },
     loading: false, initialized: true,
@@ -80,6 +83,7 @@ function renderSettings() {
 beforeEach(() => {
   vi.clearAllMocks();
   currentRole = 'admin';
+  currentIsOperator = true;
   respondWith();
 });
 
@@ -92,15 +96,26 @@ describe('the tab is install-operator only', () => {
   it.each([['manager'], ['technician'], ['billing'], ['support'], ['readonly']])(
     'is hidden from a %s', (role) => {
       currentRole = role;
+      currentIsOperator = false;
       renderSettings();
       expect(screen.queryByRole('button', { name: /Version/i })).not.toBeInTheDocument();
     },
   );
 
+  // The regression that matters: a TENANT admin carries role='admin' too, so
+  // the old exact-role check offered them a tab whose endpoint 404s them.
+  it('is hidden from a tenant admin — same legacy role, not the operator', () => {
+    currentRole = 'admin';
+    currentIsOperator = false;
+    renderSettings();
+    expect(screen.queryByRole('button', { name: /Version/i })).not.toBeInTheDocument();
+  });
+
   it('does not request /system/version for a non-operator', async () => {
     // The endpoint 404s them. Asking anyway would put an error in their console
     // and advertise that the route exists.
     currentRole = 'manager';
+    currentIsOperator = false;
     renderSettings();
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([u]) => String(u).includes('/system/version'))).toBe(false);

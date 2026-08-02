@@ -13,6 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile } = require('../middleware/schemas/organizations');
 const db = require('../config/database');
 const { getQuotaWithUsage } = require('../services/quotaService');
+const { isInstallOperator } = require('../services/installOperator');
 const {
   getDatabaseIsolation,
   saveDatabaseIsolation,
@@ -32,50 +33,104 @@ router.use(authenticate);
 router.get('/', requirePermission('organizations.view'), ctrl.list);
 router.get('/:id', requirePermission('organizations.view'), ctrl.get);
 router.post('/', requirePermission('organizations.create'), validate(createOrganization), ctrl.create);
-// Organization.hasOrgScope is false, so BaseModel.update SILENTLY omits the
-// tenant predicate: `UPDATE organizations SET ... WHERE id = ?` with no
-// organization_id. organizations.update is granted to the `admin` MEMBERSHIP
-// role (migration 119) and requirePermission resolves against the CALLER's
-// active org, never the target — so before this guard, any org's admin could
-// overwrite any other org's row by id, and GET / is equally unscoped so the
-// ids were listed for them. This is the same hole assertCallerCanManageOrgFiscal
-// (below) was added for on the mx-profile sub-routes; it applies just as much
-// to name, status, locale — and now to privacy_notice, which is served to the
-// target org's subscribers and hashed into their consent records.
-function assertCallerCanManageOrg(req, _res, next) {
+/**
+ * The ownership guard for every :id route on this router.
+ *
+ * Organization.hasOrgScope is false, so BaseModel SILENTLY omits the tenant
+ * predicate — `UPDATE organizations SET ... WHERE id = ?` with no
+ * organization_id — and requirePermission resolves against the CALLER's active
+ * org, never the target. Without an explicit check, any org's admin could act
+ * on any other org's row by id, and GET / lists the ids for them.
+ *
+ * The older assertCallerCanManageOrgFiscal is NOT enough on its own: it waves
+ * through anyone with users.role='admin', which is the per-TENANT admin persona
+ * (roles is a GLOBAL table and User.resolveGroupMirror copies group.kind into
+ * users.role), so on a multi-organisation install it lets org A's admin act on
+ * org B. Here the caller must either be acting on their OWN organisation or be
+ * a verified install operator.
+ *
+ * Applied to every :id route on this router that reads or writes one
+ * organisation's data. The per-org config sub-routes had NO ownership check at
+ * all, so a tenant admin could read or rewrite another org's quota, SMTP
+ * identity (email-settings carries outbound mail credentials) and database
+ * isolation by choosing the id — which GET / lists for them. mx-profile keeps
+ * the older, weaker assertCallerCanManageOrgFiscal for now: it also guards the
+ * RFC/CFDI series, and tightening the fiscal surface is filed as j66.
+ */
+async function assertCallerOwnsTargetOrg(req, res, next) {
   try {
-    assertCallerCanManageOrgFiscal(req, 'settings');
-    next();
-  } catch (err) { next(err); }
+    if (Number(req.params.id) === Number(req.orgId)) return next();
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'FORBIDDEN', message: 'You can only manage your own organization.' },
+    });
+  } catch (err) { return next(err); }
 }
 
-router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(updateOrganization), ctrl.update);
-router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerCanManageOrg, validate(patchOrganization), ctrl.partialUpdate);
-router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('organizations.update'), ctrl.restore);
+router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(updateOrganization), ctrl.update);
+router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(patchOrganization), ctrl.partialUpdate);
+// Delete and restore had NO ownership guard at all, and Organization declares
+// hasOrgScope=false — so BaseModel omitted the org filter entirely (the j36
+// trap, on the organizations table itself) and any tenant admin could
+// soft-delete or resurrect ANOTHER tenant's organisation by id, with GET /
+// listing the ids for them. That is destructive on its own, and it also
+// undermined the install-operator gate, which counts organisations: deleting
+// the neighbours would have restored operator status. The count now spans all
+// rows (see services/installOperator.js) AND these two verbs are guarded.
+router.delete('/:id', orgScope, requirePermission('organizations.delete'), assertCallerOwnsTargetOrg, ctrl.destroy);
+router.post('/:id/restore', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, ctrl.restore);
 
-// Settings sub-routes
-router.get('/:id/settings', requirePermission('settings.view'), async (req, res, next) => {
+// Settings sub-routes — PER-ORG keys only (migration 443 split, j56).
+// Before the split these served the INSTALL-level table while taking an :id
+// they ignored, so any tenant admin could rewrite deployment-wide values —
+// and they lacked the assertCallerCanManageOrg guard their sibling routes
+// have, so the :id was attacker-chosen on top of being ignored. Install keys
+// are edited on /settings by the install operator, never through this door.
+const { ORG_SETTING_DEFS } = require('../services/settingsCatalog');
+
+/** The target org's settings as a key→value map, catalog defaults filled in. */
+async function orgSettingsMap(orgId) {
+  const values = await Organization.getOrgSettings(orgId);
+  const map = {};
+  for (const [key, def] of Object.entries(ORG_SETTING_DEFS)) {
+    map[key] = values[key] ?? def.default;
+  }
+  return map;
+}
+
+router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
-    const settings = await Organization.getSettings(req.params.id);
-    res.json({ data: settings });
+    res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
     next(err);
   }
 });
 
-router.put('/:id/settings/:key', requirePermission('settings.update'), validate(updateSetting), async (req, res, next) => {
+router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerOwnsTargetOrg, validate(updateSetting), async (req, res, next) => {
   try {
-    await Organization.setSetting(req.params.id, req.params.key, req.body.value);
-    const settings = await Organization.getSettings(req.params.id);
-    res.json({ data: settings });
+    // Object.hasOwn, not a bare lookup — 'constructor' is truthy on any plain
+    // object and would 500 on def.validate instead of 422ing.
+    const def = Object.hasOwn(ORG_SETTING_DEFS, req.params.key) ? ORG_SETTING_DEFS[req.params.key] : null;
+    if (!def) {
+      return res.status(422).json({
+        error: { code: 'UNKNOWN_SETTING', message: `'${req.params.key}' is not a per-organization setting.` },
+      });
+    }
+    const problem = def.validate(req.body.value);
+    if (problem) {
+      return res.status(422).json({
+        error: { code: 'INVALID_SETTING_VALUE', message: `${req.params.key} ${problem}` },
+      });
+    }
+    await Organization.setOrgSetting(req.params.id, req.params.key, req.body.value);
+    res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
     next(err);
   }
 });
 
 // Quota sub-routes
-router.get('/:id/quota', requirePermission('organizations.view'), async (req, res, next) => {
+router.get('/:id/quota', orgScope, requirePermission('organizations.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const data = await getQuotaWithUsage(req.params.id);
     res.json({ data });
@@ -84,7 +139,7 @@ router.get('/:id/quota', requirePermission('organizations.view'), async (req, re
   }
 });
 
-router.put('/:id/quota', requirePermission('organizations.update'), async (req, res, next) => {
+router.put('/:id/quota', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const QUOTA_FIELDS = ['max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks'];
     const { ValidationError: VE } = require('../utils/errors');
@@ -114,7 +169,7 @@ router.put('/:id/quota', requirePermission('organizations.update'), async (req, 
 // SMTP credential is org-wide send-as-anyone infrastructure. Managing another
 // org's identities is per-:id here (the org detail page's Mail tab); the
 // legacy /email-settings routes stay scoped to the caller's active org.
-router.get('/:id/email-settings', requirePermission('email_settings.view'), async (req, res, next) => {
+router.get('/:id/email-settings', orgScope, requirePermission('email_settings.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const data = await emailSettingsService.listEmailSettings(req.params.id);
     res.json({ data });
@@ -123,7 +178,7 @@ router.get('/:id/email-settings', requirePermission('email_settings.view'), asyn
   }
 });
 
-router.put('/:id/email-settings/:function', requirePermission('email_settings.update'), validate(updateEmailSettings), async (req, res, next) => {
+router.put('/:id/email-settings/:function', orgScope, requirePermission('email_settings.update'), assertCallerOwnsTargetOrg, validate(updateEmailSettings), async (req, res, next) => {
   try {
     const data = await emailSettingsService.saveEmailSettings(req.params.id, req.params.function, req.body);
     // Never log the password itself; logger redaction covers req.body.smtp_password too.
@@ -139,7 +194,7 @@ router.put('/:id/email-settings/:function', requirePermission('email_settings.up
   }
 });
 
-router.post('/:id/email-settings/:function/test', requirePermission('email_settings.update'), validate(testEmailSettingsSchema), async (req, res, next) => {
+router.post('/:id/email-settings/:function/test', orgScope, requirePermission('email_settings.update'), assertCallerOwnsTargetOrg, validate(testEmailSettingsSchema), async (req, res, next) => {
   try {
     const data = await emailSettingsService.testEmailSettings(req.params.id, req.params.function, req.body.to);
     logger.info({ orgId: req.params.id, function: req.params.function, actorUserId: req.user?.id, success: data.success }, 'Org email identity test sent');
@@ -150,7 +205,7 @@ router.post('/:id/email-settings/:function/test', requirePermission('email_setti
 });
 
 // Per-tenant database isolation sub-routes
-router.get('/:id/database-isolation', requirePermission('organizations.view'), async (req, res, next) => {
+router.get('/:id/database-isolation', orgScope, requirePermission('organizations.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const data = await getDatabaseIsolation(req.params.id);
     res.json({ data });
@@ -159,7 +214,7 @@ router.get('/:id/database-isolation', requirePermission('organizations.view'), a
   }
 });
 
-router.put('/:id/database-isolation', requirePermission('organizations.update'), async (req, res, next) => {
+router.put('/:id/database-isolation', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const data = await saveDatabaseIsolation(req.params.id, req.body || {});
     res.json({ data });
@@ -168,7 +223,7 @@ router.put('/:id/database-isolation', requirePermission('organizations.update'),
   }
 });
 
-router.post('/:id/database-isolation/test', requirePermission('organizations.update'), async (req, res, next) => {
+router.post('/:id/database-isolation/test', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
     const data = await testDatabaseIsolation(req.params.id, req.body && Object.keys(req.body).length ? req.body : null);
     res.json({ data });

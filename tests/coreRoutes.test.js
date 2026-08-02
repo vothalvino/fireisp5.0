@@ -2200,13 +2200,14 @@ describe('Organization Routes — /api/organizations', () => {
   });
 
   // --- GET /:id/settings ---
+  // Per-org keys only since the migration-443 split (j56): the old route read
+  // the INSTALL-level table while ignoring :id entirely.
   describe('GET /api/organizations/:id/settings', () => {
-    test('returns settings for an organization', async () => {
+    test('returns the org\'s per-org settings with catalog defaults filled in', async () => {
       mockAuthUser();
-      // Organization.getSettings calls db.query
+      // Organization.getOrgSettings — this org customised one of the two keys
       db.query.mockResolvedValueOnce([[
-        { key: 'billing.currency', value: 'MXN', description: 'Default currency' },
-        { key: 'billing.tax_rate', value: '16', description: 'Default tax rate' },
+        { setting_key: 'mab_password_mode', setting_value: 'cleartext' },
       ]]);
 
       const res = await request(app)
@@ -2214,37 +2215,68 @@ describe('Organization Routes — /api/organizations', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data['billing.currency']).toBe('MXN');
-      expect(res.body.data['billing.tax_rate']).toBe('16');
+      expect(res.body.data.mab_password_mode).toBe('cleartext');
+      // Never set → catalog default, so the tab always shows every real knob.
+      expect(res.body.data.pppoe_auth_failure_threshold).toBe('5');
+      // The read must be scoped to the REQUESTED org.
+      const [sql, params] = db.query.mock.calls.find(([s]) => s.includes('FROM organization_settings'));
+      expect(sql).toContain('organization_id = ?');
+      expect(params).toEqual(['1']);
     });
   });
 
   // --- PUT /:id/settings/:key ---
   describe('PUT /api/organizations/:id/settings/:key', () => {
-    test('updates a setting value for an organization', async () => {
+    test('upserts an allowlisted per-org setting for the target org', async () => {
       mockAuthUser();
-      // setSetting for the 'value' key, then getSettings
       db.query
-        .mockResolvedValueOnce([{ affectedRows: 1 }])  // setSetting
-        .mockResolvedValueOnce([[                       // getSettings after update
-          { key: 'billing.currency', value: 'USD' },
+        .mockResolvedValueOnce([{ affectedRows: 1 }])  // setOrgSetting upsert
+        .mockResolvedValueOnce([[                       // refreshed map
+          { setting_key: 'mab_password_mode', setting_value: 'cleartext' },
         ]]);
 
       const res = await request(app)
-        .put('/api/organizations/1/settings/billing.currency')
+        .put('/api/organizations/1/settings/mab_password_mode')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ value: 'USD' });
+        .send({ value: 'cleartext' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toBeDefined();
-      expect(res.body.data['billing.currency']).toBe('USD');
+      expect(res.body.data.mab_password_mode).toBe('cleartext');
+      const [sql, params] = db.query.mock.calls.find(([s]) => s.includes('INSERT INTO organization_settings'));
+      expect(sql).toContain('ON DUPLICATE KEY UPDATE');
+      expect(params).toEqual(['1', 'mab_password_mode', 'cleartext']);
+    });
+
+    test('422s a key that is not per-org — install keys never go through this door', async () => {
+      mockAuthUser();
+
+      const res = await request(app)
+        .put('/api/organizations/1/settings/ops_alert_email')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ value: 'attacker@evil.example' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('UNKNOWN_SETTING');
+      expect(db.query.mock.calls.some(([s]) => s.startsWith('INSERT'))).toBe(false);
+    });
+
+    test('422s a value the catalog rejects', async () => {
+      mockAuthUser();
+
+      const res = await request(app)
+        .put('/api/organizations/1/settings/pppoe_auth_failure_threshold')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ value: 'lots' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('INVALID_SETTING_VALUE');
     });
 
     test('returns 422 when value is missing', async () => {
       mockAuthUser();
 
       const res = await request(app)
-        .put('/api/organizations/1/settings/billing.currency')
+        .put('/api/organizations/1/settings/mab_password_mode')
         .set('Authorization', `Bearer ${authToken}`)
         .send({});
 

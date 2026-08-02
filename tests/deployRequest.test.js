@@ -48,6 +48,12 @@ const as = (u) => (r) => r.set('Authorization', `Bearer ${tokenFor(u)}`);
 function wire({ user = OPERATOR, agentAlive = true, request: req = null } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (typeof sql === 'string' && sql.includes('`users`')) return [[user]];
+    // The install operator is a stored fact (users.is_install_operator,
+    // migration 444), not an inference from users.role — every org has an
+    // admin, so the role could never identify the person who runs the box.
+    if (/SELECT is_install_operator FROM users/.test(sql)) {
+      return [[{ is_install_operator: user.is_install_operator ?? 1 }]];
+    }
     if (/FROM deploy_requests/.test(sql)) return [req ? [req] : []];
     if (/FROM deploy_agent_status/.test(sql)) {
       return [[{ last_seen_at: '2026-08-01T00:00:00Z', agent_version: '1', hostname: 'h', alive: agentAlive ? 1 : 0 }]];

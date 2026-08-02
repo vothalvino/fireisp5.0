@@ -1,4 +1,20 @@
 {
+  "settingsPage": {
+    "loading": "Loading settings…",
+    "loadError": "Failed to load settings.",
+    "orgSection": "Organization settings",
+    "installSection": "Installation-wide settings",
+    "installNote": "These values apply to the whole installation. Only the install operator can change them.",
+    "empty": "No settings found.",
+    "colKey": "Key",
+    "colValue": "Value",
+    "colDescription": "Description",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "operatorOnly": "Install operator only",
+    "readOnly": "Read only"
+  },
   "common": {
     "email": "Email",
     "password": "Password",

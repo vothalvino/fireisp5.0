@@ -313,3 +313,95 @@ describe('detectMtuIssues', () => {
     expect(mismatch.mtu).toBe(1480);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. scanAuthFailures — per-org thresholds on a GLOBAL scan (j56)
+// ---------------------------------------------------------------------------
+// The scheduled task is seeded with organization_id NULL (migration 240), so
+// every real run calls scanAuthFailures(null). Resolving the threshold from
+// the caller's orgId alone therefore read nobody's setting: the per-org
+// control was editable, validated and stored — and never consulted. These
+// tests pin the resolution path that makes it real, and the org stamped on the
+// emitted event (null org = the notification cannot be routed).
+
+describe('scanAuthFailures — org resolution and per-org thresholds', () => {
+  const { scanAuthFailures } = require('../src/services/pppoeDiagnosticsService');
+
+  /**
+   * @param owners     username -> organization_id (the radius table)
+   * @param thresholds organization_id -> threshold value (organization_settings)
+   */
+  function wire({ failures, owners = {}, thresholds = {} }) {
+    db.query.mockImplementation((sql) => {
+      if (sql.includes('FROM radpostauth')) {
+        return Promise.resolve([failures.map((f) => ({
+          username: f.username, authdate: new Date(), nas_ip_address: '10.0.0.1',
+          calling_station_id: null, reply: 'Access-Reject',
+        }))]);
+      }
+      // Every username is a known account, so failures classify as bad_password.
+      if (sql.includes('FROM radcheck')) {
+        return Promise.resolve([failures.map((f) => ({ username: f.username }))]);
+      }
+      if (sql.includes('FROM radius')) {
+        return Promise.resolve([Object.entries(owners).map(([username, organization_id]) => ({ username, organization_id }))]);
+      }
+      if (sql.includes('FROM organization_settings')) {
+        return Promise.resolve([Object.entries(thresholds).map(([organization_id, setting_value]) => ({
+          organization_id: Number(organization_id), setting_value,
+        }))]);
+      }
+      return Promise.resolve([[]]);
+    });
+  }
+
+  const fails = (username, n) => Array.from({ length: n }, () => ({ username }));
+
+  test('a global scan applies EACH org\'s own threshold', async () => {
+    // org 1 lowered its threshold to 2, org 2 left the default (5).
+    wire({
+      failures: [...fails('tight@org1.net', 3), ...fails('loose@org2.net', 3)],
+      owners: { 'tight@org1.net': 1, 'loose@org2.net': 2 },
+      thresholds: { 1: '2' },
+    });
+
+    await scanAuthFailures(null);
+
+    const emitted = eventBus.emit.mock.calls.filter(([e]) => e === 'pppoe.auth_failures');
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0][1]).toMatchObject({ username: 'tight@org1.net', organizationId: 1, failureCount: 3 });
+  });
+
+  test('stamps the event with the owning org, not the (null) caller scope', async () => {
+    wire({
+      failures: fails('sub@org7.net', 9),
+      owners: { 'sub@org7.net': 7 },
+    });
+
+    await scanAuthFailures(null);
+
+    const [, payload] = eventBus.emit.mock.calls.find(([e]) => e === 'pppoe.auth_failures');
+    expect(payload.organizationId).toBe(7);
+  });
+
+  test('falls back to the default threshold for an unowned username', async () => {
+    wire({ failures: fails('orphan@nowhere.net', 4) });
+    await scanAuthFailures(null);
+    // 4 < default 5 → nothing emitted.
+    expect(eventBus.emit.mock.calls.filter(([e]) => e === 'pppoe.auth_failures')).toHaveLength(0);
+  });
+
+  test('expands IN-list placeholders — a bare IN (?) never binds under execute', async () => {
+    wire({
+      failures: [...fails('a@isp.net', 6), ...fails('b@isp.net', 6)],
+      owners: { 'a@isp.net': 1, 'b@isp.net': 1 },
+    });
+
+    await scanAuthFailures(null);
+
+    const ownerQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM radius') && sql.includes('IN ('));
+    expect(ownerQuery).toBeDefined();
+    expect(ownerQuery[0]).toContain('IN (?, ?)');
+    expect(ownerQuery[1]).toEqual(['a@isp.net', 'b@isp.net']);
+  });
+});

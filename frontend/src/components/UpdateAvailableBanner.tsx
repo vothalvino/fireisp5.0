@@ -89,7 +89,9 @@ export function UpdateAvailableBanner() {
   const dismissed = dismissedOn === today();
 
   // EXACT check, deliberately — not hasRole(). See the header.
-  const isInstallOperator = user?.role === 'admin';
+  // Backend-resolved (GET /auth/me) — see AuthUser.is_install_operator. A
+  // tenant admin must not be told the install has an update they cannot apply.
+  const isInstallOperator = user?.is_install_operator === true;
 
   const { data } = useQuery<SystemVersion>({
     queryKey: ['system-version'],

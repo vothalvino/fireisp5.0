@@ -37,6 +37,11 @@ export interface AuthUser {
   organization_currency?: string;
   /** Compliance locale of the ACTIVE org — 'MX' unlocks the SAT/IFT nav modules. */
   organization_locale?: 'global' | 'MX';
+  /** Does this account run the INSTALL (not merely an org)? Resolved by the
+   *  backend — `role === 'admin'` cannot answer it, because that is the
+   *  per-tenant Admin persona and every org has one. Gates install-wide UI:
+   *  the version tab, the update banner, the sidebar entry. */
+  is_install_operator?: boolean;
   /** The user's group (migration 378): reusable permission set replacing the
    *  fixed user type. `kind` is the persona the group is based on and matches
    *  what `role` mirrors. */

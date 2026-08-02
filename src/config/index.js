@@ -104,6 +104,14 @@ const config = {
     secret: process.env.RADIUS_SERVER_SECRET || '',
   },
 
+  // Who runs this INSTALL: comma-separated users.id values. Overrides the
+  // users.is_install_operator flag (migration 444) when set; leave empty to use
+  // the flag. IDs rather than emails on purpose — users.email is in
+  // User.fillable, so an email allowlist would be writable by the very persona
+  // the gate excludes. See services/installOperator.js.
+  installOperatorUserIds: (process.env.INSTALL_OPERATOR_USER_IDS || '')
+    .split(',').map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0),
+
   // How long an open accounting session (start/interim with no stop) still
   // counts as LIVE for duplicate-session enforcement. A NAS reboot or a lost
   // Acct-Stop leaves a ghost "open" row forever; without this window the

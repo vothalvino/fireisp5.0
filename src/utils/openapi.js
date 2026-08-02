@@ -221,10 +221,10 @@ function generateSpec() {
       ...crudPaths('organizations', 'Organizations', 'Organization'),
       '/organizations/{id}/restore': { post: { tags: ['Organizations'], summary: 'Restore a soft-deleted organization', operationId: 'restoreOrganization', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Organization') } },
       '/organizations/{id}/settings': {
-        get: { tags: ['Organizations'], summary: 'Get organization settings', operationId: 'getOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Settings map') },
+        get: { tags: ['Organizations'], summary: 'Get an organization\'s per-org settings (own org, or any org for the install operator)', operationId: 'getOrganizationSettings', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Settings map (per-org keys only)') },
       },
       '/organizations/{id}/settings/{key}': {
-        put: { tags: ['Organizations'], summary: 'Update a single organization setting', operationId: 'updateOrganizationSetting', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'key', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('Setting value'), responses: r200('Settings map') },
+        put: { tags: ['Organizations'], summary: 'Update a single per-org setting (allowlisted keys only)', operationId: 'updateOrganizationSetting', security: [{ bearerAuth: [] }], parameters: [idParam(), { name: 'key', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('Setting value'), responses: r200('Settings map (per-org keys only)') },
       },
       '/organizations/{id}/quota': {
         get: { tags: ['Organizations'], summary: 'Get organization quota and usage', operationId: 'getOrganizationQuota', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Quota + usage') },
@@ -981,9 +981,14 @@ function generateSpec() {
       ...crudPaths('tax-rates', 'Tax Rates', 'TaxRate'),
 
       // ---- Settings ----
+      // Two scopes behind one surface (migration 443, j56): per-org rows plus
+      // install-wide rows, each entry stamped {key, value, description, scope:
+      // 'org'|'install', editable}. Install keys 403 for non-operators on PUT.
       '/settings': {
-        get: { tags: ['Settings'], summary: 'List settings', operationId: 'listSettings', security: [{ bearerAuth: [] }], responses: r200('Setting[]') },
-        put: { tags: ['Settings'], summary: 'Update settings', operationId: 'updateSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('settings'), responses: r200('Setting[]') },
+        get: { tags: ['Settings'], summary: 'List settings visible to the caller (org + install scope)', operationId: 'listSettings', security: [{ bearerAuth: [] }], responses: r200('SettingEntry[]') },
+      },
+      '/settings/{key}': {
+        put: { tags: ['Settings'], summary: 'Update a single setting by key (allowlisted; install keys are operator-only)', operationId: 'updateSetting', security: [{ bearerAuth: [] }], parameters: [{ name: 'key', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('Setting value'), responses: r200('SettingEntry') },
       },
 
       // ---- Message Templates ----

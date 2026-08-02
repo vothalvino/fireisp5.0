@@ -36,7 +36,9 @@ function installGet() {
   mockGet.mockImplementation((path: string) => {
     if (path === '/organizations/{id}') return Promise.resolve({ data: { data: ORG }, error: undefined });
     if (path === '/organizations/{id}/email-settings') return Promise.resolve({ data: { data: IDENTITIES }, error: undefined });
-    if (path === '/organizations/{id}/settings') return Promise.resolve({ data: { data: { invoice_prefix: 'INV-' } }, error: undefined });
+    // Real backend shape since the j56 split: the per-org allowlisted keys
+    // only, defaults filled in (invoice_prefix was a dead key nothing read).
+    if (path === '/organizations/{id}/settings') return Promise.resolve({ data: { data: { mab_password_mode: 'auth_type_accept', pppoe_auth_failure_threshold: '5' } }, error: undefined });
     if (path === '/organizations/{id}/quota') return Promise.resolve({ data: { data: { limits: null, usage: { clients: 3, devices: 1, storage_mb: 0, scheduled_tasks: 5 } } }, error: undefined });
     return Promise.resolve({ data: {}, error: undefined });
   });

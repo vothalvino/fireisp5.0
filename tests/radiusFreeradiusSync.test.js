@@ -27,8 +27,10 @@ const { syncFreeradiusTables } = require('../src/services/radiusService');
 // ---------------------------------------------------------------------------
 
 function settingQueryReply(mode) {
-  // Called for mab_password_mode setting (global settings table: setting_key/setting_value)
-  return [[{ setting_value: mode }]];
+  // Called for mab_password_mode — per-org since migration 443: the sync
+  // builds a Map keyed by organization_id, so the row must carry the org id
+  // the subscriber fixtures use (10).
+  return [[{ organization_id: 10, setting_value: mode }]];
 }
 
 function noSettingReply() {
@@ -209,6 +211,26 @@ describe('syncFreeradiusTables — MAB subscriber (auth_type_accept mode)', () =
     expect(checkInsert).toBeDefined();
     // Normalized MAC: aabbccddeeff
     expect(checkInsert.params[3]).toBe('aabbccddeeff');
+  });
+
+  test('a CONTRACT-ORPHANED MAB account still gets its own org\'s mode', async () => {
+    // radius.contract_id is nullable, so an account can exist with no contract
+    // (a MAC allowlisted before provisioning, or a cancelled contract). The org
+    // is resolved COALESCE(r.organization_id, c.organization_id): if it fell
+    // back to the contract alone this account would resolve to no org and get
+    // the DEFAULT auth_type_accept — i.e. Auth-Type := Accept, which accepts
+    // ANY password for that MAC on an install that deliberately chose cleartext.
+    const orphan = { ...subscriber, contract_id: null, plan_id: null, organization_id: 10 };
+    const calls = setupMockDb({ subscribers: [orphan], mabMode: 'cleartext' });
+
+    await syncFreeradiusTables(null);
+
+    const checkInsert = calls.find(c => c.sql.includes('INSERT INTO radcheck'));
+    expect(checkInsert.params[1]).toBe('Cleartext-Password');
+    expect(checkInsert.params[3]).toBe('aabbccddeeff');
+    // And the org must come from the account itself.
+    const subQuery = calls.find(c => c.sql.includes('FROM radius r'));
+    expect(subQuery.sql).toContain('COALESCE(r.organization_id, c.organization_id)');
   });
 
   test('errors out and skips subscriber when mac_address is missing in MAB mode', async () => {

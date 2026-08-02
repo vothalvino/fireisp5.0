@@ -34,6 +34,7 @@
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const updateCheck = require('../services/updateCheck');
+const { isInstallOperator } = require('../services/installOperator');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'routes/systemVersion' });
 
@@ -50,12 +51,32 @@ router.use(authenticate);
  * 404, not 403. A tenant admin has no business learning that this endpoint
  * exists, and 403 would confirm it — the same reasoning as the contract guard
  * in routes/ai.js.
+ *
+ * The check used to be `req.user?.role !== 'admin'`, which does NOT mean what
+ * it reads as: `roles` is a global table and User.resolveGroupMirror copies
+ * group.kind into users.role, so every tenant's admin has users.role='admin'.
+ * On a multi-organisation install that let any tenant admin read the host's
+ * version state and POST /deploy — trigger a redeploy of the whole box. Now it
+ * resolves the operator properly (see services/installOperator.js), which on a
+ * single-organisation install is the same person as before.
  */
-function installOperatorOnly(req, res, next) {
-  if (req.user?.role !== 'admin') {
-    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
-  }
-  next();
+async function installOperatorOnly(req, res, next) {
+  try {
+    // API tokens are refused outright, not merely scope-checked. Token scopes
+    // are enforced inside requirePermission()/userHasPermission(), and these
+    // routes use neither — so a token deliberately narrowed to, say,
+    // clients.view still presented its owner's role and could queue a host
+    // redeploy, the most privileged action in the product. The host agent
+    // talks to MySQL directly and holds no token, so nothing legitimate here
+    // is a token caller.
+    if (req.user?.apiTokenId) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+    if (!await isInstallOperator(req)) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+    return next();
+  } catch (err) { return next(err); }
 }
 
 router.get('/version', installOperatorOnly, async (req, res, next) => {
