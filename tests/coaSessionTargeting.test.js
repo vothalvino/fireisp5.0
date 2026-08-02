@@ -20,13 +20,18 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
-// Outbound packets recorded by the fake dgram socket, and per-address
-// behavior overrides ('ack' default | 'error').
+// Outbound packets recorded by the fake dgram socket, per-address behavior
+// overrides ('ack' default | 'nak' | 'error' | 'silent'), and per-address
+// shared secrets so replies carry a VALID Response Authenticator — the send
+// path now verifies MD5(Code+ID+Length+RequestAuth+Attrs+Secret) and ignores
+// replies that fail it, so an unauthenticated fake reply reads as silence.
 const mockSentPackets = [];
 const mockNasBehavior = {};
+const mockNasSecrets = {};
 
 jest.mock('dgram', () => ({
   createSocket: jest.fn(() => {
+    const crypto = require('crypto');
     const handlers = {};
     return {
       on: (event, cb) => { handlers[event] = cb; },
@@ -41,9 +46,21 @@ jest.mock('dgram', () => ({
             if (handlers.error) handlers.error(new Error('EHOSTUNREACH'));
             return;
           }
-          // Disconnect-Request (40) → Disconnect-ACK (41); CoA (43) → CoA-ACK (44)
-          const ackCode = buf[0] === 40 ? 41 : 44;
-          if (handlers.message) handlers.message(Buffer.from([ackCode, buf[1], 0, 20]));
+          if (behavior === 'silent') return; // dead NAS / wrong secret — no reply
+          // Disconnect-Request (40) → ACK 41 / NAK 42; CoA (43) → ACK 44 / NAK 45
+          const respCode = behavior === 'nak'
+            ? (buf[0] === 40 ? 42 : 45)
+            : (buf[0] === 40 ? 41 : 44);
+          const resp = Buffer.alloc(20);
+          resp[0] = respCode;
+          resp[1] = buf[1];
+          resp.writeUInt16BE(20, 2);
+          const md5 = crypto.createHash('md5');
+          md5.update(resp.subarray(0, 4));
+          md5.update(buf.subarray(4, 20)); // echo the Request Authenticator
+          md5.update(Buffer.from(mockNasSecrets[address] || '', 'utf8'));
+          md5.digest().copy(resp, 4);
+          if (handlers.message) handlers.message(resp);
         });
       },
     };
@@ -66,19 +83,29 @@ function parseAttrs(buf) {
   return attrs;
 }
 
-const nasRow = (id, ip, overrides = {}) => ({
-  id,
-  ip_address: ip,
-  coa_port: 3799,
-  secret: `secret-${id}`,
-  secondary_nas_id: null,
-  ...overrides,
-});
+const nasRow = (id, ip, overrides = {}) => {
+  const row = {
+    id,
+    ip_address: ip,
+    coa_port: 3799,
+    secret: `secret-${id}`,
+    secondary_nas_id: null,
+    ...overrides,
+  };
+  // Register the secret so the fake socket can authenticate its reply.
+  mockNasSecrets[ip] = row.secret;
+  return row;
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockSentPackets.length = 0;
   for (const key of Object.keys(mockNasBehavior)) delete mockNasBehavior[key];
+  for (const key of Object.keys(mockNasSecrets)) delete mockNasSecrets[key];
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 // ---------------------------------------------------------------------------
@@ -136,7 +163,7 @@ describe('sendRadiusDisconnect()', () => {
   test('no RADIUS account → early return after a single query, nothing sent', async () => {
     db.query.mockResolvedValueOnce([[]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
-    expect(r).toEqual({ sent: false, response: 'No RADIUS account found for contract' });
+    expect(r).toEqual({ sent: false, response: 'No RADIUS account found for contract', outcome: 'no_account' });
     expect(db.query).toHaveBeenCalledTimes(1);
     expect(mockSentPackets).toHaveLength(0);
   });
@@ -165,7 +192,7 @@ describe('sendRadiusDisconnect()', () => {
       .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
-    expect(r).toEqual({ sent: true, response: 'Disconnect-ACK' });
+    expect(r).toEqual({ sent: true, response: 'Disconnect-ACK', outcome: 'ack' });
   });
 
   test('per-session targeting sends only to that NAS and includes Acct-Session-Id', async () => {
@@ -256,9 +283,85 @@ describe('sendRadiusDisconnect()', () => {
       .mockResolvedValueOnce([[]])                                                       // no open sessions
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]])         // home NAS
       .mockResolvedValueOnce([[{ ip_address: '10.0.0.5', coa_port: 3799, secret: 's5' }]]); // secondary
+    mockNasSecrets['10.0.0.5'] = 's5';
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r.sent).toBe(true);
     expect(mockSentPackets.map((p) => p.address)).toEqual(['10.0.0.9', '10.0.0.5']);
+  });
+
+  // j64: RADIUS Disconnect is request/response (RFC 5176). Only a verified
+  // Disconnect-ACK is success — a NAK, a timeout (dead or wrong-secret NAS
+  // never answers) or an unauthenticated reply must read as failure, and
+  // failover must fire on all of them. The old code resolved sent:true the
+  // moment the packet left the socket, so batch results, audit rows and kick
+  // counters claimed success for subscribers who were still online.
+  test('a Disconnect-NAK is reported as failure, not success', async () => {
+    mockNasBehavior['10.0.0.2'] = 'nak';
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
+    const r = await suspensionService.sendRadiusDisconnect(7);
+    expect(r).toEqual({ sent: false, response: 'Disconnect-NAK', outcome: 'nak' });
+  });
+
+  test('a NAK does NOT trigger failover — it is an authoritative answer from a live NAS', async () => {
+    // Routine case: the subscriber is offline, the home NAS answers "no such
+    // session". Failing over would send an extra packet to a NAS that was
+    // never a resolved target — and for an Acct-Session-Id-scoped kill could
+    // hit a colliding session there.
+    mockNasBehavior['10.0.0.9'] = 'nak';
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                  // account
+      .mockResolvedValueOnce([[]])                                               // no open sessions
+      .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]]); // home NAS
+    const r = await suspensionService.sendRadiusDisconnect(7);
+    expect(r).toEqual({ sent: false, response: 'Disconnect-NAK', outcome: 'nak' });
+    expect(mockSentPackets.map((p) => p.address)).toEqual(['10.0.0.9']); // no secondary send
+    expect(db.query).toHaveBeenCalledTimes(3); // secondary NAS never even looked up
+  });
+
+  test('a timeout (NAS never answers) is reported as failure and fails over', async () => {
+    jest.useFakeTimers();
+    mockNasBehavior['10.0.0.9'] = 'silent';
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                          // account
+      .mockResolvedValueOnce([[]])                                                       // no open sessions
+      .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]])         // home NAS
+      .mockResolvedValueOnce([[{ ip_address: '10.0.0.5', coa_port: 3799, secret: 's5' }]]); // secondary
+    mockNasSecrets['10.0.0.5'] = 's5';
+    const promise = suspensionService.sendRadiusDisconnect(7);
+    await jest.advanceTimersByTimeAsync(5000);
+    const r = await promise;
+    expect(r.sent).toBe(true); // the secondary ACKed after the primary timed out
+    expect(r.response).toContain('Disconnect-ACK');
+    expect(r.response).toContain('primary: Timeout');
+    expect(mockSentPackets.map((p) => p.address)).toEqual(['10.0.0.9', '10.0.0.5']);
+  });
+
+  test('a timeout with no secondary is reported as failure', async () => {
+    jest.useFakeTimers();
+    mockNasBehavior['10.0.0.2'] = 'silent';
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
+    const promise = suspensionService.sendRadiusDisconnect(7);
+    await jest.advanceTimersByTimeAsync(5000);
+    const r = await promise;
+    expect(r).toEqual({ sent: false, response: 'Timeout — no response from NAS', outcome: 'timeout' });
+  });
+
+  test('a reply that fails Response Authenticator verification is ignored (times out)', async () => {
+    jest.useFakeTimers();
+    db.query
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
+    // The NAS replies, but computes its authenticator with a different secret
+    // than ours — a spoofed/corrupt reply must not resolve the send as an ACK.
+    mockNasSecrets['10.0.0.2'] = 'not-the-configured-secret';
+    const promise = suspensionService.sendRadiusDisconnect(7);
+    await jest.advanceTimersByTimeAsync(5000);
+    const r = await promise;
+    expect(r).toEqual({ sent: false, response: 'Timeout — no response from NAS', outcome: 'timeout' });
   });
 
   test('targets without a configured secret are skipped', async () => {
@@ -266,7 +369,7 @@ describe('sendRadiusDisconnect()', () => {
       .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2', { secret: '' })]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
-    expect(r).toEqual({ sent: false, response: 'NAS RADIUS secret not configured' });
+    expect(r).toEqual({ sent: false, response: 'NAS RADIUS secret not configured', outcome: 'no_secret' });
     expect(mockSentPackets).toHaveLength(0);
   });
 });
@@ -282,7 +385,7 @@ describe('sendRadiusCoA()', () => {
     const r = await suspensionService.sendRadiusCoA(7, 'update', [
       { name: 'Mikrotik-Rate-Limit', value: '10M/5M' },
     ]);
-    expect(r).toEqual({ sent: true, response: 'CoA-ACK' });
+    expect(r).toEqual({ sent: true, response: 'CoA-ACK', outcome: 'ack' });
     expect(mockSentPackets).toHaveLength(1);
     expect(mockSentPackets[0].buf[0]).toBe(43); // CoA-Request
     const attrs = parseAttrs(mockSentPackets[0].buf);
@@ -303,7 +406,7 @@ describe('sendRadiusCoA()', () => {
   test('no RADIUS account → early return', async () => {
     db.query.mockResolvedValueOnce([[]]);
     const r = await suspensionService.sendRadiusCoA(7, 'reconnect');
-    expect(r).toEqual({ sent: false, response: 'No RADIUS account found for contract' });
+    expect(r).toEqual({ sent: false, response: 'No RADIUS account found for contract', outcome: 'no_account' });
     expect(db.query).toHaveBeenCalledTimes(1);
   });
 });

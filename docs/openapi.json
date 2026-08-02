@@ -10578,7 +10578,7 @@
         "tags": [
           "RADIUS"
         ],
-        "summary": "Disconnect active PPPoE session for a RADIUS account",
+        "summary": "Disconnect PPPoE session(s) for a RADIUS account — optional body { acct_session_id, nas_ip_address } narrows the kill to one session; empty body disconnects every session",
         "operationId": "disconnectRadiusSession",
         "security": [
           {
@@ -10595,6 +10595,16 @@
             }
           }
         ],
+        "requestBody": {
+          "description": "Optional per-session targeting: acct_session_id + nas_ip_address",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Disconnect result",
@@ -11212,7 +11222,7 @@
         "tags": [
           "RADIUS"
         ],
-        "summary": "Batch force-disconnect PPPoE sessions by session ID or username",
+        "summary": "Batch force-disconnect PPPoE sessions by sessions [{acct_session_id, nas_ip_address}], bare session ID, or username — bare ids colliding across NASes are rejected as ambiguous",
         "operationId": "batchDisconnectSessions",
         "security": [
           {
@@ -65815,6 +65825,21 @@
             "type": "number",
             "minimum": 1,
             "maximum": 4094
+          }
+        }
+      },
+      "radius_disconnectRadius": {
+        "type": "object",
+        "properties": {
+          "acct_session_id": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 253
+          },
+          "nas_ip_address": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 45
           }
         }
       },

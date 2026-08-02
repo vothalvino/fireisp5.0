@@ -21,7 +21,7 @@ describe('fupService', () => {
       db.query
         .mockResolvedValueOnce([[{ contract_id: 1, organization_id: 10, fup_download_speed_mbps: 5, fup_upload_speed_mbps: 1 }]])
         .mockResolvedValueOnce([{ insertId: 42 }]);
-      radiusService.changeOfAuth.mockResolvedValueOnce({ success: true });
+      radiusService.changeOfAuth.mockResolvedValueOnce({ sent: true, response: 'CoA-ACK', outcome: 'ack' });
 
       const result = await applyFupThrottle(1);
 
@@ -29,6 +29,20 @@ describe('fupService', () => {
       expect(result.coa_sent).toBe(true);
       expect(result.log_id).toBe(42);
       expect(radiusService.changeOfAuth).toHaveBeenCalledWith(1, 'throttle');
+    });
+
+    it('records coa_sent=false when the CoA is not acknowledged (NAK/timeout)', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ contract_id: 1, organization_id: 10, fup_download_speed_mbps: 5, fup_upload_speed_mbps: 1 }]])
+        .mockResolvedValueOnce([{ insertId: 44 }]);
+      // The old code hardcoded coaSent = true whenever changeOfAuth resolved,
+      // so every plan_throttle_logs row claimed delivery regardless.
+      radiusService.changeOfAuth.mockResolvedValueOnce({ sent: false, response: 'CoA-NAK', outcome: 'nak' });
+
+      const result = await applyFupThrottle(1);
+
+      expect(result.applied).toBe(true);
+      expect(result.coa_sent).toBe(false);
     });
 
     it('logs throttle even when CoA fails', async () => {
@@ -56,7 +70,7 @@ describe('fupService', () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, organization_id: 10 }]])
         .mockResolvedValueOnce([{ insertId: 50 }]);
-      radiusService.changeOfAuth.mockResolvedValueOnce({ success: true });
+      radiusService.changeOfAuth.mockResolvedValueOnce({ sent: true, response: 'CoA-ACK', outcome: 'ack' });
 
       const result = await restoreFupSpeeds(1);
 

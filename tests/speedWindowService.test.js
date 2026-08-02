@@ -186,22 +186,31 @@ describe('speedWindowService', () => {
       expect(inserts).toHaveLength(2); // ERX-Qos-Profile-Name + ERX-Input-Gigapkts
     });
 
-    it('counts CoA failures and undeliverable contracts separately', async () => {
+    it('counts CoA failures, NAKs and undeliverable contracts separately', async () => {
       db.query
         .mockResolvedValueOnce([[PLAN]])
         .mockResolvedValueOnce([[WINDOW]])
         .mockResolvedValueOnce([[]])
-        .mockResolvedValueOnce([[{ id: 10 }, { id: 11 }, { id: 12 }]]);
+        .mockResolvedValueOnce([[{ id: 10 }, { id: 11 }, { id: 12 }, { id: 13 }, { id: 14 }]]);
       radiusService.changeOfAuth
-        .mockResolvedValueOnce({ sent: true, response: 'CoA-ACK' })
-        .mockResolvedValueOnce({ sent: false, response: 'No RADIUS account found for contract' })
+        .mockResolvedValueOnce({ sent: true, response: 'CoA-ACK', outcome: 'ack' })
+        .mockResolvedValueOnce({ sent: false, response: 'No RADIUS account found for contract', outcome: 'no_account' })
+        // An all-NAK answer is the ROUTINE result for an offline subscriber
+        // (the home-NAS safety net always gets a send) — it must be counted
+        // as coa_no_session, never as an error, or every window transition
+        // logs a warning per powered-off CPE.
+        .mockResolvedValueOnce({ sent: false, response: 'CoA-NAK', outcome: 'nak' })
+        // A timeout IS a real delivery failure now that sent:true requires
+        // a CoA-ACK.
+        .mockResolvedValueOnce({ sent: false, response: 'Timeout — no response from NAS', outcome: 'timeout' })
         .mockRejectedValueOnce(new Error('socket error'));
 
       const result = await applySpeedWindows(1);
 
       expect(result.coa_sent).toBe(1);
       expect(result.coa_skipped_no_radius).toBe(1);
-      expect(result.coa_errors).toBe(1);
+      expect(result.coa_no_session).toBe(1);
+      expect(result.coa_errors).toBe(2);
     });
 
     it('returns zeroed summary when no plans have windows', async () => {

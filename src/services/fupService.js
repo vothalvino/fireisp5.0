@@ -36,7 +36,9 @@ async function applyFupThrottle(contractId) {
 
   try {
     const coaResult = await radiusService.changeOfAuth(contractId, 'throttle');
-    coaSent = true;
+    // Record what the NAS actually answered — sent:true now means a CoA-ACK
+    // was received, not merely that a packet left the socket.
+    coaSent = !!(coaResult && coaResult.sent);
     coaResponse = JSON.stringify(coaResult).slice(0, 200);
   } catch (err) {
     coaResponse = err.message ? err.message.slice(0, 200) : 'CoA failed';
@@ -82,7 +84,7 @@ async function restoreFupSpeeds(contractId) {
 
   try {
     const coaResult = await radiusService.changeOfAuth(contractId, 'restore');
-    coaSent = true;
+    coaSent = !!(coaResult && coaResult.sent);
     coaResponse = JSON.stringify(coaResult).slice(0, 200);
   } catch (err) {
     coaResponse = err.message ? err.message.slice(0, 200) : 'CoA failed';

@@ -163,6 +163,88 @@ describe('POST /api/radius/sessions/disconnect-batch', () => {
       .send({});
     expect(res.status).toBe(400);
   });
+
+  // -------------------------------------------------------------------------
+  // j63: Acct-Session-Id is only unique PER NAS. A bare id that collides
+  // across routers used to be resolved by LIMIT 1 with no ORDER BY — i.e.
+  // whichever row MySQL returned first — so kicking session 81f3a2c1 could
+  // disconnect a DIFFERENT subscriber holding the same id on another NAS.
+  // -------------------------------------------------------------------------
+  test('sessions entries pin the session to its NAS in the lookup', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[
+      { contract_id: 30, nas_ip_address: '10.0.0.2', session_id: 'sess-1' },
+    ]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'Disconnect-ACK' });
+
+    const res = await request(app)
+      .post('/api/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ sessions: [{ acct_session_id: 'sess-1', nas_ip_address: '10.0.0.2' }] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([{ session_id: 'sess-1', success: true }]);
+    // The NAS IP participates in the RESOLUTION query, not just the send
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/cl\.nas_ip_address = \?/);
+    expect(params).toContain('10.0.0.2');
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(30, {
+      acctSessionId: 'sess-1',
+      nasIpAddress: '10.0.0.2',
+    });
+  });
+
+  test('a bare session id colliding across NASes is rejected as ambiguous, nothing is sent', async () => {
+    mockAuthUser();
+    // Two different subscribers hold the same Acct-Session-Id on two routers.
+    db.query.mockResolvedValueOnce([[
+      { contract_id: 30, nas_ip_address: '10.0.0.2', session_id: '81f3a2c1' },
+      { contract_id: 77, nas_ip_address: '10.0.0.3', session_id: '81f3a2c1' },
+    ]]);
+
+    const res = await request(app)
+      .post('/api/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: ['81f3a2c1'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0]).toMatchObject({ session_id: '81f3a2c1', success: false });
+    expect(res.body.data[0].error).toMatch(/[Aa]mbiguous/);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('same session recorded with and without a NAS IP is ONE session, not a collision', async () => {
+    mockAuthUser();
+    // Mixed accounting writers: one row NULL nas_ip, one set — same contract.
+    db.query.mockResolvedValueOnce([[
+      { contract_id: 30, nas_ip_address: null, session_id: 'sess-9' },
+      { contract_id: 30, nas_ip_address: '10.0.0.2', session_id: 'sess-9' },
+    ]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'Disconnect-ACK' });
+
+    const res = await request(app)
+      .post('/api/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: ['sess-9'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([{ session_id: 'sess-9', success: true }]);
+    // The non-null NAS IP wins so the send is still targeted
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(30, {
+      acctSessionId: 'sess-9',
+      nasIpAddress: '10.0.0.2',
+    });
+  });
+
+  test('a malformed sessions entry is a 400, not a silent skip', async () => {
+    mockAuthUser();
+    const res = await request(app)
+      .post('/api/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ sessions: [{ nas_ip_address: '10.0.0.2' }] });
+    expect(res.status).toBe(400);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
 });
 
 // =============================================================================
@@ -321,6 +403,138 @@ describe('POST /radius/:id/disconnect is organisation-scoped', () => {
       .send({});
 
     expect(res.status).toBe(200);
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42);
+  });
+});
+
+// =============================================================================
+// j63 — the per-session Disconnect button used to kill EVERY session
+// =============================================================================
+// The RadiusSessions row button posts to /:id/disconnect, which called
+// disconnectSession(contractId) with no opts — a contract-wide Disconnect on
+// every NAS. A subscriber with two legitimate sessions lost both when the
+// operator kicked one row. The route now accepts { acct_session_id,
+// nas_ip_address }, resolves the DB-canonical open session anchored on the
+// account's contract, and narrows the kill to that one session.
+describe('POST /radius/:id/disconnect per-session targeting', () => {
+  test('body {acct_session_id, nas_ip_address} narrows the kill to that session', async () => {
+    mockAuthUser();
+    db.query
+      .mockResolvedValueOnce([[{ contract_id: 42 }]])  // org-scoped account lookup
+      .mockResolvedValueOnce([[{ session_id: 'sess-1', nas_ip_address: '10.0.0.2' }]]); // session resolution
+
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'Disconnect-ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      // padded request value — the DB-canonical session_id must be sent, not this
+      .send({ acct_session_id: 'sess-1   ', nas_ip_address: '10.0.0.2' });
+
+    expect(res.status).toBe(200);
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42, {
+      acctSessionId: 'sess-1',
+      nasIpAddress: '10.0.0.2',
+    });
+    // The session lookup is anchored on THIS account's contract — the pair
+    // from the request is a lookup key, never trusted directly.
+    const [sql, params] = db.query.mock.calls[1];
+    expect(sql).toMatch(/cl\.contract_id = \?/);
+    expect(params[0]).toBe(42);
+    expect(sql).toMatch(/IN \('start', 'interim-update'\)/);
+  });
+
+  test('a targeted session that no longer exists is a 404, NOT a contract-wide kill', async () => {
+    mockAuthUser();
+    db.query
+      .mockResolvedValueOnce([[{ contract_id: 42 }]])
+      .mockResolvedValueOnce([[]]); // session gone / already stopped
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_id: 'stale-sess', nas_ip_address: '10.0.0.2' });
+
+    expect(res.status).toBe(404);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('a lone nas_ip_address is a 400 — it must not silently widen to a contract-wide kill', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[{ contract_id: 42 }]]);
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ nas_ip_address: '10.0.0.2' });
+
+    expect(res.status).toBe(400);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('an unpinned session id active on two NASes of the same contract is a 409, not a guess', async () => {
+    mockAuthUser();
+    db.query
+      .mockResolvedValueOnce([[{ contract_id: 42 }]])
+      .mockResolvedValueOnce([[
+        { session_id: 'dup', nas_ip_address: '10.0.0.2' },
+        { session_id: 'dup', nas_ip_address: '10.0.0.3' },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_id: 'dup' });
+
+    expect(res.status).toBe(409);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('a session recorded with and without a NAS IP coalesces to the non-null NAS', async () => {
+    mockAuthUser();
+    db.query
+      .mockResolvedValueOnce([[{ contract_id: 42 }]])
+      .mockResolvedValueOnce([[
+        { session_id: 'sess-1', nas_ip_address: null },
+        { session_id: 'sess-1', nas_ip_address: '10.0.0.2' },
+      ]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'Disconnect-ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_id: 'sess-1' });
+
+    expect(res.status).toBe(200);
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42, {
+      acctSessionId: 'sess-1',
+      nasIpAddress: '10.0.0.2',
+    });
+  });
+
+  test('non-string acct_session_ids elements are a 400 (numeric coercion would full-scan and over-match)', async () => {
+    mockAuthUser();
+    const res = await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: [0] });
+    expect(res.status).toBe(400);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('an empty body keeps the historical contract-wide disconnect', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[{ contract_id: 42 }]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    // One query only — no session resolution — and no per-session opts.
+    expect(db.query).toHaveBeenCalledTimes(1);
     expect(radiusService.disconnectSession).toHaveBeenCalledWith(42);
   });
 });
