@@ -408,63 +408,200 @@ async function isClientSuspensionExempt(contractId) {
 }
 
 /**
- * Send a RADIUS Disconnect-Request (RFC 3576 / RFC 5176) to the NAS
- * serving the given contract's subscriber.
+ * Look up the RADIUS account (username + home-NAS pointer) for a contract.
+ * Kept as the FIRST query of every CoA/Disconnect send so the long-standing
+ * "no account" early-return (and the tests that positionally mock it) keep
+ * their shape.
+ *
+ * @param {number} contractId
+ * @returns {Promise<{username: string, nas_id: number|null}|null>}
+ */
+async function lookupRadiusAccount(contractId) {
+  const [rows] = await db.query(
+    'SELECT r.username, r.nas_id FROM radius r WHERE r.contract_id = ? AND r.deleted_at IS NULL LIMIT 1',
+    [contractId],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Resolve the set of NAS devices a CoA/Disconnect for this account should
+ * target.
+ *
+ * Authentication is NAS-agnostic — any registered NAS can authenticate any
+ * account (radiusServerService.findSubscriber has no nas_id predicate), so a
+ * subscriber may be online through ANY registered NAS, not just the "home"
+ * NAS stored in radius.nas_id. Targeting only the home NAS strands roaming
+ * sessions: the packet goes to a router the subscriber isn't on and the
+ * session silently survives suspension.
+ *
+ * Targets:
+ *   1. Every distinct registered NAS with an OPEN session for the username in
+ *      connection_logs — event_type IN ('start','interim-update') with no
+ *      'stop' row for the same session. This covers both accounting shapes:
+ *      the embedded server UPDATES the row in place (so a stopped session's
+ *      own row becomes 'stop'), while FreeRADIUS-SQL INSERTS one row per
+ *      event (so the stop is a separate row, matched by the NOT EXISTS).
+ *      The NAS is matched by cl.nas_id OR by cl.nas_ip_address — the OR is
+ *      deliberately UNGATED: legacy FreeRADIUS-SQL accounting recipes stamped
+ *      nas_id with r.nas_id (the HOME NAS, wrong for roaming rows) while
+ *      nas_ip_address always records the packet's real source, so trusting a
+ *      non-NULL nas_id would re-create the home-NAS-only bug this function
+ *      exists to fix. Worst case the OR adds the home NAS as an extra target
+ *      — a harmless NAK, and deduped by DISTINCT anyway.
+ *   2. The home NAS (radius.nas_id), always, as a safety net — accounting may
+ *      be disabled, lagging, or the session may predate it. Deduped by NAS
+ *      id; a Disconnect/CoA for a username with no session on that NAS is a
+ *      harmless NAK.
+ *
+ * The 90-day event_at bound exists for partition pruning: connection_logs is
+ * RANGE-partitioned by event_at with ~2 years retention, and without a bound
+ * this scans every partition — inside suspendContract's open transaction. An
+ * embedded-writer session older than 90 days (its single row keeps the START
+ * time) falls off the session list, but the home-NAS safety net still covers
+ * it — i.e. degraded to exactly the pre-roaming-aware behavior, never worse.
+ *
+ * @param {{username: string, nas_id: number|null}} account - radius row
+ * @returns {Promise<Array<{id: number, ip_address: string, coa_port: number|null,
+ *                          secret: string, secondary_nas_id: number|null}>>}
+ */
+async function resolveCoaTargets(account) {
+  const [sessionNases] = await db.query(
+    `SELECT DISTINCT n.id, n.ip_address, n.coa_port, n.secret, n.secondary_nas_id
+     FROM connection_logs cl
+     JOIN nas n
+       ON (n.id = cl.nas_id OR n.ip_address = cl.nas_ip_address)
+      AND n.deleted_at IS NULL
+     WHERE cl.username = ?
+       AND cl.event_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+       AND cl.event_type IN ('start', 'interim-update')
+       AND NOT EXISTS (
+         SELECT 1 FROM connection_logs cl2
+         WHERE cl2.username = cl.username
+           AND cl2.session_id = cl.session_id
+           AND cl2.event_type = 'stop'
+       )`,
+    [account.username],
+  );
+
+  const targets = [...sessionNases];
+
+  if (account.nas_id && !targets.some((t) => t.id === account.nas_id)) {
+    const [homeRows] = await db.query(
+      'SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [account.nas_id],
+    );
+    if (homeRows.length > 0) targets.push(homeRows[0]);
+  }
+
+  return targets;
+}
+
+/**
+ * Send one RADIUS packet to every target NAS (in parallel — each send has a
+ * 5s response timeout and suspendContract holds an open transaction while
+ * awaiting this, so the sends must not serialize).
+ *
+ * @param {number} code - 40=Disconnect, 43=CoA
+ * @param {string} username - User-Name attribute value
+ * @param {Array<object>} targets - nas rows from resolveCoaTargets
+ * @param {Array<{name: string, value: string}>} [extraAttributes=[]]
+ * @returns {Promise<{sent: boolean, response: string}>} sent=true if ANY
+ *   target send got the packet out; single-target responses stay the bare
+ *   string (e.g. 'Disconnect-ACK'), multi-target responses are per-NAS.
+ */
+async function sendToTargets(code, username, targets, extraAttributes = []) {
+  const usable = targets.filter((nas) => {
+    if (!nas.secret) {
+      logger.error({ nasIp: nas.ip_address }, 'NAS RADIUS secret is not configured — skipping CoA target');
+      return false;
+    }
+    return true;
+  });
+
+  if (usable.length === 0) {
+    return { sent: false, response: 'NAS RADIUS secret not configured' };
+  }
+
+  const results = await Promise.all(
+    usable.map((nas) => sendWithFailover(nas, code, username, extraAttributes)),
+  );
+
+  const sent = results.some((r) => r.sent);
+  const response = usable.length === 1
+    ? results[0].response
+    : usable.map((nas, i) => `${nas.ip_address}: ${results[i].response}`).join('; ');
+  return { sent, response };
+}
+
+/**
+ * Send a RADIUS Disconnect-Request (RFC 3576 / RFC 5176) for the given
+ * contract's subscriber to every NAS that may be serving it (open-session
+ * NASes from connection_logs + the home NAS — see resolveCoaTargets).
  *
  * Packet format (simplified):
  *   Code: 40 (Disconnect-Request)
  *   Identifier: random
- *   Attributes: User-Name, NAS-IP-Address, Acct-Session-Id
+ *   Attributes: User-Name [, Acct-Session-Id]
  *
- * Returns { sent: boolean, response: string }.
+ * @param {number} contractId
+ * @param {object} [opts] - per-session targeting (duplicate-session kick,
+ *   batch force-disconnect): kill ONE session instead of every session
+ *   matching User-Name.
+ * @param {string} [opts.acctSessionId] - adds an Acct-Session-Id attribute so
+ *   the NAS kills only that session.
+ * @param {string} [opts.nasIpAddress] - target exactly this NAS (the one the
+ *   session lives on per connection_logs) instead of resolving targets.
+ * @returns {Promise<{sent: boolean, response: string}>}
  */
-async function sendRadiusDisconnect(contractId) {
-  // Look up the RADIUS account and NAS for this contract
-  const [radiusRows] = await db.query(
-    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
-     FROM radius r
-     JOIN nas n ON n.id = r.nas_id
-     WHERE r.contract_id = ?
-     LIMIT 1`,
-    [contractId],
-  );
-
-  if (radiusRows.length === 0) {
+async function sendRadiusDisconnect(contractId, { acctSessionId = null, nasIpAddress = null } = {}) {
+  const account = await lookupRadiusAccount(contractId);
+  if (!account) {
     return { sent: false, response: 'No RADIUS account found for contract' };
   }
 
-  const nas = radiusRows[0];
+  const extraAttributes = acctSessionId
+    ? [{ name: 'Acct-Session-Id', value: String(acctSessionId) }]
+    : [];
 
-  if (!nas.secret) {
-    logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send Disconnect-Request');
-    return { sent: false, response: 'NAS RADIUS secret not configured' };
+  let targets = [];
+  if (nasIpAddress) {
+    const [rows] = await db.query(
+      'SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas WHERE ip_address = ? AND deleted_at IS NULL LIMIT 1',
+      [nasIpAddress],
+    );
+    targets = rows;
+    if (targets.length === 0) {
+      // The session's recorded NAS IP isn't registered (multi-homed NAS
+      // reporting a different NAS-IP-Address, or a NAS deleted while its
+      // sessions were open). Fall back to normal target resolution — the
+      // Acct-Session-Id attribute keeps the kill scoped to this one session.
+      logger.warn({ contractId, nasIpAddress }, 'Session NAS is not registered — falling back to resolved CoA targets');
+    }
+  }
+  if (targets.length === 0) {
+    targets = await resolveCoaTargets(account);
+    if (targets.length === 0) {
+      return { sent: false, response: 'No target NAS (no open-session NAS and no home NAS configured)' };
+    }
   }
 
-  return sendWithFailover(nas, 40, nas.username);
+  return sendToTargets(40, account.username, targets, extraAttributes);
 }
 
 /**
- * Send a RADIUS CoA-Request (Code 43) for reconnection or attribute change.
+ * Send a RADIUS CoA-Request (Code 43) for reconnection or attribute change to
+ * every NAS that may be serving the subscriber (see resolveCoaTargets).
  */
 async function sendRadiusCoA(contractId, _action, extraAttributes = []) {
-  const [radiusRows] = await db.query(
-    `SELECT r.username, r.nas_id, n.ip_address AS nas_ip, n.coa_port, n.secret, n.secondary_nas_id
-     FROM radius r
-     JOIN nas n ON n.id = r.nas_id
-     WHERE r.contract_id = ?
-     LIMIT 1`,
-    [contractId],
-  );
-
-  if (radiusRows.length === 0) {
+  const account = await lookupRadiusAccount(contractId);
+  if (!account) {
     return { sent: false, response: 'No RADIUS account found for contract' };
   }
 
-  const nas = radiusRows[0];
-
-  if (!nas.secret) {
-    logger.error({ contractId }, 'NAS RADIUS secret is not configured — cannot send CoA-Request');
-    return { sent: false, response: 'NAS RADIUS secret not configured' };
+  const targets = await resolveCoaTargets(account);
+  if (targets.length === 0) {
+    return { sent: false, response: 'No target NAS (no open-session NAS and no home NAS configured)' };
   }
 
   // Callers can shape the session by passing named attributes (e.g.
@@ -473,7 +610,7 @@ async function sendRadiusCoA(contractId, _action, extraAttributes = []) {
   // suspension rule's soft_suspend_download_kbps / upload_kbps through here
   // the same way.
 
-  return sendWithFailover(nas, 43, nas.username, extraAttributes);
+  return sendToTargets(43, account.username, targets, extraAttributes);
 }
 
 /**
@@ -586,4 +723,5 @@ module.exports = {
   sendRadiusDisconnect,
   sendRadiusCoA,
   sendRadiusPacket,
+  resolveCoaTargets, // exported for tests
 };

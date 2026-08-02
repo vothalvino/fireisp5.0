@@ -450,11 +450,14 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
 
     const results = [];
 
-    // Disconnect by acct_session_ids (session_id values in connection_logs)
+    // Disconnect by acct_session_ids (session_id values in connection_logs).
+    // 'interim-update' counts as open too — the embedded accounting path
+    // updates the session row in place, so a live session reads
+    // 'interim-update' after its first update.
     for (const sessionId of ids) {
       const [rows] = await db.query(
-        `SELECT DISTINCT cl.contract_id FROM connection_logs cl
-         WHERE cl.session_id = ? AND cl.event_type = 'start'
+        `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id FROM connection_logs cl
+         WHERE cl.session_id = ? AND cl.event_type IN ('start', 'interim-update')
            AND NOT EXISTS (
              SELECT 1 FROM connection_logs cl2
              WHERE cl2.session_id = cl.session_id
@@ -464,21 +467,33 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
          LIMIT 1`,
         [sessionId],
       );
-      if (!rows.length) {
+      // Use the DB-canonical session_id, not the raw request string: the PAD
+      // SPACE collation matches 'abc   ' to the stored 'abc', and sending the
+      // padded request value in the Acct-Session-Id attribute would NAK.
+      if (!rows.length || !rows[0].session_id) {
         results.push({ session_id: sessionId, success: false, error: 'Session not found or already stopped' });
         continue;
       }
       try {
-        await disconnectSession(rows[0].contract_id);
+        // Target the NAS this session actually lives on and narrow the kill
+        // to this one session via Acct-Session-Id.
+        const r = await disconnectSession(rows[0].contract_id, {
+          acctSessionId: rows[0].session_id,
+          nasIpAddress: rows[0].nas_ip_address,
+        });
         await auditLog.log({
           userId: req.user.id,
           organizationId: req.orgId,
           action: 'disconnect',
           tableName: 'connection_logs',
           recordId: rows[0].contract_id,
-          newValues: { session_id: sessionId, initiated_by: 'batch_disconnect' },
+          newValues: { session_id: rows[0].session_id, initiated_by: 'batch_disconnect', sent: r.sent },
         });
-        results.push({ session_id: sessionId, success: true });
+        if (r.sent) {
+          results.push({ session_id: sessionId, success: true });
+        } else {
+          results.push({ session_id: sessionId, success: false, error: r.response });
+        }
       } catch (err) {
         results.push({ session_id: sessionId, success: false, error: err.message });
       }
@@ -495,16 +510,20 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
         continue;
       }
       try {
-        await disconnectSession(rows[0].contract_id);
+        const r = await disconnectSession(rows[0].contract_id);
         await auditLog.log({
           userId: req.user.id,
           organizationId: req.orgId,
           action: 'disconnect',
           tableName: 'radius',
           recordId: rows[0].contract_id,
-          newValues: { username, initiated_by: 'batch_disconnect' },
+          newValues: { username, initiated_by: 'batch_disconnect', sent: r.sent },
         });
-        results.push({ username, success: true });
+        if (r.sent) {
+          results.push({ username, success: true });
+        } else {
+          results.push({ username, success: false, error: r.response });
+        }
       } catch (err) {
         results.push({ username, success: false, error: err.message });
       }

@@ -12,6 +12,7 @@ const {
   encodeMikrotikRateLimit,
   encodeMikrotikAddressList,
   encodeCiscoAvPair,
+  encodeAcctSessionId,
   encodeNamedAttributes,
   buildRadiusPacket,
   computeRequestAuthenticator,
@@ -165,6 +166,27 @@ describe('radiusCoaEncoder', () => {
   // ---------------------------------------------------------------------------
   // encodeNamedAttributes
   // ---------------------------------------------------------------------------
+  describe('encodeAcctSessionId()', () => {
+    test('produces correct TLV layout (type 44) for a session id', () => {
+      const buf = encodeAcctSessionId('8100000a');
+      expect(buf.length).toBe(10);          // 2 + 8
+      expect(buf[0]).toBe(44);              // type: Acct-Session-Id
+      expect(buf[1]).toBe(10);              // length: 2 + 8
+      expect(buf.slice(2).toString()).toBe('8100000a');
+    });
+
+    test('stringifies non-string values', () => {
+      const buf = encodeAcctSessionId(12345);
+      expect(buf[0]).toBe(44);
+      expect(buf.slice(2).toString()).toBe('12345');
+    });
+
+    test('throws instead of wrapping the length byte for values over 253 bytes', () => {
+      expect(() => encodeAcctSessionId('x'.repeat(254))).toThrow(/too long/);
+      expect(() => encodeAcctSessionId('x'.repeat(253))).not.toThrow();
+    });
+  });
+
   describe('encodeNamedAttributes()', () => {
     test('concatenates User-Name and Mikrotik-Rate-Limit into a single buffer', () => {
       const result = encodeNamedAttributes([

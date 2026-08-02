@@ -96,7 +96,8 @@ describe('radiusService', () => {
       sendRadiusDisconnect.mockResolvedValue({ sent: true, response: 'Disconnect-ACK' });
       const result = await radiusService.disconnectSession(1);
       expect(result.sent).toBe(true);
-      expect(sendRadiusDisconnect).toHaveBeenCalledWith(1);
+      // Second arg is the optional per-session targeting opts (none here).
+      expect(sendRadiusDisconnect).toHaveBeenCalledWith(1, undefined);
     });
   });
 

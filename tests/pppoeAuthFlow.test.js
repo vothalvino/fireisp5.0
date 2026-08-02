@@ -375,7 +375,8 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
       const result = await radiusService.disconnectSession(10);
       expect(result.sent).toBe(true);
       expect(result.response).toBe('Disconnect-ACK');
-      expect(sendRadiusDisconnect).toHaveBeenCalledWith(10);
+      // Second arg is the optional per-session targeting opts (none here).
+      expect(sendRadiusDisconnect).toHaveBeenCalledWith(10, undefined);
     });
 
     test('changeOfAuth sends CoA-Request (code 43) and gets ACK on reconnect', async () => {

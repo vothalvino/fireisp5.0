@@ -87,13 +87,18 @@ sql {
         WHERE n.status = 'active'"
 
     # --- Accounting queries ---
+    # nas_id is resolved from the packet's NAS-IP-Address (the SERVING NAS),
+    # NOT copied from radius.nas_id (the home NAS): auth is NAS-agnostic, so a
+    # subscriber may be online through any registered NAS, and FireISP's
+    # CoA/Disconnect targeting reads these rows to find the router the
+    # session actually lives on.
     accounting_start_query = "\
         INSERT INTO connection_logs \
           (contract_id, client_id, username, session_id, \
            ip_address, nas_id, nas_ip_address, \
            event_type, event_at) \
         SELECT r.contract_id, c.client_id, '%{SQL-User-Name}', '%{Acct-Session-Id}', \
-               '%{Framed-IP-Address}', r.nas_id, '%{NAS-IP-Address}', \
+               '%{Framed-IP-Address}', (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', \
                'start', NOW() \
         FROM radius r \
         JOIN contracts c ON c.id = r.contract_id \
@@ -108,7 +113,7 @@ sql {
            packets_in, packets_out, session_duration, \
            terminate_cause, event_at) \
         SELECT r.contract_id, c.client_id, '%{SQL-User-Name}', '%{Acct-Session-Id}', \
-               '%{Framed-IP-Address}', r.nas_id, '%{NAS-IP-Address}', \
+               '%{Framed-IP-Address}', (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', \
                'stop', '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
                '%{Acct-Input-Packets}', '%{Acct-Output-Packets}', '%{Acct-Session-Time}', \
                '%{Acct-Terminate-Cause}', NOW() \
@@ -124,7 +129,7 @@ sql {
            event_type, bytes_in, bytes_out, \
            packets_in, packets_out, session_duration, event_at) \
         SELECT r.contract_id, c.client_id, '%{SQL-User-Name}', '%{Acct-Session-Id}', \
-               '%{Framed-IP-Address}', r.nas_id, '%{NAS-IP-Address}', \
+               '%{Framed-IP-Address}', (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', \
                'interim-update', '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
                '%{Acct-Input-Packets}', '%{Acct-Output-Packets}', '%{Acct-Session-Time}', \
                NOW() \
@@ -147,6 +152,12 @@ RADIUS_COA_PORT=3799
 ```
 
 The NAS `coa_port` column in the `nas` table can override this per-device.
+
+CoA/Disconnect packets are roaming-aware: they are sent to every registered
+NAS that has an open session for the subscriber in `connection_logs`, plus
+the home NAS (`radius.nas_id`) as a safety net — not just the home NAS. A
+packet for a username with no session on that NAS is answered with a
+harmless NAK.
 
 ### 4. Testing
 
