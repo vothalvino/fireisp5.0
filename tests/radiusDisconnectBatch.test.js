@@ -164,3 +164,163 @@ describe('POST /api/radius/sessions/disconnect-batch', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// =============================================================================
+// Tenancy — the disconnect target must belong to the caller's organisation
+// =============================================================================
+// Both lookups here resolved a target with NO organisation filter: the
+// session_id branch read connection_logs (which has no organization_id of its
+// own) and the username branch read `radius` directly. req.orgId reached only
+// the audit row, so a cross-tenant disconnect was recorded under the CALLER's
+// org.
+//
+// The username branch was the sharper edge: `uq_radius_username (username,
+// active_flag)` makes a username unique across the WHOLE INSTALL, so another
+// tenant's username resolved unambiguously to that tenant's contract — and
+// PPPoE usernames are routinely derived from a client number.
+//
+// radius.batch_disconnect is granted to `admin` AND `technician` (migration
+// 236), so this was reachable by any technician in any org.
+//
+// It became reachable in practice only with the roaming-aware change: before
+// it, every primary Disconnect packet went to dgram's default (localhost), so
+// the missing scope was inert. Fixing the targeting made the pre-existing hole
+// live — which is why "the diff didn't introduce it" was not a reason to leave
+// it alone.
+describe('disconnect-batch is organisation-scoped', () => {
+  test('a session belonging to another org is not found, and no packet is sent', async () => {
+    mockAuthUser();
+    // The scoped query matches nothing because the contract is org 2.
+    db.query.mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: ['other-tenant-session'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0]).toMatchObject({ success: false });
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('the session lookup filters on the contract organisation', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]);
+
+    await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: ['s1'] });
+
+    const [sql, params] = db.query.mock.calls[0];
+    // connection_logs has no organization_id — the contract is the only anchor.
+    expect(sql).toMatch(/JOIN\s+contracts\s+c\s+ON\s+c\.id\s*=\s*cl\.contract_id/i);
+    expect(sql).toMatch(/c\.organization_id/);
+    expect(params).toContain(1); // req.orgId
+  });
+
+  test("another org's username is not found, and no packet is sent", async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usernames: ['pppoe-of-another-tenant'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0]).toMatchObject({ username: 'pppoe-of-another-tenant', success: false });
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('the username lookup filters on the contract organisation', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]);
+
+    await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usernames: ['someone'] });
+
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/FROM\s+radius\s+r/i);
+    expect(sql).toMatch(/JOIN\s+contracts\s+c\s+ON\s+c\.id\s*=\s*r\.contract_id/i);
+    expect(sql).toMatch(/c\.organization_id/);
+    expect(params).toContain(1);
+  });
+
+  test('an in-org session still disconnects — the scope must not break the feature', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[
+      { contract_id: 42, nas_ip_address: '10.0.0.7', session_id: 'sess-1' },
+    ]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/sessions/disconnect-batch')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ acct_session_ids: ['sess-1'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0]).toMatchObject({ session_id: 'sess-1', success: true });
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42, {
+      acctSessionId: 'sess-1',
+      nasIpAddress: '10.0.0.7',
+    });
+  });
+});
+
+// =============================================================================
+// The single-account disconnect route needs the same anchor
+// =============================================================================
+// POST /radius/:id/disconnect resolved its target with
+// `SELECT contract_id FROM radius WHERE id = ?` — no organisation filter, no
+// deleted_at, and req.orgId never referenced. radius ids are sequential and
+// enumerable, and `devices.update` is granted to admin AND technician
+// (migration 119), so a technician at one reseller could drop another
+// reseller's subscriber with a single POST. Verified reachable by execution
+// during review: HTTP 200 and a real disconnectSession call on a foreign row.
+describe('POST /radius/:id/disconnect is organisation-scoped', () => {
+  test("another org's account is not found, and no packet is sent", async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]); // scoped lookup matches nothing
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(404);
+    expect(radiusService.disconnectSession).not.toHaveBeenCalled();
+  });
+
+  test('the lookup filters on the contract organisation and excludes soft-deleted rows', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[]]);
+
+    await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/JOIN\s+contracts\s+c\s+ON\s+c\.id\s*=\s*r\.contract_id/i);
+    expect(sql).toMatch(/c\.organization_id/);
+    expect(sql).toMatch(/r\.deleted_at IS NULL/);
+    expect(params).toContain(1); // req.orgId
+  });
+
+  test('an in-org account still disconnects — the scope must not break the feature', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[{ contract_id: 42 }]]);
+    radiusService.disconnectSession.mockResolvedValue({ sent: true, response: 'ACK' });
+
+    const res = await request(app)
+      .post('/api/v1/radius/4711/disconnect')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(radiusService.disconnectSession).toHaveBeenCalledWith(42);
+  });
+});

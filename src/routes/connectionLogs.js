@@ -115,10 +115,18 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 50), 200);
     const safeOffset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
+    // JOINED TO contracts SO A TENANT ONLY SEES ITS OWN LIVE SESSIONS.
+    // connection_logs carries no organization_id, so the contract is the only
+    // tenancy anchor. Without it this returned every tenant's live sessions —
+    // usernames, IPs, NAS addresses and Acct-Session-Ids — which is both a
+    // disclosure in its own right and the enumeration primitive that made the
+    // unscoped disconnect routes trivially targetable.
     const activeSql = `
       SELECT cl.*
       FROM connection_logs cl
+      JOIN contracts c ON c.id = cl.contract_id
       WHERE cl.event_type = 'start'
+        AND (? IS NULL OR c.organization_id = ?)
         AND NOT EXISTS (
           SELECT 1 FROM connection_logs cl2
           WHERE cl2.session_id = cl.session_id
@@ -134,7 +142,9 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
     const countSql = `
       SELECT COUNT(*) AS total
       FROM connection_logs cl
+      JOIN contracts c ON c.id = cl.contract_id
       WHERE cl.event_type = 'start'
+        AND (? IS NULL OR c.organization_id = ?)
         AND NOT EXISTS (
           SELECT 1 FROM connection_logs cl2
           WHERE cl2.session_id = cl.session_id
@@ -144,8 +154,10 @@ router.get('/active', requirePermission('connection_logs.view'), async (req, res
         ${extraConditions}
     `;
 
-    const [rows] = await db.query(activeSql, [...params, safeLimit, safeOffset]);
-    const [countResult] = await db.query(countSql, params);
+    // The org binds are the first placeholders in both statements, so they lead.
+    const orgBinds = [req.orgId ?? null, req.orgId ?? null];
+    const [rows] = await db.query(activeSql, [...orgBinds, ...params, safeLimit, safeOffset]);
+    const [countResult] = await db.query(countSql, [...orgBinds, ...params]);
 
     res.json({
       data: rows,
