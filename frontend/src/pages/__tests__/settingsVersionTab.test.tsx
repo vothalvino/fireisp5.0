@@ -330,3 +330,26 @@ describe('Update now appears only when there is an update', () => {
     expect(await screen.findByText(/nothing to compare against/i)).toBeInTheDocument();
   });
 });
+
+describe('shared queryKey with UpdateAvailableBanner', () => {
+  // The banner caches ['system-version'] as the UNWRAPPED SystemVersion. In the
+  // real app both observers live in one QueryClient with staleTime 30s, so if
+  // the tab expects a different shape it reads undefined off the banner's fresh
+  // entry and renders an EMPTY card — seen live on 2026-08-02: operator logs
+  // in (banner fetches), opens Settings → Version within 30s, tab is blank.
+  it('renders from a fresh banner-shaped cache entry instead of going blank', async () => {
+    const qc = new QueryClient({
+      // Mirror App.tsx: staleTime keeps the primed entry fresh so the tab's
+      // observer does NOT refetch-and-repair — the collision must not need one.
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    qc.setQueryData(['system-version'], { ...VERSION });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter><Settings /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Version/i }));
+    expect(await screen.findByText('abcdef1')).toBeInTheDocument();
+  });
+});

@@ -1103,15 +1103,20 @@ function VersionTab() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
+    // UpdateAvailableBanner shares this queryKey and caches the UNWRAPPED
+    // SystemVersion — this queryFn must unwrap too. When they disagreed, a
+    // fresh banner-shaped cache entry made `data.data` undefined here and the
+    // tab rendered an empty card until the entry went stale.
     queryKey: ['system-version'],
-    queryFn: () => apiFetch<{ data: SystemVersion }>(`${API_BASE}/system/version`),
+    queryFn: () => apiFetch<{ data: SystemVersion }>(`${API_BASE}/system/version`)
+      .then((r) => r.data),
     retry: false,
     // The server answers instantly with a possibly-stale value rather than
     // blocking on api.github.com. When it says a refresh is in flight, look
     // again shortly so the fresh answer arrives without the operator having to
     // do anything — otherwise "fast" would just mean "stale".
     refetchInterval: (q) => (
-      (q.state.data as { data: SystemVersion } | undefined)?.data?.refreshing ? 1500 : false
+      (q.state.data as SystemVersion | undefined)?.refreshing ? 1500 : false
     ),
   });
 
@@ -1145,7 +1150,7 @@ function VersionTab() {
   if (isLoading) return <p style={sty.muted}>{t('version.loading')}</p>;
   if (error) return <p style={sty.errorText}>{(error as Error).message}</p>;
 
-  const v = data?.data;
+  const v = data;
   if (!v) return null;
 
   const dep = deployData?.data;

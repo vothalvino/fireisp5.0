@@ -13,6 +13,22 @@ vi.mock('@/api/client', () => ({
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
+// Delete is gated on the backend-resolved install-operator flag (see the page):
+// a tenant admin — role 'admin' included — must not see a button that 403s.
+let currentIsOperator = false;
+vi.mock('@/auth/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/auth/AuthContext')>()),
+  useAuth: () => ({
+    user: {
+      id: 1, email: 'u@test.com', name: 'U', role: 'admin',
+      is_install_operator: currentIsOperator,
+      organization_id: 1, is_active: true, email_verified_at: null, twofa_enabled: false,
+    },
+    loading: false, initialized: true,
+    login: vi.fn(), logout: vi.fn(), refresh: vi.fn(), switchOrganization: vi.fn(),
+  }),
+}));
+
 const org1 = {
   id: 1, name: 'Acme ISP', legal_name: 'Acme S.A.', email: 'ops@acme.mx',
   phone: null, website: null, address: null, city: null, state: null,
@@ -33,6 +49,7 @@ function renderList() {
 describe('OrganizationList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentIsOperator = false;
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/organizations')
         return Promise.resolve({ data: { data: [org1], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
@@ -48,6 +65,23 @@ describe('OrganizationList page', () => {
   it('renders an organization row with its name', async () => {
     renderList();
     await waitFor(() => expect(screen.getByText('Acme ISP')).toBeInTheDocument());
+  });
+
+  it('hides New Organization and Delete from a tenant admin — operator-only on the backend', async () => {
+    renderList();
+    await waitFor(() => expect(screen.getByText('Acme ISP')).toBeInTheDocument());
+    expect(screen.queryByTitle('Delete this organization')).not.toBeInTheDocument();
+    expect(screen.queryByText('+ New Organization')).not.toBeInTheDocument();
+    // Manage stays: their own org is still theirs to run.
+    expect(screen.getByTitle(/Manage organization/)).toBeInTheDocument();
+  });
+
+  it('offers New Organization and Delete to the install operator', async () => {
+    currentIsOperator = true;
+    renderList();
+    await waitFor(() => expect(screen.getByText('Acme ISP')).toBeInTheDocument());
+    expect(screen.getByTitle('Delete this organization')).toBeInTheDocument();
+    expect(screen.getByText('+ New Organization')).toBeInTheDocument();
   });
 
   it('shows empty message when no organizations', async () => {

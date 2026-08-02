@@ -119,3 +119,51 @@ describe('legitimate writes still work', () => {
     expect(updateOf()).toBeUndefined();
   });
 });
+
+describe('CREATE is install-operator only (product decision, 2026-08-02)', () => {
+  // Membership is required to ENTER an org (j66/j67) and create grants the
+  // creator none — a tenant admin could only ever mint orgs they cannot enter.
+  const insertOf = () => db.query.mock.calls.find(c => /^INSERT INTO `?organizations`?/i.test(c[0]));
+
+  it('403s a tenant admin and inserts nothing', async () => {
+    wireDb('admin', false);
+    const res = await request(app)
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${token('admin')}`)
+      .send({ name: 'Orphan Org' });
+    expect(res.status).toBe(403);
+    expect(insertOf()).toBeUndefined();
+  });
+
+  it('allows the INSTALL OPERATOR to create', async () => {
+    wireDb('admin', true);
+    const res = await request(app)
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${token('admin')}`)
+      .send({ name: 'New Tenant ISP' });
+    expect(res.status).not.toBe(403);
+  });
+});
+
+describe('DELETE is install-operator only (product decision, 2026-08-02)', () => {
+  // Stricter than ownership: a tenant admin may not delete even their OWN
+  // organisation — orgs hold stamped CFDIs whose retention outlives the
+  // tenant, so decommissioning is the operator's act, like restore.
+  it('403s a tenant admin deleting their own org and writes nothing', async () => {
+    wireDb('admin', false);
+    const res = await request(app)
+      .delete('/api/v1/organizations/1')
+      .set('Authorization', `Bearer ${token('admin')}`);
+    expect(res.status).toBe(403);
+    expect(updateOf()).toBeUndefined();
+  });
+
+  it('allows the INSTALL OPERATOR to delete an org', async () => {
+    wireDb('admin', true);
+    const res = await request(app)
+      .delete('/api/v1/organizations/9')
+      .set('Authorization', `Bearer ${token('admin')}`);
+    expect(res.status).not.toBe(403);
+    expect(updateOf()).toBeDefined();   // soft delete = UPDATE ... deleted_at
+  });
+});

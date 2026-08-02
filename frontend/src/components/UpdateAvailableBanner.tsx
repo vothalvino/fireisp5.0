@@ -94,6 +94,9 @@ export function UpdateAvailableBanner() {
   const isInstallOperator = user?.is_install_operator === true;
 
   const { data } = useQuery<SystemVersion>({
+    // Settings' VersionTab shares this queryKey AND this unwrapped shape —
+    // keep them in agreement, or whichever fetched second reads garbage off
+    // the other's fresh cache entry.
     queryKey: ['system-version'],
     queryFn: fetchVersion,
     enabled: isInstallOperator && !dismissed,
