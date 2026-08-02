@@ -9,15 +9,16 @@ This guide covers deploying FireISP 5.0 in production environments. Choose the d
 1. [One-Line Installer (recommended)](#one-line-installer-recommended)
 2. [Prerequisites](#prerequisites)
 3. [Environment Configuration](#environment-configuration)
-4. [Bare-Metal / VM Deployment](#bare-metal--vm-deployment)
-5. [Docker Deployment](#docker-deployment)
-6. [Docker Swarm](#docker-swarm)
-7. [MySQL Tuning](#mysql-tuning)
-8. [Reverse Proxy (Nginx)](#reverse-proxy-nginx)
-9. [TLS / HTTPS](#tls--https)
-10. [Admin IP Allowlist](#admin-ip-allowlist)
-11. [Monitoring](#monitoring)
-12. [Production Checklist](#production-checklist)
+4. [The install operator](#the-install-operator)
+5. [Bare-Metal / VM Deployment](#bare-metal--vm-deployment)
+6. [Docker Deployment](#docker-deployment)
+7. [Docker Swarm](#docker-swarm)
+8. [MySQL Tuning](#mysql-tuning)
+9. [Reverse Proxy (Nginx)](#reverse-proxy-nginx)
+10. [TLS / HTTPS](#tls--https)
+11. [Admin IP Allowlist](#admin-ip-allowlist)
+12. [Monitoring](#monitoring)
+13. [Production Checklist](#production-checklist)
 
 ---
 
@@ -466,6 +467,58 @@ SMTP_FROM=noreply@example.com
 # Logging
 LOG_LEVEL=info
 ```
+
+---
+
+## The install operator
+
+Some things belong to the deployment rather than to any tenant: where the
+install's infrastructure alerts go (`ops_alert_email`), which tile server every
+map loads, poller nodes, and the update/deploy controls. Only the **install
+operator** can change them.
+
+The operator is an explicit fact on the account, `users.is_install_operator`
+(migration 444) — **not** a role. `users.role='admin'` cannot express it,
+because that is the per-organisation Admin persona: on a multi-tenant install
+every tenant has one, so gating on it would hand every tenant admin the deploy
+button.
+
+**You do not normally have to do anything.** A fresh install seeds the flag onto
+the admin account it creates. Upgrading an existing install grants it to every
+active admin when the install has one organisation, and to the oldest active
+admin when it has more.
+
+### Changing who the operator is
+
+Set the environment variable — user **IDs**, comma-separated — and restart:
+
+```env
+# /opt/fireisp/.env.prod
+INSTALL_OPERATOR_USER_IDS=1
+```
+
+When set, it overrides the stored flag completely. IDs rather than email
+addresses on purpose: an email is editable from inside the application, so an
+email allowlist would be writable by the accounts it is meant to exclude.
+
+Find the id under **Admin → Users**, or:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db \
+  mysql -u fireisp -p fireisp -e \
+  "SELECT id, email, role, is_install_operator FROM users WHERE deleted_at IS NULL;"
+```
+
+To move the flag permanently instead of overriding it, update the column
+directly and leave `INSTALL_OPERATOR_USER_IDS` empty. The column is deliberately
+not writable through the API, so there is no web UI for it.
+
+### Symptoms of it being on the wrong account
+
+The Settings → Version tab and the update banner disappear, install-wide
+settings show as read-only, and `POST /system/deploy` answers 404. That is the
+gate refusing you, not a broken install — set `INSTALL_OPERATOR_USER_IDS` and
+restart.
 
 ---
 
