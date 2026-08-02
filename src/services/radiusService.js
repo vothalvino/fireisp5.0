@@ -6,6 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const config = require('../config');
 const { sendRadiusDisconnect, sendRadiusCoA } = require('./suspensionService');
 const { createCircuitBreaker } = require('../utils/circuitBreaker');
 const { generateAttributes } = require('./radiusAttributeService');
@@ -795,7 +796,9 @@ async function syncFreeradiusTables(organizationId) {
  * allowed simultaneous_use limit, then disconnect the oldest excess sessions.
  *
  * "Active session" = a connection_logs row with event_type='start' that has no
- * matching 'stop' row for the same session_id.
+ * matching 'stop' row for the same session_id, AND whose latest accounting
+ * evidence is within the liveness window (config.radiusSessionLivenessMinutes,
+ * default 60) — a stop can be lost, so an open row alone is not proof of life.
  *
  * The oldest sessions (lowest id / earliest event_at) are kicked first.
  *
@@ -808,6 +811,13 @@ async function kickDuplicateSessions(organizationId) {
   // Scope by the contract's organization — radius has no organization_id column.
   const orgFilter = organizationId ? 'AND c.organization_id = ?' : '';
   const orgParams = organizationId ? [organizationId] : [];
+
+  // Liveness window for the ghost guard below. Coerced to a safe positive
+  // integer because it is interpolated into SQL, not bound.
+  const livenessMinutes =
+    Number.isInteger(config.radiusSessionLivenessMinutes) && config.radiusSessionLivenessMinutes > 0
+      ? config.radiusSessionLivenessMinutes
+      : 60;
 
   // Load all active subscribers with their effective simultaneous_use limit.
   // (No home-NAS join here — sendRadiusDisconnect targets the NAS each excess
@@ -851,6 +861,19 @@ async function kickDuplicateSessions(organizationId) {
       // is RANGE-partitioned by event_at). An embedded-writer session older
       // than that drops out of the count — fails safe: fewer kicks, never
       // false kicks.
+      //
+      // HAVING MAX(event_at) is the ghost guard (j65): a NAS reboot or a
+      // dropped Acct-Stop leaves an open row that would otherwise count as
+      // live FOREVER. With a 1-session plan, one real session + one ghost
+      // reads as 2, and this kicker — which runs unattended every 5 minutes —
+      // would disconnect the subscriber's REAL session every cycle with
+      // nothing in the logs. So a session counts only while it shows
+      // accounting evidence inside the liveness window; the ghost row stays
+      // in the DB for history, it just stops counting. This too fails safe:
+      // a live session on a NAS with interim updates disabled ages out of
+      // the COUNT (fewer kicks) — it is never falsely kicked.
+      // (livenessMinutes is validated to a positive integer above — it is
+      // interpolated, not bound, matching the inline 90 DAY literal.)
       const [activeSessions] = await db.query(
         `SELECT cl.session_id,
                 MIN(cl.event_at) AS event_at,
@@ -867,6 +890,7 @@ async function kickDuplicateSessions(organizationId) {
                AND cl2.event_type = 'stop'
            )
          GROUP BY cl.session_id
+         HAVING MAX(cl.event_at) >= DATE_SUB(NOW(), INTERVAL ${livenessMinutes} MINUTE)
          ORDER BY event_at ASC, cl.session_id ASC`,
         [sub.username],
       );
