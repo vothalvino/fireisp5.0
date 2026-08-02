@@ -419,12 +419,35 @@ class User extends BaseModel {
    * @param {number[]} orgIds     non-empty list of organization ids
    * @param {string}   membershipRole  role to stamp on rows (the group's kind)
    */
-  static async setUserOrganizations(userId, orgIds, membershipRole) {
+  /**
+   * @param {number[]|null} allowedOrgIds - organisations the ACTOR may grant
+   *   access to. null means unrestricted and is reserved for the install
+   *   operator and for internal callers with no request context.
+   *
+   * The allowlist is mandatory-by-convention because this method MINTS
+   * MEMBERSHIP, and membership is what every other tenant boundary trusts.
+   * Without it, `organization_ids: [1, 2]` on a create/update handed the actor
+   * an admin membership in an organisation they had nothing to do with — and a
+   * manufactured membership defeats the switch-organization rule, which
+   * (correctly) trusts organization_users. Out-of-range ids are REFUSED, never
+   * quietly filtered: silently dropping a field the caller sent is the failure
+   * mode this codebase keeps re-learning.
+   */
+  static async setUserOrganizations(userId, orgIds, membershipRole, allowedOrgIds = null) {
     const db = require('../config/database');
-    const { ValidationError } = require('../utils/errors');
+    const { ValidationError, ForbiddenError } = require('../utils/errors');
     const ids = [...new Set((orgIds || []).map(Number).filter(Number.isInteger))];
     if (ids.length === 0) {
       throw new ValidationError('organization_ids must contain at least one organization');
+    }
+    if (allowedOrgIds !== null) {
+      const allowed = new Set(allowedOrgIds.map(Number));
+      const refused = ids.filter((id) => !allowed.has(id));
+      if (refused.length > 0) {
+        throw new ForbiddenError(
+          `You cannot grant access to organization(s) ${refused.join(', ')}.`,
+        );
+      }
     }
     const role = ORG_MEMBERSHIP_ROLES.has(membershipRole) ? membershipRole : 'readonly';
 

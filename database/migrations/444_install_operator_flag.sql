@@ -15,12 +15,23 @@
 -- lost the update button with a bare 404 — no attacker required. Any inferred
 -- signal has this shape, so this migration stops inferring and stores the fact.
 --
--- WHO GETS IT HERE: the oldest active legacy-admin account. On a self-hosted
--- single-ISP install that is the person who ran the installer. On a
--- multi-tenant install it is whoever set the box up, ahead of any tenant they
--- later onboarded. Nobody GAINS a capability — every one of these accounts
--- already passed the old `role = 'admin'` check — the flag only stops everyone
--- else from passing it too.
+-- WHO GETS IT HERE depends on the shape of the install, decided ONCE at
+-- migration time (a one-off judgement about existing data, not a rule the
+-- runtime re-derives — that mistake is described above):
+--
+--   * ONE organisation — every active legacy admin keeps the capability they
+--     have today. They all work for the ISP that owns the box; there is no
+--     other tenant for them to be dangerous to, and silently demoting an
+--     operator's colleagues on upgrade would break working installs for no
+--     security gain.
+--   * MORE THAN ONE organisation — only the OLDEST active legacy admin, who
+--     is whoever set the box up, ahead of any tenant onboarded later. This is
+--     where "any admin" stops being a safe answer.
+--
+-- Nobody GAINS anything either way: every one of these accounts already passed
+-- the old `role = 'admin'` check. The flag only stops everyone else passing it.
+-- If it lands on the wrong account, INSTALL_OPERATOR_USER_IDS overrides it
+-- without a migration.
 --
 -- The column is not in User.fillable and is not accepted by any validation
 -- schema, so it cannot be granted through the API at all. It is set here, by
@@ -43,16 +54,23 @@ BEGIN
       ADD COLUMN is_install_operator TINYINT(1) NOT NULL DEFAULT 0
         COMMENT 'Runs this INSTALL (deploy, install-wide settings) — NOT a tenant role. Never settable through the API: absent from User.fillable and from every validation schema (migration 444).';
 
-    -- The oldest active legacy admin. LIMIT inside a correlated subquery is not
-    -- allowed, so the id is resolved into a variable first.
-    SET @fireisp_install_operator_id = (
-      SELECT id FROM users
-       WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL
-       ORDER BY id ASC LIMIT 1
-    );
+    SET @fireisp_org_count = (SELECT COUNT(*) FROM organizations WHERE deleted_at IS NULL);
 
-    IF @fireisp_install_operator_id IS NOT NULL THEN
-      UPDATE users SET is_install_operator = 1 WHERE id = @fireisp_install_operator_id;
+    IF @fireisp_org_count <= 1 THEN
+      UPDATE users
+         SET is_install_operator = 1
+       WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL;
+    ELSE
+      -- LIMIT inside a correlated subquery is not allowed, so the id is
+      -- resolved into a variable first.
+      SET @fireisp_install_operator_id = (
+        SELECT id FROM users
+         WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL
+         ORDER BY id ASC LIMIT 1
+      );
+      IF @fireisp_install_operator_id IS NOT NULL THEN
+        UPDATE users SET is_install_operator = 1 WHERE id = @fireisp_install_operator_id;
+      END IF;
     END IF;
   END IF;
 END //

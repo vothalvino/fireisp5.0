@@ -13,7 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile } = require('../middleware/schemas/organizations');
 const db = require('../config/database');
 const { getQuotaWithUsage } = require('../services/quotaService');
-const { isInstallOperator } = require('../services/installOperator');
+const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
 const {
   getDatabaseIsolation,
   saveDatabaseIsolation,
@@ -30,8 +30,39 @@ const ctrl = crudController(Organization);
 
 router.use(authenticate);
 
-router.get('/', requirePermission('organizations.view'), ctrl.list);
-router.get('/:id', requirePermission('organizations.view'), ctrl.get);
+// LIST — the caller's own organisations, unless they run the install (j67).
+//
+// Organization.hasOrgScope is false, so the generic list returned EVERY ISP on
+// the box to anyone holding organizations.view — which migration 119 grants
+// every org's admin. Under the isolation model the product now commits to,
+// that is enumeration of your neighbours: names, tax ids, status, and the ids
+// every other guard is keyed on. Memberships come from organization_users, the
+// same source /auth/me already uses for the org switcher.
+router.get('/', requirePermission('organizations.view'), async (req, res, next) => {
+  try {
+    if (await isInstallOperator(req)) return ctrl.list(req, res, next);
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
+    const [rows] = await db.query(
+      `SELECT o.* FROM organizations o
+         JOIN organization_users ou ON ou.organization_id = o.id
+        WHERE ou.user_id = ? AND ou.deleted_at IS NULL AND o.deleted_at IS NULL
+        ORDER BY o.id ASC LIMIT ${limit} OFFSET ${offset}`,
+      [req.user.id],
+    );
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM organizations o
+         JOIN organization_users ou ON ou.organization_id = o.id
+        WHERE ou.user_id = ? AND ou.deleted_at IS NULL AND o.deleted_at IS NULL`,
+      [req.user.id],
+    );
+    res.json({ data: rows, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+  } catch (err) { next(err); }
+});
+
+router.get('/:id', orgScope, requirePermission('organizations.view'), assertCallerOwnsTargetOrg, ctrl.get);
 router.post('/', requirePermission('organizations.create'), validate(createOrganization), ctrl.create);
 /**
  * The ownership guard for every :id route on this router.
@@ -78,7 +109,7 @@ router.patch('/:id', orgScope, requirePermission('organizations.update'), assert
 // the neighbours would have restored operator status. The count now spans all
 // rows (see services/installOperator.js) AND these two verbs are guarded.
 router.delete('/:id', orgScope, requirePermission('organizations.delete'), assertCallerOwnsTargetOrg, ctrl.destroy);
-router.post('/:id/restore', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, ctrl.restore);
+router.post('/:id/restore', orgScope, requirePermission('organizations.update'), requireInstallOperator, ctrl.restore);
 
 // Settings sub-routes — PER-ORG keys only (migration 443 split, j56).
 // Before the split these served the INSTALL-level table while taking an :id
@@ -96,6 +127,21 @@ async function orgSettingsMap(orgId) {
     map[key] = values[key] ?? def.default;
   }
   return map;
+}
+
+/**
+ * For surfaces that are constraints IMPOSED ON a tenant rather than the
+ * tenant's own configuration. Owning the organisation is not enough: a tenant
+ * that can raise its own quota has no quota, and database isolation is
+ * deployment infrastructure, not customer data.
+ */
+async function requireInstallOperator(req, res, next) {
+  try {
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'INSTALL_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
+    });
+  } catch (err) { return next(err); }
 }
 
 router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
@@ -139,7 +185,7 @@ router.get('/:id/quota', orgScope, requirePermission('organizations.view'), asse
   }
 });
 
-router.put('/:id/quota', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
+router.put('/:id/quota', orgScope, requirePermission('organizations.update'), requireInstallOperator, async (req, res, next) => {
   try {
     const QUOTA_FIELDS = ['max_clients', 'max_devices', 'max_storage_mb', 'max_scheduled_tasks'];
     const { ValidationError: VE } = require('../utils/errors');
@@ -205,7 +251,7 @@ router.post('/:id/email-settings/:function/test', orgScope, requirePermission('e
 });
 
 // Per-tenant database isolation sub-routes
-router.get('/:id/database-isolation', orgScope, requirePermission('organizations.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
+router.get('/:id/database-isolation', orgScope, requirePermission('organizations.view'), requireInstallOperator, async (req, res, next) => {
   try {
     const data = await getDatabaseIsolation(req.params.id);
     res.json({ data });
@@ -214,7 +260,7 @@ router.get('/:id/database-isolation', orgScope, requirePermission('organizations
   }
 });
 
-router.put('/:id/database-isolation', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
+router.put('/:id/database-isolation', orgScope, requirePermission('organizations.update'), requireInstallOperator, async (req, res, next) => {
   try {
     const data = await saveDatabaseIsolation(req.params.id, req.body || {});
     res.json({ data });
@@ -223,7 +269,7 @@ router.put('/:id/database-isolation', orgScope, requirePermission('organizations
   }
 });
 
-router.post('/:id/database-isolation/test', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, async (req, res, next) => {
+router.post('/:id/database-isolation/test', orgScope, requirePermission('organizations.update'), requireInstallOperator, async (req, res, next) => {
   try {
     const data = await testDatabaseIsolation(req.params.id, req.body && Object.keys(req.body).length ? req.body : null);
     res.json({ data });
@@ -260,7 +306,13 @@ async function assertTargetOrgIsMx(orgId) {
 // req.orgId as the caller's ACTIVE org.
 function assertCallerCanManageOrgFiscal(req, what = 'fiscal identity') {
   if (Number(req.params.id) === Number(req.orgId)) return;
-  if (req.user?.role === 'admin') return;
+  // No operator escape here, deliberately (j66, answered by the user): an
+  // organisation's fiscal identity — RFC, razón social, régimen fiscal, CFDI
+  // serie/folio — is editable only from INSIDE that organisation. Someone who
+  // runs the install and needs to touch it switches into the org first, which
+  // makes the act attributable to that org rather than to a god-mode caller.
+  // The check this replaced admitted any users.role='admin', i.e. every
+  // tenant's admin, because that is the per-tenant admin persona.
   throw new AppError(`You can only manage your own organization's ${what}.`, 403, 'FORBIDDEN');
 }
 

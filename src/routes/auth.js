@@ -10,7 +10,7 @@ const authSchemas = require('../middleware/schemas/auth');
 const User = require('../models/User');
 const Organization = require('../models/Organization');
 const { sanitizeUser } = require('../utils/userSanitize');
-const { isInstallOperator } = require('../services/installOperator');
+const { isInstallOperatorUser } = require('../services/installOperator');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
@@ -132,12 +132,29 @@ async function enrichAuthUser(user, activeOrgId) {
     );
     group = row || null;
   }
+  // Resolved HERE, not in one route, because this function is what keeps
+  // /auth/login and /auth/me in lockstep — a field present only on /me hides UI
+  // until a manual reload (the organization_locale regression, #378's review).
+  //
+  // Coerced to a real boolean: `user` is the raw users row, so the column
+  // arrives as MySQL's TINYINT 0/1, and both consumers compare with === true.
+  // It also has to run through the resolver rather than reading the column, or
+  // an operator designated purely by INSTALL_OPERATOR_USER_IDS would log in as
+  // a non-operator and only become one at the next /auth/me.
+  let isOperator = false;
+  try {
+    isOperator = await isInstallOperatorUser(user);
+  } catch (err) {
+    logger.warn({ err }, 'Could not resolve install-operator status');
+  }
+
   return {
     ...user,
     organization_currency: activeOrgId ? await Organization.getCurrency(activeOrgId) : 'MXN',
     organization_locale: activeOrgId ? await Organization.getLocale(activeOrgId) : 'global',
     group,
     permissions: activeOrgId ? await User.getPermissions(user.id, activeOrgId) : [],
+    is_install_operator: isOperator,
   };
 }
 
@@ -214,28 +231,11 @@ router.get('/me', authenticate, async (req, res, next) => {
     // they are not a member of, and its currency would otherwise be unavailable —
     // making every such org fall back to the default currency in the UI.
     const enriched = await enrichAuthUser(safeUser, activeOrgId);
-    // Whether THIS caller runs the install, resolved by the backend rather than
-    // guessed from users.role. Three UI surfaces (the Settings version tab, the
-    // sidebar entry, the update banner) used `role === 'admin'` for this, which
-    // is the per-TENANT admin persona — so on a multi-organisation install they
-    // offered every tenant admin controls whose endpoints answer 404.
-    //
-    // Never fatal: /auth/me is the session bootstrap, and a hint about which
-    // controls to render must not be able to lock everyone out of the app.
-    // Failing to false only hides install-wide UI — the endpoints behind it
-    // enforce the same rule themselves, and they fail closed.
-    let is_install_operator = false;
-    try {
-      is_install_operator = await isInstallOperator(req);
-    } catch (err) {
-      logger.warn({ err }, 'Could not resolve install-operator status for /auth/me');
-    }
     res.json({
       data: {
         ...enriched,
         organization_id: activeOrgId,
         organizations,
-        is_install_operator,
       },
     });
   } catch (err) {

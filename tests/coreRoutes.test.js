@@ -2099,6 +2099,9 @@ describe('Organization Routes — /api/organizations', () => {
     test('returns paginated list of organizations', async () => {
       mockAuthUser();
       db.query
+        // The operator lookup runs first (j67): the list is scoped to the
+        // caller's memberships unless they run the install.
+        .mockResolvedValueOnce([[{ is_install_operator: 1 }]])
         .mockResolvedValueOnce([[mockOrg]])
         .mockResolvedValueOnce([[{ total: 1 }]]);
 
@@ -2122,6 +2125,8 @@ describe('Organization Routes — /api/organizations', () => {
     test('returns an organization by id', async () => {
       mockAuthUser();
       db.query.mockResolvedValueOnce([[mockOrg]]);
+      // Caller org 1 == target org 1, so the ownership guard short-circuits
+      // before any operator lookup.
 
       const res = await request(app)
         .get('/api/organizations/1')
@@ -2131,15 +2136,18 @@ describe('Organization Routes — /api/organizations', () => {
       expect(res.body.data.name).toBe('ISP Mexico');
     });
 
-    test('returns 404 when organization not found', async () => {
+    test('403s a target organization the caller does not own', async () => {
+      // Was: expected 404 for a non-existent id. The ownership guard now runs
+      // BEFORE the lookup, so another org's id is refused without revealing
+      // whether it exists — a tenant should not be able to probe that (j56/j67).
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);
+      db.query.mockResolvedValueOnce([[{ is_install_operator: 0 }]]);
 
       const res = await request(app)
         .get('/api/organizations/999')
         .set('Authorization', `Bearer ${authToken}`);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
     });
   });
 
@@ -2553,15 +2561,19 @@ describe('Cross-cutting — auth and 404 edge cases', () => {
       expect(res.status).toBe(404);
     });
 
-    test('GET /api/organizations/0 returns 404', async () => {
+    test('GET /api/organizations/0 is refused', async () => {
+      // Organizations differ from the other resources in this loop: their
+      // ownership guard runs before the lookup, so an id outside the caller's
+      // own org is 403 rather than 404 — deliberately, so a tenant cannot
+      // probe which organisation ids exist (j56/j67).
       mockAuthUser();
-      db.query.mockResolvedValueOnce([[]]);
+      db.query.mockResolvedValueOnce([[{ is_install_operator: 0 }]]);
 
       const res = await request(app)
         .get('/api/organizations/0')
         .set('Authorization', `Bearer ${authToken}`);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
     });
   });
 

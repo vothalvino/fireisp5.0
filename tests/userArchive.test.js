@@ -112,12 +112,18 @@ describe('BaseModel onlyDeleted (Archived tab listing)', () => {
 });
 
 describe('PATCH /users/:id/group — reassign an archived user without restoring', () => {
+  // Every test here now begins with one extra lookup: restrictRoleAssignment
+  // reads the TARGET row to refuse edits to the install operator's account
+  // (its credentials are what reach the deploy trigger). The row carries
+  // is_install_operator, so the check costs exactly this one query.
+  const guardLookup = () => db.query.mockResolvedValueOnce([[{ id: 9, role: 'billing', is_install_operator: 0 }]]);
   const ARCHIVED = { id: 9, organization_id: 1, role: 'billing', group_id: 2, status: 'inactive', deleted_at: '2026-07-12 10:00:00' };
   const ACTIVE = { ...ARCHIVED, deleted_at: null };
 
   beforeEach(() => { mockUser.role = 'admin'; });
 
   test('changes group + role mirror and refreshes membership rows for an archived user', async () => {
+    guardLookup();
     db.query
       .mockResolvedValueOnce([[ARCHIVED]])                               // findByIdIncludingDeleted
       .mockResolvedValueOnce([[{ id: 4, name: 'technician', kind: 'technician' }]]) // resolveGroupMirror
@@ -130,14 +136,15 @@ describe('PATCH /users/:id/group — reassign an archived user without restoring
     expect(res.status).toBe(200);
     expect(res.body.data.group_id).toBe(4);
     expect(res.body.data.role).toBe('technician');
-    const updateCall = db.query.mock.calls[2];
+    const updateCall = db.query.mock.calls[3];
     expect(updateCall[0]).toMatch(/UPDATE users SET group_id = \?, role = \? WHERE id = \? AND deleted_at IS NOT NULL/);
     expect(updateCall[1]).toEqual([4, 'technician', 9]);
-    const membershipCall = db.query.mock.calls[3];
+    const membershipCall = db.query.mock.calls[4];
     expect(membershipCall[0]).toMatch(/UPDATE organization_users SET role/);
   });
 
   test('404s when the row stopped being archived between check and write (concurrent restore)', async () => {
+    guardLookup();
     db.query
       .mockResolvedValueOnce([[ARCHIVED]])                               // findByIdIncludingDeleted (still archived)
       .mockResolvedValueOnce([[{ id: 4, name: 'technician', kind: 'technician' }]]) // resolveGroupMirror
@@ -147,6 +154,7 @@ describe('PATCH /users/:id/group — reassign an archived user without restoring
   });
 
   test('422s for an ACTIVE user — live accounts use the normal edit with its guards', async () => {
+    guardLookup();
     db.query.mockResolvedValueOnce([[ACTIVE]]);
     const res = await request(app).patch('/api/v1/users/9/group').send({ group_id: 4 });
     expect(res.status).toBe(422);
@@ -154,12 +162,14 @@ describe('PATCH /users/:id/group — reassign an archived user without restoring
   });
 
   test('404s when the user does not exist', async () => {
+    db.query.mockResolvedValueOnce([[]]); // guard lookup: no such target
     db.query.mockResolvedValueOnce([[]]);
     const res = await request(app).patch('/api/v1/users/999/group').send({ group_id: 4 });
     expect(res.status).toBe(404);
   });
 
   test('422s for an unknown group id', async () => {
+    guardLookup();
     db.query
       .mockResolvedValueOnce([[ARCHIVED]])
       .mockResolvedValueOnce([[]]); // resolveGroupMirror: no such group

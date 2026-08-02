@@ -17,13 +17,19 @@ jest.mock('../src/config/database', () => ({
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
-// Mutable so individual tests can drop the legacy-admin bypass.
-const AUTH_STATE = { role: 'admin' };
+// Mutable so individual tests can vary the caller. `orgId` matters now: an
+// organisation's fiscal identity is editable only from INSIDE that org (j66,
+// answered by the user) — the legacy-admin cross-org bypass this file used to
+// rely on was the per-TENANT admin persona, so it let every org's admin edit
+// every other org's RFC and CFDI series. Tests that exercise mx-profile
+// BEHAVIOUR therefore act as a member of the target org; the cross-org refusal
+// gets its own test below.
+const AUTH_STATE = { role: 'admin', orgId: 5 };
 jest.mock('../src/middleware/auth', () => ({
   authenticate: (req, _res, next) => { req.user = { id: 1, role: AUTH_STATE.role }; next(); },
 }));
 jest.mock('../src/middleware/orgScope', () => ({
-  orgScope: (req, _res, next) => { req.orgId = 1; next(); },
+  orgScope: (req, _res, next) => { req.orgId = AUTH_STATE.orgId; next(); },
 }));
 jest.mock('../src/middleware/rbac', () => ({
   userHasPermission: async () => true,
@@ -54,7 +60,7 @@ const VALID_BODY = {
 
 // resetAllMocks (not clearAllMocks): a test that 403s before consuming its
 // queued once-values must not leak them into the next test.
-beforeEach(() => { jest.resetAllMocks(); AUTH_STATE.role = 'admin'; });
+beforeEach(() => { jest.resetAllMocks(); AUTH_STATE.role = 'admin'; AUTH_STATE.orgId = 5; });
 
 describe('GET /organizations/:id/mx-profile', () => {
   test('returns the profile for an MX-locale org', async () => {
@@ -76,6 +82,7 @@ describe('GET /organizations/:id/mx-profile', () => {
   });
 
   test('404s REGION_DISABLED for a global-locale org — gates on the TARGET org', async () => {
+    AUTH_STATE.orgId = 1;
     db.query.mockResolvedValueOnce([[{ locale: 'global' }]]);
     const res = await request(app).get('/api/v1/organizations/1/mx-profile');
     expect(res.status).toBe(404);
@@ -119,6 +126,7 @@ describe('PUT /organizations/:id/mx-profile', () => {
   });
 
   test('404s for a global-locale org', async () => {
+    AUTH_STATE.orgId = 1;
     db.query.mockResolvedValueOnce([[{ locale: 'global' }]]);
     const res = await request(app).put('/api/v1/organizations/1/mx-profile').send(VALID_BODY);
     expect(res.status).toBe(404);
@@ -127,6 +135,7 @@ describe('PUT /organizations/:id/mx-profile', () => {
 });
 
 describe('client mx-profile org-ownership (cross-tenant fix)', () => {
+  beforeEach(() => { AUTH_STATE.orgId = 1; });
   test('GET 404s when the client belongs to another org — profile never read', async () => {
     const { NotFoundError } = require('../src/utils/errors');
     Client.findByIdOrFail.mockRejectedValue(new NotFoundError('Client'));
@@ -158,7 +167,8 @@ describe('client mx-profile org-ownership (cross-tenant fix)', () => {
 
 describe('cross-tenant + partial-update semantics', () => {
   test('403s a non-platform-admin touching a DIFFERENT org fiscal identity', async () => {
-    AUTH_STATE.role = 'billing'; // no legacy-admin bypass; caller org is 1
+    AUTH_STATE.role = 'billing'; // caller org is 1, target is 5
+    AUTH_STATE.orgId = 1;
     const res = await request(app).get('/api/v1/organizations/5/mx-profile');
     expect(res.status).toBe(403);
     expect(db.query).not.toHaveBeenCalled(); // refused before any lookup
@@ -166,6 +176,7 @@ describe('cross-tenant + partial-update semantics', () => {
 
   test('a non-admin CAN manage their own org (id matches req.orgId)', async () => {
     AUTH_STATE.role = 'billing';
+    AUTH_STATE.orgId = 1;
     db.query
       .mockResolvedValueOnce([[{ locale: 'MX' }]])
       .mockResolvedValueOnce([[PROFILE_ROW]]);

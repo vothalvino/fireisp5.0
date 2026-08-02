@@ -34,12 +34,18 @@ vi.mock('@/api/client', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function makeUser(role: string): AuthUser {
+/**
+ * @param isInstallOperator drives the all-orgs switcher. It is a BACKEND-resolved
+ *   fact, not users.role: every organisation has an admin, so the role could
+ *   never distinguish the person who runs the install (j67).
+ */
+function makeUser(role: string, isInstallOperator = false): AuthUser {
   return {
     id: 1,
     email: `${role}@test.com`,
     name: role,
     role,
+    is_install_operator: isInstallOperator,
     organization_id: 1,
     is_active: true,
     email_verified_at: '2026-01-01T00:00:00.000Z',
@@ -290,8 +296,18 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('Network')).toBeInTheDocument();
   });
 
+  // A tenant admin carries users.role='admin' too, but cannot switch into an
+  // org they are not a member of — so offering them the all-orgs switcher is a
+  // list of doors that 403 (j67).
+  it('does not offer the all-orgs switcher to a tenant admin', async () => {
+    mockUseAuth(makeUser('admin', false));
+    renderLayout();
+    await screen.findByText(/Dashboard/i);
+    expect(mockApiGet).not.toHaveBeenCalledWith('/organizations', expect.anything());
+  });
+
   it('shows an org switcher listing all organizations for an admin', async () => {
-    mockUseAuth(makeUser('admin'));
+    mockUseAuth(makeUser('admin', true));
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/organizations') {
         return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
@@ -345,7 +361,7 @@ describe('Layout — grouped sidebar navigation', () => {
 
   it('navigates to the dashboard after a successful org switch, even from a non-dashboard page', async () => {
     const switchOrganization = vi.fn().mockResolvedValue(undefined);
-    mockUseAuth(makeUser('admin'), { switchOrganization });
+    mockUseAuth(makeUser('admin', true), { switchOrganization });
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/organizations') {
         return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
@@ -368,7 +384,7 @@ describe('Layout — grouped sidebar navigation', () => {
 
   it('does not navigate when the org switch fails, leaving the user on the current page', async () => {
     const switchOrganization = vi.fn().mockRejectedValue(new Error('switch failed'));
-    mockUseAuth(makeUser('admin'), { switchOrganization });
+    mockUseAuth(makeUser('admin', true), { switchOrganization });
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/organizations') {
         return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
