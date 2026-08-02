@@ -38,7 +38,21 @@
 const AiProvider  = require('../models/AiProvider');
 const { decrypt } = require('../utils/encryption');
 const { AppError } = require('../utils/errors');
+const openRouterCatalog = require('./openRouterCatalog');
 const logger = require('../utils/logger').child({ service: 'llmProviderService' });
+
+// The one correct OpenRouter base URL, so an admin never has to supply it.
+//
+// provider.endpoint_url is deliberately NOT honoured for this kind. It was, and
+// that was a footgun: the provider form hides the endpoint field for OpenRouter
+// but never cleared the value, so switching an existing 'custom' provider to
+// 'openrouter' silently kept pointing at the old host — and the freshly typed
+// OpenRouter key was then Bearer-sent there, with the row displaying as plain
+// "OpenRouter" and no UI path to clear it. A field that is invisible but obeyed
+// is the same class of bug as one that is visible but silently dropped.
+// Anyone who genuinely needs a proxy or private gateway uses the 'custom' kind,
+// which renders the endpoint field and treats it as the point of the exercise.
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // ---------------------------------------------------------------------------
 // Retry config
@@ -411,6 +425,96 @@ async function _callCustom(provider, apiKey, messages, jsonSchema, signal) {
 }
 
 /**
+ * Call OpenRouter.
+ *
+ * OpenRouter speaks the OpenAI chat-completions API, so this reuses the OpenAI
+ * SDK with a different baseURL rather than reimplementing the protocol. That is
+ * also why it worked through the generic 'custom' kind before this existed —
+ * what a first-class kind adds is that the endpoint, the Bearer prefix and the
+ * attribution headers are supplied instead of hand-written into extra_config.
+ *
+ * COST IS NOT TAKEN FROM PRICE_TABLE. That table knows a handful of first-party
+ * model names; OpenRouter exposes hundreds under namespaced ids like
+ * `anthropic/claude-sonnet-4.5`, so every call would log "unknown model" and
+ * record 0. Rates come from the live catalog instead, which quotes prompt and
+ * completion separately — more accurate than the blended per-1k figure the
+ * static table uses. When the catalog is unreachable the cost is null, meaning
+ * "unknown", which the caller must not confuse with free.
+ */
+async function _callOpenRouter(provider, apiKey, messages, jsonSchema, signal) {
+  const { OpenAI } = require('openai');
+  const cfg = _parseExtraConfig(provider.extra_config);
+
+  // Optional and attribution-only: OpenRouter uses these to credit traffic on
+  // its public leaderboard. Nothing about the install is disclosed unless the
+  // operator sets them.
+  const headers = {};
+  if (cfg.site_url) headers['HTTP-Referer'] = cfg.site_url;
+  if (cfg.app_name) headers['X-Title'] = cfg.app_name;
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: OPENROUTER_BASE_URL,
+    timeout: provider.timeout_ms || 20000,
+    defaultHeaders: headers,
+  });
+
+  const params = {
+    model: provider.model,
+    messages,
+    temperature: parseFloat(provider.temperature) || 0.2,
+    max_tokens: provider.max_tokens || 800,
+  };
+  if (jsonSchema) params.response_format = { type: 'json_object' };
+
+  // Warmed CONCURRENTLY with the completion, not after it. estimateCost is a
+  // synchronous cache read, and the only thing that ever filled that cache was
+  // an admin opening the settings page — so in any process that had not served
+  // that page (a freshly restarted app, a second replica, the background worker
+  // that actually drafts replies) every call recorded $0 while OpenRouter was
+  // really billing. That is precisely the failure this adapter exists to avoid,
+  // and it was introduced by assuming a cache would be warm. getModels() never
+  // throws and is cached for an hour, so this costs one request per process per
+  // hour and adds no latency to the completion.
+  const catalogReady = openRouterCatalog.getModels();
+
+  const completion = await client.chat.completions.create(params, { signal });
+
+  // OpenRouter can answer HTTP 200 with an error object instead of choices —
+  // upstream rate limits and moderation refusals arrive this way. Treating that
+  // as an empty completion made "Test connection" report OK for a provider that
+  // cannot answer, which is a stub that fakes success.
+  if (completion?.error) {
+    const detail = completion.error.message || JSON.stringify(completion.error);
+    throw new Error(`OpenRouter returned an error: ${detail}`);
+  }
+
+  const choice = completion.choices?.[0];
+  const text = choice?.message?.content || '';
+  const usage = completion.usage || {};
+  const promptTokens = usage.prompt_tokens || 0;
+  const completionTokens = usage.completion_tokens || 0;
+
+  await catalogReady;
+  const cost = openRouterCatalog.estimateCost(provider.model, promptTokens, completionTokens);
+  if (cost === null) {
+    logger.warn(
+      { kind: provider.kind, model: provider.model },
+      'llmProviderService: model not in the OpenRouter catalog — cost recorded as unknown, not zero',
+    );
+  }
+
+  return {
+    text,
+    json: jsonSchema ? _parseJson(text) : null,
+    usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens },
+    // NULL, not 0. ai_reply_logs.cost_usd is nullable and the rollups COALESCE,
+    // so "we could not price this" stays distinguishable from "this was free".
+    cost_usd: cost,
+  };
+}
+
+/**
  * Dispatch to the correct per-kind adapter.
  */
 async function _callProviderOnce(provider, apiKey, messages, jsonSchema, signal) {
@@ -424,6 +528,8 @@ async function _callProviderOnce(provider, apiKey, messages, jsonSchema, signal)
       return _callGemini(provider, apiKey, messages, jsonSchema, signal);
     case 'ollama':
       return _callOllama(provider, apiKey, messages, jsonSchema, signal);
+    case 'openrouter':
+      return _callOpenRouter(provider, apiKey, messages, jsonSchema, signal);
     case 'custom':
       return _callCustom(provider, apiKey, messages, jsonSchema, signal);
     default:
@@ -591,6 +697,17 @@ async function embed(text, providerId) {
       throw new AppError('Anthropic does not support embeddings', 400, 'LLM_EMBED_NOT_SUPPORTED');
     case 'custom':
       throw new AppError('Custom providers do not support embeddings', 400, 'LLM_EMBED_NOT_SUPPORTED');
+    case 'openrouter':
+      // Explicit, not a fall-through to `default`. OpenRouter's API is
+      // chat-completions only, so an org whose ONLY provider is OpenRouter would
+      // otherwise get a 500 "Unknown provider kind" — which reads as a FireISP
+      // bug rather than "this provider cannot do embeddings", and sends whoever
+      // is debugging it looking in the wrong place entirely.
+      throw new AppError(
+        'OpenRouter does not support embeddings. Configure an OpenAI, Gemini or Ollama provider for embedding-backed features.',
+        400,
+        'LLM_EMBED_NOT_SUPPORTED',
+      );
     default:
       throw new AppError(`Unknown provider kind: ${provider.kind}`, 500, 'LLM_UNKNOWN_KIND');
   }

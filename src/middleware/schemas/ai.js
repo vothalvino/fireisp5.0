@@ -2,7 +2,8 @@
 // FireISP 5.0 — AI Reply Assistant Validation Schemas (§5.1)
 // =============================================================================
 
-const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'custom'];
+// Order matches the ai_providers.kind ENUM (migration 442 appended 'openrouter').
+const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'custom', 'openrouter'];
 const MODES          = ['draft_only', 'suggest', 'auto_send'];
 const TONES          = ['formal', 'friendly', 'technical', 'empathetic'];
 const CHANNELS       = ['portal', 'email', 'whatsapp', 'sms'];

@@ -1061,7 +1061,22 @@
       "add": "Add",
       "update": "Update",
       "addTitle": "Add Provider",
-      "editTitle": "Edit Provider"
+      "editTitle": "Edit Provider",
+      "openrouter": {
+        "label": "Model",
+        "loading": "Loading the OpenRouter model list…",
+        "refresh": "↻ Refresh",
+        "refreshing": "Refreshing…",
+        "available": "{{total}} models — type to filter (e.g. \"claude\", \"free\")",
+        "stale": "This list may be out of date. Refresh to pull the latest models.",
+        "error": "Could not load the OpenRouter model list: {{error}}",
+        "fallback": "Type the model id by hand, e.g. anthropic/claude-sonnet-4.5.",
+        "unknownModel": "Not in the current list — it will be saved exactly as typed.",
+        "free": "Free",
+        "context": "{{tokens}} ctx",
+        "priceIn": "{{price}}/M in",
+        "priceOut": "{{price}}/M out"
+      }
     },
     "phrases": {
       "sectionTitle": "Phrase Library",

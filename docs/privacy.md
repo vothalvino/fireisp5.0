@@ -181,6 +181,14 @@ to an internal host) means all LLM inference runs locally.  No prompt data
 reaches any external third party regardless of the `redact_pii_before_llm`
 setting.
 
+The opposite end of that scale is **OpenRouter** (`kind = 'openrouter'`), which
+routes each request on to a third-party model vendor of your choosing — so
+prompt data leaves your infrastructure twice over, and `redact_pii_before_llm`
+matters accordingly. Choosing a model in the UI also fetches OpenRouter's public
+model catalog from your server; that request carries no API key and nothing
+identifying the install, and it is made only while an admin has the provider form
+open.
+
 ### Operator obligation
 
 Operators must:

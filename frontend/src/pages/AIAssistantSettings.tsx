@@ -10,7 +10,7 @@
 //   5. Audit & Metrics— read-only usage stats.
 // =============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -100,7 +100,9 @@ interface AiReplyLog {
 
 const API_BASE = '/api/v1/ai';
 
-const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'custom'];
+// Mirrors GET /ai/providers/catalog. 'openrouter' sits before 'custom' because
+// it is the friendlier route to the same hundreds of models (no endpoint URL).
+const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'openrouter', 'custom'];
 const AI_MODES = ['draft_only', 'suggest', 'auto_send'];
 const TONES = ['formal', 'friendly', 'technical', 'empathetic'];
 const LOCALES = ['en', 'es', 'pt-BR'];
@@ -116,8 +118,19 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-    throw new Error(body.error ?? body.message ?? `HTTP ${res.status}`);
+    // The API's error envelope is `{ error: { code, message } }`, an OBJECT.
+    // This used to be typed as a string, so `new Error(body.error)` stringified
+    // it and every failure on this page read "[object Object]" — no code, no
+    // message, nothing to act on. Both shapes are accepted because a few older
+    // handlers still return a bare string.
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string | { code?: string; message?: string };
+      message?: string;
+    };
+    const detail = typeof body.error === 'string'
+      ? body.error
+      : body.error?.message ?? body.message;
+    throw new Error(detail ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -366,8 +379,172 @@ const KIND_FIELDS: Record<string, string[]> = {
   anthropic:    ['model', 'api_key'],
   gemini:       ['model', 'api_key'],
   ollama:       ['endpoint', 'model'],
+  // No endpoint: the backend knows OpenRouter's base URL.
+  openrouter:   ['model', 'api_key'],
   custom:       ['endpoint', 'model', 'api_key'],
 };
+
+// ---------------------------------------------------------------------------
+// Live model catalog (OpenRouter)
+// ---------------------------------------------------------------------------
+// The catalog endpoint flags these kinds with `dynamicModels: true`: their
+// roster changes weekly, so the model field is a picker over the live list
+// instead of a free-text box.  Everything degrades to free text if the live
+// list cannot be loaded — a third party being down must never block the form.
+
+const DYNAMIC_MODEL_KINDS = ['openrouter'];
+
+/** One row of GET /ai/providers/models. Prices are USD **per token**. */
+interface OpenRouterModel {
+  id: string;
+  name: string | null;
+  context_length: number | null;
+  prompt_price: number | null;
+  completion_price: number | null;
+  free: boolean;
+}
+
+interface ModelCatalogResponse {
+  kind: string;
+  models: OpenRouterModel[];
+  cached_at: string | null;
+  stale: boolean;
+  error: string | null;
+}
+
+interface ModelCatalogState {
+  models: OpenRouterModel[];
+  loading: boolean;
+  loaded: boolean;
+  stale: boolean;
+  error: string;
+}
+
+const EMPTY_MODEL_CATALOG: ModelCatalogState = {
+  models: [], loading: false, loaded: false, stale: false, error: '',
+};
+
+/** USD per token → the per-million-token figure providers actually quote. */
+function pricePerMillion(perToken: number | null | undefined): string | null {
+  // null means "unknown", which is NOT the same as free — show nothing.
+  if (perToken == null || !Number.isFinite(perToken)) return null;
+  const perM = perToken * 1e6;
+  const digits = perM >= 1 ? 2 : perM >= 0.01 ? 3 : 4;
+  return `$${perM.toFixed(digits)}`;
+}
+
+function formatContext(len: number | null | undefined): string | null {
+  if (!len || !Number.isFinite(len)) return null;
+  return len >= 1000 ? `${Math.round(len / 1000)}K` : String(len);
+}
+
+/**
+ * Model field for a kind with a live catalog: a text input backed by a
+ * <datalist>, so typing "claude" or "free" narrows the ~340 entries natively
+ * and an unknown id can still be typed by hand.
+ */
+function LiveModelField({
+  value, catalog, onChange, onRefresh,
+}: {
+  value: string;
+  catalog: ModelCatalogState;
+  onChange: (model: string) => void;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+
+  function summary(m: OpenRouterModel): string {
+    const parts: string[] = [];
+    const ctx = formatContext(m.context_length);
+    if (ctx) parts.push(t('aiAssistantSettings.providers.openrouter.context', { tokens: ctx }));
+    if (m.free) {
+      parts.push(t('aiAssistantSettings.providers.openrouter.free'));
+    } else {
+      const inPrice = pricePerMillion(m.prompt_price);
+      const outPrice = pricePerMillion(m.completion_price);
+      if (inPrice) parts.push(t('aiAssistantSettings.providers.openrouter.priceIn', { price: inPrice }));
+      if (outPrice) parts.push(t('aiAssistantSettings.providers.openrouter.priceOut', { price: outPrice }));
+    }
+    return parts.join(' · ');
+  }
+
+  // No usable list → plain free-text input (no `list`, no datalist).
+  const canPick = catalog.models.length > 0;
+  const selected = canPick ? catalog.models.find(m => m.id === value) : undefined;
+
+  return (
+    <div style={sty.label}>
+      <div style={sty.fieldHeader}>
+        <label htmlFor="ai-provider-model">{t('aiAssistantSettings.providers.openrouter.label')}</label>
+        <button type="button" style={sty.btnTiny} onClick={onRefresh} disabled={catalog.loading}>
+          {catalog.loading
+            ? t('aiAssistantSettings.providers.openrouter.refreshing')
+            : t('aiAssistantSettings.providers.openrouter.refresh')}
+        </button>
+      </div>
+
+      <input
+        id="ai-provider-model"
+        style={sty.input}
+        value={value}
+        autoComplete="off"
+        placeholder="anthropic/claude-sonnet-4.5"
+        list={canPick ? 'ai-provider-model-options' : undefined}
+        // The status line below (loading / N models / stale / error / unknown
+        // model) is the only place the picker explains itself, so it has to be
+        // part of the field's accessible description — otherwise a screen-reader
+        // user gets an unlabelled text box and never hears that a list exists,
+        // that it failed to load, or that the id they typed is not in it.
+        aria-describedby="ai-provider-model-status"
+        onChange={e => onChange(e.target.value)}
+      />
+      {canPick && (
+        <datalist id="ai-provider-model-options">
+          {catalog.models.map(m => {
+            const info = summary(m);
+            return (
+              <option
+                key={m.id}
+                value={m.id}
+                label={info ? `${m.name ?? m.id} — ${info}` : (m.name ?? m.id)}
+              />
+            );
+          })}
+        </datalist>
+      )}
+
+      <span id="ai-provider-model-status" role="status" aria-live="polite">
+      {catalog.loading && (
+        <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.loading')}</span>
+      )}
+      {!!catalog.error && (
+        <span style={sty.errorText}>
+          {t('aiAssistantSettings.providers.openrouter.error', { error: catalog.error })}
+        </span>
+      )}
+      {catalog.loaded && !catalog.loading && !canPick && (
+        <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.fallback')}</span>
+      )}
+      {canPick && (
+        <span style={sty.hint}>
+          {t('aiAssistantSettings.providers.openrouter.available', { total: catalog.models.length })}
+        </span>
+      )}
+      {canPick && catalog.stale && (
+        <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.stale')}</span>
+      )}
+      {selected && (
+        <span style={sty.hint}>
+          {selected.name ?? selected.id}{summary(selected) ? ` · ${summary(selected)}` : ''}
+        </span>
+      )}
+      {canPick && !selected && value.trim() !== '' && (
+        <span style={sty.hint}>{t('aiAssistantSettings.providers.openrouter.unknownModel')}</span>
+      )}
+      </span>
+    </div>
+  );
+}
 
 function ProvidersTab() {
   const { t } = useTranslation();
@@ -379,6 +556,9 @@ function ProvidersTab() {
   const [verifyResult, setVerifyResult] = useState<{ id: number; ok: boolean; msg: string } | null>(null);
   const [verifyingId, setVerifyingId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  // Live model list, cached here for the lifetime of the tab so flipping the
+  // kind select back and forth does not refetch.
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogState>(EMPTY_MODEL_CATALOG);
 
   // Policy is needed for active_provider_id
   const { data: policyData } = useQuery({
@@ -420,6 +600,38 @@ function ProvidersTab() {
       apiFetch(`${API_BASE}/providers/${id}`, { method: 'PUT', body: JSON.stringify({ priority }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-providers'] }),
   });
+
+  /**
+   * Fetch the live model list.  Never throws to the caller: an upstream outage
+   * lands in `error` and the field falls back to free text.
+   */
+  const loadModelCatalog = useCallback(async (force = false) => {
+    setModelCatalog(s => ({ ...s, loading: true, error: '' }));
+    try {
+      const res = await apiFetch<{ data: ModelCatalogResponse }>(
+        `${API_BASE}/providers/models?kind=openrouter${force ? '&force=1' : ''}`,
+      );
+      setModelCatalog({
+        models: res.data?.models ?? [],
+        loading: false,
+        loaded: true,
+        stale: !!res.data?.stale,
+        error: res.data?.error ?? '',
+      });
+    } catch (err) {
+      setModelCatalog({
+        models: [], loading: false, loaded: true, stale: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, []);
+
+  // Lazy: only fetched once the operator actually picks a dynamic-model kind.
+  useEffect(() => {
+    if (!showModal || !DYNAMIC_MODEL_KINDS.includes(form.kind)) return;
+    if (modelCatalog.loaded || modelCatalog.loading) return;
+    void loadModelCatalog();
+  }, [showModal, form.kind, modelCatalog.loaded, modelCatalog.loading, loadModelCatalog]);
 
   function openNew() {
     setEditing(null);
@@ -602,10 +814,19 @@ function ProvidersTab() {
             </label>
 
             {fields.includes('model') && (
-              <label style={sty.label}>{t('aiAssistantSettings.providers.form.model')}
-                <input style={sty.input} value={form.model}
-                  onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
-              </label>
+              DYNAMIC_MODEL_KINDS.includes(form.kind) ? (
+                <LiveModelField
+                  value={form.model}
+                  catalog={modelCatalog}
+                  onChange={model => setForm(f => ({ ...f, model }))}
+                  onRefresh={() => { void loadModelCatalog(true); }}
+                />
+              ) : (
+                <label style={sty.label}>{t('aiAssistantSettings.providers.form.model')}
+                  <input style={sty.input} value={form.model}
+                    onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+                </label>
+              )
             )}
             {fields.includes('endpoint') && (
               <label style={sty.label}>{t('aiAssistantSettings.providers.form.endpoint')}
@@ -1188,6 +1409,7 @@ const sty = {
   input:       { padding: '0.45rem 0.65rem', border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem', width: '100%', boxSizing: 'border-box' as const },
   select:      { padding: '0.45rem 0.65rem', border: '1px solid var(--input-border)', borderRadius: 6, fontSize: '0.875rem', background: 'var(--input-bg)', width: '100%', boxSizing: 'border-box' as const },
   row2:        { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
+  fieldHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   switchRow:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0', fontSize: '0.875rem', color: 'var(--text-secondary)' } as React.CSSProperties,
   fieldset:    { border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '0.75rem 1rem', margin: 0 } as React.CSSProperties,
   legend:      { fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', padding: '0 4px' } as React.CSSProperties,

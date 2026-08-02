@@ -1088,6 +1088,22 @@ function generateSpec() {
       '/ai/providers/catalog': {
         get: { tags: ['AI Assistant'], summary: 'List supported LLM provider kinds', operationId: 'getAiProviderCatalog', security: [{ bearerAuth: [] }], responses: r200('Catalog[]') },
       },
+      '/ai/providers/models': {
+        get: {
+          tags: ['AI Assistant'],
+          summary: 'Live model catalog for a provider kind (OpenRouter)',
+          description: 'Mirrors OpenRouter\'s public model list so the picker never goes stale. '
+            + 'Returns 200 with an empty array and a non-null `error` when the upstream catalog is '
+            + 'unreachable, so the form degrades to free text rather than failing.',
+          operationId: 'listAiProviderModels',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'kind', in: 'query', required: false, schema: { type: 'string', enum: ['openrouter'], default: 'openrouter' } },
+            { name: 'force', in: 'query', required: false, description: 'Set to 1 to bypass the cache.', schema: { type: 'string', enum: ['1'] } },
+          ],
+          responses: r200('AiProviderModels'),
+        },
+      },
       '/ai/providers': {
         get:  { tags: ['AI Assistant'], summary: 'List LLM providers', operationId: 'listAiProviders', security: [{ bearerAuth: [] }], responses: r200('AiProvider[]') },
         post: { tags: ['AI Assistant'], summary: 'Create LLM provider', operationId: 'createAiProvider', security: [{ bearerAuth: [] }], requestBody: jsonBody('ai_createAiProvider'), responses: r201('AiProvider') },

@@ -1061,7 +1061,22 @@
       "add": "Agregar",
       "update": "Actualizar",
       "addTitle": "Agregar proveedor",
-      "editTitle": "Editar proveedor"
+      "editTitle": "Editar proveedor",
+      "openrouter": {
+        "label": "Modelo",
+        "loading": "Cargando la lista de modelos de OpenRouter…",
+        "refresh": "↻ Actualizar",
+        "refreshing": "Actualizando…",
+        "available": "{{total}} modelos — escribe para filtrar (p.ej. \"claude\", \"free\")",
+        "stale": "Esta lista puede estar desactualizada. Actualiza para obtener los modelos más recientes.",
+        "error": "No se pudo cargar la lista de modelos de OpenRouter: {{error}}",
+        "fallback": "Escribe el identificador del modelo a mano, p.ej. anthropic/claude-sonnet-4.5.",
+        "unknownModel": "No está en la lista actual: se guardará tal como lo escribiste.",
+        "free": "Gratis",
+        "context": "contexto {{tokens}}",
+        "priceIn": "{{price}}/M entrada",
+        "priceOut": "{{price}}/M salida"
+      }
     },
     "phrases": {
       "sectionTitle": "Librería de frases",

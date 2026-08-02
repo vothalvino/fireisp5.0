@@ -41,6 +41,7 @@ const AiProvider       = require('../models/AiProvider');
 const AiReplyLog       = require('../models/AiReplyLog');
 const phraseLibraryService = require('../services/phraseLibraryService');
 const llmProviderService   = require('../services/llmProviderService');
+const openRouterCatalog    = require('../services/openRouterCatalog');
 const aiReplyService       = require('../services/aiReplyService');
 const { encrypt }           = require('../utils/encryption');
 const { NotFoundError, ValidationError } = require('../utils/errors');
@@ -129,6 +130,19 @@ const PROVIDER_CATALOG = [
     models: ['llama3.1:8b', 'llama3.1:70b', 'mistral:7b', 'qwen2.5:14b'],
   },
   {
+    // Listed before 'custom' because it is the friendlier way to reach the same
+    // hundreds of models: no endpoint, no headers map, and a live picker.
+    kind: 'openrouter',
+    label: 'OpenRouter',
+    requiresApiKey: true,
+    requiresEndpoint: false,
+    // Empty on purpose. Any list here would be stale within weeks; the frontend
+    // loads GET /providers/models instead, which mirrors OpenRouter's live
+    // catalog. `dynamicModels` is the flag that tells it to.
+    models: [],
+    dynamicModels: true,
+  },
+  {
     kind: 'custom',
     label: 'Custom (OpenAI-compatible)',
     requiresApiKey: false,
@@ -138,12 +152,73 @@ const PROVIDER_CATALOG = [
 ];
 
 /**
+ * Kinds whose base URL is fixed by the adapter, so a stored endpoint_url would
+ * be dead data at best and misleading at worst.
+ *
+ * The provider form hides the endpoint field for these, but hiding a field does
+ * not clear it: switching an existing 'custom' provider to 'openrouter' used to
+ * carry the old URL along, and the row then displayed as plain "OpenRouter"
+ * while the adapter honoured the leftover host. The adapter no longer reads it
+ * (see OPENROUTER_BASE_URL), and this stops the stale value being stored at all,
+ * so what the operator sees and what runs cannot diverge.
+ */
+const FIXED_ENDPOINT_KINDS = ['openrouter'];
+
+function _normaliseEndpoint(kind, endpointUrl) {
+  return FIXED_ENDPOINT_KINDS.includes(kind) ? null : (endpointUrl || null);
+}
+
+/**
  * GET /api/v1/ai/providers/catalog
  * Static list of supported provider kinds + recommended models.
  * Must be declared BEFORE /:id to avoid routing conflicts.
  */
 router.get('/providers/catalog', requirePermission('ai.providers.read'), (_req, res) => {
   res.json({ data: PROVIDER_CATALOG });
+});
+
+/**
+ * GET /api/v1/ai/providers/models?kind=openrouter[&force=1]
+ *
+ * The live model list for a kind whose roster changes too often to hardcode.
+ * Only 'openrouter' has one today; every other kind's models come from the
+ * static catalog above.
+ *
+ * Must be declared BEFORE /:id — a literal path after a param route is
+ * unreachable, which is a mistake this file's route order already guards
+ * against for /catalog.
+ *
+ * NEVER 5xx's ON AN UPSTREAM FAILURE. The picker degrades to a free-text field,
+ * so a third party being down must not make the provider form unusable — it
+ * returns 200 with an empty list and an `error` the UI can show.
+ */
+router.get('/providers/models', requirePermission('ai.providers.read'), async (req, res, next) => {
+  try {
+    const kind = String(req.query.kind || 'openrouter');
+    if (kind !== 'openrouter') {
+      return res.status(400).json({
+        error: {
+          code: 'UNSUPPORTED_KIND',
+          message: `Kind "${kind}" has no live model catalog. Use GET /ai/providers/catalog for its recommended models.`,
+        },
+      });
+    }
+
+    // `force` bypasses the cache for an admin who just saw a model announced.
+    // The service still applies its own in-flight collapsing, so holding the
+    // button down cannot fan out into repeated upstream calls.
+    const result = await openRouterCatalog.getModels({ force: req.query.force === '1' });
+
+    res.json({
+      data: {
+        kind,
+        models: result.models,
+        cached_at: result.cached_at,
+        stale: result.stale,
+        error: result.error,
+      },
+    });
+  } catch (err) { next(err); }
 });
 
 /**
@@ -197,7 +272,7 @@ router.post('/providers', requirePermission('ai.providers.write'), validate(crea
       name:              rest.name,
       kind:              rest.kind,
       model:             rest.model,
-      endpoint_url:      rest.endpoint_url      || null,
+      endpoint_url:      _normaliseEndpoint(rest.kind, rest.endpoint_url),
       api_key_encrypted: api_key ? encrypt(api_key) : null,
       extra_config:      rest.extra_config       ? JSON.stringify(rest.extra_config) : null,
       temperature:       rest.temperature        ?? 0.20,
@@ -231,6 +306,17 @@ router.put('/providers/:id', requirePermission('ai.providers.write'), validate(u
     }
     if (updates.extra_config !== undefined && typeof updates.extra_config === 'object') {
       updates.extra_config = JSON.stringify(updates.extra_config);
+    }
+
+    // Clear a stale endpoint when the (possibly new) kind has a fixed base URL.
+    // Written unconditionally rather than only when the client sent the field,
+    // because the form omits it entirely for these kinds — so an edit that
+    // switches TO one of them would otherwise leave the old value in place.
+    const effectiveKind = updates.kind || provider.kind;
+    if (FIXED_ENDPOINT_KINDS.includes(effectiveKind)) {
+      updates.endpoint_url = null;
+    } else if (updates.endpoint_url !== undefined) {
+      updates.endpoint_url = updates.endpoint_url || null;
     }
 
     await AiProvider.update(provider.id, updates);

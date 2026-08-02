@@ -8088,8 +8088,9 @@ CREATE TABLE IF NOT EXISTS ai_providers (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id     BIGINT UNSIGNED  NOT NULL,
     name                VARCHAR(100)     NOT NULL COMMENT 'Admin-visible display name, e.g. "OpenAI prod"',
-    kind                ENUM('openai','azure_openai','anthropic','gemini','ollama','custom')
-                                         NOT NULL DEFAULT 'openai',
+    kind                ENUM('openai','azure_openai','anthropic','gemini','ollama','custom','openrouter')
+                                         NOT NULL DEFAULT 'openai'
+                                         COMMENT 'Provider adapter to dispatch to. openrouter added in migration 442.',
     model               VARCHAR(100)     NOT NULL COMMENT 'e.g. gpt-4o-mini, claude-3-5-sonnet, llama3.1:8b',
     embedding_model     VARCHAR(100)     NULL     COMMENT 'Model used for text embeddings. NULL = use kind default (text-embedding-3-small / nomic-embed-text / embedding-001).',
     endpoint_url        VARCHAR(500)     NULL     COMMENT 'Required for azure_openai, ollama, and custom kinds',
