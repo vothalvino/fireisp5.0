@@ -27,8 +27,10 @@ const { syncFreeradiusTables } = require('../src/services/radiusService');
 // ---------------------------------------------------------------------------
 
 function settingQueryReply(mode) {
-  // Called for mab_password_mode setting (global settings table: setting_key/setting_value)
-  return [[{ setting_value: mode }]];
+  // Called for mab_password_mode — per-org since migration 443: the sync
+  // builds a Map keyed by organization_id, so the row must carry the org id
+  // the subscriber fixtures use (10).
+  return [[{ organization_id: 10, setting_value: mode }]];
 }
 
 function noSettingReply() {

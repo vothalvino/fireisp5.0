@@ -350,15 +350,17 @@ async function scanAuthFailures(orgId) {
       entry.reasons.add(f.reason);
     }
 
-    // Determine threshold — try to load per-org setting
+    // Determine threshold — the org's own setting (organization_settings,
+    // migration 443; this used to read the install-level table, so one
+    // tenant's threshold silently applied to every org). A null-org scan has
+    // no per-username org to resolve (the radius table carries none — see the
+    // event emission below), so it uses the default.
     let threshold = DEFAULT_AUTH_FAILURE_THRESHOLD;
     if (orgId) {
       try {
-        // settings is a global key/value table (columns setting_key/setting_value;
-        // no organization_id column).
         const [settingRows] = await db.query(
-          "SELECT setting_value FROM settings WHERE setting_key = 'pppoe_auth_failure_threshold' LIMIT 1",
-          [],
+          "SELECT setting_value FROM organization_settings WHERE organization_id = ? AND setting_key = 'pppoe_auth_failure_threshold' LIMIT 1",
+          [orgId],
         );
         if (settingRows.length > 0) {
           const parsed = parseInt(settingRows[0].setting_value, 10);

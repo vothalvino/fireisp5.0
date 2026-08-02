@@ -7186,38 +7186,17 @@ ON (p.name LIKE '%.view' OR p.name LIKE '%.export')
 WHERE r.name = 'readonly';
 
 -- ---------------------------------------------------------------------------
--- Seed: default application settings (migration 120)
--- Purpose: Populates the settings key-value store with sensible defaults for
---          a new installation.  Uses INSERT IGNORE — safe to re-run; existing
---          administrator-configured values are never overwritten.
+-- Seed: default application settings (migration 120) — REMOVED by migration 443
+-- Purpose (historical): populated the settings key-value store with defaults.
+--          Nothing ever read them — SMTP lives in organization_email_settings,
+--          company_* on organizations, numbering in per-org sequences,
+--          automation in scheduled_tasks — so a fresh install seeds none of
+--          them. default_currency and default_tax_rate had already been
+--          removed by migrations 405 and 431 for the same reason. The settings
+--          table now holds ONLY install-level keys with real readers
+--          (ops_alert_email, map_tile_url, map_tile_attribution — migrations
+--          433/436); per-org keys live in organization_settings (migration 443).
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO settings (setting_key, setting_value, description) VALUES
-    -- `default_currency` intentionally omitted (removed by migration 405):
-    -- an org's currency lives on organizations.currency, read by
-    -- Organization.getCurrency(); a duplicate settings key had zero readers.
-    ('invoice_prefix',               'INV-',       'Prefix prepended to auto-generated invoice numbers'),
-    ('quote_prefix',                 'QUT-',       'Prefix prepended to auto-generated quote numbers'),
-    ('credit_note_prefix',           'CN-',        'Prefix prepended to auto-generated credit note numbers'),
-    ('smtp_host',                    '',           'SMTP server hostname for outbound email'),
-    ('smtp_port',                    '587',        'SMTP server port (25, 465, or 587)'),
-    ('smtp_encryption',              'tls',        'SMTP encryption method: tls, ssl, or none'),
-    ('smtp_username',                '',           'SMTP authentication username'),
-    ('smtp_password',                '',           'SMTP authentication password (stored encrypted at app layer)'),
-    ('snmp_default_poll_interval',   '300',        'Default SNMP polling interval in seconds'),
-    ('snmp_default_community',       'public',     'Default SNMP community string for read-only access'),
-    ('company_name',                 '',           'ISP company name shown on invoices and reports'),
-    ('company_email',                '',           'Primary contact email address for the ISP'),
-    ('company_phone',                '',           'Primary contact phone number for the ISP'),
-    ('timezone',                     'UTC',        'Default timezone for date/time display (IANA timezone name)'),
-    ('date_format',                  'YYYY-MM-DD', 'Display format for dates throughout the UI'),
-    ('pagination_per_page',          '25',         'Default number of rows per page in list views'),
-    ('session_timeout_minutes',      '60',         'Idle session timeout in minutes before the user is logged out'),
-    ('max_login_attempts',           '5',          'Maximum consecutive failed login attempts before account lockout'),
-    ('password_min_length',          '8',          'Minimum required password length for user accounts'),
-    ('auto_suspend_enabled',         'false',      'Enable automatic contract suspension for overdue invoices'),
-    ('auto_suspend_days_overdue',    '30',         'Number of days past due before a contract is automatically suspended'),
-    ('auto_invoice_enabled',         'false',      'Enable automatic invoice generation from billing periods'),
-    ('auto_invoice_days_before_due', '7',          'Generate invoices this many days before the billing period end date');
 
 -- ---------------------------------------------------------------------------
 -- Seed: default tax rates (migration 121)
@@ -14106,4 +14085,27 @@ CREATE TABLE IF NOT EXISTS tls_monitor_state (
     updated_at           TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: organization_settings (migration 443)
+-- Purpose: Per-organization key-value settings. The global `settings` table is
+--          INSTALL-level (no organization_id) and is now reserved for keys the
+--          install operator owns; org-scoped keys (mab_password_mode,
+--          pppoe_auth_failure_threshold) live here, one row per org per key.
+--          Keys are allowlisted in the route layer — arbitrary upserts were
+--          part of the j56 cross-tenant hole and are gone.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS organization_settings (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    setting_key     VARCHAR(100)    NOT NULL,
+    setting_value   TEXT            NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_org_settings_key (organization_id, setting_key),
+    CONSTRAINT fk_org_settings_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

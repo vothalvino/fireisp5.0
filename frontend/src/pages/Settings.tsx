@@ -29,11 +29,24 @@ import { useAuth } from '@/auth/AuthContext';
 
 type SettingsTab = 'orgConfig' | 'alertRules' | 'paymentGateways' | 'quotas' | 'emailSettings' | 'version';
 
+/**
+ * One row of GET /settings. The backend stamps each entry with its scope and
+ * whether THIS caller may edit it — `editable` is presentation truth, the
+ * backend enforces the same rule on PUT (install keys are operator-only).
+ */
 interface Setting {
   key: string;
   value: string | null;
   description?: string;
+  scope: 'org' | 'install';
+  editable: boolean;
 }
+
+/** Per-key input shapes for the known org settings; anything else is text. */
+const SETTING_ENUM_OPTIONS: Record<string, string[]> = {
+  mab_password_mode: ['auth_type_accept', 'cleartext'],
+};
+const SETTING_NUMBER_KEYS = ['pppoe_auth_failure_threshold'];
 
 interface AlertRule {
   id: number;
@@ -110,6 +123,7 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 
 function OrgConfigTab() {
+  const { t } = useTranslation();
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -134,10 +148,12 @@ function OrgConfigTab() {
     onError: (err: Error) => setSaveError(err.message),
   });
 
-  if (isLoading) return <p style={sty.muted}>Loading settings…</p>;
-  if (error) return <p style={sty.errorText}>Failed to load settings.</p>;
+  if (isLoading) return <p style={sty.muted}>{t('settingsPage.loading')}</p>;
+  if (error) return <p style={sty.errorText}>{t('settingsPage.loadError')}</p>;
 
   const settings = data?.data ?? [];
+  const orgSettings = settings.filter(s => s.scope === 'org');
+  const installSettings = settings.filter(s => s.scope === 'install');
 
   function startEdit(setting: Setting) {
     setEditKey(setting.key);
@@ -145,53 +161,84 @@ function OrgConfigTab() {
     setSaveError('');
   }
 
+  // Value editor matched to the key: known enums get a select, known numeric
+  // keys a number input, everything else free text. The backend validates
+  // regardless — this just makes the legal values discoverable.
+  function valueEditor(setting: Setting) {
+    const options = SETTING_ENUM_OPTIONS[setting.key];
+    if (options) {
+      return (
+        <select style={sty.select} value={editValue} onChange={e => setEditValue(e.target.value)}>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      );
+    }
+    return (
+      <input
+        style={sty.input}
+        type={SETTING_NUMBER_KEYS.includes(setting.key) ? 'number' : 'text'}
+        min={SETTING_NUMBER_KEYS.includes(setting.key) ? 1 : undefined}
+        value={editValue}
+        onChange={e => setEditValue(e.target.value)}
+      />
+    );
+  }
+
+  function settingsTable(rows: Setting[]) {
+    return (
+      <table style={sty.table}>
+        <thead>
+          <tr>
+            {[t('settingsPage.colKey'), t('settingsPage.colValue'), t('settingsPage.colDescription'), ''].map((h, i) => (
+              <th key={i} style={sty.th}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(setting => (
+            <tr key={setting.key}>
+              <td style={sty.td}><code style={sty.code}>{setting.key}</code></td>
+              <td style={{ ...sty.td, maxWidth: 260 }}>
+                {editKey === setting.key ? valueEditor(setting) : (
+                  <span style={sty.valueCap}>{setting.value || <em style={sty.muted}>—</em>}</span>
+                )}
+              </td>
+              <td style={{ ...sty.td, color: '#888', fontSize: '0.82rem' }}>{setting.description ?? ''}</td>
+              <td style={sty.td}>
+                {!setting.editable ? (
+                  <span style={sty.muted}>{t('settingsPage.operatorOnly')}</span>
+                ) : editKey === setting.key ? (
+                  <span style={sty.rowActions}>
+                    <button style={sty.btnPrimary} disabled={updateMutation.isPending}
+                      onClick={() => { setSaveError(''); updateMutation.mutate({ key: setting.key, value: editValue }); }}>
+                      {t('settingsPage.save')}
+                    </button>
+                    <button style={sty.btnGhost} onClick={() => setEditKey(null)}>{t('settingsPage.cancel')}</button>
+                  </span>
+                ) : (
+                  <button style={sty.btnGhost} onClick={() => startEdit(setting)}>{t('settingsPage.edit')}</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
   return (
     <div>
-      <h3 style={sty.sectionTitle}>Organization Settings</h3>
-      {settings.length === 0 && <p style={sty.muted}>No settings found.</p>}
-      {settings.length > 0 && (
-        <table style={sty.table}>
-          <thead>
-            <tr>
-              {['Key', 'Value', 'Description', ''].map(h => (
-                <th key={h} style={sty.th}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {settings.map(setting => (
-              <tr key={setting.key}>
-                <td style={sty.td}><code style={sty.code}>{setting.key}</code></td>
-                <td style={{ ...sty.td, maxWidth: 260 }}>
-                  {editKey === setting.key ? (
-                    <input
-                      style={sty.input}
-                      value={editValue}
-                      onChange={e => setEditValue(e.target.value)}
-                    />
-                  ) : (
-                    <span style={sty.valueCap}>{setting.value ?? <em style={sty.muted}>—</em>}</span>
-                  )}
-                </td>
-                <td style={{ ...sty.td, color: '#888', fontSize: '0.82rem' }}>{setting.description ?? ''}</td>
-                <td style={sty.td}>
-                  {editKey === setting.key ? (
-                    <span style={sty.rowActions}>
-                      <button style={sty.btnPrimary} disabled={updateMutation.isPending}
-                        onClick={() => { setSaveError(''); updateMutation.mutate({ key: setting.key, value: editValue }); }}>
-                        Save
-                      </button>
-                      <button style={sty.btnGhost} onClick={() => setEditKey(null)}>Cancel</button>
-                    </span>
-                  ) : (
-                    <button style={sty.btnGhost} onClick={() => startEdit(setting)}>Edit</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <h3 style={sty.sectionTitle}>{t('settingsPage.orgSection')}</h3>
+      {orgSettings.length === 0
+        ? <p style={sty.muted}>{t('settingsPage.empty')}</p>
+        : settingsTable(orgSettings)}
+
+      <h3 style={{ ...sty.sectionTitle, marginTop: '2rem' }}>{t('settingsPage.installSection')}</h3>
+      <p style={sty.muted}>{t('settingsPage.installNote')}</p>
+      {installSettings.length === 0
+        ? <p style={sty.muted}>{t('settingsPage.empty')}</p>
+        : settingsTable(installSettings)}
+
       {saveError && <p style={sty.errorText}>{saveError}</p>}
     </div>
   );

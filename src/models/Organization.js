@@ -53,31 +53,74 @@ class Organization extends BaseModel {
     return rows[0]?.locale || 'global';
   }
 
+  // ---------------------------------------------------------------------------
+  // Settings (split by migration 443 — j56)
+  // ---------------------------------------------------------------------------
+  // The old getSettings/setSetting pair took an organizationId and IGNORED it,
+  // reading and writing the install-level `settings` table — which let any
+  // org's admin rewrite values every other tenant read. Install and org
+  // settings are now separate tables with separate methods; which keys belong
+  // where is decided by src/services/settingsCatalog.js, not by callers.
+
   /**
-   * Get settings for this organization from the settings table.
+   * Install-level settings rows (the operator-owned keys only — unknown keys
+   * an operator may have hand-inserted are preserved in the table but never
+   * served).
+   * @returns {Promise<Array<{setting_key: string, setting_value: string|null, description: string|null}>>}
    */
-  static async getSettings(_organizationId) {
+  static async getInstallSettings() {
     const db = require('../config/database');
+    const { INSTALL_SETTING_KEYS } = require('../services/settingsCatalog');
+    // Keys are code constants (never user input); IN (?) does not expand under
+    // the execute-backed db.query, so they are inlined.
+    const inList = INSTALL_SETTING_KEYS.map((k) => `'${k}'`).join(', ');
     const [rows] = await db.query(
-      'SELECT setting_key, setting_value, description FROM settings ORDER BY setting_key ASC',
+      `SELECT setting_key, setting_value, description FROM settings
+        WHERE setting_key IN (${inList}) ORDER BY setting_key ASC`,
     );
-    const map = {};
-    for (const row of rows) {
-      map[row.setting_key ?? row.key] = row.setting_value ?? row.value;
-    }
-    return map;
+    return rows;
   }
 
   /**
-   * Update a single setting.
+   * Update one install-level setting. The caller is responsible for the
+   * operator gate and for allowlisting the key.
    */
-  static async setSetting(_organizationId, key, value) {
+  static async setInstallSetting(key, value) {
     const db = require('../config/database');
     await db.query(
       `INSERT INTO settings (setting_key, setting_value)
        VALUES (?, ?)
        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
       [key, value],
+    );
+  }
+
+  /**
+   * This organization's stored setting values, as a key→value map. Only keys
+   * the org has actually set appear; callers merge catalog defaults.
+   */
+  static async getOrgSettings(organizationId) {
+    const db = require('../config/database');
+    const [rows] = await db.query(
+      'SELECT setting_key, setting_value FROM organization_settings WHERE organization_id = ?',
+      [organizationId],
+    );
+    const map = {};
+    for (const row of rows) map[row.setting_key] = row.setting_value;
+    return map;
+  }
+
+  /**
+   * Upsert one per-org setting. The caller is responsible for allowlisting
+   * and validating (settingsCatalog.ORG_SETTING_DEFS).
+   */
+  static async setOrgSetting(organizationId, key, value) {
+    const db = require('../config/database');
+    await db.query(
+      `INSERT INTO organization_settings (organization_id, setting_key, setting_value)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+      [organizationId, key, value],
     );
   }
 }

@@ -340,16 +340,19 @@ function expandAttributeRows(attrMap) {
 async function syncFreeradiusTables(organizationId) {
   logger.info({ organizationId }, 'Syncing FreeRADIUS SQL tables');
 
-  // 1. Read org MAB password mode setting
-  let mabPasswordMode = 'auth_type_accept';
-  if (organizationId) {
-    // settings is a global key/value table (columns setting_key/setting_value;
-    // no organization_id column).
+  // 1. Per-org MAB password mode (organization_settings — migration 443 split
+  // this off the install-level table, where one tenant's change used to apply
+  // to every org). One query covers both sync shapes: a single-org sync loads
+  // that org's row, an all-orgs sync loads every org's row and each subscriber
+  // resolves through their contract's org below.
+  const mabModeByOrg = new Map();
+  {
     const [settingRows] = await db.query(
-      "SELECT setting_value FROM settings WHERE setting_key = 'mab_password_mode' LIMIT 1",
-      [],
+      `SELECT organization_id, setting_value FROM organization_settings
+        WHERE setting_key = 'mab_password_mode'${organizationId ? ' AND organization_id = ?' : ''}`,
+      organizationId ? [organizationId] : [],
     );
-    if (settingRows.length > 0) mabPasswordMode = settingRows[0].setting_value;
+    for (const row of settingRows) mabModeByOrg.set(row.organization_id, row.setting_value);
   }
 
   // 2. Load active subscribers (with cleartext password, auth_method, mac, plan, org,
@@ -368,6 +371,7 @@ async function syncFreeradiusTables(organizationId) {
             r.service_profile_id AS account_profile_id,
             r.ipv4_pool_id,
             ip.service_profile_id AS pool_profile_id,
+            c.organization_id,
             c.plan_id,
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,
@@ -533,13 +537,17 @@ async function syncFreeradiusTables(organizationId) {
       await db.query('DELETE FROM radusergroup WHERE username = ?', [username]);
 
       if (sub.auth_method === 'mac') {
-        // MAB: username is the normalized MAC; credential depends on mabPasswordMode
+        // MAB: username is the normalized MAC; the credential shape is the
+        // subscriber's ORG's mab_password_mode (falls back to the default for
+        // orgs that never set one, and for contract-less subscribers whose
+        // organization_id is NULL).
         if (!sub.mac_address) {
           logger.warn({ radiusId: sub.id }, 'MAB account missing mac_address — skipping');
           errors++;
           continue;
         }
         const normalizedMac = normalizeMac(sub.mac_address);
+        const mabPasswordMode = mabModeByOrg.get(sub.organization_id) ?? 'auth_type_accept';
         const checkRow = getMabCheckRow(normalizedMac, mabPasswordMode);
         await db.query(
           'INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)',

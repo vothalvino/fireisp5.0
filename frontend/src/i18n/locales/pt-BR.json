@@ -1,4 +1,19 @@
 {
+  "settingsPage": {
+    "loading": "Carregando configurações…",
+    "loadError": "Falha ao carregar as configurações.",
+    "orgSection": "Configurações da organização",
+    "installSection": "Configurações de toda a instalação",
+    "installNote": "Estes valores se aplicam a toda a instalação. Somente o operador da instalação pode alterá-los.",
+    "empty": "Nenhuma configuração encontrada.",
+    "colKey": "Chave",
+    "colValue": "Valor",
+    "colDescription": "Descrição",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "edit": "Editar",
+    "operatorOnly": "Somente o operador da instalação"
+  },
   "common": {
     "email": "E-mail",
     "password": "Senha",

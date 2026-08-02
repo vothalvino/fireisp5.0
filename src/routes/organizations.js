@@ -54,21 +54,48 @@ router.patch('/:id', orgScope, requirePermission('organizations.update'), assert
 router.delete('/:id', requirePermission('organizations.delete'), ctrl.destroy);
 router.post('/:id/restore', requirePermission('organizations.update'), ctrl.restore);
 
-// Settings sub-routes
-router.get('/:id/settings', requirePermission('settings.view'), async (req, res, next) => {
+// Settings sub-routes — PER-ORG keys only (migration 443 split, j56).
+// Before the split these served the INSTALL-level table while taking an :id
+// they ignored, so any tenant admin could rewrite deployment-wide values —
+// and they lacked the assertCallerCanManageOrg guard their sibling routes
+// have, so the :id was attacker-chosen on top of being ignored. Install keys
+// are edited on /settings by the install operator, never through this door.
+const { ORG_SETTING_DEFS } = require('../services/settingsCatalog');
+
+/** The target org's settings as a key→value map, catalog defaults filled in. */
+async function orgSettingsMap(orgId) {
+  const values = await Organization.getOrgSettings(orgId);
+  const map = {};
+  for (const [key, def] of Object.entries(ORG_SETTING_DEFS)) {
+    map[key] = values[key] ?? def.default;
+  }
+  return map;
+}
+
+router.get('/:id/settings', orgScope, requirePermission('settings.view'), assertCallerCanManageOrg, async (req, res, next) => {
   try {
-    const settings = await Organization.getSettings(req.params.id);
-    res.json({ data: settings });
+    res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
     next(err);
   }
 });
 
-router.put('/:id/settings/:key', requirePermission('settings.update'), validate(updateSetting), async (req, res, next) => {
+router.put('/:id/settings/:key', orgScope, requirePermission('settings.update'), assertCallerCanManageOrg, validate(updateSetting), async (req, res, next) => {
   try {
-    await Organization.setSetting(req.params.id, req.params.key, req.body.value);
-    const settings = await Organization.getSettings(req.params.id);
-    res.json({ data: settings });
+    const def = ORG_SETTING_DEFS[req.params.key];
+    if (!def) {
+      return res.status(422).json({
+        error: { code: 'UNKNOWN_SETTING', message: `'${req.params.key}' is not a per-organization setting.` },
+      });
+    }
+    const problem = def.validate(req.body.value);
+    if (problem) {
+      return res.status(422).json({
+        error: { code: 'INVALID_SETTING_VALUE', message: `${req.params.key} ${problem}` },
+      });
+    }
+    await Organization.setOrgSetting(req.params.id, req.params.key, req.body.value);
+    res.json({ data: await orgSettingsMap(req.params.id) });
   } catch (err) {
     next(err);
   }

@@ -1218,7 +1218,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "Get organization settings",
+        "summary": "Get an organization's per-org settings (own org, or any org for the install operator)",
         "operationId": "getOrganizationSettings",
         "security": [
           {
@@ -1237,7 +1237,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Settings map",
+            "description": "Settings map (per-org keys only)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1254,7 +1254,7 @@
         "tags": [
           "Organizations"
         ],
-        "summary": "Update a single organization setting",
+        "summary": "Update a single per-org setting (allowlisted keys only)",
         "operationId": "updateOrganizationSetting",
         "security": [
           {
@@ -1291,7 +1291,7 @@
         },
         "responses": {
           "200": {
-            "description": "Settings map",
+            "description": "Settings map (per-org keys only)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20142,7 +20142,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "List settings",
+        "summary": "List settings visible to the caller (org + install scope)",
         "operationId": "listSettings",
         "security": [
           {
@@ -20151,7 +20151,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Setting[]",
+            "description": "SettingEntry[]",
             "content": {
               "application/json": {
                 "schema": {
@@ -20161,20 +20161,32 @@
             }
           }
         }
-      },
+      }
+    },
+    "/settings/{key}": {
       "put": {
         "tags": [
           "Settings"
         ],
-        "summary": "Update settings",
-        "operationId": "updateSettings",
+        "summary": "Update a single setting by key (allowlisted; install keys are operator-only)",
+        "operationId": "updateSetting",
         "security": [
           {
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
-          "description": "settings",
+          "description": "Setting value",
           "content": {
             "application/json": {
               "schema": {
@@ -20185,7 +20197,7 @@
         },
         "responses": {
           "200": {
-            "description": "Setting[]",
+            "description": "SettingEntry",
             "content": {
               "application/json": {
                 "schema": {
