@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { styles, modalStyles, RequiredMark, capitalize } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -318,6 +319,13 @@ function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onCo
 
 export function OrganizationList() {
   const queryClient = useQueryClient();
+  // Creating and deleting organisations are INSTALL-OPERATOR only (backend
+  // 403s everyone else, own org included — product decision 2026-08-02).
+  // Hiding the buttons matches the backend, same as PollerNodeList: a visible
+  // button that fails is worse than no button. Backend-resolved flag, never
+  // inferred from role.
+  const { user } = useAuth();
+  const isOperator = user?.is_install_operator === true;
   const [page, setPage] = useState(1);
   const [showNew, setShowNew] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -344,9 +352,11 @@ export function OrganizationList() {
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>🏢 Organizations</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
-        <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
-          + New Organization
-        </button>
+        {isOperator && (
+          <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
+            + New Organization
+          </button>
+        )}
       </div>
 
       {deleteMutation.isError && (
@@ -381,7 +391,9 @@ export function OrganizationList() {
                       <td style={styles.td}><StatusBadge status={o.status} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <Link to={`/organizations/${o.id}`} style={{ ...styles.actionBtn, textDecoration: 'none' }} title="Manage organization (edit, settings, quota, mail)">⚙️ Manage</Link>
-                        <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setDeleteId(o.id)} title="Delete this organization">🗑 Delete</button>
+                        {isOperator && (
+                          <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => setDeleteId(o.id)} title="Delete this organization">🗑 Delete</button>
+                        )}
                       </td>
                     </tr>
                   ))}

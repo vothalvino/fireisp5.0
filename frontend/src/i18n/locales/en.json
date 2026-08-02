@@ -1437,6 +1437,7 @@
     "fiscalPacLink": "PAC providers",
     "fiscalError": "Could not save the fiscal profile.",
     "fiscalLoadError": "Could not load the fiscal profile.",
+    "fiscalOutsideOrg": "Fiscal settings are managed from inside the organization. Switch into it with the sidebar selector to view or edit its fiscal profile.",
     "fiscalRfcInvalid": "RFC must be 12–13 characters (letters, digits, Ñ, &).",
     "fiscalIncomplete": "Razón social, régimen (3 digits) and C.P. (5 digits) are required.",
     "tabPrivacy": "Privacy notice",

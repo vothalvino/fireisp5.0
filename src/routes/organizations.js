@@ -63,7 +63,11 @@ router.get('/', requirePermission('organizations.view'), async (req, res, next) 
 });
 
 router.get('/:id', orgScope, requirePermission('organizations.view'), assertCallerOwnsTargetOrg, ctrl.get);
-router.post('/', requirePermission('organizations.create'), validate(createOrganization), ctrl.create);
+// Create is INSTALL-OPERATOR only, symmetric with delete (product decision,
+// 2026-08-02): membership is required to ENTER an org (j66/j67), and create
+// grants the creator no membership — so a tenant admin could only ever mint
+// orgs they can never enter. Orgs are the operator's inventory, both ends.
+router.post('/', requirePermission('organizations.create'), requireInstallOperator, validate(createOrganization), ctrl.create);
 /**
  * The ownership guard for every :id route on this router.
  *
@@ -108,7 +112,11 @@ router.patch('/:id', orgScope, requirePermission('organizations.update'), assert
 // undermined the install-operator gate, which counts organisations: deleting
 // the neighbours would have restored operator status. The count now spans all
 // rows (see services/installOperator.js) AND these two verbs are guarded.
-router.delete('/:id', orgScope, requirePermission('organizations.delete'), assertCallerOwnsTargetOrg, ctrl.destroy);
+// Both verbs are INSTALL-OPERATOR only (product decision, 2026-08-02): a
+// tenant admin must not delete even their own organisation — an org holds
+// fiscal records (stamped CFDIs) whose retention outlives any tenant's wish
+// to leave, so decommissioning is the operator's act, like restore already was.
+router.delete('/:id', orgScope, requirePermission('organizations.delete'), requireInstallOperator, ctrl.destroy);
 router.post('/:id/restore', orgScope, requirePermission('organizations.update'), requireInstallOperator, ctrl.restore);
 
 // Settings sub-routes — PER-ORG keys only (migration 443 split, j56).

@@ -531,9 +531,15 @@ function FiscalTab({ id }: { id: number }) {
   const q = useQuery({
     queryKey: ['organization-mx-profile', id],
     queryFn: async () => {
-      const res = await api.GET('/organizations/{id}/mx-profile' as never, { params: { path: { id } } } as never);
-      if ((res as { error?: unknown }).error) throw new Error('load failed');
-      return ((res as { data: { data: OrgMxProfile | null } }).data?.data) ?? null;
+      const res = await api.GET('/organizations/{id}/mx-profile' as never, { params: { path: { id } } } as never) as
+        { error?: unknown; response?: Response; data?: { data: OrgMxProfile | null } };
+      if (res.error) {
+        // 403 is the RULE, not a failure: fiscal identity is edited from INSIDE
+        // the organisation only (j66 — no operator escape either). Carry the
+        // distinction so the render explains it instead of claiming breakage.
+        throw new Error(res.response?.status === 403 ? 'outside-org' : 'load failed');
+      }
+      return res.data?.data ?? null;
     },
   });
 
@@ -607,7 +613,11 @@ function FiscalTab({ id }: { id: number }) {
   }
 
   if (q.isLoading) return <p style={styles.msg}>{t('common.loading')}</p>;
-  if (q.error) return <p style={styles.msgError}>{t('orgDetail.fiscalLoadError')}</p>;
+  if (q.error) {
+    return (q.error as Error).message === 'outside-org'
+      ? <p style={styles.msg}>{t('orgDetail.fiscalOutsideOrg')}</p>
+      : <p style={styles.msgError}>{t('orgDetail.fiscalLoadError')}</p>;
+  }
 
   const regimenes = regimenQ.data ?? [];
   return (

@@ -2153,9 +2153,11 @@ describe('Organization Routes — /api/organizations', () => {
 
   // --- POST / ---
   describe('POST /api/organizations', () => {
-    test('creates an organization and returns 201', async () => {
+    test('creates an organization and returns 201 for the install operator', async () => {
       mockAuthUser();
       db.query
+        // requireInstallOperator (create is operator-only, 2026-08-02)
+        .mockResolvedValueOnce([[{ is_install_operator: 1 }]])
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
         .mockResolvedValueOnce([[{ ...mockOrg, id: 2 }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
@@ -2192,9 +2194,11 @@ describe('Organization Routes — /api/organizations', () => {
 
   // --- DELETE /:id ---
   describe('DELETE /api/organizations/:id', () => {
-    test('deletes an organization and returns 204', async () => {
+    test('deletes an organization and returns 204 for the install operator', async () => {
       mockAuthUser();
       db.query
+        // requireInstallOperator (delete is operator-only, 2026-08-02)
+        .mockResolvedValueOnce([[{ is_install_operator: 1 }]])
         .mockResolvedValueOnce([[mockOrg]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);

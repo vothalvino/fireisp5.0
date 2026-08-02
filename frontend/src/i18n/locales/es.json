@@ -1437,6 +1437,7 @@
     "fiscalPacLink": "Proveedores PAC",
     "fiscalError": "No se pudo guardar el perfil fiscal.",
     "fiscalLoadError": "No se pudo cargar el perfil fiscal.",
+    "fiscalOutsideOrg": "La configuración fiscal se gestiona desde dentro de la organización. Cambia a ella con el selector de la barra lateral para ver o editar su perfil fiscal.",
     "fiscalRfcInvalid": "El RFC debe tener 12–13 caracteres (letras, dígitos, Ñ, &).",
     "fiscalIncomplete": "Razón social, régimen (3 dígitos) y C.P. (5 dígitos) son obligatorios.",
     "tabPrivacy": "Aviso de privacidad",

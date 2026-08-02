@@ -303,11 +303,22 @@ describe('DELETE/POST /organizations/:id — cross-tenant destruction', () => {
     expect(res.status).toBe(403);
   });
 
-  it('still lets a caller act on their OWN org', async () => {
+  it('403s a tenant admin deleting even their OWN org — decommissioning is the operator\'s act', async () => {
+    // Product decision 2026-08-02: own-org delete went with the rest. An org
+    // holds stamped CFDIs whose retention outlives any tenant's wish to leave.
     wireDb({ user: TENANT_ADMIN, orgCount: 5 });
     const res = await request(app)
       .delete(`/api/v1/organizations/${TENANT_ADMIN.organization_id}`)
       .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    expect(res.status).toBe(403);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE organizations|DELETE FROM organizations/i.test(sql))).toBe(false);
+  });
+
+  it('lets the INSTALL OPERATOR delete an organisation', async () => {
+    wireDb({ user: OPERATOR, orgCount: 5 });
+    const res = await request(app)
+      .delete('/api/v1/organizations/1')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`);
     expect(res.status).not.toBe(403);
   });
 });
