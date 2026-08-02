@@ -431,6 +431,13 @@ describe('kickDuplicateSessions() — session grouping and per-session kicks', (
     expect(sessionSql).toMatch(/cl\.session_id IS NOT NULL/);
     expect(sessionSql).toMatch(/IN \('start', 'interim-update'\)/);
     expect(sessionSql).toMatch(/DATE_SUB\(NOW\(\), INTERVAL 90 DAY\)/);
+    // Ghost guard (j65): a session with no accounting evidence inside the
+    // liveness window (default 60 min) must stop counting toward the limit —
+    // a lost Acct-Stop otherwise makes the kicker disconnect the subscriber's
+    // REAL session every 5-minute cycle, forever. The filter lives in SQL
+    // (HAVING on the session's latest event), so with a mocked DB the SQL
+    // shape IS the behaviour under test.
+    expect(sessionSql).toMatch(/HAVING MAX\(cl\.event_at\) >= DATE_SUB\(NOW\(\), INTERVAL 60 MINUTE\)/);
   });
 
   test('kicks the oldest excess session at ITS NAS, narrowed by Acct-Session-Id', async () => {

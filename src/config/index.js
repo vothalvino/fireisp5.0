@@ -104,6 +104,16 @@ const config = {
     secret: process.env.RADIUS_SERVER_SECRET || '',
   },
 
+  // How long an open accounting session (start/interim with no stop) still
+  // counts as LIVE for duplicate-session enforcement. A NAS reboot or a lost
+  // Acct-Stop leaves a ghost "open" row forever; without this window the
+  // 5-minute kicker reads a 1-session subscriber as over-limit and disconnects
+  // their REAL session every cycle. NASes send interim updates every 5–30
+  // minutes, so 60 tolerates slow interims and accounting hiccups while a
+  // ghost stops counting within the hour. Applies to accounting rows from both
+  // the embedded server and external FreeRADIUS.
+  radiusSessionLivenessMinutes: parseIntEnv('RADIUS_SESSION_LIVENESS_MINUTES', 60),
+
   // WireGuard VPN hub — two surfaces: per-NAS tunnels (wg-fireisp) + user access tunnels (wg-clients).
   // Set WG_SERVER_ENABLED=true only on a Linux host with CAP_NET_ADMIN and wireguard-tools installed.
   // When disabled (default), config/QR files are still issued but the operator wires peers manually.
