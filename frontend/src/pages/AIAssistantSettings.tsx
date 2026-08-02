@@ -10,7 +10,7 @@
 //   5. Audit & Metrics— read-only usage stats.
 // =============================================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -100,24 +100,6 @@ interface AiReplyLog {
 
 const API_BASE = '/api/v1/ai';
 
-// Mirrors GET /ai/providers/catalog. 'openrouter' sits before 'custom' because
-// it is the friendlier route to the same hundreds of models (no endpoint URL).
-const PROVIDER_KINDS = ['openai', 'azure_openai', 'anthropic', 'gemini', 'ollama', 'openrouter', 'custom'];
-// Human labels for the kind dropdown. Without these the options render as raw
-// slugs, so "openrouter" (lowercase, sixth in the list) is easy to scan past
-// when you are looking for "OpenRouter" — which is exactly what happened. These
-// mirror PROVIDER_CATALOG[].label on the backend; the proper fix (driving the
-// whole form off GET /providers/catalog) is j62, but a slug in a dropdown is a
-// papercut worth removing now.
-const PROVIDER_KIND_LABELS: Record<string, string> = {
-  openai: 'OpenAI',
-  azure_openai: 'Azure OpenAI',
-  anthropic: 'Anthropic',
-  gemini: 'Google Gemini',
-  ollama: 'Ollama (local)',
-  openrouter: 'OpenRouter',
-  custom: 'Custom (OpenAI-compatible)',
-};
 const AI_MODES = ['draft_only', 'suggest', 'auto_send'];
 const TONES = ['formal', 'friendly', 'technical', 'empathetic'];
 const LOCALES = ['en', 'es', 'pt-BR'];
@@ -387,27 +369,38 @@ const EMPTY_PROVIDER = {
   api_key: '', priority: 10, is_enabled: true,
 };
 
-/** Fields that are relevant per-kind */
-const KIND_FIELDS: Record<string, string[]> = {
-  openai:       ['model', 'api_key'],
-  azure_openai: ['endpoint', 'deployment', 'model', 'api_key'],
-  anthropic:    ['model', 'api_key'],
-  gemini:       ['model', 'api_key'],
-  ollama:       ['endpoint', 'model'],
-  // No endpoint: the backend knows OpenRouter's base URL.
-  openrouter:   ['model', 'api_key'],
-  custom:       ['endpoint', 'model', 'api_key'],
-};
+// ---------------------------------------------------------------------------
+// Provider catalog (GET /ai/providers/catalog)
+// ---------------------------------------------------------------------------
+// The backend is the single source for which provider kinds exist, what each
+// one is called, which form fields it needs and its recommended models. The
+// page used to keep its own PROVIDER_KINDS / KIND_FIELDS copies of this,
+// which drifted in the worst direction: a kind the backend fully supported
+// simply never appeared in the dropdown — no error, no clue (j62).
+
+/** One entry of GET /ai/providers/catalog. */
+interface ProviderCatalogEntry {
+  kind: string;
+  label: string;
+  requiresApiKey: boolean;
+  requiresEndpoint: boolean;
+  /** Azure only: models are addressed by deployment name. */
+  requiresDeployment?: boolean;
+  /** Kind takes a key but works without one (e.g. LAN OpenAI-compatible). */
+  optionalApiKey?: boolean;
+  /** Recommended model ids; empty for kinds with none or a live list. */
+  models: string[];
+  /** Model roster changes too often to hardcode — load GET /providers/models. */
+  dynamicModels?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Live model catalog (OpenRouter)
 // ---------------------------------------------------------------------------
-// The catalog endpoint flags these kinds with `dynamicModels: true`: their
-// roster changes weekly, so the model field is a picker over the live list
-// instead of a free-text box.  Everything degrades to free text if the live
-// list cannot be loaded — a third party being down must never block the form.
-
-const DYNAMIC_MODEL_KINDS = ['openrouter'];
+// Kinds flagged `dynamicModels: true` in the provider catalog get a picker
+// over the live list instead of a free-text box.  Everything degrades to free
+// text if the live list cannot be loaded — a third party being down must
+// never block the form.
 
 /** One row of GET /ai/providers/models. Prices are USD **per token**. */
 interface OpenRouterModel {
@@ -575,6 +568,16 @@ function ProvidersTab() {
   // kind select back and forth does not refetch.
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogState>(EMPTY_MODEL_CATALOG);
 
+  // The provider catalog drives the kind dropdown, per-kind form fields and
+  // recommended models — the backend list is authoritative (j62).
+  const { data: catalogData, error: catalogError } = useQuery({
+    queryKey: ['ai-provider-catalog'],
+    queryFn: () => apiFetch<{ data: ProviderCatalogEntry[] }>(`${API_BASE}/providers/catalog`),
+    staleTime: Infinity, // static per deploy — no reason to refetch per tab visit
+  });
+  const catalog = useMemo(() => catalogData?.data ?? [], [catalogData]);
+  const kindLabel = (kind: string) => catalog.find(c => c.kind === kind)?.label ?? kind;
+
   // Policy is needed for active_provider_id
   const { data: policyData } = useQuery({
     queryKey: ['ai-policy'],
@@ -641,12 +644,18 @@ function ProvidersTab() {
     }
   }, []);
 
+  // The catalog entry for the kind currently selected in the form. Undefined
+  // while the catalog loads or for a legacy kind no longer in the catalog —
+  // the form then shows the superset of fields rather than hiding anything.
+  const kindEntry = catalog.find(c => c.kind === form.kind);
+  const isDynamicModelKind = !!kindEntry?.dynamicModels;
+
   // Lazy: only fetched once the operator actually picks a dynamic-model kind.
   useEffect(() => {
-    if (!showModal || !DYNAMIC_MODEL_KINDS.includes(form.kind)) return;
+    if (!showModal || !isDynamicModelKind) return;
     if (modelCatalog.loaded || modelCatalog.loading) return;
     void loadModelCatalog();
-  }, [showModal, form.kind, modelCatalog.loaded, modelCatalog.loading, loadModelCatalog]);
+  }, [showModal, isDynamicModelKind, modelCatalog.loaded, modelCatalog.loading, loadModelCatalog]);
 
   function openNew() {
     setEditing(null);
@@ -713,7 +722,13 @@ function ProvidersTab() {
     priorityMutation.mutate({ id: b.id, priority: a.priority });
   }
 
-  const fields = KIND_FIELDS[form.kind] ?? ['api_key'];
+  // Per-kind field visibility, straight from the catalog entry. No entry
+  // (catalog still loading, or a legacy kind) → show the superset except the
+  // Azure-specific deployment field, so nothing becomes uneditable.
+  const showEndpoint = kindEntry ? kindEntry.requiresEndpoint : true;
+  const showDeployment = kindEntry ? !!kindEntry.requiresDeployment : false;
+  const showApiKey = kindEntry ? (kindEntry.requiresApiKey || !!kindEntry.optionalApiKey) : true;
+  const recommendedModels = kindEntry?.models ?? [];
   const providers = [...(data?.data ?? [])].sort((a, b) => a.priority - b.priority);
 
   return (
@@ -777,7 +792,7 @@ function ProvidersTab() {
                   </span>
                 </td>
                 <td style={sty.td}>{p.name}</td>
-                <td style={sty.td}><span style={sty.kindBadge}>{PROVIDER_KIND_LABELS[p.kind] ?? p.kind}</span></td>
+                <td style={sty.td}><span style={sty.kindBadge}>{kindLabel(p.kind)}</span></td>
                 <td style={sty.td}><code style={sty.code}>{p.model ?? '—'}</code></td>
                 <td style={sty.td}>
                   <span style={{ ...sty.pill, background: p.enabled ? '#16a34a' : '#888' }}>
@@ -824,38 +839,49 @@ function ProvidersTab() {
             <label style={sty.label}>{t('aiAssistantSettings.providers.form.kind')} *
               <select style={sty.select} value={form.kind}
                 onChange={e => setForm(f => ({ ...f, kind: e.target.value }))}>
-                {PROVIDER_KINDS.map(k => <option key={k} value={k}>{PROVIDER_KIND_LABELS[k] ?? k}</option>)}
+                {catalog.map(c => <option key={c.kind} value={c.kind}>{c.label}</option>)}
+                {/* Keep the select valid while the catalog loads, and keep a
+                    legacy kind (removed from the catalog) selectable on its
+                    own row instead of silently snapping to the first option. */}
+                {!kindEntry && <option value={form.kind}>{form.kind}</option>}
               </select>
+              {!!catalogError && (
+                <span style={sty.errorText}>{t('aiAssistantSettings.providers.catalogError')}</span>
+              )}
             </label>
 
-            {fields.includes('model') && (
-              DYNAMIC_MODEL_KINDS.includes(form.kind) ? (
-                <LiveModelField
-                  value={form.model}
-                  catalog={modelCatalog}
-                  onChange={model => setForm(f => ({ ...f, model }))}
-                  onRefresh={() => { void loadModelCatalog(true); }}
-                />
-              ) : (
-                <label style={sty.label}>{t('aiAssistantSettings.providers.form.model')}
-                  <input style={sty.input} value={form.model}
-                    onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
-                </label>
-              )
+            {isDynamicModelKind ? (
+              <LiveModelField
+                value={form.model}
+                catalog={modelCatalog}
+                onChange={model => setForm(f => ({ ...f, model }))}
+                onRefresh={() => { void loadModelCatalog(true); }}
+              />
+            ) : (
+              <label style={sty.label}>{t('aiAssistantSettings.providers.form.model')}
+                <input style={sty.input} value={form.model}
+                  list={recommendedModels.length > 0 ? 'ai-provider-recommended-models' : undefined}
+                  onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+                {recommendedModels.length > 0 && (
+                  <datalist id="ai-provider-recommended-models">
+                    {recommendedModels.map(m => <option key={m} value={m} />)}
+                  </datalist>
+                )}
+              </label>
             )}
-            {fields.includes('endpoint') && (
+            {showEndpoint && (
               <label style={sty.label}>{t('aiAssistantSettings.providers.form.endpoint')}
                 <input style={sty.input} type="url" value={form.endpoint}
                   onChange={e => setForm(f => ({ ...f, endpoint: e.target.value }))} />
               </label>
             )}
-            {fields.includes('deployment') && (
+            {showDeployment && (
               <label style={sty.label}>{t('aiAssistantSettings.providers.form.deployment')}
                 <input style={sty.input} value={form.deployment}
                   onChange={e => setForm(f => ({ ...f, deployment: e.target.value }))} />
               </label>
             )}
-            {fields.includes('api_key') && (
+            {showApiKey && (
               <label style={sty.label}>
                 {t('aiAssistantSettings.providers.form.apiKey')} {editing && <span style={sty.hint}>{t('aiAssistantSettings.providers.form.apiKeyKeep')}</span>}
                 <input style={sty.input} type="password" autoComplete="new-password"

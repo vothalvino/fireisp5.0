@@ -1034,6 +1034,7 @@
       "addProvider": "+ Add Provider",
       "loading": "Loading providers…",
       "error": "Failed to load providers.",
+      "catalogError": "Could not load the provider catalog — kinds and fields may be incomplete.",
       "empty": "No providers configured. Add one to enable AI replies.",
       "cols": {
         "active": "Active",

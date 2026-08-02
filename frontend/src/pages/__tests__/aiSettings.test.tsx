@@ -59,6 +59,21 @@ const term1 = {
   id: 1, term: 'cancel', locale: 'en', created_at: '2025-01-01',
 };
 
+/**
+ * Mirror of the backend PROVIDER_CATALOG (GET /ai/providers/catalog) — the
+ * form's kind dropdown, per-kind fields and recommended models all come from
+ * this since j62.
+ */
+const providerCatalog = [
+  { kind: 'openai', label: 'OpenAI', requiresApiKey: true, requiresEndpoint: false, models: ['gpt-4o', 'gpt-4o-mini'] },
+  { kind: 'azure_openai', label: 'Azure OpenAI', requiresApiKey: true, requiresEndpoint: true, requiresDeployment: true, models: ['gpt-4o'] },
+  { kind: 'anthropic', label: 'Anthropic', requiresApiKey: true, requiresEndpoint: false, models: ['claude-3-5-sonnet-20241022'] },
+  { kind: 'gemini', label: 'Google Gemini', requiresApiKey: true, requiresEndpoint: false, models: ['gemini-1.5-pro'] },
+  { kind: 'ollama', label: 'Ollama (local)', requiresApiKey: false, requiresEndpoint: true, models: ['llama3.1:8b'] },
+  { kind: 'openrouter', label: 'OpenRouter', requiresApiKey: true, requiresEndpoint: false, models: [], dynamicModels: true },
+  { kind: 'custom', label: 'Custom (OpenAI-compatible)', requiresApiKey: false, requiresEndpoint: true, optionalApiKey: true, models: [] },
+];
+
 const openRouterModels = [
   {
     id: 'anthropic/claude-sonnet-4.5', name: 'Anthropic: Claude Sonnet 4.5',
@@ -118,6 +133,8 @@ function setup() {
     // Must be matched before /ai/providers — literal path, same prefix.
     if (path.endsWith('/ai/providers/models') && method === 'GET')
       return Promise.resolve(makeJsonResponse(modelsPayload));
+    if (path.endsWith('/ai/providers/catalog') && method === 'GET')
+      return Promise.resolve(makeJsonResponse({ data: providerCatalog }));
     if (path.endsWith('/ai/policy') && method === 'GET')
       return Promise.resolve(makeJsonResponse({ data: defaultPolicy }));
     if (path.endsWith('/ai/policy') && method === 'PUT')
@@ -360,7 +377,10 @@ describe('AIAssistantSettings page', () => {
     it('offers openrouter as a provider kind', async () => {
       await openAddProviderModal();
       const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
-      expect([...kindSelect.options].map(o => o.value)).toContain('openrouter');
+      // The kind list comes from GET /providers/catalog (j62) — wait for it.
+      await waitFor(() =>
+        expect([...kindSelect.options].map(o => o.value)).toContain('openrouter'),
+      );
     });
 
     it('shows the OpenRouter option by its brand name, not the raw slug', async () => {
@@ -369,17 +389,59 @@ describe('AIAssistantSettings page', () => {
       // it. The value stays the slug; only the visible text is the label.
       await openAddProviderModal();
       const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
-      const opt = [...kindSelect.options].find(o => o.value === 'openrouter');
-      expect(opt?.textContent).toBe('OpenRouter');
+      await waitFor(() => {
+        const opt = [...kindSelect.options].find(o => o.value === 'openrouter');
+        expect(opt?.textContent).toBe('OpenRouter');
+      });
     });
 
     it('does not fetch the live model list for other kinds', async () => {
       await openAddProviderModal();
-      // Default kind is openai — its model field stays plain free text.
+      // Default kind is openai — its model field is free text backed by the
+      // catalog's RECOMMENDED models datalist (static list, no fetch), never
+      // the live OpenRouter picker.
       const input = screen.getByLabelText(/^Model/i);
-      expect(input).not.toHaveAttribute('list');
+      expect(input).not.toHaveAttribute('list', 'ai-provider-model-options');
       await waitFor(() => expect(screen.getByLabelText(/API key/i)).toBeInTheDocument());
       expect(modelCalls()).toHaveLength(0);
+    });
+
+    it('static kinds offer the catalog recommended models as a datalist', async () => {
+      const { container } = await openAddProviderModal();
+      const input = await screen.findByLabelText(/^Model/i);
+      await waitFor(() =>
+        expect(input).toHaveAttribute('list', 'ai-provider-recommended-models'),
+      );
+      const options = [...container.querySelectorAll('datalist#ai-provider-recommended-models option')];
+      expect(options.map(o => o.getAttribute('value'))).toEqual(['gpt-4o', 'gpt-4o-mini']);
+    });
+
+    it('the per-kind fields come from the catalog (azure shows deployment, ollama hides the key)', async () => {
+      await openAddProviderModal();
+      const kindSelect = screen.getByLabelText(/Provider kind/i) as HTMLSelectElement;
+      await waitFor(() =>
+        expect([...kindSelect.options].map(o => o.value)).toContain('azure_openai'),
+      );
+
+      selectKind('azure_openai');
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Deployment/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Endpoint/i)).toBeInTheDocument();
+      });
+
+      selectKind('ollama');
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/Deployment/i)).not.toBeInTheDocument();
+        expect(screen.getByLabelText(/Endpoint/i)).toBeInTheDocument();
+      });
+
+      // custom: key is OPTIONAL (optionalApiKey) — the field must still show.
+      selectKind('custom');
+      await waitFor(() => {
+        expect(screen.getByLabelText(/API key/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Endpoint/i)).toBeInTheDocument();
+      });
     });
 
     it('selecting openrouter loads the list and shows a datalist-backed picker', async () => {
@@ -415,7 +477,11 @@ describe('AIAssistantSettings page', () => {
       await waitFor(() => expect(modelCalls()).toHaveLength(1));
 
       selectKind('openai');
-      await waitFor(() => expect(screen.getByLabelText(/^Model/i)).not.toHaveAttribute('list'));
+      // Back on a static kind: the field is the recommended-models datalist,
+      // not the live picker.
+      await waitFor(() =>
+        expect(screen.getByLabelText(/^Model/i)).toHaveAttribute('list', 'ai-provider-recommended-models'),
+      );
 
       selectKind('openrouter');
       await waitFor(() => expect(screen.getByLabelText('Model')).toHaveAttribute('list'));
