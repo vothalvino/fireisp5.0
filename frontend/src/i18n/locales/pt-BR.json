@@ -4530,7 +4530,11 @@
       "noFtth": "Nenhum quadro ODF ativo com coordenadas de site foi encontrado.",
       "freePorts": "{{free}} de {{total}} portas livres",
       "portsUntracked": "{{total}} portas (ocupação não registrada)"
-    }
+    },
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "geocodeFromAddress": "Geocodificar a partir do endereço",
+    "geocoding": "Geocodificando…"
   },
   "vendors": {
     "title": "Fornecedores",

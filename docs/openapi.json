@@ -4260,6 +4260,52 @@
         }
       }
     },
+    "/leads/{id}/geocode": {
+      "post": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Resolve the lead address to GPS coordinates (optional body fields override the stored address)",
+        "operationId": "geocodeLead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "leads_geocodeLead",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lead + geocode result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/leads/{id}/restore": {
       "post": {
         "tags": [
@@ -59914,6 +59960,27 @@
               "government",
               "wholesale"
             ]
+          }
+        }
+      },
+      "leads_geocodeLead": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "maximum": 500
+          },
+          "city": {
+            "type": "string",
+            "maximum": 100
+          },
+          "state": {
+            "type": "string",
+            "maximum": 100
+          },
+          "zip_code": {
+            "type": "string",
+            "maximum": 20
           }
         }
       },

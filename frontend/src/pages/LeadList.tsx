@@ -37,6 +37,8 @@ interface Lead {
   city: string | null;
   state: string | null;
   zip_code: string | null;
+  latitude: number | null;
+  longitude: number | null;
   desired_plan_id: number | null;
   created_at: string;
 }
@@ -58,6 +60,8 @@ interface LeadFormBody {
   city?: string;
   state?: string;
   zip_code?: string;
+  latitude?: number;
+  longitude?: number;
   desired_plan_id?: number;
 }
 
@@ -65,7 +69,7 @@ interface LeadFormBody {
 // explicit clear on edit — see handleSubmit) even though the controlled
 // <input>'s `value` prop (bound to LeadFormBody, always a plain string in
 // local form state) cannot.
-type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code' | 'desired_plan_id'> & {
+type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code' | 'latitude' | 'longitude' | 'desired_plan_id'> & {
   email?: string | null;
   phone?: string | null;
   company?: string | null;
@@ -73,6 +77,8 @@ type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'addres
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   desired_plan_id?: number | null;
 };
 
@@ -207,10 +213,42 @@ function LeadFormModal({
     city: initial?.city ?? '',
     state: initial?.state ?? '',
     zip_code: initial?.zip_code ?? '',
+    latitude: initial?.latitude ?? undefined,
+    longitude: initial?.longitude ?? undefined,
     desired_plan_id: initial?.desired_plan_id ?? undefined,
   });
   const [error, setError] = useState('');
+  const [geocoding, setGeocoding] = useState(false);
   const { data: plans = [] } = useQuery({ queryKey: ['plans-lookup'], queryFn: fetchPlansLookup, staleTime: 60_000 });
+
+  // Edit-mode only (needs a stored lead to read the address from): resolve the
+  // typed address to coordinates via the server-side geocoder.
+  async function geocodeFromAddress() {
+    if (!initial) return;
+    setGeocoding(true);
+    setError('');
+    try {
+      const res = await (api.POST as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+        '/leads/{id}/geocode',
+        {
+          params: { path: { id: initial.id } },
+          body: {
+            address: (form.address ?? '').trim() || undefined,
+            city: (form.city ?? '').trim() || undefined,
+            state: (form.state ?? '').trim() || undefined,
+            zip_code: (form.zip_code ?? '').trim() || undefined,
+          },
+        },
+      );
+      if (res.error) throw new Error(extractApiError(res.error, 'Could not geocode the address'));
+      const geo = (res.data as { geocode: { latitude: number; longitude: number } }).geocode;
+      setForm(p => ({ ...p, latitude: geo.latitude, longitude: geo.longitude }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not geocode the address');
+    } finally {
+      setGeocoding(false);
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: async (body: LeadSubmitBody) => {
@@ -259,6 +297,14 @@ function LeadFormModal({
     } else if (mode === 'edit' && initial?.desired_plan_id) {
       body.desired_plan_id = null;
     }
+    (['latitude', 'longitude'] as const).forEach(key => {
+      const value = form[key];
+      if (value !== undefined && !Number.isNaN(value)) {
+        body[key] = Number(value);
+      } else if (mode === 'edit' && initial?.[key] !== null && initial?.[key] !== undefined) {
+        body[key] = null;
+      }
+    });
     setError('');
     mutation.mutate(body);
   }
@@ -322,6 +368,27 @@ function LeadFormModal({
           <label style={labelStyle}>Estimated value</label>
           <input style={inputStyle} type="number" min={0} step="0.01" value={form.estimated_value ?? ''}
             onChange={e => setForm(p => ({ ...p, estimated_value: e.target.value ? Number(e.target.value) : undefined }))} />
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('leads.latitude')}</label>
+              <input style={inputStyle} type="number" step="0.0000001" min={-90} max={90}
+                value={form.latitude ?? ''} placeholder="19.4326"
+                onChange={e => setForm(p => ({ ...p, latitude: e.target.value === '' ? undefined : Number(e.target.value) }))} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('leads.longitude')}</label>
+              <input style={inputStyle} type="number" step="0.0000001" min={-180} max={180}
+                value={form.longitude ?? ''} placeholder="-99.1332"
+                onChange={e => setForm(p => ({ ...p, longitude: e.target.value === '' ? undefined : Number(e.target.value) }))} />
+            </div>
+          </div>
+          {mode === 'edit' && (
+            <button type="button" style={{ ...cancelBtn, marginTop: 4, padding: '4px 10px' }}
+              disabled={geocoding} onClick={geocodeFromAddress}>
+              {geocoding ? t('leads.geocoding') : t('leads.geocodeFromAddress')}
+            </button>
+          )}
 
           <label style={labelStyle}>{t('leads.desiredPlan')}</label>
           <select style={inputStyle} value={form.desired_plan_id ?? ''}
