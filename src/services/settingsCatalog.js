@@ -46,6 +46,14 @@ const ORG_SETTING_DEFS = {
       return Number.isInteger(n) && n > 0 ? null : 'must be a positive integer';
     },
   },
+  billing_followup_days: {
+    default: '3',
+    description: 'Days after a service order completes before a follow-up ticket is auto-created for the billing team to check in with the client (service working well, happy with the install). 0 disables the follow-up for this organization.',
+    validate(value) {
+      const n = Number(value);
+      return Number.isInteger(n) && n >= 0 && n <= 90 ? null : 'must be an integer between 0 and 90';
+    },
+  },
 };
 
 module.exports = { INSTALL_SETTING_KEYS, ORG_SETTING_DEFS };

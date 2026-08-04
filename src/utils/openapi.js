@@ -349,6 +349,7 @@ function generateSpec() {
         post: { tags: ['Leads'], summary: 'Create a Lead', operationId: 'createLead', security: [{ bearerAuth: [] }], requestBody: jsonBody('Lead'), responses: r201('Lead') },
       },
       '/leads/pipeline': { get: { tags: ['Leads'], summary: 'Lead counts grouped by pipeline stage', operationId: 'getLeadPipeline', security: [{ bearerAuth: [] }], responses: r200('Pipeline counts') } },
+      '/leads/{id}/feasibility': { get: { tags: ['Leads'], summary: 'Desk feasibility check: coverage-zone hit, nearest AP sectors, nearest active ODF frames for the lead coordinates', operationId: 'getLeadFeasibility', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Feasibility result') } },
       '/leads/{id}/restore': { post: { tags: ['Leads'], summary: 'Restore a soft-deleted lead', operationId: 'restoreLead', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Lead') } },
       '/leads/{id}/convert': { post: { tags: ['Leads'], summary: 'Convert a lead into a client', operationId: 'convertLead', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('leads_convertLead'), responses: r201('Lead + Client') } },
 

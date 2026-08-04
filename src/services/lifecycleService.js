@@ -214,7 +214,7 @@ function appendOrgFilter(sql, params, orgId, column = 'organization_id') {
  *   the route's own auditLog.log call; no column on service_orders records it.
  * @returns {Promise<{ order: object, contract: object|null, provisioning: object|undefined }>}
  */
-async function startOrder(orderId, { orgId = null } = {}) {
+async function startOrder(orderId, { orgId = null, userId = null } = {}) {
   // ---- Pre-checks that don't need to hold the row lock ----
   const preOrder = await ServiceOrder.findById(orderId, orgId);
   if (!preOrder) throw new NotFoundError('Service order');
@@ -257,6 +257,7 @@ async function startOrder(orderId, { orgId = null } = {}) {
   let contract = null;
   let provisioning;
   let updatedOrder;
+  let installWorkOrder = null;
   try {
     await conn.beginTransaction();
 
@@ -339,11 +340,57 @@ async function startOrder(orderId, { orgId = null } = {}) {
       throw new ValidationError('Service order was modified concurrently — please retry');
     }
 
+    // ---- Install work order (new_install) — the dispatch half of Step 2.
+    // The cancel path has auto-created its pickup WO since migration 391;
+    // this is the symmetric install half: starting the order IS the dispatch
+    // decision, so the field visit exists the moment provisioning does.
+    // Same transaction: an order that failed to start must not leave a WO.
+    // Idempotent (mirrors createPickupWorkOrder's guard) for the manual case
+    // where someone already opened an installation WO against this order.
+    if (order.order_type === 'new_install') {
+      const woOrgId = order.organization_id ?? orgId;
+      if (woOrgId === null || woOrgId === undefined) {
+        // work_orders.organization_id is NOT NULL; an org-less order (legacy
+        // single-tenant row) cannot carry one. Skip loudly rather than fail
+        // the whole start over dispatch bookkeeping.
+        logger.warn({ orderId }, 'startOrder: no organization id — install work order not auto-created');
+      } else {
+        const [existingWo] = await conn.query(
+          `SELECT id, assigned_to FROM work_orders
+           WHERE service_order_id = ? AND work_type = 'installation'
+             AND status NOT IN ('completed', 'cancelled') AND deleted_at IS NULL
+           LIMIT 1`,
+          [orderId],
+        );
+        if (!existingWo.length) {
+          const [woIns] = await conn.query(
+            `INSERT INTO work_orders
+               (organization_id, client_id, contract_id, service_order_id, assigned_to,
+                created_by, title, description, status, priority, work_type, address)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'medium', 'installation', ?)`,
+            [
+              woOrgId, clientId, contractIdToLink || null, orderId, order.assigned_to || null,
+              userId,
+              `Installation — ${order.order_number}`,
+              'Auto-created when the service order started: install and commission the subscriber service, then record the acceptance readings on completion.',
+              order.assigned_to ? 'assigned' : 'pending',
+              order.address || null,
+            ],
+          );
+          const [woRows] = await conn.query('SELECT * FROM work_orders WHERE id = ?', [woIns.insertId]);
+          installWorkOrder = woRows[0];
+        }
+      }
+    }
+
     await conn.commit();
 
     const [rows] = await db.query('SELECT * FROM service_orders WHERE id = ?', [orderId]);
     updatedOrder = rows[0];
-    logger.info({ orderId, contractId: contract?.id || null }, 'Service order started');
+    logger.info(
+      { orderId, contractId: contract?.id || null, workOrderId: installWorkOrder?.id || null },
+      'Service order started',
+    );
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -351,7 +398,19 @@ async function startOrder(orderId, { orgId = null } = {}) {
     conn.release();
   }
 
-  return { order: updatedOrder, contract, provisioning };
+  // After commit, like the welcome notification in completeOrder: a failed
+  // event emit must never roll back a started order.
+  if (installWorkOrder && installWorkOrder.assigned_to) {
+    Promise.resolve(eventBus.emit('work_order.assigned', {
+      organizationId: installWorkOrder.organization_id,
+      workOrder: installWorkOrder,
+      assignedBy: userId,
+    })).catch(err => logger.warn(
+      { err: err.message, workOrderId: installWorkOrder.id }, 'work_order.assigned emit failed',
+    ));
+  }
+
+  return { order: updatedOrder, contract, provisioning, workOrder: installWorkOrder };
 }
 
 /**
@@ -544,6 +603,16 @@ async function cancelOrder(orderId, { orgId = null } = {}) {
     if (result.affectedRows === 0) {
       throw new ValidationError('Service order was modified concurrently — please retry');
     }
+
+    // The auto-created install visit dies with its order — a technician must
+    // not drive to an address whose order was cancelled. Only open install WOs
+    // spawned from THIS order; completed ones are history and stay.
+    await conn.query(
+      `UPDATE work_orders SET status = 'cancelled'
+       WHERE service_order_id = ? AND work_type = 'installation'
+         AND status NOT IN ('completed', 'cancelled') AND deleted_at IS NULL`,
+      [orderId],
+    );
 
     await conn.commit();
 

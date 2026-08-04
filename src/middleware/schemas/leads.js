@@ -21,6 +21,7 @@ const createLead = {
   zip_code: { type: 'string', max: 20 },
   latitude: { type: 'number', min: -90, max: 90 },
   longitude: { type: 'number', min: -180, max: 180 },
+  desired_plan_id: { type: 'number', min: 1 },
   notes: { type: 'string', max: 65535 },
 };
 

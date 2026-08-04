@@ -388,16 +388,14 @@ describe('sql-column-check: the repository is clean', () => {
     }
   });
 
-  test('the one runtime-guarded SELECT exception is exactly the one we verified by hand', () => {
-    // Not a gap (no migration needed) — a query that only ever runs behind an
-    // INFORMATION_SCHEMA.COLUMNS existence check. Adding to this list must
-    // stay rare and always hand-verified; this test makes growing it visible.
-    expect(RUNTIME_GUARDED_SELECT_EXCEPTIONS).toHaveLength(1);
-    expect(RUNTIME_GUARDED_SELECT_EXCEPTIONS[0]).toMatchObject({
-      file: 'src/services/cpeInventoryService.js',
-      table: 'contracts',
-      columns: ['cpe_serial_number'],
-    });
+  test('the runtime-guarded SELECT exception list is EMPTY — growing it must be a visible act', () => {
+    // The last entry (tryAutoLinkSubscriber's "strategy 1" against the
+    // never-created contracts.cpe_serial_number column) was deleted along with
+    // the strategy itself in the migration-445 flow work: the guard had turned
+    // it into a silent no-op on every call. An exception here means a query
+    // that only ever runs behind an INFORMATION_SCHEMA existence check —
+    // rare, hand-verified, and this test makes any new one visible in review.
+    expect(RUNTIME_GUARDED_SELECT_EXCEPTIONS).toHaveLength(0);
   });
 });
 

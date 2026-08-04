@@ -221,6 +221,13 @@ function OrderFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     setForm(p => ({ ...p, address: addressLine(selectedLeadDetail) }));
   }, [selectedLeadDetail, addressDirty]);
 
+  // Prefill the plan the prospect asked for at intake (leads.desired_plan_id,
+  // migration 445). Only when no plan is chosen yet — a manual choice wins.
+  useEffect(() => {
+    const desired = (selectedLeadDetail as { desired_plan_id?: number | null } | null)?.desired_plan_id;
+    if (desired) setForm(p => (p.plan_id ? p : { ...p, plan_id: desired }));
+  }, [selectedLeadDetail]);
+
   // startOrder hard-requires a plan and a resolved client/lead (§ backend
   // validation), and there is no edit UI for a service order today — a bare
   // order with no plan or no client/lead would be permanently un-startable,

@@ -42,7 +42,8 @@
     "all": "Todos",
     "actions": "Acciones",
     "error": "Ocurrió un error",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "close": "Cerrar"
   },
   "clientPicker": {
     "label": "Cliente",
@@ -3265,6 +3266,17 @@
       "product": "Producto",
       "returned": "Devuelto a Existencia",
       "rma": "Dañado / RMA"
+    },
+    "acceptance": {
+      "title": "Completar instalación — lecturas de aceptación",
+      "intro": "Registra lo medido en la entrega. Se requiere al menos una lectura (o una exención explícita).",
+      "signal": "Señal inalámbrica (dBm)",
+      "link": "Velocidad de enlace negociada (Mbps)",
+      "rx": "Potencia óptica Rx (dBm)",
+      "waive": "Eximir lecturas (explica en las notas)",
+      "notes": "Notas",
+      "needOne": "Ingresa al menos una lectura o marca la casilla de exención.",
+      "complete": "Completar orden de trabajo"
     }
   },
   "ticketDetail": {
@@ -4502,7 +4514,23 @@
     "addressField": "Dirección",
     "cityField": "Ciudad",
     "stateField": "Estado",
-    "zipCodeField": "Código Postal"
+    "zipCodeField": "Código Postal",
+    "desiredPlan": "Plan deseado",
+    "desiredPlanNone": "— ninguno —",
+    "feasibility": {
+      "title": "Estudio de factibilidad",
+      "button": "Factibilidad",
+      "noCoordinates": "Este prospecto aún no tiene coordenadas — agrega latitud/longitud (o geocodifica la dirección) para ejecutar el estudio.",
+      "zones": "Zonas de cobertura",
+      "noZones": "La ubicación no cae dentro de ninguna zona de cobertura.",
+      "wireless": "Sectores AP más cercanos",
+      "noAps": "No se encontraron sectores AP con coordenadas en el mapa.",
+      "losNote": "Las distancias son en línea recta. Verifica la línea de vista con tu herramienta de planeación RF antes de prometer servicio.",
+      "ftth": "Marcos de fibra (ODF) más cercanos",
+      "noFtth": "No se encontraron marcos ODF activos con coordenadas de sitio.",
+      "freePorts": "{{free}} de {{total}} puertos libres",
+      "portsUntracked": "{{total}} puertos (ocupación no registrada)"
+    }
   },
   "vendors": {
     "title": "Proveedores",

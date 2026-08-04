@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createLead, updateLead, patchLead, convertLead } = require('../middleware/schemas/leads');
 const lifecycleService = require('../services/lifecycleService');
+const leadFeasibilityService = require('../services/leadFeasibilityService');
 const auditLog = require('../services/auditLog');
 const db = require('../config/database');
 
@@ -69,6 +70,15 @@ router.get('/pipeline', requirePermission('leads.view'), async (req, res, next) 
   try {
     const counts = await Lead.pipelineCounts(req.orgId);
     res.json({ data: counts });
+  } catch (err) { next(err); }
+});
+
+// Desk feasibility check: coverage-zone hit + nearest AP sectors + nearest
+// active ODF frames for the lead's coordinates. Read-only; reuses leads.view.
+router.get('/:id/feasibility', requirePermission('leads.view'), async (req, res, next) => {
+  try {
+    const result = await leadFeasibilityService.assess(req.params.id, req.orgId);
+    res.json({ data: result });
   } catch (err) { next(err); }
 });
 

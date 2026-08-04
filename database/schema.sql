@@ -193,6 +193,8 @@ CREATE TABLE IF NOT EXISTS leads (
     zip_code            VARCHAR(20)     NULL,
     latitude            DECIMAL(10,7)   NULL,
     longitude           DECIMAL(10,7)   NULL,
+    desired_plan_id     BIGINT UNSIGNED NULL
+                            COMMENT 'Service plan the prospect asked for at intake; prefills the service order (migration 445)',
     notes               TEXT            NULL,
     converted_client_id BIGINT UNSIGNED NULL COMMENT 'Client created when this lead was won/converted',
     converted_at        DATETIME        NULL,
@@ -205,9 +207,12 @@ CREATE TABLE IF NOT EXISTS leads (
     KEY idx_leads_status (status),
     KEY idx_leads_assigned_to (assigned_to),
     KEY idx_leads_converted_client_id (converted_client_id),
+    KEY idx_leads_desired_plan_id (desired_plan_id),
     KEY idx_leads_deleted_at (deleted_at),
     CONSTRAINT fk_leads_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_leads_desired_plan FOREIGN KEY (desired_plan_id)
+        REFERENCES plans (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_leads_assigned_to FOREIGN KEY (assigned_to)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_leads_converted_client FOREIGN KEY (converted_client_id)
@@ -247,6 +252,8 @@ CREATE TABLE IF NOT EXISTS service_orders (
     started_at      DATETIME        NULL COMMENT 'When the order moved to in_process (contract auto-created/provisioned) (migration 380)',
     completed_at    DATETIME        NULL COMMENT 'When the order moved to done (installation invoiced or marked already paid) (migration 380)',
     cancelled_at    DATETIME        NULL,
+    billing_followup_ticket_id BIGINT UNSIGNED NULL
+                        COMMENT 'Billing follow-up ticket auto-created N days after completion; NULL = not yet dispatched or disabled (migration 445)',
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -258,9 +265,12 @@ CREATE TABLE IF NOT EXISTS service_orders (
     KEY idx_service_orders_client_id (client_id),
     KEY idx_service_orders_lead_id (lead_id),
     KEY idx_service_orders_status (status),
+    KEY idx_service_orders_billing_followup (billing_followup_ticket_id),
     KEY idx_service_orders_deleted_at (deleted_at),
     CONSTRAINT fk_service_orders_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_service_orders_billing_followup_ticket FOREIGN KEY (billing_followup_ticket_id)
+        REFERENCES tickets (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_service_orders_client FOREIGN KEY (client_id)
         REFERENCES clients (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_service_orders_lead FOREIGN KEY (lead_id)
@@ -858,7 +868,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     description  TEXT            NULL,
     notes        TEXT            NULL COMMENT 'Internal operator notes on this ticket',
     category     ENUM('technical','billing','installation','general') NOT NULL DEFAULT 'general' COMMENT 'Ticket taxonomy; billing-category tickets are gated by tickets.view_billing (migration 394)',
-    source       ENUM('manual','alert','portal','ai_escalated') NOT NULL DEFAULT 'manual' COMMENT 'How the ticket was created (migration 297)',
+    source       ENUM('manual','alert','portal','ai_escalated','automation') NOT NULL DEFAULT 'manual' COMMENT 'How the ticket was created (migration 297; automation added by 445)',
     priority     ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'medium',
     status       ENUM('open', 'in_progress', 'waiting', 'resolved', 'closed') NOT NULL DEFAULT 'open',
     resolved_at  TIMESTAMP       NULL,
@@ -6038,6 +6048,25 @@ VALUES
      'Check the server TLS certificate expiry and alert admins at 30/14/7 days',
      '0 7 * * *',
      'high',
+     TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Seed: billing follow-up dispatcher scheduled task (migration 445)
+-- ---------------------------------------------------------------------------
+-- Creates the billing-team follow-up ticket N days after a service order
+-- completes; N (and enablement) per org via the billing_followup_days org
+-- setting. Requires the matching case in src/services/taskRunner.js; a seeded
+-- task with no case never runs, silently.
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description, cron_expression,
+     priority, is_enabled)
+VALUES
+    (NULL,
+     'billing_followup_dispatcher',
+     'notification',
+     'Create the post-install client check-in ticket for the billing team, billing_followup_days days after a service order completes',
+     '15 * * * *',
+     'normal',
      TRUE);
 
 -- Seed: CSD expiry monitoring scheduled task (migration 100)
@@ -11598,6 +11627,12 @@ CREATE TABLE IF NOT EXISTS work_orders (
   longitude       DECIMAL(10,7)   NULL     COMMENT 'Job site GPS longitude',
   address         VARCHAR(500)    NULL,
   notes           TEXT            NULL,
+  acceptance_signal_dbm SMALLINT  NULL     COMMENT 'Wireless CPE signal (dBm) measured at install handoff (migration 445)',
+  acceptance_link_mbps DECIMAL(8,2) NULL   COMMENT 'Negotiated RF link rate (Mbps) measured at install handoff (migration 445)',
+  acceptance_rx_dbm DECIMAL(6,2)  NULL     COMMENT 'FTTH optical Rx power (dBm) measured at install handoff (migration 445)',
+  acceptance_waived TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'Explicit skip of acceptance readings on an installation WO; reason goes in acceptance_notes (migration 445)',
+  acceptance_notes VARCHAR(500)   NULL     COMMENT 'Free-text context for the acceptance readings or the waive reason (migration 445)',
+  acceptance_recorded_at DATETIME NULL     COMMENT 'When acceptance readings (or the waive) were recorded (migration 445)',
   created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at      DATETIME        NULL,

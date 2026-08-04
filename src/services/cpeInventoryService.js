@@ -125,28 +125,30 @@ async function tryAutoLinkSubscriber(cpeDevice) {
   const params = [cpeDevice.serial_number];
   if (cpeDevice.organization_id) params.push(cpeDevice.organization_id);
 
-  // Strategy 1: contracts.cpe_serial_number column (may not exist)
-  try {
-    const [colCheck] = await db.query(
-      `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contracts' AND COLUMN_NAME = 'cpe_serial_number'`,
-    );
-    if (colCheck.length) {
-      const [matches] = await db.query(
-        `SELECT cl.id AS client_id FROM contracts c
-         JOIN clients cl ON cl.id = c.client_id
-         WHERE c.cpe_serial_number = ? AND c.deleted_at IS NULL AND cl.deleted_at IS NULL
-         ${orgCondition}
+  // Strategy 0: the row's OWN contract assignment. The inventory install flow
+  // sets cpe_devices.contract_id when the tech assigns the serialized unit to
+  // the contract — for that (normal) path no bridge tables are involved: the
+  // TR-069 device and the installed unit are the same row, so the subscriber
+  // is simply the contract's client. Replaces the former "strategy 1", which
+  // probed for a contracts.cpe_serial_number column that has never existed in
+  // this schema — it INFORMATION_SCHEMA-checked itself into a silent no-op on
+  // every call since the day it was written.
+  if (cpeDevice.contract_id) {
+    try {
+      const [own] = await db.query(
+        `SELECT c.client_id, c.organization_id FROM contracts c
+         WHERE c.id = ? AND c.deleted_at IS NULL
          LIMIT 1`,
-        params,
+        [cpeDevice.contract_id],
       );
-      if (matches.length) {
-        await _linkSubscriber(cpeDevice.id, matches[0].client_id, cpeDevice.organization_id);
+      if (own.length && own[0].client_id
+        && (!cpeDevice.organization_id || own[0].organization_id === cpeDevice.organization_id)) {
+        await _linkSubscriber(cpeDevice.id, own[0].client_id, cpeDevice.organization_id);
         return;
       }
+    } catch (err) {
+      logger.debug({ err: err.message }, 'auto-link strategy 0 skipped');
     }
-  } catch (err) {
-    logger.debug({ err: err.message }, 'auto-link strategy 1 skipped');
   }
 
   // Strategy 2: devices.serial_number cross-reference

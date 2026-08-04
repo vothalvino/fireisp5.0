@@ -4224,6 +4224,42 @@
         }
       }
     },
+    "/leads/{id}/feasibility": {
+      "get": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Desk feasibility check: coverage-zone hit, nearest AP sectors, nearest active ODF frames for the lead coordinates",
+        "operationId": "getLeadFeasibility",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feasibility result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/leads/{id}/restore": {
       "post": {
         "tags": [
@@ -59667,6 +59703,10 @@
             "minimum": -180,
             "maximum": 180
           },
+          "desired_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "notes": {
             "type": "string",
             "maximum": 65535
@@ -59758,6 +59798,10 @@
             "minimum": -180,
             "maximum": 180
           },
+          "desired_plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "notes": {
             "type": "string",
             "maximum": 65535
@@ -59845,6 +59889,10 @@
             "type": "number",
             "minimum": -180,
             "maximum": 180
+          },
+          "desired_plan_id": {
+            "type": "number",
+            "minimum": 1
           },
           "notes": {
             "type": "string",
@@ -70776,6 +70824,28 @@
               "survey",
               "other"
             ]
+          },
+          "acceptance_signal_dbm": {
+            "type": "number",
+            "minimum": -120,
+            "maximum": 0
+          },
+          "acceptance_link_mbps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "acceptance_rx_dbm": {
+            "type": "number",
+            "minimum": -50,
+            "maximum": 10
+          },
+          "acceptance_waived": {
+            "type": "boolean"
+          },
+          "acceptance_notes": {
+            "type": "string",
+            "maximum": 500
           }
         },
         "required": [
@@ -70847,6 +70917,28 @@
               "survey",
               "other"
             ]
+          },
+          "acceptance_signal_dbm": {
+            "type": "number",
+            "minimum": -120,
+            "maximum": 0
+          },
+          "acceptance_link_mbps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "acceptance_rx_dbm": {
+            "type": "number",
+            "minimum": -50,
+            "maximum": 10
+          },
+          "acceptance_waived": {
+            "type": "boolean"
+          },
+          "acceptance_notes": {
+            "type": "string",
+            "maximum": 500
           }
         }
       }

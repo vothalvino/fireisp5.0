@@ -82,10 +82,30 @@ function registerHooks() {
         : '';
 
       if (client?.email) {
+        // Portal handoff (migration 445 flow work): the welcome email is the
+        // ISP's decision to hand the client portal access, so mint the invite
+        // token here — the deliberate operator-initiated path, never the
+        // public reset endpoint (see portalAuthService.mintPortalInvite).
+        // Best-effort: a mint failure must not cost the welcome email.
+        let portalBlock = '';
+        try {
+          const portalAuthService = require('./portalAuthService');
+          const config = require('../config');
+          const inviteToken = await portalAuthService.mintPortalInvite(client.id);
+          if (inviteToken) {
+            const portalUrl = `${config.appUrl}/portal/reset-password?token=${inviteToken}`;
+            portalBlock = '<p>Consulta tus facturas, pagos y consumo en tu portal de cliente: '
+              + `<a href="${portalUrl}">configura tu contraseña aquí</a> (el enlace vence en 7 días).</p>`;
+          }
+        } catch (inviteErr) {
+          logger.warn({ err: inviteErr.message, clientId: client.id }, 'portal invite mint failed — welcome email sent without it');
+        }
+
         const subject = '¡Bienvenido! Tu servicio está activo';
         const html = `<p>Hola ${esc(clientName || '')},</p>`
           + `<p>Tu servicio (orden ${esc(order.order_number)}) ha sido activado. `
           + 'Gracias por elegirnos.</p>'
+          + portalBlock
           + '<p>Si tienes alguna duda, responde a este correo o abre un ticket de soporte.</p>';
         await emailTransport.sendEmail({
           organizationId,

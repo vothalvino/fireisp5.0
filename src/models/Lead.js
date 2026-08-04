@@ -13,7 +13,8 @@ class Lead extends BaseModel {
     return [
       'organization_id', 'name', 'email', 'phone', 'company', 'source', 'status',
       'estimated_value', 'currency', 'assigned_to', 'address', 'city', 'state',
-      'zip_code', 'latitude', 'longitude', 'notes', 'converted_client_id', 'converted_at',
+      'zip_code', 'latitude', 'longitude', 'desired_plan_id', 'notes',
+      'converted_client_id', 'converted_at',
     ];
   }
 

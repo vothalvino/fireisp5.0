@@ -103,6 +103,51 @@ async function handleCwmpRequest(req, res) {
         if (existing.length) {
           cpeDevice = existing[0];
         } else {
+          // Serial-only bridge for inventory-minted rows. Warehouse receive and
+          // install-time registration create cpe_devices rows with oui = NULL
+          // (nobody types an OUI off a sticker), so the serial+oui lookup above
+          // can never find them — before this bridge, the first Inform of every
+          // inventory-tracked unit minted a DUPLICATE row and the serial the
+          // tech recorded at install did nothing for TR-069.
+          //
+          // OUI IS NULL is a hard condition, not an optimisation: serials are
+          // only unique per vendor, so a row whose OUI is already KNOWN and
+          // differs is a different physical device — matching it would let a
+          // foreign CPE adopt another unit's identity and queued tasks.
+          // Preference order when several NULL-OUI rows share the serial
+          // (cross-org collision — resolvable only by convention): the one
+          // already assigned to a contract, then the oldest.
+          const [invRows] = await db.query(
+            `SELECT * FROM cpe_devices
+             WHERE serial_number = ? AND oui IS NULL AND deleted_at IS NULL
+             ORDER BY (contract_id IS NULL), id
+             LIMIT 1`,
+            [serialNumber],
+          );
+          if (invRows.length) {
+            const inv = invRows[0];
+            // Backfill the identity the Inform just proved; never overwrite a
+            // value an operator already recorded.
+            await db.query(
+              `UPDATE cpe_devices SET
+                 oui = ?,
+                 manufacturer     = COALESCE(manufacturer, ?),
+                 product_class    = COALESCE(product_class, ?),
+                 hardware_version = COALESCE(hardware_version, ?),
+                 software_version = COALESCE(software_version, ?)
+               WHERE id = ?`,
+              [oui, cwmpDeviceId.manufacturer || null, cwmpDeviceId.productClass || null,
+                cwmpDeviceId.hwVersion || null, cwmpDeviceId.swVersion || null, inv.id],
+            );
+            const [fresh] = await db.query('SELECT * FROM cpe_devices WHERE id = ?', [inv.id]);
+            cpeDevice = fresh[0];
+            logger.info(
+              { cpeDeviceId: inv.id, serialNumber, oui },
+              'CPE matched to inventory unit by serial; OUI backfilled',
+            );
+          }
+        }
+        if (!cpeDevice) {
           // Auto-register
           const created = await CpeDevice.create({
             serial_number: serialNumber,

@@ -42,7 +42,8 @@
     "all": "Todos",
     "actions": "Ações",
     "error": "Ocorreu um erro",
-    "retry": "Tentar de novo"
+    "retry": "Tentar de novo",
+    "close": "Fechar"
   },
   "clientPicker": {
     "label": "Cliente",
@@ -3265,6 +3266,17 @@
       "product": "Produto",
       "returned": "Devolvido ao Estoque",
       "rma": "Danificado / RMA"
+    },
+    "acceptance": {
+      "title": "Concluir instalação — leituras de aceitação",
+      "intro": "Registre o que foi medido na entrega. Pelo menos uma leitura é obrigatória (ou uma isenção explícita).",
+      "signal": "Sinal sem fio (dBm)",
+      "link": "Taxa de enlace negociada (Mbps)",
+      "rx": "Potência óptica Rx (dBm)",
+      "waive": "Isentar leituras (explique nas notas)",
+      "notes": "Notas",
+      "needOne": "Informe pelo menos uma leitura ou marque a isenção.",
+      "complete": "Concluir ordem de serviço"
     }
   },
   "ticketDetail": {
@@ -4502,7 +4514,23 @@
     "addressField": "Endereço",
     "cityField": "Cidade",
     "stateField": "Estado",
-    "zipCodeField": "CEP"
+    "zipCodeField": "CEP",
+    "desiredPlan": "Plano desejado",
+    "desiredPlanNone": "— nenhum —",
+    "feasibility": {
+      "title": "Estudo de viabilidade",
+      "button": "Viabilidade",
+      "noCoordinates": "Este lead ainda não tem coordenadas — adicione latitude/longitude (ou geocodifique o endereço) para executar o estudo.",
+      "zones": "Zonas de cobertura",
+      "noZones": "O local não está dentro de nenhuma zona de cobertura.",
+      "wireless": "Setores de AP mais próximos",
+      "noAps": "Nenhum setor de AP com coordenadas no mapa foi encontrado.",
+      "losNote": "As distâncias são em linha reta. Verifique a linha de visada com sua ferramenta de planejamento de RF antes de prometer o serviço.",
+      "ftth": "Quadros de fibra (ODF) mais próximos",
+      "noFtth": "Nenhum quadro ODF ativo com coordenadas de site foi encontrado.",
+      "freePorts": "{{free}} de {{total}} portas livres",
+      "portsUntracked": "{{total}} portas (ocupação não registrada)"
+    }
   },
   "vendors": {
     "title": "Fornecedores",

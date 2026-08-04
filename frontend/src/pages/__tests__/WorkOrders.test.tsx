@@ -138,3 +138,76 @@ describe('WorkOrders — pickup checklist', () => {
     await waitFor(() => expect(screen.getByText('No outstanding equipment.')).toBeInTheDocument());
   });
 });
+
+// =============================================================================
+// Install-acceptance modal (migration 445): completing a contract-linked
+// installation WO must capture a reading (or waive) — never a blind flip.
+// =============================================================================
+const installOrder = {
+  ...pickupOrder,
+  id: 701, title: 'Installation — SO-000011', work_type: 'installation', contract_id: 901,
+};
+
+describe('WorkOrders — install acceptance on Complete', () => {
+  beforeEach(() => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/work-orders') {
+        return Promise.resolve({ data: { data: [installOrder], meta: { total: 1, page: 1, limit: 25 } }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue(jsonResponse({ data: {} }));
+  });
+
+  it('Complete opens the acceptance modal instead of patching blindly', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Complete'));
+    expect(await screen.findByText(/acceptance readings/i)).toBeInTheDocument();
+    expect(mockAuthedFetch).not.toHaveBeenCalled();
+  });
+
+  it('requires a reading or a waive before submitting', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Complete'));
+    fireEvent.click(await screen.findByText('Complete work order'));
+    expect(await screen.findByText('Enter at least one reading, or tick the waive checkbox.')).toBeInTheDocument();
+    expect(mockAuthedFetch).not.toHaveBeenCalled();
+  });
+
+  it('submits the readings with the completion PATCH', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Complete'));
+    const signal = await screen.findByPlaceholderText('-58');
+    fireEvent.change(signal, { target: { value: '-61' } });
+    fireEvent.click(screen.getByText('Complete work order'));
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/work-orders/701',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'completed', acceptance_signal_dbm: -61 }),
+      }),
+    ));
+  });
+
+  it('a non-installation order still completes directly', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/work-orders') {
+        return Promise.resolve({
+          data: { data: [{ ...installOrder, id: 702, title: 'Fix antenna', work_type: 'repair' }], meta: { total: 1, page: 1, limit: 25 } },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Fix antenna')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Complete'));
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/work-orders/702',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'completed' }) }),
+    ));
+  });
+});
