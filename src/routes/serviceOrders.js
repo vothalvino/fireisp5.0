@@ -189,7 +189,7 @@ router.post('/:id/restore', requirePermission('service_orders.update'), ctrl.res
 // new_install orders (and auto-converts an unconverted lead, if needed).
 router.post('/:id/start', requirePermission('service_orders.update'), async (req, res, next) => {
   try {
-    const { order, contract, provisioning } = await lifecycleService.startOrder(req.params.id, {
+    const { order, contract, provisioning, workOrder } = await lifecycleService.startOrder(req.params.id, {
       orgId: req.orgId,
       userId: req.user?.id,
     });
@@ -199,9 +199,13 @@ router.post('/:id/start', requirePermission('service_orders.update'), async (req
       action: 'transition:in_process',
       tableName: ServiceOrder.tableName,
       recordId: parseInt(req.params.id, 10),
-      newValues: { status: 'in_process', contract_id: contract?.id || order.contract_id || null },
+      newValues: {
+        status: 'in_process',
+        contract_id: contract?.id || order.contract_id || null,
+        work_order_id: workOrder?.id || null,
+      },
     }).catch(() => {});
-    res.json({ data: { ...order, contract: contract || undefined, provisioning: provisioning || undefined } });
+    res.json({ data: { ...order, contract: contract || undefined, provisioning: provisioning || undefined, work_order: workOrder || undefined } });
   } catch (err) { next(err); }
 });
 

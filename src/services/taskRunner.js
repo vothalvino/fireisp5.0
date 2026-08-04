@@ -128,6 +128,10 @@ async function runTask(taskName, organizationId = null) {
       // check_certificate_expiry covers subscriber_certificates (RADIUS) and
       // csd_expiry_monitor covers csd_certificates (SAT); neither covered this.
       return tlsMonitorService.checkTlsExpiry(organizationId);
+    case 'billing_followup_dispatcher':
+      // Billing follow-up N days after a service order completes; N per org
+      // via the billing_followup_days setting (migration 445). Global sweep.
+      return require('./billingFollowupService').dispatch();
     case 'csd_expiry_monitor':
       return runCsdExpiryCheck(organizationId);
     case 'alert_evaluation':

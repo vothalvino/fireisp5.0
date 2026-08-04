@@ -713,6 +713,40 @@ describe('notificationHooks', () => {
       );
     });
 
+    test('welcome email carries the portal set-password invite when the mint succeeds', async () => {
+      // mintPortalInvite: SELECT client, then UPDATE the token hash.
+      db.query
+        .mockResolvedValueOnce([[{ id: 5, email: 'acme@example.com', status: 'active' }]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await eventBus.emit('service_order.activated', {
+        organizationId: 1,
+        order: { id: 9, order_number: 'SO-000009', client_id: 5, contract_id: 12 },
+        client: { id: 5, name: 'Acme', email: 'acme@example.com' },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls.find(([a]) => a.to === 'acme@example.com');
+      expect(call[0].html).toMatch(/\/portal\/reset-password\?token=[a-f0-9]{64}/);
+      // The token is stored HASHED, never verbatim.
+      const upd = db.query.mock.calls.find(([s]) => /portal_reset_token_hash/.test(s));
+      expect(upd[0]).toMatch(/INTERVAL 7 DAY/);
+      expect(call[0].html).not.toContain(upd[1][0]);
+    });
+
+    test('a failed invite mint still sends the welcome email, without the link', async () => {
+      db.query.mockRejectedValueOnce(new Error('db down'));
+
+      await eventBus.emit('service_order.activated', {
+        organizationId: 1,
+        order: { id: 9, order_number: 'SO-000009', client_id: 5 },
+        client: { id: 5, name: 'Acme', email: 'acme@example.com' },
+      });
+
+      const call = emailTransport.sendEmail.mock.calls.find(([a]) => a.to === 'acme@example.com');
+      expect(call).toBeDefined();
+      expect(call[0].html).not.toContain('/portal/reset-password');
+    });
+
     test('skips email when client is missing, still broadcasts and dispatches', async () => {
       await eventBus.emit('service_order.activated', {
         organizationId: 1,

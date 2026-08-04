@@ -227,7 +227,10 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([{ insertId: 900 }]) // INSERT contracts
       .mockResolvedValueOnce([[{ name: 'Acme' }]]) // seed lookup
       .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]]) // SELECT contract after insert
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders
+      .mockResolvedValueOnce([[]]) // no open install WO for this order yet
+      .mockResolvedValueOnce([{ insertId: 70 }]) // INSERT work_orders (installation)
+      .mockResolvedValueOnce([[{ id: 70, organization_id: 1, service_order_id: 1, work_type: 'installation', status: 'pending', assigned_to: null }]]); // SELECT WO
 
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]); // final re-fetch (pool, post-commit)
     provisioningService.provisionNewContract.mockResolvedValue({ pppoe: { username: 'acme01', password: 'x' } });
@@ -235,6 +238,13 @@ describe('startOrder', () => {
     const result = await lifecycleService.startOrder(1, { orgId: 1, userId: 9 });
 
     expect(conn.commit).toHaveBeenCalled();
+    // The dispatch half: starting a new_install auto-creates the install WO
+    // in the same transaction, created_by the caller.
+    const woInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO work_orders/.test(sql));
+    expect(woInsert).toBeDefined();
+    expect(woInsert[0]).toMatch(/'installation'/);
+    expect(woInsert[1][5]).toBe(9); // created_by = userId
+    expect(result.workOrder).toEqual(expect.objectContaining({ id: 70, work_type: 'installation' }));
     expect(provisioningService.provisionNewContract).toHaveBeenCalledWith(
       conn, expect.objectContaining({ id: 900, client_id: 50, plan_id: 2, status: 'pending' }), expect.any(Object),
     );
@@ -276,7 +286,10 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([{ insertId: 900 }]) // INSERT contracts
       .mockResolvedValueOnce([[{ name: 'New Co' }]]) // seed lookup
       .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]]) // SELECT contract after insert
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders (sets client_id + contract_id)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders (sets client_id + contract_id)
+      .mockResolvedValueOnce([[]]) // no open install WO
+      .mockResolvedValueOnce([{ insertId: 71 }]) // INSERT work_orders
+      .mockResolvedValueOnce([[{ id: 71, organization_id: 1, work_type: 'installation', assigned_to: null }]]); // SELECT WO
 
     db.getConnection.mockResolvedValueOnce(leadConn).mockResolvedValueOnce(mainConn);
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 60, contract_id: 900 }]]);
@@ -538,10 +551,11 @@ describe('cancelOrder', () => {
     expect(conn.rollback).toHaveBeenCalled();
   });
 
-  test('cancels a new order with no linked contract', async () => {
+  test('cancels a new order with no linked contract, and its auto-created install WO with it', async () => {
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', contract_id: null }]])
-      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE work_orders -> cancelled
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled' }]]);
 
     const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
@@ -549,6 +563,11 @@ describe('cancelOrder', () => {
     expect(result.contractCancelled).toBe(false);
     expect(suspensionService.sendRadiusDisconnect).not.toHaveBeenCalled();
     expect(result.order.status).toBe('cancelled');
+    // The open install visit dies with its order; completed WOs are excluded.
+    const woCancel = conn.query.mock.calls.find(([sql]) => /UPDATE work_orders SET status = 'cancelled'/.test(sql));
+    expect(woCancel).toBeDefined();
+    expect(woCancel[0]).toMatch(/work_type = 'installation'/);
+    expect(woCancel[0]).toMatch(/NOT IN \('completed', 'cancelled'\)/);
   });
 
   test('cancels a still-pending auto-created contract and deactivates its RADIUS account', async () => {
@@ -557,7 +576,8 @@ describe('cancelOrder', () => {
       .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]]) // lock contract
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts -> cancelled
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> inactive
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE work_orders -> cancelled
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled', contract_id: 900 }]]);
 
     const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
@@ -573,12 +593,13 @@ describe('cancelOrder', () => {
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]) // lock order
       .mockResolvedValueOnce([[{ id: 900, status: 'active' }]]) // lock contract — not pending
-      .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders — only 3 conn.query calls total
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE work_orders -> cancelled
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled', contract_id: 900 }]]);
 
     const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
 
-    expect(conn.query).toHaveBeenCalledTimes(3); // no cancel/radius UPDATEs issued for an active contract
+    expect(conn.query).toHaveBeenCalledTimes(4); // no cancel/radius UPDATEs issued for an active contract
     expect(result.contractCancelled).toBe(false);
     expect(suspensionService.sendRadiusDisconnect).not.toHaveBeenCalled();
   });
@@ -598,7 +619,8 @@ describe('cancelOrder', () => {
       .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE work_orders -> cancelled
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled' }]]);
     suspensionService.sendRadiusDisconnect.mockRejectedValue(new Error('NAS unreachable'));
 

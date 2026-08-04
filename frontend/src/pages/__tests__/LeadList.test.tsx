@@ -106,3 +106,56 @@ describe('LeadList page', () => {
     await waitFor(() => expect(screen.getByText('No leads yet.')).toBeInTheDocument());
   });
 });
+
+// =============================================================================
+// Feasibility desk check + desired plan (migration 445)
+// =============================================================================
+describe('LeadList — feasibility and desired plan', () => {
+  beforeEach(() => mockResponses());
+
+  it('every lead row offers the Feasibility desk check', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Prospect')).toBeInTheDocument());
+    expect(screen.getByText('Feasibility')).toBeInTheDocument();
+  });
+
+  it('opens the feasibility modal and renders the desk-check sections', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/leads/pipeline') return Promise.resolve({ data: { data: { new: 1 } }, error: undefined });
+      if (path === '/leads/{id}/feasibility') {
+        return Promise.resolve({
+          data: {
+            data: {
+              has_coordinates: true,
+              coverage_zones: [{ id: 3, name: 'CDMX Sur', zone_type: 'fixed_wireless', status: 'active', max_download_mbps: 50, max_upload_mbps: 10 }],
+              wireless: [{ device_id: 9, ap_name: 'North AP', distance_km: 2.41, frequency_mhz: 5800, sector_azimuth_deg: 120, signal_min_dbm: -65, link_capacity_min_mbps: 20 }],
+              ftth: [{ id: 2, name: 'ODF-CO1-R01', site_name: 'CO1', distance_km: 1.1, port_count: 12, ports_tracked: 12, free_ports: 4 }],
+            },
+          },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: [lead1], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Prospect')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Feasibility'));
+    expect(await screen.findByText(/CDMX Sur/)).toBeInTheDocument();
+    expect(screen.getByText(/North AP — 2.41 km/)).toBeInTheDocument();
+    expect(screen.getByText(/4 of 12 ports free/)).toBeInTheDocument();
+  });
+
+  it('explains when the lead has no coordinates instead of showing empty sections', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/leads/pipeline') return Promise.resolve({ data: { data: { new: 1 } }, error: undefined });
+      if (path === '/leads/{id}/feasibility') {
+        return Promise.resolve({ data: { data: { has_coordinates: false, coverage_zones: [], wireless: [], ftth: [] } }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [lead1], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined });
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Prospect')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Feasibility'));
+    expect(await screen.findByText(/no coordinates yet/i)).toBeInTheDocument();
+  });
+});

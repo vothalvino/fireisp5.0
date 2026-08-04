@@ -37,6 +37,7 @@ interface Lead {
   city: string | null;
   state: string | null;
   zip_code: string | null;
+  desired_plan_id: number | null;
   created_at: string;
 }
 
@@ -57,13 +58,14 @@ interface LeadFormBody {
   city?: string;
   state?: string;
   zip_code?: string;
+  desired_plan_id?: number;
 }
 
 // The network payload allows `null` for the nullable string fields (an
 // explicit clear on edit — see handleSubmit) even though the controlled
 // <input>'s `value` prop (bound to LeadFormBody, always a plain string in
 // local form state) cannot.
-type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code'> & {
+type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code' | 'desired_plan_id'> & {
   email?: string | null;
   phone?: string | null;
   company?: string | null;
@@ -71,6 +73,7 @@ type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'addres
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
+  desired_plan_id?: number | null;
 };
 
 const SOURCES = ['website', 'referral', 'phone', 'walk_in', 'social', 'campaign', 'other'];
@@ -86,6 +89,98 @@ async function fetchPipeline(): Promise<Record<string, number>> {
   const res = await api.GET('/leads/pipeline');
   if (res.error) throw new Error('Failed to load pipeline');
   return (res.data as unknown as { data: Record<string, number> }).data;
+}
+
+interface PlanOption { id: number; name: string }
+
+async function fetchPlansLookup(): Promise<PlanOption[]> {
+  const res = await api.GET('/plans', {
+    params: { query: { limit: 200, order_by: 'name', order: 'ASC' } as never },
+  });
+  if (res.error) return [];
+  return (res.data as unknown as { data: PlanOption[] }).data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Feasibility desk check — GET /leads/:id/feasibility
+// ---------------------------------------------------------------------------
+interface FeasibilityZone { id?: number; name?: string; zone_type?: string; status?: string; max_download_mbps?: number | null; max_upload_mbps?: number | null; error?: string }
+interface FeasibilityAp { device_id: number; ap_name: string; distance_km: number; frequency_mhz: number | null; sector_azimuth_deg: number | null; signal_min_dbm: number | null; link_capacity_min_mbps: number | null }
+interface FeasibilityOdf { id: number; name: string; site_name: string; distance_km: number; port_count: number; ports_tracked: number; free_ports: number }
+interface FeasibilityResult {
+  has_coordinates: boolean;
+  coverage_zones: FeasibilityZone[];
+  wireless: FeasibilityAp[];
+  ftth: FeasibilityOdf[];
+}
+
+async function fetchFeasibility(leadId: number): Promise<FeasibilityResult> {
+  const res = await (api.GET as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+    '/leads/{id}/feasibility', { params: { path: { id: leadId } } },
+  );
+  if (res.error) throw new Error('Failed to run the feasibility check');
+  return (res.data as { data: FeasibilityResult }).data;
+}
+
+function FeasibilityModal({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+  const { t } = useTranslation();
+  const q = useQuery({ queryKey: ['lead-feasibility', lead.id], queryFn: () => fetchFeasibility(lead.id) });
+  const km = (v: number) => `${Number(v).toFixed(2)} km`;
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={t('leads.feasibility.title')}>
+      <div style={{ ...modalBox, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>{t('leads.feasibility.title')}</h3>
+        <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{lead.name}</p>
+        {q.isLoading && <p>{t('common.loading')}</p>}
+        {q.isError && <p style={{ color: '#ef4444' }}>{(q.error as Error).message}</p>}
+        {q.data && !q.data.has_coordinates && (
+          <p style={{ color: 'var(--text-secondary)' }}>{t('leads.feasibility.noCoordinates')}</p>
+        )}
+        {q.data?.has_coordinates && (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <section>
+              <h4 style={{ margin: '0 0 0.5rem' }}>{t('leads.feasibility.zones')}</h4>
+              {q.data.coverage_zones.length === 0 && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>{t('leads.feasibility.noZones')}</p>}
+              {q.data.coverage_zones.map((z, i) => (
+                <p key={z.id ?? i} style={{ margin: '2px 0' }}>
+                  {z.error
+                    ? <span style={{ color: '#ef4444' }}>{z.error}</span>
+                    : <>✔ {z.name} · {z.zone_type} · {z.status}{z.max_download_mbps ? ` · ≤${z.max_download_mbps}/${z.max_upload_mbps ?? '—'} Mbps` : ''}</>}
+                </p>
+              ))}
+            </section>
+            <section>
+              <h4 style={{ margin: '0 0 0.5rem' }}>{t('leads.feasibility.wireless')}</h4>
+              {q.data.wireless.length === 0 && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>{t('leads.feasibility.noAps')}</p>}
+              {q.data.wireless.map(ap => (
+                <p key={`${ap.device_id}-${ap.sector_azimuth_deg}`} style={{ margin: '2px 0' }}>
+                  📡 {ap.ap_name} — {km(ap.distance_km)}
+                  {ap.frequency_mhz ? ` · ${ap.frequency_mhz} MHz` : ''}
+                  {ap.sector_azimuth_deg !== null ? ` · az ${ap.sector_azimuth_deg}°` : ''}
+                </p>
+              ))}
+              <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{t('leads.feasibility.losNote')}</p>
+            </section>
+            <section>
+              <h4 style={{ margin: '0 0 0.5rem' }}>{t('leads.feasibility.ftth')}</h4>
+              {q.data.ftth.length === 0 && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>{t('leads.feasibility.noFtth')}</p>}
+              {q.data.ftth.map(f => (
+                <p key={f.id} style={{ margin: '2px 0' }}>
+                  🔌 {f.name} ({f.site_name}) — {km(f.distance_km)} ·{' '}
+                  {f.ports_tracked > 0
+                    ? t('leads.feasibility.freePorts', { free: f.free_ports, total: f.ports_tracked })
+                    : t('leads.feasibility.portsUntracked', { total: f.port_count })}
+                </p>
+              ))}
+            </section>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <button type="button" style={cancelBtn} onClick={onClose}>{t('common.close')}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function LeadFormModal({
@@ -112,8 +207,10 @@ function LeadFormModal({
     city: initial?.city ?? '',
     state: initial?.state ?? '',
     zip_code: initial?.zip_code ?? '',
+    desired_plan_id: initial?.desired_plan_id ?? undefined,
   });
   const [error, setError] = useState('');
+  const { data: plans = [] } = useQuery({ queryKey: ['plans-lookup'], queryFn: fetchPlansLookup, staleTime: 60_000 });
 
   const mutation = useMutation({
     mutationFn: async (body: LeadSubmitBody) => {
@@ -156,6 +253,12 @@ function LeadFormModal({
     });
 
     if (form.estimated_value !== undefined && !Number.isNaN(form.estimated_value)) body.estimated_value = Number(form.estimated_value);
+    // Same explicit-clear-vs-omit contract as the string fields above.
+    if (form.desired_plan_id) {
+      body.desired_plan_id = form.desired_plan_id;
+    } else if (mode === 'edit' && initial?.desired_plan_id) {
+      body.desired_plan_id = null;
+    }
     setError('');
     mutation.mutate(body);
   }
@@ -220,6 +323,13 @@ function LeadFormModal({
           <input style={inputStyle} type="number" min={0} step="0.01" value={form.estimated_value ?? ''}
             onChange={e => setForm(p => ({ ...p, estimated_value: e.target.value ? Number(e.target.value) : undefined }))} />
 
+          <label style={labelStyle}>{t('leads.desiredPlan')}</label>
+          <select style={inputStyle} value={form.desired_plan_id ?? ''}
+            onChange={e => setForm(p => ({ ...p, desired_plan_id: e.target.value ? Number(e.target.value) : undefined }))}>
+            <option value="">{t('leads.desiredPlanNone')}</option>
+            {plans.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
+          </select>
+
           <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
             <button type="submit" style={submitBtn} disabled={mutation.isPending}>
@@ -233,10 +343,12 @@ function LeadFormModal({
 }
 
 export function LeadList() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
+  const [feasibilityLead, setFeasibilityLead] = useState<Lead | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -320,6 +432,8 @@ export function LeadList() {
                 <td style={{ padding: '8px', textTransform: 'capitalize' }}>{l.status}</td>
                 <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>{l.estimated_value ?? '—'}</td>
                 <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button type="button" style={{ ...cancelBtn, padding: '4px 10px', marginRight: 6 }}
+                    onClick={() => setFeasibilityLead(l)}>{t('leads.feasibility.button')}</button>
                   {canUpdate && (
                     <button type="button" style={{ ...cancelBtn, padding: '4px 10px', marginRight: 6 }}
                       onClick={() => setEditLead(l)}>Edit</button>
@@ -352,6 +466,9 @@ export function LeadList() {
 
       {showCreate && (
         <LeadFormModal mode="create" onClose={() => setShowCreate(false)} onSaved={refresh} />
+      )}
+      {feasibilityLead && (
+        <FeasibilityModal lead={feasibilityLead} onClose={() => setFeasibilityLead(null)} />
       )}
       {editLead && (
         <LeadFormModal mode="edit" initial={editLead} onClose={() => setEditLead(null)} onSaved={refresh} />

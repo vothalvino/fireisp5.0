@@ -72,6 +72,13 @@ interface WorkOrderPatchBody {
   site_id?: number | null;
   device_id?: number | null;
   assigned_to?: number | null;
+  // Install-acceptance readings (migration 445) — the backend refuses to
+  // complete a contract-linked installation WO without one of these or a waive.
+  acceptance_signal_dbm?: number;
+  acceptance_link_mbps?: number;
+  acceptance_rx_dbm?: number;
+  acceptance_waived?: boolean;
+  acceptance_notes?: string;
 }
 
 interface Option { id: number; name: string }
@@ -424,6 +431,101 @@ function PickupChecklistPanel({ workOrderId }: { workOrderId: number }) {
 // Page
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// AcceptanceModal — install handoff readings (migration 445)
+// ---------------------------------------------------------------------------
+// Completing a contract-linked installation WO records ground truth at
+// handoff: wireless signal / link rate, or FTTH optical Rx. One reading (or an
+// explicit waive) is required — mirrors the backend gate so the tech learns it
+// here, not from a 422.
+function AcceptanceModal({ workOrder, onClose, onSubmit }: {
+  workOrder: WorkOrder;
+  onClose: () => void;
+  onSubmit: (body: WorkOrderPatchBody) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [signal, setSignal] = useState('');
+  const [link, setLink] = useState('');
+  const [rx, setRx] = useState('');
+  const [waived, setWaived] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const body: WorkOrderPatchBody = { status: 'completed' };
+    if (signal.trim() !== '') body.acceptance_signal_dbm = Number(signal);
+    if (link.trim() !== '') body.acceptance_link_mbps = Number(link);
+    if (rx.trim() !== '') body.acceptance_rx_dbm = Number(rx);
+    if (waived) body.acceptance_waived = true;
+    if (notes.trim() !== '') body.acceptance_notes = notes.trim();
+    const hasReading = ['acceptance_signal_dbm', 'acceptance_link_mbps', 'acceptance_rx_dbm']
+      .some(k => k in body);
+    if (!hasReading && !waived) {
+      setErr(t('workOrders.acceptance.needOne'));
+      return;
+    }
+    setErr(null);
+    setBusy(true);
+    try {
+      await onSubmit(body);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div style={{ ...modalStyles.panel, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h2 style={modalStyles.title}>{t('workOrders.acceptance.title')}</h2>
+        </div>
+        <div style={modalStyles.form}>
+          <p style={{ margin: '0 0 0.25rem', fontWeight: 500 }}>{workOrder.title}</p>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {t('workOrders.acceptance.intro')}
+          </p>
+          <label style={modalStyles.label}>
+            {t('workOrders.acceptance.signal')}
+            <input style={modalStyles.input} type="number" step="1" placeholder="-58"
+              value={signal} onChange={e => setSignal(e.target.value)} />
+          </label>
+          <label style={modalStyles.label}>
+            {t('workOrders.acceptance.link')}
+            <input style={modalStyles.input} type="number" step="0.1" placeholder="87.5"
+              value={link} onChange={e => setLink(e.target.value)} />
+          </label>
+          <label style={modalStyles.label}>
+            {t('workOrders.acceptance.rx')}
+            <input style={modalStyles.input} type="number" step="0.1" placeholder="-19.5"
+              value={rx} onChange={e => setRx(e.target.value)} />
+          </label>
+          <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={waived} onChange={e => setWaived(e.target.checked)} />
+            {t('workOrders.acceptance.waive')}
+          </label>
+          <label style={modalStyles.label}>
+            {t('workOrders.acceptance.notes')}
+            <input style={modalStyles.input} maxLength={500}
+              value={notes} onChange={e => setNotes(e.target.value)} />
+          </label>
+          {err && <p style={{ color: '#ef4444', fontSize: '0.85rem', margin: 0 }}>{err}</p>}
+          <div style={modalStyles.actions}>
+            <button style={styles.btnSecondary} onClick={onClose} disabled={busy}>
+              {t('common.cancel')}
+            </button>
+            <button style={styles.btnPrimary} onClick={submit} disabled={busy}>
+              {t('workOrders.acceptance.complete')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WorkOrders() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -432,6 +534,7 @@ export function WorkOrders() {
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [completing, setCompleting] = useState<WorkOrder | null>(null);
   // Row being edited (null = create mode) plus the prefill snapshot the PATCH
   // body is diffed against, so only user-touched fields are ever sent.
   const [editingRow, setEditingRow] = useState<WorkOrder | null>(null);
@@ -649,7 +752,12 @@ export function WorkOrders() {
                               {wo.work_type !== 'pickup' && (
                                 <button
                                   style={{ ...styles.btnPrimary, marginRight: 4 }}
-                                  onClick={() => patchMut.mutate({ id: wo.id, body: { status: 'completed' } })}
+                                  onClick={() => {
+                                    // Contract-linked installs need acceptance
+                                    // readings — the backend 422s a blind flip.
+                                    if (wo.work_type === 'installation' && wo.contract_id) setCompleting(wo);
+                                    else patchMut.mutate({ id: wo.id, body: { status: 'completed' } });
+                                  }}
                                 >
                                   Complete
                                 </button>
@@ -691,6 +799,18 @@ export function WorkOrders() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Install-acceptance completion modal */}
+      {completing && (
+        <AcceptanceModal
+          workOrder={completing}
+          onClose={() => setCompleting(null)}
+          onSubmit={async (body) => {
+            await patchMut.mutateAsync({ id: completing.id, body });
+            setCompleting(null);
+          }}
+        />
       )}
 
       {/* Create modal */}

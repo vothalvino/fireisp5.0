@@ -274,6 +274,38 @@ async function requestPasswordReset(email) {
 }
 
 // ---------------------------------------------------------------------------
+// mintPortalInvite — operator-initiated portal enablement (activation flow)
+// ---------------------------------------------------------------------------
+// DELIBERATELY different from requestPasswordReset above: that public endpoint
+// must never enable an account (portal_password_hash is an admin control, and
+// its anti-enumeration branch enforces exactly that). This function is only
+// called from server-side flows that ARE the ISP's decision to hand the client
+// portal access — today the service-order activation (welcome email). It mints
+// a set-password token regardless of whether a password exists yet; redeeming
+// it through resetPassword() is what enables the account.
+// 7-day expiry, not the reset flow's 1 hour: a welcome email is read at the
+// subscriber's leisure, not in a password-panic.
+// ---------------------------------------------------------------------------
+
+async function mintPortalInvite(clientId) {
+  const [rows] = await db.query(
+    'SELECT id, email, status FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [clientId],
+  );
+  const client = rows[0];
+  if (!client || !client.email || client.status === 'inactive') return null;
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  await db.query(
+    `UPDATE clients SET portal_reset_token_hash = ?, portal_reset_token_expires = DATE_ADD(NOW(), INTERVAL 7 DAY)
+     WHERE id = ?`,
+    [tokenHash, client.id],
+  );
+  return token;
+}
+
+// ---------------------------------------------------------------------------
 // resetPassword — redeem a portal reset token for a new password
 // ---------------------------------------------------------------------------
 
@@ -320,4 +352,4 @@ async function resetPassword(token, newPassword) {
   return { message: 'Password reset successfully' };
 }
 
-module.exports = { login, refreshToken, logout, setPassword, requestPasswordReset, resetPassword };
+module.exports = { login, refreshToken, logout, setPassword, requestPasswordReset, mintPortalInvite, resetPassword };

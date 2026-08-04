@@ -18,6 +18,17 @@ const TARGET_FIELDS = {
   work_type: { type: 'string', required: false, enum: ['installation','maintenance','repair','survey','other'] },
 };
 
+// Install-acceptance readings recorded at handoff (migration 445). Ranges are
+// sanity bounds, not thresholds — judgement against the three-tier thresholds
+// (migration 388) is monitoring's job; this only refuses impossible numbers.
+const ACCEPTANCE_FIELDS = {
+  acceptance_signal_dbm: { type: 'number', required: false, min: -120, max: 0 },
+  acceptance_link_mbps: { type: 'number', required: false, min: 0, max: 100000 },
+  acceptance_rx_dbm: { type: 'number', required: false, min: -50, max: 10 },
+  acceptance_waived: { type: 'boolean', required: false },
+  acceptance_notes: { type: 'string', required: false, max: 500 },
+};
+
 const createWorkOrder = {
   title: { type: 'string', required: true, max: 255 },
   description: { type: 'string', required: false },
@@ -48,6 +59,7 @@ const updateWorkOrder = {
   address: { type: 'string', required: false, max: 500 },
   notes: { type: 'string', required: false },
   ...TARGET_FIELDS,
+  ...ACCEPTANCE_FIELDS,
 };
 
 const patchWorkOrder = {
@@ -59,6 +71,7 @@ const patchWorkOrder = {
   scheduled_at: { type: 'string', required: false, format: 'date-time' },
   notes: { type: 'string', required: false },
   ...TARGET_FIELDS,
+  ...ACCEPTANCE_FIELDS,
 };
 
 module.exports = { createWorkOrder, updateWorkOrder, patchWorkOrder };

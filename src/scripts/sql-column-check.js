@@ -119,13 +119,10 @@ function isKnownMissingTable(file, table) {
 // guard yourself; this is not a place to silence a real hit.
 // -----------------------------------------------------------------------------
 const RUNTIME_GUARDED_SELECT_EXCEPTIONS = [
-  {
-    file: 'src/services/cpeInventoryService.js',
-    table: 'contracts',
-    columns: ['cpe_serial_number'],
-    why: "tryAutoLinkSubscriber's Strategy 1 queries contracts.cpe_serial_number only after checking "
-       + 'INFORMATION_SCHEMA.COLUMNS confirms it exists on this deployment; it is optional schema, not a bug.',
-  },
+  // (empty — the last entry, tryAutoLinkSubscriber's INFORMATION_SCHEMA-guarded
+  // "Strategy 1" against the never-created contracts.cpe_serial_number column,
+  // was DELETED with the strategy itself: the guard had turned it into a silent
+  // no-op on every call since the day it was written. Ratchet stays shrunk.)
 ];
 
 function isGuardedSelectException(file, table, column) {

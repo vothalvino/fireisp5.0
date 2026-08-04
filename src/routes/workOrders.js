@@ -34,6 +34,35 @@ function emitAssigned(organizationId, workOrder, assignedBy) {
 // always someone who can progress/complete the order they are handed.
 const WORK_ORDER_ASSIGN_PERMISSION = 'work_orders.update';
 
+// ---------------------------------------------------------------------------
+// Install-acceptance gate (migration 445). Completing an INSTALLATION work
+// order that serves a contract requires at least one acceptance reading —
+// wireless signal (dBm), negotiated link rate (Mbps), or FTTH optical Rx
+// (dBm) — or an explicit waive. The reading can arrive in this request or
+// already be on the row; `body` wins over `before` field-by-field so both
+// PUT (full replace) and PATCH (sparse) evaluate the state being written.
+// Only the transition INTO completed is gated — editing an already-completed
+// order must not demand the readings again.
+// ---------------------------------------------------------------------------
+const ACCEPTANCE_READING_FIELDS = ['acceptance_signal_dbm', 'acceptance_link_mbps', 'acceptance_rx_dbm'];
+
+function acceptanceGateError(before, body) {
+  const merged = (field) => (field in body ? body[field] : before?.[field]);
+  if (merged('status') !== 'completed' || before?.status === 'completed') return null;
+  if (merged('work_type') !== 'installation') return null;
+  if (!merged('contract_id')) return null;
+  const hasReading = ACCEPTANCE_READING_FIELDS.some((f) => merged(f) !== null && merged(f) !== undefined);
+  const waived = Boolean(merged('acceptance_waived'));
+  if (hasReading || waived) return null;
+  return 'Completing an installation work order requires an acceptance reading (signal dBm, link Mbps, or optical Rx dBm) — or an explicit waive with acceptance_waived';
+}
+
+/** True when this request records anything acceptance-related. */
+function touchesAcceptance(body) {
+  return ACCEPTANCE_READING_FIELDS.some((f) => f in body)
+    || 'acceptance_waived' in body || 'acceptance_notes' in body;
+}
+
 /**
  * Guard for the `assigned_to` field on create/update/patch. Resolves to an error
  * string when the target user may not be assigned, or null when assignment is
@@ -206,16 +235,33 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
       'SELECT * FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
+    if (!before) return res.status(404).json({ error: 'Work order not found' });
+    const gateErr = acceptanceGateError(before, req.body);
+    if (gateErr) return res.status(422).json({ error: gateErr });
+    // Acceptance columns are append-preserve, not full-replace like the rest of
+    // PUT: a reading recorded at handoff is a historical measurement — a later
+    // PUT that simply doesn't carry it must not blank it.
     const [result] = await db.query(
       `UPDATE work_orders SET
          client_id=?, site_id=?, device_id=?, contract_id=?, service_order_id=?,
          ticket_id=?, assigned_to=?, title=?, description=?, status=?, priority=?, work_type=?,
-         scheduled_at=?, started_at=?, completed_at=?, latitude=?, longitude=?, address=?, notes=?
+         scheduled_at=?, started_at=?, completed_at=?, latitude=?, longitude=?, address=?, notes=?,
+         acceptance_signal_dbm = COALESCE(?, acceptance_signal_dbm),
+         acceptance_link_mbps  = COALESCE(?, acceptance_link_mbps),
+         acceptance_rx_dbm     = COALESCE(?, acceptance_rx_dbm),
+         acceptance_waived     = COALESCE(?, acceptance_waived),
+         acceptance_notes      = COALESCE(?, acceptance_notes),
+         acceptance_recorded_at = CASE WHEN ? THEN NOW() ELSE acceptance_recorded_at END
        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
       [client_id || null, site_id || null, device_id || null, contract_id || null, service_order_id || null,
         ticket_id || null, assigned_to || null, title, description || null, status || 'pending',
         priority || 'medium', work_type || 'other', scheduled_at || null, started_at || null, completed_at || null,
         latitude || null, longitude || null, address || null, notes || null,
+        req.body.acceptance_signal_dbm ?? null, req.body.acceptance_link_mbps ?? null,
+        req.body.acceptance_rx_dbm ?? null,
+        'acceptance_waived' in req.body ? (req.body.acceptance_waived ? 1 : 0) : null,
+        req.body.acceptance_notes ?? null,
+        touchesAcceptance(req.body) ? 1 : 0,
         req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
@@ -232,7 +278,8 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
 // PATCH /work-orders/:id
 router.patch('/:id', requirePermission('work_orders.update'), validate(patchWorkOrder), async (req, res, next) => {
   try {
-    const allowed = ['ticket_id','assigned_to','title','description','status','priority','scheduled_at','started_at','completed_at','latitude','longitude','address','notes','client_id','site_id','device_id','contract_id','service_order_id','work_type'];
+    const allowed = ['ticket_id','assigned_to','title','description','status','priority','scheduled_at','started_at','completed_at','latitude','longitude','address','notes','client_id','site_id','device_id','contract_id','service_order_id','work_type',
+      'acceptance_signal_dbm','acceptance_link_mbps','acceptance_rx_dbm','acceptance_waived','acceptance_notes'];
     const fields = Object.keys(req.body).filter(k => allowed.includes(k));
     if (fields.length === 0) return res.status(422).json({ error: 'No valid fields to update' });
     // Only re-check authorization when this patch actually sets an assignee; a
@@ -258,10 +305,13 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
         return res.status(422).json({ error: 'A work order must target at least one of client, site, or device' });
       }
     }
+    const patchGateErr = acceptanceGateError(beforePatch, req.body);
+    if (patchGateErr) return res.status(422).json({ error: patchGateErr });
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => req.body[f] ?? null);
+    const acceptanceStamp = touchesAcceptance(req.body) ? ', acceptance_recorded_at = NOW()' : '';
     const [result] = await db.query(
-      `UPDATE work_orders SET ${sets} WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
+      `UPDATE work_orders SET ${sets}${acceptanceStamp} WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
       [...values, req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Work order not found' });
