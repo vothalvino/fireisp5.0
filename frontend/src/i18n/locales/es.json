@@ -4530,7 +4530,11 @@
       "noFtth": "No se encontraron marcos ODF activos con coordenadas de sitio.",
       "freePorts": "{{free}} de {{total}} puertos libres",
       "portsUntracked": "{{total}} puertos (ocupación no registrada)"
-    }
+    },
+    "latitude": "Latitud",
+    "longitude": "Longitud",
+    "geocodeFromAddress": "Geocodificar desde la dirección",
+    "geocoding": "Geocodificando…"
   },
   "vendors": {
     "title": "Proveedores",

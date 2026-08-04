@@ -4530,7 +4530,11 @@
       "noFtth": "No active ODF frames with site coordinates found.",
       "freePorts": "{{free}} of {{total}} ports free",
       "portsUntracked": "{{total}} ports (occupancy not tracked)"
-    }
+    },
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "geocodeFromAddress": "Geocode from address",
+    "geocoding": "Geocoding…"
   },
   "vendors": {
     "title": "Vendors",

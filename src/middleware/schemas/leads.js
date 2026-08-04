@@ -36,4 +36,13 @@ const convertLead = {
   client_type: { type: 'string', enum: ['personal', 'company', 'residential', 'business', 'corporate', 'government', 'wholesale'] },
 };
 
-module.exports = { createLead, updateLead, patchLead, convertLead, SOURCES, STATUSES };
+// Optional overrides for POST /:id/geocode — omitted fields fall back to the
+// stored lead address (mirrors clients' geocodeClient; leads have no country).
+const geocodeLead = {
+  address: { type: 'string', max: 500 },
+  city: { type: 'string', max: 100 },
+  state: { type: 'string', max: 100 },
+  zip_code: { type: 'string', max: 20 },
+};
+
+module.exports = { createLead, updateLead, patchLead, convertLead, geocodeLead, SOURCES, STATUSES };

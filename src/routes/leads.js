@@ -9,7 +9,7 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createLead, updateLead, patchLead, convertLead } = require('../middleware/schemas/leads');
+const { createLead, updateLead, patchLead, convertLead, geocodeLead } = require('../middleware/schemas/leads');
 const lifecycleService = require('../services/lifecycleService');
 const leadFeasibilityService = require('../services/leadFeasibilityService');
 const auditLog = require('../services/auditLog');
@@ -79,6 +79,29 @@ router.get('/:id/feasibility', requirePermission('leads.view'), async (req, res,
   try {
     const result = await leadFeasibilityService.assess(req.params.id, req.orgId);
     res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// Geocode the lead's address into coordinates — feasibility's only input.
+// Mirrors POST /clients/:id/geocode (leads carry no country/geocoded_at).
+router.post('/:id/geocode', requirePermission('leads.update'), validate(geocodeLead), async (req, res, next) => {
+  try {
+    const lead = await Lead.findById(req.params.id, req.orgId);
+    if (!lead) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Lead not found' } });
+    const { geocodeAddress } = require('../services/geocodingService');
+    const source = {
+      address: req.body.address ?? lead.address,
+      city: req.body.city ?? lead.city,
+      state: req.body.state ?? lead.state,
+      zip_code: req.body.zip_code ?? lead.zip_code,
+    };
+    const result = await geocodeAddress(source);
+    const updated = await Lead.update(
+      req.params.id,
+      { latitude: result.latitude, longitude: result.longitude },
+      req.orgId,
+    );
+    res.json({ data: updated, geocode: result });
   } catch (err) { next(err); }
 });
 

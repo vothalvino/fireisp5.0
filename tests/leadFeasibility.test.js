@@ -9,6 +9,9 @@ const jwt = require('jsonwebtoken');
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), execute: jest.fn(), getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
 }));
+jest.mock('../src/services/geocodingService', () => ({
+  geocodeAddress: jest.fn().mockResolvedValue({ latitude: 19.4326, longitude: -99.1332, formatted_address: 'CDMX' }),
+}));
 
 const config = require('../src/config');
 const db = require('../src/config/database');
@@ -82,4 +85,36 @@ it('404s a lead outside the caller org', async () => {
     .get('/api/v1/leads/999/feasibility')
     .set('Authorization', `Bearer ${TOKEN}`);
   expect(res.status).toBe(404);
+});
+
+describe('POST /leads/:id/geocode', () => {
+  it('resolves the stored address and persists the coordinates', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/^UPDATE `?leads`?/i.test(sql.trim())) return [{ affectedRows: 1 }];
+      if (isLeadSelect(sql)) return [[{ id: 5, organization_id: 42, address: '1 Main', city: 'CDMX', state: 'CDMX', zip_code: '03100', latitude: null, longitude: null }]];
+      return [[]];
+    });
+    const res = await request(app)
+      .post('/api/v1/leads/5/geocode')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.geocode.latitude).toBe(19.4326);
+    const upd = db.query.mock.calls.find(([s]) => /^UPDATE `?leads`?/i.test(s.trim()));
+    expect(upd).toBeDefined();
+  });
+
+  it('404s a lead outside the caller org before touching the geocoder', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (isLeadSelect(sql)) return [[]];
+      return [[]];
+    });
+    const res = await request(app)
+      .post('/api/v1/leads/999/geocode')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+    expect(res.status).toBe(404);
+  });
 });
