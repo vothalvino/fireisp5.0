@@ -363,6 +363,129 @@ interface InstalledUnit {
 
 const DEVICE_TYPES = ['outdoor_cpe', 'indoor_cpe', 'ptp', 'ptmp_ap', 'olt', 'router', 'switch', 'onu', 'other'];
 
+// ---------------------------------------------------------------------------
+// Install equipment — the INVENTORY-connected path, same drawdown flow as the
+// service-order Equipment panel (POST /cpe-management/devices/install): stock
+// decrements, the ledger records the movement, a sold unit raises its sale
+// invoice, and the unit's TR-069 identity converges on the serial. Distinct
+// from "+ New network device", which only creates a monitoring/topology row.
+// ---------------------------------------------------------------------------
+interface CatalogItem { id: number; name: string; sku: string | null }
+interface InStockUnit { id: number; serial_number: string }
+
+function InstallEquipmentModal({ contractId, onClose, onInstalled }: {
+  contractId: string; onClose: () => void; onInstalled: () => void;
+}) {
+  const [itemId, setItemId] = useState('');
+  const [serialMode, setSerialMode] = useState<'existing' | 'new'>('existing');
+  const [cpeDeviceId, setCpeDeviceId] = useState('');
+  const [newSerial, setNewSerial] = useState('');
+  const [ownership, setOwnership] = useState<'rented' | 'sold'>('rented');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const itemsQ = useQuery({
+    queryKey: ['inventory-items-lookup-contract'],
+    queryFn: async () => {
+      const res = await api.GET('/inventory/items' as never, { params: { query: { limit: 200, status: 'active' } } } as never);
+      if ((res as { error?: unknown }).error) throw new Error('load failed');
+      return (((res as { data: { data: CatalogItem[] } }).data?.data) ?? []);
+    },
+  });
+
+  const unitsQ = useQuery({
+    queryKey: ['contract-in-stock-units', itemId],
+    queryFn: async () => {
+      const res = await api.GET('/cpe-management/devices' as never, {
+        params: { query: { inventory_item_id: Number(itemId), lifecycle_state: 'in_stock', limit: 200 } },
+      } as never);
+      if ((res as { error?: unknown }).error) throw new Error('load failed');
+      return (((res as { data: { data: InStockUnit[] } }).data?.data) ?? []);
+    },
+    enabled: itemId !== '' && serialMode === 'existing',
+  });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr('');
+    const body: Record<string, unknown> = { contract_id: Number(contractId), ownership };
+    if (serialMode === 'existing') {
+      if (!cpeDeviceId) { setErr('Select a serial.'); return; }
+      body.cpe_device_id = Number(cpeDeviceId);
+    } else {
+      if (!itemId) { setErr('Select a product.'); return; }
+      if (!newSerial.trim()) { setErr('Enter a serial number.'); return; }
+      body.new_serial = newSerial.trim();
+      body.inventory_item_id = Number(itemId);
+    }
+    setBusy(true);
+    try {
+      const res = await api.POST('/cpe-management/devices/install' as never, { body: body as never } as never);
+      const e2 = (res as { error?: { error?: { message?: string } } }).error;
+      if (e2) throw new Error(e2.error?.message || 'Failed to install equipment');
+      onInstalled();
+      onClose();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Failed to install equipment');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const selStyle = { display: 'block', width: '100%', marginTop: 2, padding: '6px 8px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit' } as const;
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Install equipment">
+      <div style={{ ...modalBox, width: 460, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>Install equipment — contract #{contractId}</h3>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          Draws the unit from inventory: stock and ledger update, a sold unit raises its invoice, and TR-069 links by serial.
+        </p>
+        <form onSubmit={submit}>
+          <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem' }}>
+            Product
+            <select style={selStyle} value={itemId} onChange={e => { setItemId(e.target.value); setCpeDeviceId(''); }}>
+              <option value="">{itemsQ.isLoading ? 'Loading…' : '— select product —'}</option>
+              {(itemsQ.data ?? []).map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}</option>)}
+            </select>
+          </label>
+          <div style={{ display: 'flex', gap: 14, marginBottom: 8, fontSize: '0.85rem' }}>
+            <label><input type="radio" checked={serialMode === 'existing'} onChange={() => setSerialMode('existing')} /> Pick in-stock serial</label>
+            <label><input type="radio" checked={serialMode === 'new'} onChange={() => setSerialMode('new')} /> Type a new serial</label>
+          </div>
+          {serialMode === 'existing' ? (
+            <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem' }}>
+              Serial
+              <select style={selStyle} value={cpeDeviceId} onChange={e => setCpeDeviceId(e.target.value)} disabled={!itemId}>
+                <option value="">{!itemId ? '— select a product first —' : unitsQ.isLoading ? 'Loading…' : (unitsQ.data ?? []).length ? '— select serial —' : 'No in-stock serials for this product'}</option>
+                {(unitsQ.data ?? []).map(u => <option key={u.id} value={u.id}>{u.serial_number}</option>)}
+              </select>
+            </label>
+          ) : (
+            <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem' }}>
+              New serial number
+              <input style={selStyle} value={newSerial} placeholder="Read from the box"
+                onChange={e => setNewSerial(e.target.value)} />
+            </label>
+          )}
+          <div style={{ display: 'flex', gap: 14, marginBottom: 8, fontSize: '0.85rem' }}>
+            <label><input type="radio" checked={ownership === 'rented'} onChange={() => setOwnership('rented')} /> Rented (no invoice)</label>
+            <label><input type="radio" checked={ownership === 'sold'} onChange={() => setOwnership('sold')} /> Sold (raises an invoice)</label>
+          </div>
+          {err && <p style={{ color: '#991b1b', fontSize: '0.82rem', margin: '4px 0' }}>{err}</p>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button type="button" style={cancelBtn} onClick={onClose} disabled={busy}>Cancel</button>
+            <button type="submit" disabled={busy}
+              style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
+              {busy ? 'Installing…' : 'Install equipment'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // "+ New device" — create a devices-table row already linked to this contract
 // (and its client), instead of sending the user to the global Devices page to
 // create it there and come back to assign it.
@@ -449,10 +572,12 @@ function NewDeviceModal({ contractId, clientId, onClose, onCreated }: {
 function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onChanged }: {
   devices: Device[]; contractId: string; clientId: string | null; canManage: boolean; canCreate: boolean; onChanged: () => void;
 }) {
+  const qc = useQueryClient();
   const [pickId, setPickId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [showInstall, setShowInstall] = useState(false);
 
   // Installed equipment (cpe_devices) — populated by the install flow and the
   // ACS, never entered here by hand. Fail-soft: a caller without
@@ -506,7 +631,16 @@ function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onCha
       {/* ── Installed equipment — flows in from inventory installs + TR-069 ── */}
       {!equipmentQ.isError && (
         <div style={{ marginBottom: '1.25rem' }}>
-          <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Installed equipment</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Installed equipment</h3>
+            <button
+              type="button"
+              onClick={() => setShowInstall(true)}
+              style={{ padding: '4px 12px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              + Install equipment
+            </button>
+          </div>
           {equipmentQ.isLoading ? (
             <p style={styles.msg}>Loading…</p>
           ) : !equipment.length ? (
@@ -537,7 +671,10 @@ function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onCha
         </div>
       )}
 
-      <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Network devices</h3>
+      <h3 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem' }}>Network devices</h3>
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+        Monitoring/topology records (SNMP, maps). For stock-tracked routers and ONUs use Install equipment above — it draws from inventory.
+      </p>
       {canCreate && (
         <div style={{ marginBottom: '0.5rem' }}>
           <button
@@ -545,7 +682,7 @@ function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onCha
             onClick={() => setShowNew(true)}
             style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
           >
-            + New device
+            + New network device
           </button>
         </div>
       )}
@@ -625,6 +762,17 @@ function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onCha
           clientId={clientId}
           onClose={() => setShowNew(false)}
           onCreated={onChanged}
+        />
+      )}
+
+      {showInstall && (
+        <InstallEquipmentModal
+          contractId={contractId}
+          onClose={() => setShowInstall(false)}
+          onInstalled={() => {
+            void qc.invalidateQueries({ queryKey: ['contract-equipment', contractId] });
+            onChanged();
+          }}
         />
       )}
     </div>
