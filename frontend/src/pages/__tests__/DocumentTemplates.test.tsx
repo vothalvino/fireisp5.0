@@ -20,6 +20,11 @@ vi.mock('@/api/client', () => ({
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
+let mockLocale: 'MX' | 'global' = 'MX';
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin', organization_locale: mockLocale } }),
+}));
+
 const TPL = {
   id: 1, template_type: 'activation_contract', name: 'Contrato de adhesión',
   body_md: 'Yo {{client.name}} contrato el plan {{plan.name}}.', is_active: 1, created_at: '2026-08-05',
@@ -36,11 +41,20 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockLocale = 'MX';
   mockApiGet.mockResolvedValue({ data: { data: [TPL] }, error: undefined });
   mockApiPost.mockResolvedValue({ data: { data: { id: 2 } }, error: undefined });
 });
 
 describe('DocumentTemplates', () => {
+  it('STRICTLY MX: a global org gets the explanation, no fetch, no create button', async () => {
+    mockLocale = 'global';
+    renderPage();
+    expect(await screen.findByText(/MX-locale organizations only/)).toBeInTheDocument();
+    expect(screen.queryByText('+ New template')).not.toBeInTheDocument();
+    expect(mockApiGet).not.toHaveBeenCalled();
+  });
+
   it('lists templates with their type and active state', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Contrato de adhesión')).toBeInTheDocument());

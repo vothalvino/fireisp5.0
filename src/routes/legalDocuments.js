@@ -21,6 +21,7 @@ const {
 } = require('../middleware/schemas/legalDocuments');
 const legalDocumentService = require('../services/legalDocumentService');
 const auditLog = require('../services/auditLog');
+const Organization = require('../models/Organization');
 
 const templatesRouter = Router();
 const documentsRouter = Router();
@@ -29,6 +30,21 @@ templatesRouter.use(authenticate);
 templatesRouter.use(orgScope);
 documentsRouter.use(authenticate);
 documentsRouter.use(orgScope);
+
+// STRICTLY MX (user decision, 2026-08-05): the legal-paper surface exists for
+// Mexican organizations only. Templates and generation are refused elsewhere;
+// reading/signing EXISTING instances stays allowed everywhere — signed
+// documents are immutable history that must survive an org's locale changing.
+async function requireMxOrg(req, res, next) {
+  try {
+    const locale = req.orgId ? await Organization.getLocale(req.orgId) : 'global';
+    if (locale === 'MX') return next();
+    return res.status(403).json({
+      error: { code: 'MX_ONLY', message: 'Legal document templates are available for MX-locale organizations only.' },
+    });
+  } catch (err) { return next(err); }
+}
+templatesRouter.use(requireMxOrg);
 
 function orgCond(orgId, params, column = 'organization_id') {
   if (orgId === null || orgId === undefined) return `${column} IS NULL`;
@@ -175,7 +191,7 @@ documentsRouter.post('/:id/cancel', requirePermission('signed_documents.create')
 // Generate on demand for an order that predates the templates (or was started
 // before a template was activated). Skips types that already have a live
 // (pending or signed) instance for the order so re-clicks never duplicate.
-documentsRouter.post('/generate', requirePermission('signed_documents.create'), validate(generateDocuments), async (req, res, next) => {
+documentsRouter.post('/generate', requireMxOrg, requirePermission('signed_documents.create'), validate(generateDocuments), async (req, res, next) => {
   try {
     const soParams = [req.body.service_order_id];
     const soCond = orgCond(req.orgId, soParams);

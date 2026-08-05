@@ -17,6 +17,11 @@ vi.mock('@/api/client', () => ({
   authedFetch: (...a: unknown[]) => mockAuthedFetch(...a),
 }));
 
+// Legal documents panel is STRICTLY MX; run the suite as an MX org so it stays covered.
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin', organization_locale: 'MX' } }),
+}));
+
 const pickupOrder = {
   id: 700, ticket_id: null, assigned_to: null, status: 'in_progress', priority: 'medium',
   title: 'Equipment pickup', description: null, scheduled_at: null, completed_at: null,

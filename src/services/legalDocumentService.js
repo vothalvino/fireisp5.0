@@ -96,12 +96,20 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
  * Same transaction as the order start — all documents exist or none do.
  */
 async function generateForOrder(run, { orgId, clientId, contractId, orderId, workOrderId, createdBy, skipTypes = null }) {
-  const templateParams = [];
-  let orgCond = 'organization_id IS NULL';
-  if (orgId !== null && orgId !== undefined) {
-    orgCond = 'organization_id = ?';
-    templateParams.push(orgId);
-  }
+  // STRICTLY MX (user decision, 2026-08-05): the legal-paper flow exists for
+  // Mexican organizations only. Checked HERE — the single funnel — so every
+  // caller (startOrder, the /generate backfill route) inherits it. An org-less
+  // context (legacy single-tenant rows) has no locale to check and generates
+  // nothing.
+  if (orgId === null || orgId === undefined) return [];
+  const [localeRows] = await run(
+    'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+    [orgId],
+  );
+  if (localeRows[0]?.locale !== 'MX') return [];
+
+  const templateParams = [orgId];
+  const orgCond = 'organization_id = ?';
   const [templates] = await run(
     `SELECT * FROM document_templates
      WHERE ${orgCond} AND is_active = 1 AND deleted_at IS NULL

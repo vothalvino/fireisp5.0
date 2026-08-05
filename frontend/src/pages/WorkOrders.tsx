@@ -13,6 +13,7 @@ import { styles, modalStyles } from './crudStyles';
 import { ClientPicker } from '@/components/ClientPicker';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { MarkdownView } from '@/components/MarkdownView';
+import { useAuth } from '@/auth/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -588,8 +589,12 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
 
 function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; serviceOrderId: number | null }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [signingId, setSigningId] = useState<number | null>(null);
+  // STRICTLY MX: instances are only ever generated for MX orgs, so skip the
+  // fetch entirely elsewhere.
+  const isMxOrg = user?.organization_locale === 'MX';
 
   const docsQ = useQuery({
     queryKey: ['wo-documents', workOrderId, serviceOrderId],
@@ -602,6 +607,7 @@ function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; 
       return (res.data as { data: SignedDocSummary[] }).data;
     },
     retry: false,
+    enabled: isMxOrg,
   });
 
   if (docsQ.isError) return null;

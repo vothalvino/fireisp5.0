@@ -4981,6 +4981,7 @@
       "activation_contract": "Contrato de adesão (ativação)",
       "equipment_comodato": "Comodato de equipamento",
       "custom": "Personalizado"
-    }
+    },
+    "mxOnly": "Os modelos de documentos legais estão disponíveis apenas para organizações com perfil MX — esta organização usa o perfil global."
   }
 }

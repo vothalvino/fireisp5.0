@@ -318,7 +318,7 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([[]]) // no open install WO for this order yet
       .mockResolvedValueOnce([{ insertId: 70 }]) // INSERT work_orders (installation)
       .mockResolvedValueOnce([[{ id: 70, organization_id: 1, service_order_id: 1, work_type: 'installation', status: 'pending', assigned_to: null }]]) // SELECT WO
-      .mockResolvedValueOnce([[]]); // legal documents: no active templates (migration 447)
+      .mockResolvedValueOnce([[]]); // legal documents: locale lookup (empty → not MX → skip)
 
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]); // final re-fetch (pool, post-commit)
     provisioningService.provisionNewContract.mockResolvedValue({ pppoe: { username: 'acme01', password: 'x' } });
@@ -378,7 +378,7 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([[]]) // no open install WO
       .mockResolvedValueOnce([{ insertId: 71 }]) // INSERT work_orders
       .mockResolvedValueOnce([[{ id: 71, organization_id: 1, work_type: 'installation', assigned_to: null }]]) // SELECT WO
-      .mockResolvedValueOnce([[]]); // legal documents: no active templates
+      .mockResolvedValueOnce([[]]); // legal documents: locale lookup (empty → not MX → skip)
 
     db.getConnection.mockResolvedValueOnce(leadConn).mockResolvedValueOnce(mainConn);
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 60, contract_id: 900 }]]);
@@ -415,6 +415,7 @@ describe('startOrder', () => {
       if (/SELECT id, assigned_to FROM work_orders/.test(t)) return [[]];
       if (/INSERT INTO work_orders/.test(t)) return [{ insertId: 70 }];
       if (/SELECT \* FROM work_orders WHERE id = \?/.test(t)) return [[{ id: 70, organization_id: 1, assigned_to: null }]];
+      if (/SELECT locale FROM organizations/.test(t)) return [[{ locale: 'MX' }]];
       if (/FROM document_templates/.test(t)) return [[{ id: 4, template_type: 'installation_authorization', name: 'Autorización', body_md: 'Cliente {{client.name}}' }]];
       if (/FROM clients WHERE/.test(t)) return [[{ id: 50, name: 'Acme' }]];
       if (/FROM organizations WHERE/.test(t)) return [[{ id: 1, name: 'ISP' }]];
