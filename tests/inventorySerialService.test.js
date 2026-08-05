@@ -38,6 +38,8 @@ function makeState(overrides = {}) {
     invoices: overrides.invoices ?? [],
     paymentAllocations: overrides.paymentAllocations ?? [],
     txns: [],
+    networkDevices: overrides.networkDevices ?? [],
+    nextNetworkDeviceId: 3000,
     nextDeviceId: 1000,
     nextStockId: 500,
     nextTxnId: 5000,
@@ -307,6 +309,36 @@ function route(sql, params, state) {
     const wo = state.workOrders.find(w => w.id === id);
     if (wo) wo.status = 'completed';
     return Promise.resolve([{ affectedRows: wo ? 1 : 0 }]);
+  }
+
+  // --- devices-table bridge (bridgeUnitToDevice / unbridgeUnit) ---
+  if (s.startsWith('SELECT name, category FROM inventory_items WHERE id = ?')) {
+    const [id] = p;
+    const item = state.items.find(i => i.id === id);
+    return Promise.resolve([item ? [{ name: item.name, category: item.category ?? 'router' }] : []]);
+  }
+  if (s.startsWith('INSERT INTO devices')) {
+    const id = state.nextNetworkDeviceId++;
+    state.networkDevices.push({ id, name: p[3], type: p[4], client_id: p[1], contract_id: p[2], serial_number: p[7], _deleted: false });
+    return Promise.resolve([{ insertId: id, affectedRows: 1 }]);
+  }
+  if (s.startsWith('UPDATE devices SET deleted_at = NOW() WHERE id = ?')) {
+    const [id] = p;
+    const d = state.networkDevices.find(nd => nd.id === id);
+    if (d) d._deleted = true;
+    return Promise.resolve([{ affectedRows: d ? 1 : 0 }]);
+  }
+  if (s.startsWith('UPDATE cpe_devices SET device_id = ? WHERE id = ?')) {
+    const [deviceId, unitId] = p;
+    const u = state.devices.find(d => d.id === unitId);
+    if (u) u.device_id = deviceId;
+    return Promise.resolve([{ affectedRows: u ? 1 : 0 }]);
+  }
+  if (s.startsWith('UPDATE cpe_devices SET device_id = NULL WHERE id = ?')) {
+    const [unitId] = p;
+    const u = state.devices.find(d => d.id === unitId);
+    if (u) u.device_id = null;
+    return Promise.resolve([{ affectedRows: u ? 1 : 0 }]);
   }
 
   return Promise.resolve([[]]);
@@ -968,6 +1000,73 @@ describe('inventorySerialService', () => {
       await expect(inventorySerialService.completePickupUnit({
         workOrderId: 700, cpeDeviceId: 50, disposition: 'returned', orgId: 42,
       })).rejects.toThrow(/not an outstanding rented device/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // devices-table bridge (product decision, 2026-08-05): one install makes the
+  // unit both a cpe_devices row and a devices row, linked via device_id; the
+  // devices row lives exactly as long as the unit is on the contract.
+  // ---------------------------------------------------------------------------
+  describe('devices-table bridge', () => {
+    test('install creates the bridged devices row, typed by the item category, and links device_id', async () => {
+      const state = makeState({
+        items: [{ id: 1, organization_id: 42, name: 'RGEW1300G', category: 'router', sale_price: '150.00', unit_cost: '90.00', serial_required: 1 }],
+        devices: [{ id: 50, organization_id: 42, serial_number: 'SN-BRIDGE', inventory_item_id: 1, lifecycle_state: 'in_stock', contract_id: null, subscriber_id: null, ownership: null, device_id: null }],
+      });
+      wireDb(state);
+
+      await inventorySerialService.installEquipment({
+        orgId: 42, contractId: 900, cpeDeviceId: 50, ownership: 'rented',
+      });
+
+      expect(state.networkDevices).toHaveLength(1);
+      const dev = state.networkDevices[0];
+      expect(dev.name).toBe('RGEW1300G — SN-BRIDGE');
+      expect(dev.type).toBe('indoor_cpe'); // category 'router' → indoor CPE
+      expect(dev.client_id).toBe(100);
+      expect(dev.contract_id).toBe(900);
+      expect(dev.serial_number).toBe('SN-BRIDGE');
+      expect(state.devices[0].device_id).toBe(dev.id);
+    });
+
+    test('an onu-category item bridges as an onu device', async () => {
+      const state = makeState({
+        items: [{ id: 1, organization_id: 42, name: 'EG8145V5', category: 'onu', sale_price: '150.00', unit_cost: '90.00', serial_required: 1 }],
+        devices: [{ id: 50, organization_id: 42, serial_number: 'SN-ONU', inventory_item_id: 1, lifecycle_state: 'in_stock', contract_id: null, subscriber_id: null, ownership: null, device_id: null }],
+      });
+      wireDb(state);
+      await inventorySerialService.installEquipment({ orgId: 42, contractId: 900, cpeDeviceId: 50, ownership: 'rented' });
+      expect(state.networkDevices[0].type).toBe('onu');
+    });
+
+    test('undo-install soft-deletes the bridged row and clears device_id', async () => {
+      const state = makeState({
+        devices: [{ id: 50, organization_id: 42, serial_number: 'SN-UNDO', inventory_item_id: 1, lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented', device_id: 3000, sale_invoice_id: null }],
+        networkDevices: [{ id: 3000, name: 'ONU-X — SN-UNDO', type: 'indoor_cpe', client_id: 100, contract_id: 900, serial_number: 'SN-UNDO', _deleted: false }],
+      });
+      wireDb(state);
+
+      await inventorySerialService.uninstallEquipment({ orgId: 42, cpeDeviceId: 50 });
+
+      expect(state.networkDevices[0]._deleted).toBe(true);
+      expect(state.devices[0].device_id).toBeNull();
+    });
+
+    test('pickup return soft-deletes the bridged row too', async () => {
+      const state = makeState({
+        devices: [{ id: 50, organization_id: 42, serial_number: 'SN-PICK', inventory_item_id: 1, lifecycle_state: 'assigned', contract_id: 900, subscriber_id: 100, ownership: 'rented', device_id: 3000 }],
+        networkDevices: [{ id: 3000, name: 'ONU-X — SN-PICK', type: 'indoor_cpe', client_id: 100, contract_id: 900, serial_number: 'SN-PICK', _deleted: false }],
+        workOrders: [{ id: 700, organization_id: 42, work_type: 'pickup', contract_id: 900, client_id: 100, status: 'in_progress' }],
+      });
+      wireDb(state);
+
+      await inventorySerialService.completePickupUnit({
+        workOrderId: 700, cpeDeviceId: 50, disposition: 'returned', orgId: 42,
+      });
+
+      expect(state.networkDevices[0]._deleted).toBe(true);
+      expect(state.devices[0].device_id).toBeNull();
     });
   });
 });

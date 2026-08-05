@@ -22,6 +22,13 @@ const createLead = {
   latitude: { type: 'number', min: -90, max: 90 },
   longitude: { type: 'number', min: -180, max: 180 },
   desired_plan_id: { type: 'number', min: 1 },
+  // MX fiscal identity at intake (migration 446) — optional; copied into the
+  // client fiscal profile on conversion when the org is MX-locale.
+  rfc: { type: 'string', max: 13 },
+  curp: { type: 'string', max: 18 },
+  razon_social: { type: 'string', max: 300 },
+  regimen_fiscal: { type: 'string', max: 3 },
+  codigo_postal_fiscal: { type: 'string', max: 5 },
   notes: { type: 'string', max: 65535 },
 };
 

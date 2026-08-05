@@ -4508,7 +4508,8 @@
     "equipmentPickSerial": "Select a serial",
     "equipmentEnterSerial": "Enter a serial number",
     "equipmentPickProduct": "Select a product",
-    "equipmentInstallFailed": "Failed to install equipment"
+    "equipmentInstallFailed": "Failed to install equipment",
+    "fiscalIncomplete": "This client’s MX fiscal profile is incomplete (RFC, régimen fiscal, C.P.). The installation invoice can be created but NOT stamped until it is completed — open the client’s MX Profile."
   },
   "leads": {
     "addressField": "Address",

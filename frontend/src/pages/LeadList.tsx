@@ -40,6 +40,11 @@ interface Lead {
   latitude: number | null;
   longitude: number | null;
   desired_plan_id: number | null;
+  rfc: string | null;
+  curp: string | null;
+  razon_social: string | null;
+  regimen_fiscal: string | null;
+  codigo_postal_fiscal: string | null;
   created_at: string;
 }
 
@@ -63,13 +68,18 @@ interface LeadFormBody {
   latitude?: number;
   longitude?: number;
   desired_plan_id?: number;
+  rfc?: string;
+  curp?: string;
+  razon_social?: string;
+  regimen_fiscal?: string;
+  codigo_postal_fiscal?: string;
 }
 
 // The network payload allows `null` for the nullable string fields (an
 // explicit clear on edit — see handleSubmit) even though the controlled
 // <input>'s `value` prop (bound to LeadFormBody, always a plain string in
 // local form state) cannot.
-type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code' | 'latitude' | 'longitude' | 'desired_plan_id'> & {
+type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'address' | 'city' | 'state' | 'zip_code' | 'latitude' | 'longitude' | 'desired_plan_id' | 'rfc' | 'curp' | 'razon_social' | 'regimen_fiscal' | 'codigo_postal_fiscal'> & {
   email?: string | null;
   phone?: string | null;
   company?: string | null;
@@ -80,6 +90,11 @@ type LeadSubmitBody = Omit<LeadFormBody, 'email' | 'phone' | 'company' | 'addres
   latitude?: number | null;
   longitude?: number | null;
   desired_plan_id?: number | null;
+  rfc?: string | null;
+  curp?: string | null;
+  razon_social?: string | null;
+  regimen_fiscal?: string | null;
+  codigo_postal_fiscal?: string | null;
 };
 
 const SOURCES = ['website', 'referral', 'phone', 'walk_in', 'social', 'campaign', 'other'];
@@ -201,6 +216,8 @@ function LeadFormModal({
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isMxOrg = user?.organization_locale === 'MX';
   const [form, setForm] = useState<LeadFormBody>({
     name: initial?.name ?? '',
     email: initial?.email ?? '',
@@ -216,6 +233,11 @@ function LeadFormModal({
     latitude: initial?.latitude ?? undefined,
     longitude: initial?.longitude ?? undefined,
     desired_plan_id: initial?.desired_plan_id ?? undefined,
+    rfc: initial?.rfc ?? '',
+    curp: initial?.curp ?? '',
+    razon_social: initial?.razon_social ?? '',
+    regimen_fiscal: initial?.regimen_fiscal ?? '',
+    codigo_postal_fiscal: initial?.codigo_postal_fiscal ?? '',
   });
   const [error, setError] = useState('');
   const [geocoding, setGeocoding] = useState(false);
@@ -280,7 +302,7 @@ function LeadFormModal({
     // `null` is validation-safe for these optional/nullable columns and
     // actually clears them (see .claude/agent-memory
     // patch-diff-explicit-clear-vs-omit.md).
-    (['email', 'phone', 'company', 'address', 'city', 'state', 'zip_code'] as const).forEach(key => {
+    (['email', 'phone', 'company', 'address', 'city', 'state', 'zip_code', 'rfc', 'curp', 'razon_social', 'regimen_fiscal', 'codigo_postal_fiscal'] as const).forEach(key => {
       const value = (form[key] ?? '').trim();
       const original = (initial?.[key] ?? '').toString().trim();
       if (value) {
@@ -388,6 +410,33 @@ function LeadFormModal({
               disabled={geocoding} onClick={geocodeFromAddress}>
               {geocoding ? t('leads.geocoding') : t('leads.geocodeFromAddress')}
             </button>
+          )}
+
+          {isMxOrg && (
+            <fieldset style={{ border: '1px solid var(--border-color, #d1d5db)', borderRadius: 8, padding: '8px 12px', margin: '10px 0 0' }}>
+              <legend style={{ fontSize: '0.8rem', padding: '0 6px', color: 'var(--text-secondary)' }}>Fiscal (SAT) — se copia al perfil fiscal del cliente al convertir</legend>
+              <label style={labelStyle}>RFC</label>
+              <input style={inputStyle} type="text" maxLength={13} value={form.rfc ?? ''} placeholder="XAXX010101000"
+                onChange={e => setForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+              <label style={labelStyle}>CURP</label>
+              <input style={inputStyle} type="text" maxLength={18} value={form.curp ?? ''}
+                onChange={e => setForm(p => ({ ...p, curp: e.target.value.toUpperCase() }))} />
+              <label style={labelStyle}>Razón social</label>
+              <input style={inputStyle} type="text" maxLength={300} value={form.razon_social ?? ''}
+                onChange={e => setForm(p => ({ ...p, razon_social: e.target.value }))} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Régimen fiscal</label>
+                  <input style={inputStyle} type="text" maxLength={3} value={form.regimen_fiscal ?? ''} placeholder="612"
+                    onChange={e => setForm(p => ({ ...p, regimen_fiscal: e.target.value }))} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>C.P. fiscal</label>
+                  <input style={inputStyle} type="text" maxLength={5} value={form.codigo_postal_fiscal ?? ''} placeholder="03100"
+                    onChange={e => setForm(p => ({ ...p, codigo_postal_fiscal: e.target.value }))} />
+                </div>
+              </div>
+            </fieldset>
           )}
 
           <label style={labelStyle}>{t('leads.desiredPlan')}</label>

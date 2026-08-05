@@ -309,6 +309,16 @@ async function installEquipment({
       orgId, performedBy, reason: `Installed (${ownership}) on contract #${contractId}`, connection: conn,
     });
 
+    // Bridge into the devices table (product decision, 2026-08-05): one
+    // install makes the unit BOTH a stock-tracked cpe_devices row AND a
+    // devices row the topology/monitoring stack can see, via the previously
+    // unused cpe_devices.device_id FK. Undo and pickup unbridge again, so the
+    // row lives exactly as long as the unit is on the contract. Same
+    // transaction: an install that fails must not leave a stray device.
+    await cpeInventoryService.bridgeUnitToDevice(execute, unit, {
+      orgId, clientId: contract.client_id, contractId,
+    });
+
     let invoice = null;
     if (ownership === 'rented') {
       // No invoice — stock leaves via 'assign_to_job', mirroring Phase 1/2's
@@ -516,6 +526,9 @@ async function uninstallEquipment({ orgId, cpeDeviceId, notes = null, performedB
       'UPDATE cpe_devices SET contract_id = NULL, subscriber_id = NULL, subscriber_linked_at = NULL, ownership = NULL, sale_invoice_id = NULL WHERE id = ?',
       [lockedUnit.id],
     );
+    // The bridged devices row lives exactly as long as the unit is on the
+    // contract — an undone install takes its topology/monitoring shadow with it.
+    await cpeInventoryService.unbridgeUnit(execute, lockedUnit);
 
     await conn.commit();
   } catch (err) {
@@ -654,6 +667,8 @@ async function completePickupUnit({ workOrderId, cpeDeviceId, disposition, notes
       'UPDATE cpe_devices SET contract_id = NULL, subscriber_id = NULL, subscriber_linked_at = NULL, ownership = NULL WHERE id = ?',
       [unit.id],
     );
+    // Bridged devices row goes with the assignment (see installEquipment).
+    await cpeInventoryService.unbridgeUnit(execute, unit);
 
     // Only 'returned' crosses back into stock — 'rma' never does, so it gets
     // no stock/ledger write (consistency invariant, see module header).

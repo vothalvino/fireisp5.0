@@ -147,6 +147,16 @@ describe('nextOrderNumber', () => {
 });
 
 describe('convertLead', () => {
+  beforeEach(() => {
+    // MX fiscal chain (migration 446): convertLead resolves the ORG's locale
+    // before opening its transaction. Default the org to global; MX tests
+    // override per-case.
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT locale FROM organizations/.test(sql)) return [[{ locale: 'global' }]];
+      return [[]];
+    });
+  });
+
   test('creates a client, marks the lead won, and commits', async () => {
     jest.spyOn(Lead, 'findById')
       .mockResolvedValueOnce({ id: 5, name: 'Acme', email: 'a@b.com', company: 'Acme Inc', organization_id: 1, converted_client_id: null })
@@ -181,6 +191,83 @@ describe('convertLead', () => {
   test('throws NotFoundError when the lead does not exist', async () => {
     jest.spyOn(Lead, 'findById').mockResolvedValue(null);
     await expect(lifecycleService.convertLead(5, 1)).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  // ---- MX fiscal chain (migration 446) ----
+  function mxConn() {
+    return {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([{ insertId: 99, affectedRows: 1 }]),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+    };
+  }
+  const MX_LEAD = {
+    id: 5, name: 'Juan Perez', email: 'j@p.mx', company: null, organization_id: 1,
+    converted_client_id: null, rfc: 'pepj800101ab1', curp: 'PEPJ800101HDFRRN09',
+    razon_social: 'Juan Perez', regimen_fiscal: '612', codigo_postal_fiscal: '03100',
+  };
+
+  test('MX org: client inherits locale/tax_id/curp and gets a fiscal profile — RFC uppercased', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT locale FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
+      return [[]];
+    });
+    jest.spyOn(Lead, 'findById')
+      .mockResolvedValueOnce({ ...MX_LEAD })
+      .mockResolvedValueOnce({ id: 5, status: 'won', converted_client_id: 99 });
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 99, name: 'Juan Perez' });
+    const conn = mxConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    await lifecycleService.convertLead(5, 1, {});
+
+    const clientInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO clients/.test(sql));
+    expect(clientInsert[0]).toMatch(/`locale`/);
+    expect(clientInsert[0]).toMatch(/`tax_id`/);
+    expect(clientInsert[0]).toMatch(/`curp`/);
+    expect(clientInsert[1]).toContain('MX');
+    const profileInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO client_mx_profiles/.test(sql));
+    expect(profileInsert).toBeDefined();
+    expect(profileInsert[0]).not.toMatch(/rfc_unique_check/); // GENERATED column — never written
+    expect(profileInsert[1][1]).toBe('PEPJ800101AB1'); // uppercased
+    expect(profileInsert[1][4]).toBe('612');
+  });
+
+  test('MX org with PARTIAL fiscal data: no profile row (NOT NULL columns), but tax_id still lands on the client', async () => {
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT locale FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
+      return [[]];
+    });
+    jest.spyOn(Lead, 'findById')
+      .mockResolvedValueOnce({ ...MX_LEAD, regimen_fiscal: null, codigo_postal_fiscal: null })
+      .mockResolvedValueOnce({ id: 5, status: 'won', converted_client_id: 99 });
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 99 });
+    const conn = mxConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    await lifecycleService.convertLead(5, 1, {});
+
+    expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO client_mx_profiles/.test(sql))).toBe(false);
+    const clientInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO clients/.test(sql));
+    expect(clientInsert[0]).toMatch(/`tax_id`/);
+  });
+
+  test('global org: no locale/fiscal columns, no profile row — pre-446 behavior intact', async () => {
+    jest.spyOn(Lead, 'findById')
+      .mockResolvedValueOnce({ ...MX_LEAD })
+      .mockResolvedValueOnce({ id: 5, status: 'won', converted_client_id: 99 });
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 99 });
+    const conn = mxConn();
+    db.getConnection.mockResolvedValue(conn);
+
+    await lifecycleService.convertLead(5, 1, {});
+
+    const clientInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO clients/.test(sql));
+    expect(clientInsert[0]).not.toMatch(/`locale`/);
+    expect(clientInsert[0]).not.toMatch(/`tax_id`/);
+    expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO client_mx_profiles/.test(sql))).toBe(false);
   });
 });
 

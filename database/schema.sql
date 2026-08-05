@@ -195,6 +195,12 @@ CREATE TABLE IF NOT EXISTS leads (
     longitude           DECIMAL(10,7)   NULL,
     desired_plan_id     BIGINT UNSIGNED NULL
                             COMMENT 'Service plan the prospect asked for at intake; prefills the service order (migration 445)',
+    rfc                 VARCHAR(13)     NULL
+                            COMMENT 'MX taxpayer id captured at intake; copied to the client fiscal profile on conversion (migration 446)',
+    curp                VARCHAR(18)     NULL COMMENT 'MX personal id (CURP) captured at intake (migration 446)',
+    razon_social        VARCHAR(300)    NULL COMMENT 'Fiscal legal name as registered with SAT (migration 446)',
+    regimen_fiscal      VARCHAR(3)      NULL COMMENT 'SAT regimen fiscal code, e.g. 612 (migration 446)',
+    codigo_postal_fiscal VARCHAR(5)     NULL COMMENT 'Fiscal postal code (DomicilioFiscalReceptor) (migration 446)',
     notes               TEXT            NULL,
     converted_client_id BIGINT UNSIGNED NULL COMMENT 'Client created when this lead was won/converted',
     converted_at        DATETIME        NULL,
