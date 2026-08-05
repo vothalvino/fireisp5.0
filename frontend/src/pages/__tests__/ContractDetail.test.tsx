@@ -147,3 +147,94 @@ describe('ContractDetail — PPPoE credentials', () => {
     expect(screen.queryByRole('button', { name: 'PPPoE' })).not.toBeInTheDocument();
   });
 });
+
+// =============================================================================
+// Devices tab — installed equipment (cpe_devices) + New device modal
+// =============================================================================
+const INSTALLED_UNIT = {
+  id: 7, serial_number: 'RGEW-GUI-0001', manufacturer: 'Ruijie', product_class: 'RG-EW1300G',
+  ownership: 'rented', lifecycle_state: 'assigned', last_inform_at: '2026-08-04T23:28:36.000Z',
+  item_name: 'RGEW1300G', item_sku: 'RGEW-1300G',
+};
+
+function mockGetByPath({ equipment = [INSTALLED_UNIT], equipmentError = false } = {}) {
+  mockApiGet.mockImplementation((path: string) => {
+    if (path === '/cpe-management/devices') {
+      return equipmentError
+        ? Promise.resolve({ data: undefined, error: { error: { message: 'forbidden' } } })
+        : Promise.resolve({ data: { data: equipment, meta: { total: equipment.length } }, error: undefined });
+    }
+    return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+  });
+}
+
+describe('ContractDetail — Devices tab equipment + creation', () => {
+  it('shows the installed equipment that flowed in from the install/TR-069 path', async () => {
+    mockGetByPath();
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+
+    expect(await screen.findByText('RGEW-GUI-0001')).toBeInTheDocument();
+    expect(screen.getByText('RGEW1300G (RGEW-1300G)')).toBeInTheDocument();
+    expect(screen.getByText('Ruijie / RG-EW1300G')).toBeInTheDocument();
+    expect(screen.getByText('Installed equipment')).toBeInTheDocument();
+  });
+
+  it('hides the equipment section quietly when the caller may not view cpe devices', async () => {
+    mockGetByPath({ equipmentError: true });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+
+    await waitFor(() => expect(screen.getByText('Network devices')).toBeInTheDocument());
+    // The query settles into its error state asynchronously — wait for the
+    // section to withdraw rather than sampling mid-flight.
+    await waitFor(() => expect(screen.queryByText('Installed equipment')).not.toBeInTheDocument());
+  });
+
+  it('explains the empty equipment state instead of showing nothing', async () => {
+    mockGetByPath({ equipment: [] });
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+    expect(await screen.findByText(/appear here automatically/)).toBeInTheDocument();
+  });
+
+  it('creates a device pre-linked to the contract and its client from the New device modal', async () => {
+    mockGetByPath();
+    const { api } = await import('@/api/client');
+    (api.POST as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: { id: 42 } }, error: undefined });
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ New device' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New device' });
+    fireEvent.change(within(dialog).getByLabelText('Name *'), { target: { value: 'RGEW1300G — sala' } });
+    fireEvent.change(within(dialog).getByLabelText('MAC address'), { target: { value: 'AA:BB:CC:DD:EE:FF' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create device' }));
+
+    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/devices', expect.objectContaining({
+      body: expect.objectContaining({
+        name: 'RGEW1300G — sala',
+        type: 'indoor_cpe',
+        contract_id: 5,
+        client_id: 3,
+        mac_address: 'AA:BB:CC:DD:EE:FF',
+      }),
+    })));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New device' })).not.toBeInTheDocument());
+  });
+
+  it('hides the New device button from a role without devices.create', async () => {
+    mockRole = 'billing';
+    mockGetByPath();
+    renderDetail();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+    await screen.findByText('Installed equipment');
+    expect(screen.queryByRole('button', { name: '+ New device' })).not.toBeInTheDocument();
+  });
+});

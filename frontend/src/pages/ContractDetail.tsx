@@ -345,12 +345,129 @@ interface OrgDevice {
   client_id: number | null;
 }
 
-function DevicesTab({ devices, contractId, canManage, onChanged }: {
-  devices: Device[]; contractId: string; canManage: boolean; onChanged: () => void;
+// Serialized units installed on this contract (cpe_devices, inventory Phase 3 /
+// TR-069). The install flow and the ACS both set contract_id, so this section
+// populates AUTOMATICALLY as equipment moves through the subscriber flow —
+// no manual device bookkeeping required to see the router on the contract.
+interface InstalledUnit {
+  id: number;
+  serial_number: string;
+  manufacturer: string | null;
+  product_class: string | null;
+  ownership: string | null;
+  lifecycle_state: string | null;
+  last_inform_at: string | null;
+  item_name: string | null;
+  item_sku: string | null;
+}
+
+const DEVICE_TYPES = ['outdoor_cpe', 'indoor_cpe', 'ptp', 'ptmp_ap', 'olt', 'router', 'switch', 'onu', 'other'];
+
+// "+ New device" — create a devices-table row already linked to this contract
+// (and its client), instead of sending the user to the global Devices page to
+// create it there and come back to assign it.
+function NewDeviceModal({ contractId, clientId, onClose, onCreated }: {
+  contractId: string; clientId: string | null; onClose: () => void; onCreated: () => void;
+}) {
+  const [form, setForm] = useState({ name: '', type: 'indoor_cpe', manufacturer: '', model: '', serial_number: '', mac_address: '', ip_address: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) { setErr('Name is required.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const body: Record<string, unknown> = {
+        name: form.name.trim(),
+        type: form.type,
+        contract_id: Number(contractId),
+      };
+      if (clientId) body.client_id = Number(clientId);
+      (['manufacturer', 'model', 'serial_number', 'mac_address', 'ip_address'] as const).forEach(k => {
+        const v = form[k].trim();
+        if (v) body[k] = v;
+      });
+      const res = await api.POST('/devices' as never, { body: body as never } as never);
+      const e2 = (res as { error?: { error?: { message?: string } } }).error;
+      if (e2) throw new Error(e2.error?.message || 'Could not create the device');
+      onCreated();
+      onClose();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not create the device');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = (label: string, key: keyof typeof form, placeholder = '') => (
+    <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem' }}>
+      {label}
+      <input
+        style={{ display: 'block', width: '100%', marginTop: 2, padding: '6px 8px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit' }}
+        value={form[key]} placeholder={placeholder}
+        onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+      />
+    </label>
+  );
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="New device">
+      <div style={{ ...modalBox, width: 440, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 1rem' }}>New device — contract #{contractId}</h3>
+        <form onSubmit={submit}>
+          {field('Name *', 'name', 'RGEW1300G — living room')}
+          <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem' }}>
+            Type *
+            <select
+              style={{ display: 'block', width: '100%', marginTop: 2, padding: '6px 8px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit' }}
+              value={form.type}
+              onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
+            >
+              {DEVICE_TYPES.map(tp => <option key={tp} value={tp}>{tp.replace('_', ' ')}</option>)}
+            </select>
+          </label>
+          {field('Manufacturer', 'manufacturer', 'Ruijie')}
+          {field('Model', 'model', 'RG-EW1300G')}
+          {field('Serial number', 'serial_number')}
+          {field('MAC address', 'mac_address', 'AA:BB:CC:DD:EE:FF')}
+          {field('IP address', 'ip_address')}
+          {err && <p style={{ color: '#991b1b', fontSize: '0.82rem', margin: '4px 0' }}>{err}</p>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button type="button" style={cancelBtn} onClick={onClose} disabled={busy}>Cancel</button>
+            <button type="submit" disabled={busy}
+              style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>
+              {busy ? 'Creating…' : 'Create device'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function DevicesTab({ devices, contractId, clientId, canManage, canCreate, onChanged }: {
+  devices: Device[]; contractId: string; clientId: string | null; canManage: boolean; canCreate: boolean; onChanged: () => void;
 }) {
   const [pickId, setPickId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [showNew, setShowNew] = useState(false);
+
+  // Installed equipment (cpe_devices) — populated by the install flow and the
+  // ACS, never entered here by hand. Fail-soft: a caller without
+  // cpe_devices.view simply doesn't get the section (no error, no 403 toast).
+  const equipmentQ = useQuery({
+    queryKey: ['contract-equipment', contractId],
+    queryFn: async () => {
+      const res = await api.GET('/cpe-management/devices' as never, {
+        params: { query: { contract_id: Number(contractId), limit: 100 } },
+      } as never);
+      if ((res as { error?: unknown }).error) throw new Error('equipment unavailable');
+      return (((res as { data: { data: InstalledUnit[] } }).data?.data) ?? []);
+    },
+    retry: false,
+  });
 
   // All org devices for the picker (only loaded when the user can manage).
   const orgDevicesQ = useQuery({
@@ -382,9 +499,56 @@ function DevicesTab({ devices, contractId, canManage, onChanged }: {
 
   const linkedIds = new Set(devices.map(d => Number(d.id)));
   const candidates = (orgDevicesQ.data ?? []).filter(d => !linkedIds.has(d.id));
+  const equipment = equipmentQ.data ?? [];
 
   return (
     <div>
+      {/* ── Installed equipment — flows in from inventory installs + TR-069 ── */}
+      {!equipmentQ.isError && (
+        <div style={{ marginBottom: '1.25rem' }}>
+          <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Installed equipment</h3>
+          {equipmentQ.isLoading ? (
+            <p style={styles.msg}>Loading…</p>
+          ) : !equipment.length ? (
+            <p style={styles.msg}>No equipment installed on this contract yet — units assigned through the service-order Equipment flow appear here automatically.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>{['Serial', 'Product', 'Manufacturer / Model', 'Ownership', 'State', 'Last TR-069 contact'].map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {equipment.map(u => (
+                    <tr key={u.id} style={styles.tr}>
+                      <td style={{ ...styles.td, fontFamily: 'monospace', fontWeight: 600 }}>{u.serial_number}</td>
+                      <td style={styles.td}>{u.item_name ? `${u.item_name}${u.item_sku ? ` (${u.item_sku})` : ''}` : '—'}</td>
+                      <td style={styles.td}>{[u.manufacturer, u.product_class].filter(Boolean).join(' / ') || '—'}</td>
+                      <td style={{ ...styles.td, textTransform: 'capitalize' }}>{u.ownership || '—'}</td>
+                      <td style={{ ...styles.td, textTransform: 'capitalize' }}>{(u.lifecycle_state || '—').replace('_', ' ')}</td>
+                      <td style={styles.td}>{u.last_inform_at ? u.last_inform_at.slice(0, 16).replace('T', ' ') : 'never'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Network devices</h3>
+      {canCreate && (
+        <div style={{ marginBottom: '0.5rem' }}>
+          <button
+            type="button"
+            onClick={() => setShowNew(true)}
+            style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: 'var(--accent, #ea580c)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
+          >
+            + New device
+          </button>
+        </div>
+      )}
       {canManage && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <select
@@ -453,6 +617,15 @@ function DevicesTab({ devices, contractId, canManage, onChanged }: {
             </tbody>
           </table>
         </div>
+      )}
+
+      {showNew && (
+        <NewDeviceModal
+          contractId={contractId}
+          clientId={clientId}
+          onClose={() => setShowNew(false)}
+          onCreated={onChanged}
+        />
       )}
     </div>
   );
@@ -724,6 +897,7 @@ export function ContractDetail() {
   const canEdit = can(user, 'contracts.update');
   // Assigning/unassigning devices writes devices.contract_id → devices.update.
   const canManageDevices = can(user, 'devices.update');
+  const canCreateDevices = can(user, 'devices.create');
 
   const { data: contract, isLoading, error } = useQuery({
     queryKey: ['contract-detail-gql', id],
@@ -880,7 +1054,7 @@ export function ContractDetail() {
         {activeTab === 'pppoe'    && isPppoe && id && <PppoeTab contractId={id} canEdit={canEdit} />}
         {activeTab === 'invoices' && <InvoicesTab invoices={contract.invoices} />}
         {activeTab === 'devices'  && id && (
-          <DevicesTab devices={contract.devices} contractId={id} canManage={canManageDevices} onChanged={refetchContract} />
+          <DevicesTab devices={contract.devices} contractId={id} clientId={contract.clientId ?? null} canManage={canManageDevices} canCreate={canCreateDevices} onChanged={refetchContract} />
         )}
         {activeTab === 'addons'   && <AddonsTab   addons={contract.addons}     />}
       </div>
