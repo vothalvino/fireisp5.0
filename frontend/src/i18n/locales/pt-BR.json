@@ -4508,7 +4508,8 @@
     "equipmentPickSerial": "Selecione um número de série",
     "equipmentEnterSerial": "Insira um número de série",
     "equipmentPickProduct": "Selecione um produto",
-    "equipmentInstallFailed": "Falha ao instalar o equipamento"
+    "equipmentInstallFailed": "Falha ao instalar o equipamento",
+    "fiscalIncomplete": "O perfil fiscal MX deste cliente está incompleto (RFC, regime fiscal, C.P.). A fatura de instalação pode ser criada mas NÃO carimbada até completá-lo — abra o Perfil MX do cliente."
   },
   "leads": {
     "addressField": "Endereço",

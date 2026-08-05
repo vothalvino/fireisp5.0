@@ -335,10 +335,31 @@ function CompleteOrderModal({
   onCompleted: (invoice: InvoiceSummary | null) => void;
 }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [billing, setBilling] = useState<'already_paid' | 'create_invoice'>('already_paid');
   const [fee, setFee] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
+
+  // MX fiscal chain (migration 446): surface an incomplete fiscal profile HERE,
+  // where the invoice is about to be born, instead of at stamping time where it
+  // fails as RECEPTOR_INCOMPLETE. Non-blocking — completing the order is still
+  // legitimate; stamping just cannot happen until the profile is filled.
+  const isMxOrg = user?.organization_locale === 'MX';
+  const fiscalQ = useQuery({
+    queryKey: ['so-client-fiscal', order.client_id],
+    queryFn: async () => {
+      const res = await (api.GET as unknown as (pth: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+        '/clients/{id}/mx-profile', { params: { path: { id: order.client_id } } },
+      );
+      if (res.error) return null;
+      return ((res.data as { data: { rfc?: string; regimen_fiscal?: string; codigo_postal_fiscal?: string } | null })?.data) ?? null;
+    },
+    enabled: isMxOrg && order.client_id !== null,
+    retry: false,
+  });
+  const fiscalIncomplete = isMxOrg && order.client_id !== null && !fiscalQ.isLoading
+    && !(fiscalQ.data?.rfc && fiscalQ.data?.regimen_fiscal && fiscalQ.data?.codigo_postal_fiscal);
 
   const feeNum = Number(fee);
   const feeValid = billing === 'already_paid' || (fee.trim() !== '' && feeNum > 0);
@@ -368,6 +389,12 @@ function CompleteOrderModal({
           <h3 style={{ margin: 0 }}>{t('serviceOrders.completeModalTitle', 'Complete Service Order')} — {order.order_number}</h3>
           <button type="button" onClick={onClose} style={cancelBtn}>✕</button>
         </div>
+
+        {fiscalIncomplete && (
+          <p style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 10px', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>
+            ⚠️ {t('serviceOrders.fiscalIncomplete', 'This client\u2019s MX fiscal profile is incomplete (RFC, r\u00e9gimen fiscal, C.P.). The installation invoice can be created but NOT stamped until it is completed \u2014 open the client\u2019s MX Profile.')}
+          </p>
+        )}
         {error && <div style={errorBox}>{error}</div>}
 
         <label style={{ ...labelStyle, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>

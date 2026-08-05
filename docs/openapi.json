@@ -59753,6 +59753,26 @@
             "type": "number",
             "minimum": 1
           },
+          "rfc": {
+            "type": "string",
+            "maximum": 13
+          },
+          "curp": {
+            "type": "string",
+            "maximum": 18
+          },
+          "razon_social": {
+            "type": "string",
+            "maximum": 300
+          },
+          "regimen_fiscal": {
+            "type": "string",
+            "maximum": 3
+          },
+          "codigo_postal_fiscal": {
+            "type": "string",
+            "maximum": 5
+          },
           "notes": {
             "type": "string",
             "maximum": 65535
@@ -59848,6 +59868,26 @@
             "type": "number",
             "minimum": 1
           },
+          "rfc": {
+            "type": "string",
+            "maximum": 13
+          },
+          "curp": {
+            "type": "string",
+            "maximum": 18
+          },
+          "razon_social": {
+            "type": "string",
+            "maximum": 300
+          },
+          "regimen_fiscal": {
+            "type": "string",
+            "maximum": 3
+          },
+          "codigo_postal_fiscal": {
+            "type": "string",
+            "maximum": 5
+          },
           "notes": {
             "type": "string",
             "maximum": 65535
@@ -59939,6 +59979,26 @@
           "desired_plan_id": {
             "type": "number",
             "minimum": 1
+          },
+          "rfc": {
+            "type": "string",
+            "maximum": 13
+          },
+          "curp": {
+            "type": "string",
+            "maximum": 18
+          },
+          "razon_social": {
+            "type": "string",
+            "maximum": 300
+          },
+          "regimen_fiscal": {
+            "type": "string",
+            "maximum": 3
+          },
+          "codigo_postal_fiscal": {
+            "type": "string",
+            "maximum": 5
           },
           "notes": {
             "type": "string",

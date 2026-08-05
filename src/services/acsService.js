@@ -141,6 +141,19 @@ async function handleCwmpRequest(req, res) {
             );
             const [fresh] = await db.query('SELECT * FROM cpe_devices WHERE id = ?', [inv.id]);
             cpeDevice = fresh[0];
+            // Bridged devices row (installEquipment) inherits the proven
+            // identity too — COALESCE keeps operator-entered values.
+            if (cpeDevice.device_id) {
+              await db.query(
+                `UPDATE devices SET
+                   manufacturer = COALESCE(manufacturer, ?),
+                   model        = COALESCE(model, ?),
+                   firmware     = COALESCE(firmware, ?)
+                 WHERE id = ? AND deleted_at IS NULL`,
+                [cwmpDeviceId.manufacturer || null, cwmpDeviceId.productClass || null,
+                  cwmpDeviceId.swVersion || null, cpeDevice.device_id],
+              ).catch(() => {});
+            }
             logger.info(
               { cpeDeviceId: inv.id, serialNumber, oui },
               'CPE matched to inventory unit by serial; OUI backfilled',

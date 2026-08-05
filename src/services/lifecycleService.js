@@ -116,16 +116,33 @@ async function convertLead(leadId, orgId = null, overrides = {}) {
     throw new ValidationError('Lead has already been converted to a client');
   }
 
+  // MX fiscal chain (migration 446): the client inherits the ORGANIZATION's
+  // compliance locale — a client of a Mexican ISP is an MX client, full stop;
+  // leaving it 'global' is what made every converted lead unstampable.
+  // Resolved before the transaction (read-only, no lock needed).
+  const effectiveOrgId = orgId ?? lead.organization_id ?? null;
+  let orgLocale = 'global';
+  if (effectiveOrgId !== null) {
+    const [orgRows] = await db.query(
+      'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+      [effectiveOrgId],
+    );
+    orgLocale = orgRows[0]?.locale || 'global';
+  }
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
     const clientData = {
-      organization_id: orgId ?? lead.organization_id ?? null,
+      organization_id: effectiveOrgId,
       name: lead.name,
       email: lead.email || null,
       phone: lead.phone || null,
       client_type: overrides.client_type || (lead.company ? 'business' : 'residential'),
+      locale: orgLocale === 'MX' ? 'MX' : null,
+      tax_id: orgLocale === 'MX' ? (lead.rfc || null) : null,
+      curp: orgLocale === 'MX' ? (lead.curp || null) : null,
       address: lead.address || null,
       city: lead.city || null,
       state: lead.state || null,
@@ -141,6 +158,22 @@ async function convertLead(leadId, orgId = null, overrides = {}) {
       cols.map(c => clientData[c]),
     );
     const clientId = ins.insertId;
+
+    // Fiscal profile — created only when everything CFDI stamping requires is
+    // present (client_mx_profiles' rfc/razon_social/regimen/cp are NOT NULL;
+    // a partial row would trade one stamping failure for an INSERT failure).
+    // Partial fiscal data still reached clients.tax_id/curp above, and the
+    // profile can be completed later from the client's MX Profile modal.
+    // NEVER write rfc_unique_check — it is a GENERATED column.
+    if (orgLocale === 'MX' && lead.rfc && lead.razon_social && lead.regimen_fiscal && lead.codigo_postal_fiscal) {
+      await conn.query(
+        `INSERT INTO client_mx_profiles
+           (client_id, rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [clientId, String(lead.rfc).trim().toUpperCase(), lead.curp || null,
+          lead.razon_social, lead.regimen_fiscal, lead.codigo_postal_fiscal],
+      );
+    }
 
     await conn.query(
       `UPDATE leads SET status = 'won', converted_client_id = ?, converted_at = NOW()

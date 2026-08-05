@@ -252,6 +252,52 @@ async function linkSubscriber(cpeDeviceId, subscriberId, opts = {}) {
  * @param {number|null} opts.performedBy
  * @param {string} [opts.reason]
  */
+// ---------------------------------------------------------------------------
+// devices-table bridge (product decision, 2026-08-05)
+// ---------------------------------------------------------------------------
+// One install makes a unit BOTH a stock-tracked cpe_devices row AND a devices
+// row the topology/monitoring stack can see, linked via cpe_devices.device_id.
+// The bridged row lives exactly as long as the unit is on a contract: install
+// and swap-in create it, undo/pickup/swap-out soft-delete it. Callers run
+// these on their own transaction connection.
+// ---------------------------------------------------------------------------
+
+const BRIDGE_TYPE_BY_CATEGORY = { onu: 'onu', cpe: 'outdoor_cpe', router: 'indoor_cpe', switch: 'switch' };
+
+/** Create + link the devices row for a unit just assigned to a contract. */
+async function bridgeUnitToDevice(execute, unit, { orgId, clientId, contractId }) {
+  if (unit.device_id) return unit.device_id;
+  let itemName = null;
+  let itemCategory = null;
+  if (unit.inventory_item_id) {
+    const [itemRows] = await execute(
+      'SELECT name, category FROM inventory_items WHERE id = ? LIMIT 1',
+      [unit.inventory_item_id],
+    );
+    itemName = itemRows[0]?.name ?? null;
+    itemCategory = itemRows[0]?.category ?? null;
+  }
+  const deviceType = BRIDGE_TYPE_BY_CATEGORY[itemCategory] || 'indoor_cpe';
+  const [devIns] = await execute(
+    `INSERT INTO devices
+       (organization_id, client_id, contract_id, category, name, type,
+        manufacturer, model, serial_number)
+     VALUES (?, ?, ?, 'client', ?, ?, ?, ?, ?)`,
+    [orgId, clientId, contractId,
+      `${itemName || 'CPE'} — ${unit.serial_number}`, deviceType,
+      unit.manufacturer || null, unit.product_class || null, unit.serial_number],
+  );
+  await execute('UPDATE cpe_devices SET device_id = ? WHERE id = ?', [devIns.insertId, unit.id]);
+  return devIns.insertId;
+}
+
+/** Soft-delete the bridged devices row when a unit leaves its contract. */
+async function unbridgeUnit(execute, unit) {
+  if (!unit.device_id) return;
+  await execute('UPDATE devices SET deleted_at = NOW() WHERE id = ?', [unit.device_id]);
+  await execute('UPDATE cpe_devices SET device_id = NULL WHERE id = ?', [unit.id]);
+}
+
 async function swapDevice(opts) {
   const { oldDeviceId, newDeviceId, orgId, performedBy, reason = 'CPE swap' } = opts;
 
@@ -307,6 +353,14 @@ async function swapDevice(opts) {
       'UPDATE cpe_devices SET subscriber_id = NULL, subscriber_linked_at = NULL, contract_id = NULL WHERE id = ?',
       [oldDeviceId],
     );
+
+    // Bridge follows the assignment: the swapped-out unit loses its devices
+    // row, the swap-in gains one on the same contract/client.
+    const swapExec = conn.query.bind(conn);
+    await unbridgeUnit(swapExec, oldDevRows);
+    await bridgeUnitToDevice(swapExec, newDevRows, {
+      orgId, clientId: oldDevRows.subscriber_id, contractId: oldDevRows.contract_id,
+    });
 
     // Transition old device → returned
     await transitionLifecycleState(oldDeviceId, 'returned', {
@@ -442,6 +496,8 @@ module.exports = {
   transitionLifecycleState,
   tryAutoLinkSubscriber,
   linkSubscriber,
+  bridgeUnitToDevice,
+  unbridgeUnit,
   swapDevice,
   getLifecycleHistory,
   computeDepreciation,
