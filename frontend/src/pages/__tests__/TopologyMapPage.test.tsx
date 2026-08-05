@@ -2,7 +2,7 @@
 // FireISP 5.0 — TopologyMapPage tests (§13)
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -11,13 +11,22 @@ import { TopologyMapPage } from '../TopologyMapPage';
 // ---------------------------------------------------------------------------
 // Mock react-leaflet — jsdom has no canvas/SVG renderer for Leaflet
 // ---------------------------------------------------------------------------
+vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 1, role: 'admin' } }) }));
+
+// Captured by the useMapEvents mock so tests can simulate a map click.
+let lastMapClick: ((e: { latlng: { lat: number; lng: number } }) => void) | null = null;
+
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="map-container">{children}</div>
   ),
   TileLayer: () => null,
-  CircleMarker: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="circle-marker">{children}</div>
+  useMapEvents: (handlers: { click?: (e: { latlng: { lat: number; lng: number } }) => void }) => {
+    lastMapClick = handlers.click ?? null;
+    return null;
+  },
+  CircleMarker: ({ children, eventHandlers }: { children?: React.ReactNode; eventHandlers?: { click?: () => void } }) => (
+    <div data-testid="circle-marker" onClick={eventHandlers?.click}>{children}</div>
   ),
   Polyline: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="polyline">{children}</div>
@@ -39,6 +48,7 @@ vi.mock('leaflet/dist/leaflet.css', () => ({}));
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
 const mockApiDelete = vi.fn();
+const mockApiPatch = vi.fn();
 
 vi.mock('@/api/client', () => ({
   api: {
@@ -46,6 +56,7 @@ vi.mock('@/api/client', () => ({
     POST: (...args: unknown[]) => mockApiPost(...args),
     DELETE: (...args: unknown[]) => mockApiDelete(...args),
     PUT: vi.fn(),
+    PATCH: (...args: unknown[]) => mockApiPatch(...args),
   },
   tokenStore: {
     getAccess: () => 'test-token',
@@ -67,6 +78,7 @@ const sampleGraph = {
   nodes: [
     { id: 1, name: 'OLT-01', type: 'olt', role: 'core', status: 'active', ip_address: '10.0.0.1', latitude: 19.43, longitude: -99.13, site_name: 'POP-MX' },
     { id: 2, name: 'AP-01', type: 'ptmp_ap', role: 'access', status: 'down', ip_address: '10.0.0.2', latitude: 19.44, longitude: -99.14, site_name: null },
+    { id: 3, name: 'CPE-UNPINNED', type: 'indoor_cpe', role: 'access', status: 'online', ip_address: null, latitude: null, longitude: null, site_name: null },
   ],
   edges: [
     { id: 1, source: 1, target: 2, medium: 'fiber', status: 'active', bandwidth_mbps: 1000, utilization: 45 },
@@ -292,3 +304,56 @@ describe('TopologyMapPage (§13)', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Edit positions (j68 option C half B): pick a device (marker or unpinned
+// tray), click the map, the position PATCHes through /devices/{id}.
+// ---------------------------------------------------------------------------
+describe('TopologyMapPage — edit positions', () => {
+  beforeEach(() => {
+    // The PATCH spy accumulates across cases (no global clearAllMocks here);
+    // reset it so the no-selection case can assert zero calls honestly.
+    mockApiPatch.mockReset();
+    mockApiPatch.mockResolvedValue({ data: { data: {} }, error: undefined });
+    lastMapClick = null;
+  });
+
+  async function enterTopologyEditMode() {
+    renderPage();
+    fireEvent.click(await screen.findByText('Network Topology'));
+    await screen.findByTestId('map-container');
+    fireEvent.click(await screen.findByText('📍 Edit positions'));
+  }
+
+  it('places an unpinned device from the tray with a map click', async () => {
+    await enterTopologyEditMode();
+    fireEvent.click(await screen.findByText('CPE-UNPINNED'));
+    expect(screen.getByText(/Click the map to place/)).toBeInTheDocument();
+
+    expect(lastMapClick).toBeTruthy();
+    lastMapClick!({ latlng: { lat: 19.4512345, lng: -99.1298765 } });
+
+    await waitFor(() => expect(mockApiPatch).toHaveBeenCalledWith('/devices/{id}', expect.objectContaining({
+      params: { path: { id: 3 } },
+      body: { latitude: 19.4512345, longitude: -99.1298765 },
+    })));
+  });
+
+  it('moves a pinned device by clicking its marker first', async () => {
+    await enterTopologyEditMode();
+    const markers = await screen.findAllByTestId('circle-marker');
+    fireEvent.click(markers[0]); // OLT-01
+    expect(screen.getByText(/Click the map to place/)).toBeInTheDocument();
+    lastMapClick!({ latlng: { lat: 20.0, lng: -100.0 } });
+    await waitFor(() => expect(mockApiPatch).toHaveBeenCalledWith('/devices/{id}', expect.objectContaining({
+      params: { path: { id: 1 } },
+    })));
+  });
+
+  it('map clicks do nothing until a device is picked', async () => {
+    await enterTopologyEditMode();
+    if (lastMapClick) lastMapClick({ latlng: { lat: 1, lng: 2 } });
+    expect(mockApiPatch).not.toHaveBeenCalled();
+  });
+});
+

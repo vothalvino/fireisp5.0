@@ -3442,7 +3442,13 @@
     "edgeError": "Falha ao criar dependencia",
     "dualHomed": "Dispositivos Dual-Homed",
     "noDualHomed": "Nenhum dispositivo dual-homed encontrado",
-    "uplinks": "Uplinks"
+    "uplinks": "Uplinks",
+    "editPositions": "📍 Editar posições",
+    "donePlacing": "Concluir",
+    "pickHint": "Escolha um dispositivo: clique em um marcador para movê-lo, ou escolha um não posicionado abaixo — depois clique no local no mapa.",
+    "clickToPlace": "Clique no mapa para posicionar “{{name}}”.",
+    "cancelPlacing": "Cancelar",
+    "unpinned": "Não posicionados"
   },
   "inventoryManagement": {
     "title": "Gerenciamento de Inventário e Ativos",

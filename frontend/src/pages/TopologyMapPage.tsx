@@ -13,7 +13,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapContainer, CircleMarker, Polyline, Popup, Tooltip } from 'react-leaflet';
+import { MapContainer, CircleMarker, Polyline, Popup, Tooltip, useMapEvents } from 'react-leaflet';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 import 'leaflet/dist/leaflet.css';
 import { MapTiles } from '@/components/MapTiles';
 import { api } from '@/api/client';
@@ -122,10 +124,42 @@ const selectStyle: React.CSSProperties = {
 // Tab 1 — Network Topology
 // ---------------------------------------------------------------------------
 
+// In edit mode, a map click places the selected device (j68 option C half B).
+function PlaceClickCatcher({ enabled, onPick }: { enabled: boolean; onPick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      if (enabled) onPick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 function NetworkTopologyTab() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const canPlace = can(user, 'devices.update');
   const [layer, setLayer] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [placing, setPlacing] = useState<{ id: number; name: string } | null>(null);
+  const [placeErr, setPlaceErr] = useState('');
+
+  const placeMutation = useMutation({
+    mutationFn: async ({ id, lat, lng }: { id: number; lat: number; lng: number }) => {
+      const res = await api.PATCH('/devices/{id}' as never, {
+        params: { path: { id } },
+        body: { latitude: Number(lat.toFixed(7)), longitude: Number(lng.toFixed(7)) } as never,
+      } as never);
+      if ((res as { error?: unknown }).error) throw new Error('Could not save the position');
+    },
+    onSuccess: () => {
+      setPlaceErr('');
+      setPlacing(null);
+      void qc.invalidateQueries({ queryKey: ['topology-network'] });
+    },
+    onError: (e: Error) => setPlaceErr(e.message),
+  });
 
   const { data: graphData, isLoading } = useQuery({
     queryKey: ['topology-network', layer],
@@ -178,12 +212,54 @@ function NetworkTopologyTab() {
           <option value="l3">L3</option>
           <option value="physical">{t('topologyMap.physical')}</option>
         </select>
+        {canPlace && (
+          <button
+            type="button"
+            onClick={() => { setEditMode(m => !m); setPlacing(null); setPlaceErr(''); }}
+            style={{ ...styles.input, cursor: 'pointer', fontWeight: 600, background: editMode ? 'var(--accent, #ea580c)' : undefined, color: editMode ? '#fff' : undefined }}
+          >
+            {editMode ? t('topologyMap.donePlacing') : t('topologyMap.editPositions')}
+          </button>
+        )}
       </div>
+
+      {editMode && (
+        <div style={{ marginBottom: 10, padding: '8px 12px', border: '1px dashed var(--border-color, #9ca3af)', borderRadius: 8, fontSize: '0.85rem' }}>
+          {placing ? (
+            <span>
+              📍 {t('topologyMap.clickToPlace', { name: placing.name })}{' '}
+              <button type="button" style={{ marginLeft: 8, cursor: 'pointer' }} onClick={() => setPlacing(null)}>{t('topologyMap.cancelPlacing')}</button>
+            </span>
+          ) : (
+            <span>{t('topologyMap.pickHint')}</span>
+          )}
+          {placeErr && <span style={{ color: '#991b1b', marginLeft: 10 }}>{placeErr}</span>}
+          {nodes.some(n => n.latitude == null || n.longitude == null) && (
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <strong style={{ fontSize: '0.78rem' }}>{t('topologyMap.unpinned')}:</strong>
+              {nodes.filter(n => n.latitude == null || n.longitude == null).map(n => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => setPlacing({ id: n.id, name: n.name })}
+                  style={{ fontSize: '0.78rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-color, #d1d5db)', cursor: 'pointer', background: placing?.id === n.id ? 'var(--accent, #ea580c)' : 'transparent', color: placing?.id === n.id ? '#fff' : 'inherit' }}
+                >
+                  {n.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {isLoading && <p>{t('topologyMap.loading')}</p>}
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} style={{ height: 500, borderRadius: 8 }}>
         <MapTiles />
+        <PlaceClickCatcher
+          enabled={editMode && placing !== null}
+          onPick={(lat, lng) => { if (placing) placeMutation.mutate({ id: placing.id, lat, lng }); }}
+        />
 
         {edges.map(edge => {
           const posA = nodePos.get(edge.source);
@@ -211,17 +287,21 @@ function NetworkTopologyTab() {
             <CircleMarker
               key={node.id}
               center={[node.latitude!, node.longitude!]}
-              radius={6}
-              color={deviceColor(node.status)}
-              fillColor={deviceColor(node.status)}
+              radius={placing?.id === node.id ? 9 : 6}
+              color={placing?.id === node.id ? '#ea580c' : deviceColor(node.status)}
+              fillColor={placing?.id === node.id ? '#ea580c' : deviceColor(node.status)}
               fillOpacity={0.8}
+              eventHandlers={editMode ? { click: () => setPlacing({ id: node.id, name: node.name }) } : undefined}
             >
-              <Popup>
-                <strong>{node.name}</strong><br />
-                {node.type} / {node.role}<br />
-                {node.ip_address && <>{node.ip_address}<br /></>}
-                {t('topologyMap.status')}: {node.status}
-              </Popup>
+              {!editMode && (
+                <Popup>
+                  <strong>{node.name}</strong><br />
+                  {node.type} / {node.role}<br />
+                  {node.ip_address && <>{node.ip_address}<br /></>}
+                  {t('topologyMap.status')}: {node.status}
+                </Popup>
+              )}
+              {editMode && <Tooltip>{node.name}</Tooltip>}
             </CircleMarker>
           ))}
       </MapContainer>
