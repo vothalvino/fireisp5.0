@@ -996,6 +996,20 @@ function generateSpec() {
       // ---- Message Templates ----
       ...crudPaths('message-templates', 'Settings', 'MessageTemplate'),
       '/message-templates/{id}/restore': { post: { tags: ['Settings'], summary: 'Restore a soft-deleted message template', operationId: 'restoreMessageTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('MessageTemplate') } },
+      // Legal document templates + on-site signing (migration 447)
+      '/document-templates': {
+        get: { tags: ['Settings'], summary: 'List legal document templates (installation authorization, activation contract, comodato)', operationId: 'listDocumentTemplates', security: [{ bearerAuth: [] }], responses: r200('DocumentTemplate[]') },
+        post: { tags: ['Settings'], summary: 'Create a legal document template', operationId: 'createDocumentTemplate', security: [{ bearerAuth: [] }], requestBody: jsonBody('legalDocuments_createDocumentTemplate'), responses: r201('DocumentTemplate') },
+      },
+      '/document-templates/{id}': {
+        put: { tags: ['Settings'], summary: 'Update a legal document template', operationId: 'updateDocumentTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('legalDocuments_updateDocumentTemplate'), responses: r200('DocumentTemplate') },
+        delete: { tags: ['Settings'], summary: 'Soft-delete a legal document template', operationId: 'deleteDocumentTemplate', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/signed-documents': { get: { tags: ['Settings'], summary: 'List generated legal-document instances (filter by client_id/contract_id/service_order_id/work_order_id/status)', operationId: 'listSignedDocuments', security: [{ bearerAuth: [] }], responses: r200('SignedDocument[] (bodies omitted)') } },
+      '/signed-documents/{id}': { get: { tags: ['Settings'], summary: 'Read one legal-document instance including its frozen body and signature', operationId: 'getSignedDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SignedDocument') } },
+      '/signed-documents/{id}/sign': { post: { tags: ['Settings'], summary: 'Capture the client signature on a pending document (signer name + canvas image; hash-verified)', operationId: 'signDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('legalDocuments_signDocument'), responses: r200('SignedDocument') } },
+      '/signed-documents/{id}/cancel': { post: { tags: ['Settings'], summary: 'Cancel a stale pending document instance', operationId: 'cancelSignedDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SignedDocument') } },
+      '/signed-documents/generate': { post: { tags: ['Settings'], summary: 'Generate pending instances for a service order from the active templates (skips types already covered)', operationId: 'generateSignedDocuments', security: [{ bearerAuth: [] }], requestBody: jsonBody('legalDocuments_generateDocuments'), responses: r201('Generation result') } },
 
       // ---- Audit Logs ----
       '/audit-logs': { get: { tags: ['Audit Logs'], summary: 'List audit log entries', operationId: 'listAuditLogs', security: [{ bearerAuth: [] }], responses: r200('AuditLog[]') } },

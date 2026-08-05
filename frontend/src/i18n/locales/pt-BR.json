@@ -337,7 +337,8 @@
     },
     "dataImport": "Importar CSV",
     "suspensionConsole": "Console de suspensão",
-    "technicianMap": "Mapa de técnicos"
+    "technicianMap": "Mapa de técnicos",
+    "documentTemplates": "Documentos Legais"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -3277,6 +3278,20 @@
       "notes": "Notas",
       "needOne": "Informe pelo menos uma leitura ou marque a isenção.",
       "complete": "Concluir ordem de serviço"
+    },
+    "documents": {
+      "title": "Documentos legais",
+      "pending": "Pendente de assinatura",
+      "openSign": "Ler e assinar",
+      "signTitle": "Assinar documento",
+      "signedBy": "Assinado por {{name}}",
+      "alreadySigned": "Já assinado por {{name}}.",
+      "signerName": "Nome completo do signatário",
+      "signHere": "Assinatura",
+      "signerRequired": "Informe o nome completo do signatário.",
+      "signatureRequired": "Desenhe a assinatura primeiro.",
+      "signing": "Salvando…",
+      "signButton": "Assinar documento"
     }
   },
   "ticketDetail": {
@@ -4942,5 +4957,30 @@
     "enableCheckFirst": "A verificação de atualizações está desativada, portanto não há com o que comparar. Ative-a para implantar daqui.",
     "agentPending": "O agente de implantação ainda não se registrou. Ele é instalado automaticamente pelo redeploy e se registra em cerca de 30 segundos; se isso persistir, execute: journalctl -u fireisp-deploy-agent -n 30",
     "agentPendingWhy": "O agente roda no servidor, fora do Docker. O FireISP nunca recebe permissão para reiniciar a pilha: ele só pode registrar seu pedido, e é por isso que uma invasão aqui não permite assumir o controle da máquina."
+  },
+  "documentTemplates": {
+    "title": "Modelos de Documentos Legais",
+    "intro": "Os textos legais que o fluxo gera e o cliente assina no local: a autorização de instalação (assinada na chegada), o contrato de adesão (assinado ao concluir a instalação) e um anexo de comodato opcional. Cole seu texto registrado — um modelo só gera documentos quando você o ativa.",
+    "new": "Novo modelo",
+    "edit": "Editar modelo",
+    "name": "Nome",
+    "type": "Tipo",
+    "body": "Texto do documento (Markdown)",
+    "status": "Status",
+    "active": "Ativo",
+    "inactive": "Inativo",
+    "activeToggle": "Ativo — gerar este documento em cada nova instalação",
+    "activeHint": "Ativar também arma as validações da ordem de serviço: uma instalação não pode iniciar sem a autorização assinada, nem concluir sem o contrato de adesão assinado.",
+    "placeholders": "Variáveis",
+    "nameRequired": "O nome é obrigatório.",
+    "bodyRequired": "O texto do documento é obrigatório.",
+    "loadError": "Não foi possível carregar os modelos.",
+    "empty": "Ainda não há modelos — crie um e cole seu texto legal.",
+    "types": {
+      "installation_authorization": "Autorização de instalação (na chegada)",
+      "activation_contract": "Contrato de adesão (ativação)",
+      "equipment_comodato": "Comodato de equipamento",
+      "custom": "Personalizado"
+    }
   }
 }

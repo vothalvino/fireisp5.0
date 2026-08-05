@@ -337,7 +337,8 @@
     },
     "dataImport": "Importar CSV",
     "suspensionConsole": "Consola de suspensión",
-    "technicianMap": "Mapa de técnicos"
+    "technicianMap": "Mapa de técnicos",
+    "documentTemplates": "Documentos Legales"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -3277,6 +3278,20 @@
       "notes": "Notas",
       "needOne": "Ingresa al menos una lectura o marca la casilla de exención.",
       "complete": "Completar orden de trabajo"
+    },
+    "documents": {
+      "title": "Documentos legales",
+      "pending": "Pendiente de firma",
+      "openSign": "Leer y firmar",
+      "signTitle": "Firmar documento",
+      "signedBy": "Firmado por {{name}}",
+      "alreadySigned": "Ya firmado por {{name}}.",
+      "signerName": "Nombre completo del firmante",
+      "signHere": "Firma",
+      "signerRequired": "Ingresa el nombre completo del firmante.",
+      "signatureRequired": "Dibuja la firma primero.",
+      "signing": "Guardando…",
+      "signButton": "Firmar documento"
     }
   },
   "ticketDetail": {
@@ -4942,5 +4957,30 @@
     "enableCheckFirst": "La comprobación de actualizaciones está desactivada, así que no hay nada con qué comparar. Actívala para desplegar desde aquí.",
     "agentPending": "El agente de despliegue aún no se ha registrado. Se instala automáticamente con redeploy y se registra en unos 30 segundos; si esto persiste, ejecuta: journalctl -u fireisp-deploy-agent -n 30",
     "agentPendingWhy": "El agente se ejecuta en el servidor, fuera de Docker. FireISP nunca recibe permiso para reiniciar la pila: solo puede registrar tu solicitud, y por eso una intrusión aquí no permite tomar el control de la máquina."
+  },
+  "documentTemplates": {
+    "title": "Plantillas de Documentos Legales",
+    "intro": "Los textos legales que el flujo genera y el cliente firma en sitio: la autorización de instalación (se firma al llegar), el contrato de adhesión (se firma al terminar la instalación) y un anexo de comodato opcional. Pega tu texto registrado ante PROFECO — una plantilla solo genera documentos cuando la activas.",
+    "new": "Nueva plantilla",
+    "edit": "Editar plantilla",
+    "name": "Nombre",
+    "type": "Tipo",
+    "body": "Texto del documento (Markdown)",
+    "status": "Estado",
+    "active": "Activa",
+    "inactive": "Inactiva",
+    "activeToggle": "Activa — generar este documento en cada instalación nueva",
+    "activeHint": "Activarla también arma las validaciones de la orden de trabajo: una instalación no puede iniciar sin la autorización firmada, ni completarse sin el contrato de adhesión firmado.",
+    "placeholders": "Variables",
+    "nameRequired": "El nombre es obligatorio.",
+    "bodyRequired": "El texto del documento es obligatorio.",
+    "loadError": "No se pudieron cargar las plantillas.",
+    "empty": "Aún no hay plantillas — crea una y pega tu texto legal.",
+    "types": {
+      "installation_authorization": "Autorización de instalación (al llegar)",
+      "activation_contract": "Contrato de adhesión (activación)",
+      "equipment_comodato": "Comodato de equipo",
+      "custom": "Personalizada"
+    }
   }
 }

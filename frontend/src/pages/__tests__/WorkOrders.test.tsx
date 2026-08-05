@@ -211,3 +211,62 @@ describe('WorkOrders — install acceptance on Complete', () => {
     ));
   });
 });
+
+// =============================================================================
+// Legal documents panel (migration 447): pending docs surface on installation
+// WOs with a Read & sign action; the modal shows the FROZEN body.
+// =============================================================================
+describe('WorkOrders — legal documents panel', () => {
+  const docsOrder = { ...installOrder, id: 703, service_order_id: 16 };
+
+  function mockDocsPaths({ docs }: { docs: unknown[] }) {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/work-orders') {
+        return Promise.resolve({ data: { data: [docsOrder], meta: { total: 1, page: 1, limit: 25 } }, error: undefined });
+      }
+      if (path === '/signed-documents') {
+        return Promise.resolve({ data: { data: docs }, error: undefined });
+      }
+      if (path === '/signed-documents/{id}') {
+        return Promise.resolve({
+          data: { data: { id: 9, title: 'Autorización de instalación', status: 'pending', signer_name: null, signed_at: null, template_type: 'installation_authorization', rendered_body: 'Yo **María** autorizo la instalación en Calle 1.' } },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+  }
+
+  it('lists pending documents on an expanded installation WO and opens the sign modal with the frozen text', async () => {
+    mockDocsPaths({ docs: [{ id: 9, template_type: 'installation_authorization', title: 'Autorización de instalación', status: 'pending', signer_name: null, signed_at: null }] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText('Autorización de instalación')).toBeInTheDocument();
+    expect(screen.getByText('Pending signature')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Read & sign'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign document' });
+    expect(await within(dialog).findByText(/autorizo la instalación en Calle 1/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Sign document')).toBeInTheDocument();
+  });
+
+  it('shows signed state instead of a sign button once signed', async () => {
+    mockDocsPaths({ docs: [{ id: 9, template_type: 'installation_authorization', title: 'Autorización de instalación', status: 'signed', signer_name: 'María F.', signed_at: '2026-08-05' }] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText(/Signed by María F\./)).toBeInTheDocument();
+    expect(screen.queryByText('Read & sign')).not.toBeInTheDocument();
+  });
+
+  it('renders no panel at all when the order has no documents', async () => {
+    mockDocsPaths({ docs: [] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+    await waitFor(() => expect(screen.queryByText('Legal documents')).not.toBeInTheDocument());
+  });
+});

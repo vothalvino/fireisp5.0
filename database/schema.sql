@@ -14151,3 +14151,91 @@ CREATE TABLE IF NOT EXISTS organization_settings (
     CONSTRAINT fk_org_settings_org FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: document_templates
+-- Purpose: Per-org legal document templates (installation authorization,
+--          activation contract / contrato de adhesion, comodato) rendered
+--          with {{placeholders}} and signed on-site (migration 447).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS document_templates (
+      id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      organization_id BIGINT UNSIGNED NULL
+                          COMMENT 'Tenant organization; NULL = single-tenant deployment',
+      template_type   ENUM('installation_authorization','activation_contract','equipment_comodato','custom')
+                          NOT NULL DEFAULT 'custom'
+                          COMMENT 'Flow hook: installation_authorization gates WO start, activation_contract gates WO completion',
+      name            VARCHAR(200)    NOT NULL,
+      body_md         MEDIUMTEXT      NOT NULL
+                          COMMENT 'Markdown with {{placeholders}} (client.*, contract.*, plan.*, order.*, org.*, date)',
+      is_active       TINYINT(1)      NOT NULL DEFAULT 0
+                          COMMENT 'Only active templates generate instances; ship OFF so the ISP must review its legal text first',
+      created_by      BIGINT UNSIGNED NULL,
+      created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at      DATETIME        NULL,
+      PRIMARY KEY (id),
+      KEY idx_document_templates_org (organization_id),
+      KEY idx_document_templates_type (template_type),
+      KEY idx_document_templates_deleted (deleted_at),
+      CONSTRAINT fk_document_templates_org FOREIGN KEY (organization_id)
+          REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_document_templates_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: signed_documents
+-- Purpose: Generated legal-document instances: rendered body frozen + hashed
+--          at generation, client signature captured on the technician's
+--          device (migration 447).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS signed_documents (
+      id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      organization_id  BIGINT UNSIGNED NULL,
+      client_id        BIGINT UNSIGNED NOT NULL,
+      contract_id      BIGINT UNSIGNED NULL,
+      service_order_id BIGINT UNSIGNED NULL,
+      work_order_id    BIGINT UNSIGNED NULL,
+      template_id      BIGINT UNSIGNED NULL
+                           COMMENT 'Source template; SET NULL if the template is later deleted — the frozen body below is authoritative',
+      template_type    ENUM('installation_authorization','activation_contract','equipment_comodato','custom')
+                           NOT NULL DEFAULT 'custom',
+      title            VARCHAR(200)    NOT NULL,
+      rendered_body    MEDIUMTEXT      NOT NULL
+                           COMMENT 'Placeholder-substituted Markdown FROZEN at generation — what the client actually saw and signed',
+      content_sha256   CHAR(64)        NOT NULL
+                           COMMENT 'SHA-256 of rendered_body, stamped at generation and re-verified at signing',
+      status           ENUM('pending','signed','declined','cancelled') NOT NULL DEFAULT 'pending',
+      signer_name      VARCHAR(200)    NULL,
+      signature_image  MEDIUMTEXT      NULL
+                           COMMENT 'PNG data-URL of the on-screen signature stroke',
+      signed_at        DATETIME        NULL,
+      signed_ip        VARCHAR(45)     NULL,
+      created_by       BIGINT UNSIGNED NULL,
+      created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at       DATETIME        NULL,
+      PRIMARY KEY (id),
+      KEY idx_signed_documents_org (organization_id),
+      KEY idx_signed_documents_client (client_id),
+      KEY idx_signed_documents_contract (contract_id),
+      KEY idx_signed_documents_so (service_order_id),
+      KEY idx_signed_documents_wo (work_order_id),
+      KEY idx_signed_documents_status (status),
+      KEY idx_signed_documents_deleted (deleted_at),
+      CONSTRAINT fk_signed_documents_org FOREIGN KEY (organization_id)
+          REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_client FOREIGN KEY (client_id)
+          REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_contract FOREIGN KEY (contract_id)
+          REFERENCES contracts (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_so FOREIGN KEY (service_order_id)
+          REFERENCES service_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_wo FOREIGN KEY (work_order_id)
+          REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_template FOREIGN KEY (template_id)
+          REFERENCES document_templates (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
