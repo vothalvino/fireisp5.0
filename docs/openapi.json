@@ -41466,6 +41466,78 @@
         }
       }
     },
+    "/work-orders/{id}/test-window/start": {
+      "post": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Open the install test window: temporarily enable the pending contract RADIUS account for on-site testing (bounded by install_test_window_minutes)",
+        "operationId": "startTestWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Window state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work-orders/{id}/test-window/end": {
+      "post": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Close the install test window: disable the account again and disconnect the session",
+        "operationId": "endTestWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Window state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/work-orders/{id}/restore": {
       "post": {
         "tags": [

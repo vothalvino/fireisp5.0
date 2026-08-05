@@ -267,7 +267,7 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
       );
     });
 
-    test('suspended contract → RADIUS account becomes disabled (FreeRADIUS rejects auth)', async () => {
+    test('suspended contract → RADIUS account becomes inactive (FreeRADIUS rejects auth)', async () => {
       db.query
         .mockResolvedValueOnce([[{
           contract_id: 11,
@@ -284,10 +284,13 @@ describe('PPPoE Auth Flow — FireISP RADIUS service (unit)', () => {
       const result = await radiusService.syncAccount(11);
 
       expect(result.synced).toBe(true);
-      expect(result.status).toBe('disabled');
+      // 'inactive' since the migration-448 PR: the previous 'disabled' literal
+      // was NOT a member of radius.status ENUM('active','inactive','suspended')
+      // — in strict-mode MySQL every non-active sync errored.
+      expect(result.status).toBe('inactive');
       expect(db.query).toHaveBeenCalledWith(
         'UPDATE radius SET status = ? WHERE id = ?',
-        ['disabled', 2],
+        ['inactive', 2],
       );
     });
 

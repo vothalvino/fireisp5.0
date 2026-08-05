@@ -3292,6 +3292,15 @@
       "signatureRequired": "Dibuja la firma primero.",
       "signing": "Guardando…",
       "signButton": "Firmar documento"
+    },
+    "testWindow": {
+      "title": "Ventana de prueba",
+      "start": "Iniciar ventana de prueba",
+      "end": "Terminar ventana de prueba",
+      "lineDown": "La línea está inactiva hasta la activación — abre una ventana de prueba para verificar la instalación (incluye speedtest).",
+      "openUntil": "Internet de prueba ACTIVO hasta {{time}}",
+      "failed": "Falló la acción de la ventana de prueba",
+      "hint": "Internet temporal en el contrato pendiente. Se cierra automáticamente al llegar al límite, al Terminar o en la activación formal."
     }
   },
   "ticketDetail": {

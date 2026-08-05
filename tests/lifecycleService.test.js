@@ -550,7 +550,8 @@ describe('completeOrder', () => {
 
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]]) // FOR UPDATE lock
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts -> active
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts -> active (+ clears test window, migration 448)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> active (formal activation turns the line on)
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders -> done
 
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]); // final re-fetch (pool, post-commit)
@@ -579,6 +580,7 @@ describe('completeOrder', () => {
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]]) // lock
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> active (migration 448)
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE service_orders
 
     billingService.createOneOffInvoice.mockResolvedValue({ id: 5, invoice_number: 'INV-000005', total: 580 });

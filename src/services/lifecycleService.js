@@ -544,10 +544,22 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
       // here and rolls back the whole transaction — app.js's global error
       // handler already maps ER_SIGNAL_EXCEPTION/errno 1644 to a 422
       // (src/app.js:732-737), so it propagates as a client error, not a 500.
-      await conn.query(
-        "UPDATE contracts SET status = 'active' WHERE id = ? AND status = 'pending'",
+      const [activation] = await conn.query(
+        "UPDATE contracts SET status = 'active', test_window_expires_at = NULL WHERE id = ? AND status = 'pending'",
         [order.contract_id],
       );
+      // Formal activation is what turns the line on permanently (migration
+      // 448: provisioning creates the account inactive, the technician's test
+      // window is temporary). Same transaction as the status flip — and ONLY
+      // when the flip actually happened: a non-pending contract (already
+      // active, or cancelled out from under the order) must not have its
+      // account force-enabled here.
+      if (activation.affectedRows > 0) {
+        await conn.query(
+          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL",
+          [order.contract_id],
+        );
+      }
     }
 
     if (billing === 'create_invoice') {

@@ -350,6 +350,59 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Install test window (migration 448) — the technician's bounded internet for
+// on-site testing before formal activation. Both actions resolve the WO first
+// so the actor works from the visit they are standing in, not a raw contract
+// id; the service enforces contract-pending + RADIUS-account rules.
+// ---------------------------------------------------------------------------
+async function resolveInstallWo(req, res) {
+  const [[wo]] = await db.query(
+    'SELECT * FROM work_orders WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+    [req.params.id, req.orgId],
+  );
+  if (!wo) { res.status(404).json({ error: 'Work order not found' }); return null; }
+  if (wo.work_type !== 'installation' || !wo.contract_id) {
+    res.status(422).json({ error: 'The test window applies to installation work orders linked to a contract' });
+    return null;
+  }
+  return wo;
+}
+
+router.post('/:id/test-window/start', requirePermission('work_orders.update'), async (req, res, next) => {
+  try {
+    const wo = await resolveInstallWo(req, res);
+    if (!wo) return;
+    const testWindowService = require('../services/testWindowService');
+    const result = await testWindowService.startWindow(wo.contract_id, {
+      orgId: req.orgId, performedBy: req.user?.id ?? null,
+    });
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'test_window_start',
+      tableName: 'contracts', recordId: wo.contract_id,
+      newValues: { expires_at: result.expires_at, work_order_id: wo.id },
+    }).catch(() => {});
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/test-window/end', requirePermission('work_orders.update'), async (req, res, next) => {
+  try {
+    const wo = await resolveInstallWo(req, res);
+    if (!wo) return;
+    const testWindowService = require('../services/testWindowService');
+    const result = await testWindowService.endWindow(wo.contract_id, {
+      orgId: req.orgId, reason: 'manual',
+    });
+    await auditLog.log({
+      userId: req.user?.id, organizationId: req.orgId, action: 'test_window_end',
+      tableName: 'contracts', recordId: wo.contract_id,
+      newValues: { work_order_id: wo.id },
+    }).catch(() => {});
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
 // DELETE /work-orders/:id
 router.delete('/:id', requirePermission('work_orders.delete'), async (req, res, next) => {
   try {

@@ -2323,6 +2323,8 @@ function generateSpec() {
         },
         post: { tags: ['Work Orders'], summary: 'Create a WorkOrder', operationId: 'createWorkOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('WorkOrder'), responses: r201('WorkOrder') },
       },
+      '/work-orders/{id}/test-window/start': { post: { tags: ['Work Orders'], summary: 'Open the install test window: temporarily enable the pending contract RADIUS account for on-site testing (bounded by install_test_window_minutes)', operationId: 'startTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Window state') } },
+      '/work-orders/{id}/test-window/end': { post: { tags: ['Work Orders'], summary: 'Close the install test window: disable the account again and disconnect the session', operationId: 'endTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Window state') } },
       '/work-orders/{id}/restore': {
         post: { tags: ['Work Orders'], summary: 'Restore a soft-deleted work order', operationId: 'restoreWorkOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrder') },
       },
