@@ -56751,6 +56751,16 @@
             "type": "string",
             "maximum": 45
           },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
           "snmp_enabled": {
             "type": "boolean"
           },
@@ -56860,6 +56870,16 @@
             "type": "string",
             "maximum": 45
           },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
           "snmp_enabled": {
             "type": "boolean"
           },
@@ -56964,6 +56984,16 @@
           "ipv6_address": {
             "type": "string",
             "maximum": 45
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
           },
           "snmp_enabled": {
             "type": "boolean"
@@ -63448,6 +63478,14 @@
           "cfdi_serie_pago": {
             "type": "string",
             "maximum": 10
+          },
+          "profeco_registro": {
+            "type": "string",
+            "maximum": 50
+          },
+          "carta_derechos_url": {
+            "type": "string",
+            "maximum": 500
           }
         },
         "required": [

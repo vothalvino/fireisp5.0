@@ -28,7 +28,7 @@ const TYPES: DocumentTemplate['template_type'][] = [
   'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom',
 ];
 
-const PLACEHOLDER_HELP = '{{client.name}} {{client.address}} {{client.rfc}} {{client.curp}} {{client.razon_social}} {{contract.id}} {{plan.name}} {{plan.price}} {{order.number}} {{order.address}} {{org.name}} {{org.razon_social}} {{org.rfc}} {{date}}';
+const PLACEHOLDER_HELP = '{{client.name}} {{client.address}} {{client.rfc}} {{client.curp}} {{client.razon_social}} {{contract.id}} {{plan.name}} {{plan.price}} {{order.number}} {{order.address}} {{org.name}} {{org.razon_social}} {{org.rfc}} {{org.profeco_registro}} {{org.carta_derechos_url}} {{date}}';
 
 async function fetchTemplates(): Promise<DocumentTemplate[]> {
   const res = await (api.GET as unknown as (p: string) => Promise<{ data?: unknown; error?: unknown }>)('/document-templates');

@@ -27,6 +27,9 @@
 // =============================================================================
 
 const crypto = require('crypto');
+
+// Official IFT document used when the org has not configured its own copy.
+const CARTA_DERECHOS_DEFAULT_URL = 'https://www.ift.org.mx/usuarios-y-audiencias/carta-de-derechos-minimos-de-los-usuarios';
 const db = require('../config/database');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 
@@ -87,6 +90,8 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
     org: {
       name: org?.name, legal_name: org?.legal_name, phone: org?.phone, email: org?.email,
       rfc: orgMx?.rfc, razon_social: orgMx?.razon_social,
+      profeco_registro: orgMx?.profeco_registro,
+      carta_derechos_url: orgMx?.carta_derechos_url || CARTA_DERECHOS_DEFAULT_URL,
     },
   };
 }

@@ -56,7 +56,7 @@ describe('generateForOrder', () => {
       if (/FROM plans WHERE/.test(s)) return [[{ id: 2, name: 'Inalambrico 50', price: '400.00' }]];
       if (/FROM service_orders WHERE/.test(s)) return [[{ id: 16, order_number: 'SO-000016', address: 'Calle 1, CDMX' }]];
       if (/FROM organizations WHERE/.test(s)) return [[{ id: 42, name: 'MX ISP', legal_name: 'MX ISP SA' }]];
-      if (/FROM organization_mx_profiles/.test(s)) return [[{ rfc: 'AAA010101AAA', razon_social: 'MX ISP SA de CV' }]];
+      if (/FROM organization_mx_profiles/.test(s)) return [[{ rfc: 'AAA010101AAA', razon_social: 'MX ISP SA de CV', profeco_registro: state.profeco ?? null, carta_derechos_url: null }]];
       if (/FROM client_mx_profiles/.test(s)) return [[{ rfc: 'FAPM900215AB7' }]];
       if (/^INSERT INTO signed_documents/.test(s.trim())) {
         state.inserts.push(sql);
@@ -106,6 +106,23 @@ describe('generateForOrder', () => {
       orgId: null, clientId: 9, contractId: 33, orderId: 16, workOrderId: null, createdBy: 1,
     });
     expect(created).toEqual([]);
+  });
+
+  it('renders {{org.profeco_registro}} and defaults {{org.carta_derechos_url}} to the official IFT document', async () => {
+    const state = {
+      profeco: 'PROFECO-4321-2026',
+      templates: [{ id: 3, template_type: 'activation_contract', name: 'Contrato', body_md: 'Registro {{org.profeco_registro}} — derechos: {{org.carta_derechos_url}}' }],
+      inserts: [],
+    };
+    let renderedBody = null;
+    const base = runner(state);
+    const run = async (sql, params) => {
+      if (/^INSERT INTO signed_documents/.test(String(sql).replace(/\s+/g, ' ').trim())) renderedBody = params[8];
+      return base(sql, params);
+    };
+    await svc.generateForOrder(run, { orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1 });
+    expect(renderedBody).toContain('Registro PROFECO-4321-2026');
+    expect(renderedBody).toContain('https://www.ift.org.mx/');
   });
 
   it('returns [] and reads nothing else when no template is active', async () => {

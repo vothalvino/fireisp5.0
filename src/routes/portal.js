@@ -737,6 +737,32 @@ router.get('/usage/allowance', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // GET /portal/dashboard — account overview (plan, balance, session, speed tier)
+// Legal info for the portal footer: the client's compliance locale and where
+// the Carta de Derechos Minimos lives (org override or the official IFT
+// document). Read-only, tiny, safe to poll.
+router.get('/legal-info', async (req, res, next) => {
+  try {
+    // req.client (portalAuthenticate) deliberately carries only the identity
+    // columns — locale is NOT among them, so read it here alongside the org's
+    // configured Carta URL in one round trip.
+    const [rows] = await db.query(
+      `SELECT c.locale, omp.carta_derechos_url
+       FROM clients c
+       LEFT JOIN organization_mx_profiles omp
+         ON omp.organization_id = c.organization_id AND omp.deleted_at IS NULL
+       WHERE c.id = ? AND c.deleted_at IS NULL`,
+      [req.client.id],
+    );
+    res.json({
+      data: {
+        locale: rows[0]?.locale || 'global',
+        carta_derechos_url: rows[0]?.carta_derechos_url
+          || 'https://www.ift.org.mx/usuarios-y-audiencias/carta-de-derechos-minimos-de-los-usuarios',
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/dashboard', async (req, res, next) => {
   try {
     const clientId = req.client.id;

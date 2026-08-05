@@ -511,6 +511,8 @@ interface OrgMxProfile {
   razon_social: string;
   regimen_fiscal: string;
   codigo_postal_fiscal: string;
+  profeco_registro: string | null;
+  carta_derechos_url: string | null;
   colonia: string | null;
   municipio: string | null;
   exterior_number: string | null;
@@ -562,6 +564,8 @@ function FiscalTab({ id }: { id: number }) {
         regimen_fiscal: p?.regimen_fiscal ?? '', codigo_postal_fiscal: p?.codigo_postal_fiscal ?? '',
         colonia: p?.colonia ?? '', municipio: p?.municipio ?? '',
         exterior_number: p?.exterior_number ?? '', interior_number: p?.interior_number ?? '',
+        profeco_registro: p?.profeco_registro ?? '',
+        carta_derechos_url: p?.carta_derechos_url ?? '',
         cfdi_serie_ingreso: p?.cfdi_serie_ingreso ?? 'A',
         cfdi_serie_egreso: p?.cfdi_serie_egreso ?? 'E',
         cfdi_serie_pago: p?.cfdi_serie_pago ?? 'P',
@@ -581,7 +585,7 @@ function FiscalTab({ id }: { id: number }) {
       // Address fields are ALWAYS sent: the backend treats a present-but-empty
       // value as "clear to NULL" and an omitted key as "leave unchanged" — so
       // clearing an input genuinely clears the stored value.
-      for (const k of ['colonia', 'municipio', 'exterior_number', 'interior_number']) {
+      for (const k of ['colonia', 'municipio', 'exterior_number', 'interior_number', 'profeco_registro', 'carta_derechos_url']) {
         body[k] = (form[k] ?? '').trim();
       }
       // Serie columns are NOT NULL — only send a replacement value.
@@ -653,6 +657,14 @@ function FiscalTab({ id }: { id: number }) {
           onChange={e => setForm(p => ({ ...p, codigo_postal_fiscal: e.target.value }))} />
       </label>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+        <label style={label}>{t('orgDetail.fiscalProfeco')}
+          <input style={input} maxLength={50} value={form.profeco_registro ?? ''} placeholder="PROFECO 1234-2026"
+            onChange={e => setForm(p => ({ ...p, profeco_registro: e.target.value }))} />
+        </label>
+        <label style={label}>{t('orgDetail.fiscalCartaUrl')}
+          <input style={input} maxLength={500} value={form.carta_derechos_url ?? ''} placeholder="https://…"
+            onChange={e => setForm(p => ({ ...p, carta_derechos_url: e.target.value }))} />
+        </label>
         <label style={label}>{t('orgDetail.fiscalColonia')}
           <input style={input} maxLength={150} value={form.colonia ?? ''} onChange={e => setForm(p => ({ ...p, colonia: e.target.value }))} />
         </label>
