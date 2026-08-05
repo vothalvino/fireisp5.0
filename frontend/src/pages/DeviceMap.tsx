@@ -50,6 +50,8 @@ export interface Site {
 export interface Device {
   id: number;
   site_id: number | null;
+  latitude: number | null;
+  longitude: number | null;
   name: string;
   type: string;
   manufacturer: string | null;
@@ -501,6 +503,8 @@ export function DeviceFormModal({ mode, device, sites, onClose, onSaved }: Devic
     snmp_version: device?.snmp_version ?? 'v2c',
     snmp_port: device?.snmp_port != null ? String(device.snmp_port) : '161',
     snmp_profile_id: device?.snmp_profile_id != null ? String(device.snmp_profile_id) : '',
+    latitude: device?.latitude != null ? String(device.latitude) : '',
+    longitude: device?.longitude != null ? String(device.longitude) : '',
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -534,6 +538,16 @@ export function DeviceFormModal({ mode, device, sites, onClose, onSaved }: Devic
     (['manufacturer', 'model', 'serial_number', 'mac_address', 'ip_address'] as const).forEach(k => {
       const v = form[k].trim();
       if (v) body[k] = v;
+    });
+    // Map pin (j68): explicit-clear-vs-omit — a blanked coordinate on edit
+    // clears the pin; untouched-empty on create is simply omitted.
+    (['latitude', 'longitude'] as const).forEach(k => {
+      const v = form[k].trim();
+      if (v !== '') {
+        (body as Record<string, unknown>)[k] = Number(v);
+      } else if (mode === 'edit' && device?.[k] != null) {
+        (body as Record<string, unknown>)[k] = null;
+      }
     });
     body.snmp_enabled = form.snmp_enabled;
     if (form.snmp_enabled) {
@@ -603,6 +617,19 @@ export function DeviceFormModal({ mode, device, sites, onClose, onSaved }: Devic
             <div>
               <label style={labelStyle}>IP Address</label>
               <input style={inputStyle} type="text" value={form.ip_address} onChange={set('ip_address')} maxLength={45} />
+            </div>
+          </div>
+
+          <div style={twoCol}>
+            <div>
+              <label style={labelStyle}>Latitude</label>
+              <input style={inputStyle} type="number" step="0.0000001" min={-90} max={90}
+                placeholder="19.4326" value={form.latitude} onChange={set('latitude')} />
+            </div>
+            <div>
+              <label style={labelStyle}>Longitude</label>
+              <input style={inputStyle} type="number" step="0.0000001" min={-180} max={180}
+                placeholder="-99.1332" value={form.longitude} onChange={set('longitude')} />
             </div>
           </div>
 
