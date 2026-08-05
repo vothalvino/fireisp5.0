@@ -3439,7 +3439,13 @@
     "edgeError": "Error al crear dependencia",
     "dualHomed": "Dispositivos Dual-Homed",
     "noDualHomed": "No se encontraron dispositivos dual-homed",
-    "uplinks": "Uplinks"
+    "uplinks": "Uplinks",
+    "editPositions": "📍 Editar posiciones",
+    "donePlacing": "Terminar",
+    "pickHint": "Elige un dispositivo: haz clic en un marcador para moverlo, o elige uno sin ubicar abajo — luego haz clic en su ubicación en el mapa.",
+    "clickToPlace": "Haz clic en el mapa para ubicar “{{name}}”.",
+    "cancelPlacing": "Cancelar",
+    "unpinned": "Sin ubicar"
   },
   "inventoryManagement": {
     "title": "Inventario y Gestión de Activos",

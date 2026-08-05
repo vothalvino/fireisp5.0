@@ -3439,7 +3439,13 @@
     "edgeError": "Failed to create edge",
     "dualHomed": "Dual-Homed Devices",
     "noDualHomed": "No dual-homed devices found",
-    "uplinks": "Uplinks"
+    "uplinks": "Uplinks",
+    "editPositions": "📍 Edit positions",
+    "donePlacing": "Done placing",
+    "pickHint": "Pick a device: click a marker to move it, or choose an unpinned device below — then click its location on the map.",
+    "clickToPlace": "Click the map to place “{{name}}”.",
+    "cancelPlacing": "Cancel",
+    "unpinned": "Unpinned devices"
   },
   "inventoryManagement": {
     "title": "Inventory & Asset Management",
