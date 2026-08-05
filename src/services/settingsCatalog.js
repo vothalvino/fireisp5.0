@@ -46,6 +46,14 @@ const ORG_SETTING_DEFS = {
       return Number.isInteger(n) && n > 0 ? null : 'must be a positive integer';
     },
   },
+  install_test_window_minutes: {
+    default: '60',
+    description: 'Minutes of temporary internet the technician gets on a pending contract to test the install (speed test included) before formal activation. The line is disabled again when the window ends.',
+    validate(value) {
+      const n = Number(value);
+      return Number.isInteger(n) && n >= 5 && n <= 480 ? null : 'must be an integer between 5 and 480';
+    },
+  },
   billing_followup_days: {
     default: '3',
     description: 'Days after a service order completes before a follow-up ticket is auto-created for the billing team to check in with the client (service working well, happy with the install). 0 disables the follow-up for this organization.',

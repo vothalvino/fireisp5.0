@@ -3292,6 +3292,15 @@
       "signatureRequired": "Draw the signature first.",
       "signing": "Saving…",
       "signButton": "Sign document"
+    },
+    "testWindow": {
+      "title": "Test window",
+      "start": "Start test window",
+      "end": "End test window",
+      "lineDown": "Line is down until activation — open a test window to verify the install (speed test included).",
+      "openUntil": "Test internet ON until {{time}}",
+      "failed": "Test window action failed",
+      "hint": "Temporary internet on the pending contract. Closes automatically at the limit, on End, or at formal activation."
     }
   },
   "ticketDetail": {

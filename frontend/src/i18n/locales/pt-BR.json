@@ -3292,6 +3292,15 @@
       "signatureRequired": "Desenhe a assinatura primeiro.",
       "signing": "Salvando…",
       "signButton": "Assinar documento"
+    },
+    "testWindow": {
+      "title": "Janela de teste",
+      "start": "Iniciar janela de teste",
+      "end": "Encerrar janela de teste",
+      "lineDown": "A linha fica inativa até a ativação — abra uma janela de teste para verificar a instalação (inclui teste de velocidade).",
+      "openUntil": "Internet de teste ATIVA até {{time}}",
+      "failed": "Falha na ação da janela de teste",
+      "hint": "Internet temporária no contrato pendente. Fecha automaticamente no limite, ao Encerrar ou na ativação formal."
     }
   },
   "ticketDetail": {

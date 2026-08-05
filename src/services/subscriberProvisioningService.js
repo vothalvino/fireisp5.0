@@ -237,8 +237,12 @@ async function provisionNewContract(runner, contract, { seed, pppoeUsername, ppp
       // caller's already-resolved org — the same value used to pick the IP pools
       // above — and the contract was loaded under it, so it cannot disagree with
       // the client's owning org.
+      // 'inactive' since migration 448: a pending contract's line is DOWN
+      // until the technician's bounded test window or formal activation —
+      // radiusServerService.findSubscriber authenticates on radius.status
+      // alone, so 'active' here meant free unbounded internet pre-activation.
       `INSERT INTO radius (organization_id, client_id, contract_id, username, password, ipv4_pool_id, ipv6_pool_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'inactive')`,
       [organizationId, contract.client_id, contract.id, username, password, ipv4PoolId, ipv6PoolId],
     );
 

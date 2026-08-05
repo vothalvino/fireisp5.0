@@ -57,8 +57,12 @@ async function syncAccount(contractId) {
     return { synced: false, message: 'No RADIUS account for this contract' };
   }
 
-  // Sync status: if contract is active, radius should be active; if suspended, disabled
-  const expectedStatus = row.contract_status === 'active' ? 'active' : 'disabled';
+  // Sync status: if contract is active, radius should be active; anything
+  // else maps to 'inactive' — the enum is ('active','inactive','suspended')
+  // and the previous 'disabled' literal was NOT a member: in strict-mode
+  // MySQL every non-active sync errored, invisibly to sql:check because the
+  // value travels through a bind parameter.
+  const expectedStatus = row.contract_status === 'active' ? 'active' : 'inactive';
   if (row.radius_status !== expectedStatus) {
     await db.query('UPDATE radius SET status = ? WHERE id = ?', [expectedStatus, row.radius_id]);
   }

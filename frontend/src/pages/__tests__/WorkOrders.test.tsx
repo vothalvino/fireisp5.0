@@ -275,3 +275,61 @@ describe('WorkOrders — legal documents panel', () => {
     await waitFor(() => expect(screen.queryByText('Legal documents')).not.toBeInTheDocument());
   });
 });
+
+// =============================================================================
+// Install test window (migration 448): pending contract → start/end controls;
+// active contract → panel absent (activation owns the line).
+// =============================================================================
+describe('WorkOrders — install test window', () => {
+  function mockWindowPaths({ contract }: { contract: { status: string; test_window_expires_at: string | null } }) {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/work-orders') {
+        return Promise.resolve({ data: { data: [{ ...installOrder, id: 704, contract_id: 901, service_order_id: 16 }], meta: { total: 1, page: 1, limit: 25 } }, error: undefined });
+      }
+      if (path === '/contracts/{id}') {
+        return Promise.resolve({ data: { data: contract }, error: undefined });
+      }
+      if (path === '/signed-documents') {
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue(jsonResponse({ data: { expires_at: 'x' } }));
+  }
+
+  it('offers Start on a pending contract with the line down, and posts the start action', async () => {
+    mockWindowPaths({ contract: { status: 'pending', test_window_expires_at: null } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText(/Line is down until activation/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Start test window'));
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/work-orders/704/test-window/start',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+  });
+
+  it('shows the open window with its bound and an End action', async () => {
+    mockWindowPaths({ contract: { status: 'pending', test_window_expires_at: '2026-08-05 12:30:00' } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText(/Test internet ON until 12:30/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('End test window'));
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/work-orders/704/test-window/end',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+  });
+
+  it('renders no panel once the contract is active', async () => {
+    mockWindowPaths({ contract: { status: 'active', test_window_expires_at: null } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+    await waitFor(() => expect(screen.queryByText('Test window')).not.toBeInTheDocument());
+  });
+});

@@ -587,6 +587,74 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Install test window (migration 448) — bounded internet for on-site testing
+// before formal activation. Pending contracts are otherwise DOWN.
+// ---------------------------------------------------------------------------
+function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; contractId: number }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [err, setErr] = useState('');
+
+  const contractQ = useQuery({
+    queryKey: ['wo-test-window-contract', contractId],
+    queryFn: async () => {
+      const res = await (api.GET as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+        '/contracts/{id}', { params: { path: { id: contractId } } },
+      );
+      if (res.error) throw new Error('unavailable');
+      return (res.data as { data: { status: string; test_window_expires_at: string | null } }).data;
+    },
+    retry: false,
+    refetchInterval: (q) => ((q.state.data as { test_window_expires_at: string | null } | undefined)?.test_window_expires_at ? 60_000 : false),
+  });
+
+  const act = useMutation({
+    mutationFn: async (action: 'start' | 'end') => {
+      const resp = await authedFetch(`/api/v1/work-orders/${workOrderId}/test-window/${action}`, { method: 'POST' });
+      if (!resp.ok) throw new Error(await errorMessage(resp, t('workOrders.testWindow.failed', 'Test window action failed')));
+    },
+    onSuccess: () => { setErr(''); void qc.invalidateQueries({ queryKey: ['wo-test-window-contract', contractId] }); },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  if (contractQ.isError || contractQ.isLoading) return null;
+  const c = contractQ.data;
+  if (!c || c.status !== 'pending') return null; // activation owns the line from there
+
+  const windowOpen = Boolean(c.test_window_expires_at);
+  return (
+    <div style={{ padding: '0.5rem 1rem 0.25rem' }}>
+      <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.testWindow.title')}</strong>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: '0.82rem', flexWrap: 'wrap' }}>
+        {windowOpen ? (
+          <>
+            <span style={{ color: 'var(--accent, #16a34a)' }}>
+              🟢 {t('workOrders.testWindow.openUntil', { time: (c.test_window_expires_at ?? '').slice(11, 16) })}
+            </span>
+            <button style={{ ...styles.btnSecondary, padding: '3px 12px', fontSize: '0.78rem' }}
+              disabled={act.isPending} onClick={() => act.mutate('end')}>
+              {t('workOrders.testWindow.end')}
+            </button>
+          </>
+        ) : (
+          <>
+            <span style={{ color: 'var(--text-secondary)' }}>{t('workOrders.testWindow.lineDown')}</span>
+            <button style={{ ...styles.btnPrimary, padding: '3px 12px', fontSize: '0.78rem' }}
+              disabled={act.isPending} onClick={() => act.mutate('start')}>
+              {t('workOrders.testWindow.start')}
+            </button>
+          </>
+        )}
+        {err && <span style={{ color: '#991b1b' }}>{err}</span>}
+      </div>
+      <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+        {t('workOrders.testWindow.hint')}
+      </p>
+    </div>
+  );
+}
+
 function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; serviceOrderId: number | null }) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -991,6 +1059,9 @@ export function WorkOrders() {
                       {expandedId === wo.id && (
                         <tr key={`${wo.id}-materials`}>
                           <td colSpan={8} style={{ padding: 0 }}>
+                            {wo.work_type === 'installation' && wo.contract_id !== null && (
+                              <TestWindowPanel workOrderId={wo.id} contractId={wo.contract_id} />
+                            )}
                             {wo.work_type === 'installation' && (
                               <DocumentsPanel workOrderId={wo.id} serviceOrderId={wo.service_order_id} />
                             )}

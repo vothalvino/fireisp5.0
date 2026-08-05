@@ -471,6 +471,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     end_date       DATE            NULL,
     billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
                        CHECK (billing_day BETWEEN 1 AND 28),
+    test_window_expires_at DATETIME NULL
+                       COMMENT 'Technician test window bound: while set on a PENDING contract its RADIUS account is temporarily active; cleared on activation/window end; swept by test_window_expiry (migration 448)',
     ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
@@ -505,6 +507,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_plan_id (plan_id),
     KEY idx_contracts_site_id (site_id),
     KEY idx_contracts_connection_type (connection_type),
+    KEY idx_contracts_test_window (test_window_expires_at),
     KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
     KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
@@ -6072,6 +6075,24 @@ VALUES
      'notification',
      'Create the post-install client check-in ticket for the billing team, billing_followup_days days after a service order completes',
      '15 * * * *',
+     'normal',
+     TRUE);
+
+-- ---------------------------------------------------------------------------
+-- Seed: install test-window expiry sweep (migration 448)
+-- ---------------------------------------------------------------------------
+-- Closes expired technician test windows on PENDING contracts. Requires the
+-- matching case in src/services/taskRunner.js; a seeded task with no case
+-- never runs, silently.
+INSERT IGNORE INTO scheduled_tasks
+    (organization_id, task_name, task_type, description, cron_expression,
+     priority, is_enabled)
+VALUES
+    (NULL,
+     'test_window_expiry',
+     'maintenance',
+     'Close expired install test windows: disable the RADIUS account and disconnect the session of pending contracts whose test bound has passed',
+     '*/5 * * * *',
      'normal',
      TRUE);
 
