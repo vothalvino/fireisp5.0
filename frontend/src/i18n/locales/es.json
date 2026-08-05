@@ -4981,6 +4981,7 @@
       "activation_contract": "Contrato de adhesión (activación)",
       "equipment_comodato": "Comodato de equipo",
       "custom": "Personalizada"
-    }
+    },
+    "mxOnly": "Las plantillas de documentos legales están disponibles solo para organizaciones con perfil MX — esta organización usa el perfil global."
   }
 }

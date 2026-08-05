@@ -287,7 +287,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/webhooks', labelKey: 'nav.webhooks', section: 'admin', guard: 'admin', card: 'automationIntegrations' },
   { path: '/integrations', labelKey: 'nav.integrations', section: 'admin', guard: 'admin', card: 'automationIntegrations' },
   { path: '/message-templates', labelKey: 'nav.messageTemplates', section: 'admin', guard: 'admin', card: 'automationIntegrations' },
-  { path: '/document-templates', keywords: ['contrato', 'adhesion', 'firma', 'legal'], labelKey: 'nav.documentTemplates', section: 'admin', guard: 'admin', card: 'governance' },
+  { path: '/document-templates', keywords: ['contrato', 'adhesion', 'firma', 'legal'], labelKey: 'nav.documentTemplates', section: 'admin', guard: 'admin', card: 'governance', requiredLocale: 'MX' },
   { path: '/ai-assistant', labelKey: 'nav.aiAssistant', section: 'admin', guard: 'admin', card: 'ai' },
   { path: '/ai-support', labelKey: 'nav.aiSupport', section: 'admin', guard: 'admin', card: 'ai' },
   { path: '/dsar', labelKey: 'nav.dsar', section: 'admin', guard: 'admin', card: 'governance' },

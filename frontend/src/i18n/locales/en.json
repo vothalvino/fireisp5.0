@@ -4981,6 +4981,7 @@
       "activation_contract": "Activation contract (contrato de adhesión)",
       "equipment_comodato": "Equipment loan (comodato)",
       "custom": "Custom"
-    }
+    },
+    "mxOnly": "Legal document templates are available for MX-locale organizations only — this organization uses the global compliance profile."
   }
 }

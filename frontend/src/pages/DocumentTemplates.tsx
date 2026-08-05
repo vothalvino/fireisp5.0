@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { styles, modalStyles } from './crudStyles';
 
 interface DocumentTemplate {
@@ -116,11 +117,16 @@ function TemplateModal({ initial, onClose, onSaved }: {
 
 export function DocumentTemplates() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const qc = useQueryClient();
+  // STRICTLY MX (user decision): the backend 403s every template verb for
+  // non-MX orgs; the nav entry is requiredLocale-gated. This covers a typed
+  // URL with an explanation instead of an error page.
+  const isMxOrg = user?.organization_locale === 'MX';
   const [editing, setEditing] = useState<DocumentTemplate | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  const q = useQuery({ queryKey: ['document-templates'], queryFn: fetchTemplates });
+  const q = useQuery({ queryKey: ['document-templates'], queryFn: fetchTemplates, enabled: isMxOrg });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -131,6 +137,15 @@ export function DocumentTemplates() {
   });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['document-templates'] });
+
+  if (!isMxOrg) {
+    return (
+      <div style={styles.page}>
+        <h1 style={styles.pageTitle}>📜 {t('documentTemplates.title')}</h1>
+        <p style={styles.msg}>{t('documentTemplates.mxOnly')}</p>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>

@@ -49,6 +49,7 @@ describe('generateForOrder', () => {
   function runner(state) {
     return async (sql) => {
       const s = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT locale FROM organizations/.test(s)) return [[{ locale: state.locale ?? 'MX' }]];
       if (/FROM document_templates/.test(s)) return [state.templates];
       if (/FROM clients WHERE/.test(s)) return [[{ id: 9, name: 'María', email: 'm@x.mx', address: 'Calle 1', city: 'CDMX' }]];
       if (/FROM contracts WHERE/.test(s)) return [[{ id: 33, plan_id: 2, connection_type: 'pppoe', start_date: '2026-08-05' }]];
@@ -87,16 +88,37 @@ describe('generateForOrder', () => {
     expect(skipped[0].template_type).toBe('activation_contract');
   });
 
+  it('STRICTLY MX: a global-locale org generates nothing, even with active templates', async () => {
+    const state = {
+      locale: 'global',
+      templates: [{ id: 1, template_type: 'installation_authorization', name: 'X', body_md: 'Y' }],
+      inserts: [],
+    };
+    const created = await svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    });
+    expect(created).toEqual([]);
+    expect(state.inserts).toHaveLength(0);
+  });
+
+  it('an org-less (single-tenant legacy) context generates nothing', async () => {
+    const created = await svc.generateForOrder(async () => { throw new Error('must not query'); }, {
+      orgId: null, clientId: 9, contractId: 33, orderId: 16, workOrderId: null, createdBy: 1,
+    });
+    expect(created).toEqual([]);
+  });
+
   it('returns [] and reads nothing else when no template is active', async () => {
     const reads = [];
     const run = async (sql) => {
       reads.push(String(sql));
+      if (/SELECT locale FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/FROM document_templates/.test(sql)) return [[]];
       return [[]];
     };
     const created = await svc.generateForOrder(run, { orgId: 42, clientId: 9, contractId: null, orderId: 16, workOrderId: null, createdBy: 1 });
     expect(created).toEqual([]);
-    expect(reads).toHaveLength(1);
+    expect(reads).toHaveLength(2); // locale + templates, nothing else
   });
 });
 
@@ -154,6 +176,39 @@ describe('POST /signed-documents/:id/sign', () => {
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({ signer_name: 'María', signature_image: 'javascript:alert(1)//AAAAAAAAAAAAAAAAAAAAAA' });
     expect(res2.status).toBe(422);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Templates surface is STRICTLY MX
+// ---------------------------------------------------------------------------
+describe('document-templates routes refuse non-MX orgs', () => {
+  const Organization = require('../src/models/Organization');
+
+  it('403s MX_ONLY for a global-locale org', async () => {
+    jest.spyOn(Organization, 'getLocale').mockResolvedValue('global');
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      return [[]];
+    });
+    const res = await request(app)
+      .get('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('MX_ONLY');
+  });
+
+  it('passes for an MX org', async () => {
+    jest.spyOn(Organization, 'getLocale').mockResolvedValue('MX');
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/FROM document_templates/.test(sql)) return [[]];
+      return [[]];
+    });
+    const res = await request(app)
+      .get('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(res.status).toBe(200);
   });
 });
 
