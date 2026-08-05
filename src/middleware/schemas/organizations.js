@@ -66,6 +66,8 @@ const updateOrgMxProfile = {
   cfdi_serie_ingreso: { type: 'string', max: 10 },
   cfdi_serie_egreso: { type: 'string', max: 10 },
   cfdi_serie_pago: { type: 'string', max: 10 },
+  profeco_registro: { type: 'string', max: 50 },
+  carta_derechos_url: { type: 'string', max: 500 },
 };
 
 module.exports = { createOrganization, updateOrganization, patchOrganization, updateSetting, updateOrgMxProfile };

@@ -4521,6 +4521,10 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
                                 COMMENT 'SAT fiscal regime code for the issuer (e.g. 601, 621)',
     codigo_postal_fiscal    VARCHAR(5)      NOT NULL
                                 COMMENT 'Fiscal ZIP code of the ISP as registered with SAT',
+    profeco_registro        VARCHAR(50)     NULL
+                                COMMENT 'PROFECO adhesion-contract registration number (LFTR art. 191); printed on the activation contract via {{org.profeco_registro}} (migration 449)',
+    carta_derechos_url      VARCHAR(500)    NULL
+                                COMMENT 'URL of the Carta de Derechos Minimos de los Usuarios; NULL = official IFT document (migration 449)',
 
     -- CSD (Certificado de Sello Digital) for signing CFDIs
     csd_certificate_number  VARCHAR(30)     NULL

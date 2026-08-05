@@ -331,6 +331,7 @@ router.get('/:id/mx-profile', orgScope, requirePermission('organizations.view'),
     const [rows] = await db.query(
       `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
               colonia, municipio, exterior_number, interior_number,
+              profeco_registro, carta_derechos_url,
               cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago, cfdi_folio_next,
               created_at, updated_at
          FROM organization_mx_profiles
@@ -354,7 +355,8 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
     // string clears a nullable address field to NULL. Serie columns are
     // NOT NULL — an empty string for them means "reset to nothing sent" and is
     // ignored (they always have a value; change it by sending a new one).
-    const ADDRESS_FIELDS = ['colonia', 'municipio', 'exterior_number', 'interior_number'];
+    const ADDRESS_FIELDS = ['colonia', 'municipio', 'exterior_number', 'interior_number',
+      'profeco_registro', 'carta_derechos_url'];
     const SERIE_FIELDS = ['cfdi_serie_ingreso', 'cfdi_serie_egreso', 'cfdi_serie_pago'];
     const sets = [];
     const params = [];
@@ -390,11 +392,13 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
         `INSERT INTO organization_mx_profiles
            (organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
             colonia, municipio, exterior_number, interior_number,
+            profeco_registro, carta_derechos_url,
             cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'A'), COALESCE(?, 'E'), COALESCE(?, 'P'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'A'), COALESCE(?, 'E'), COALESCE(?, 'P'))`,
         [req.params.id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
           (body.colonia ?? '').trim() || null, (body.municipio ?? '').trim() || null,
           (body.exterior_number ?? '').trim() || null, (body.interior_number ?? '').trim() || null,
+          (body.profeco_registro ?? '').trim() || null, (body.carta_derechos_url ?? '').trim() || null,
           (body.cfdi_serie_ingreso ?? '').trim() || null, (body.cfdi_serie_egreso ?? '').trim() || null,
           (body.cfdi_serie_pago ?? '').trim() || null],
       );
@@ -409,6 +413,7 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
     const [rows] = await db.query(
       `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
               colonia, municipio, exterior_number, interior_number,
+              profeco_registro, carta_derechos_url,
               cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago, cfdi_folio_next,
               created_at, updated_at
          FROM organization_mx_profiles

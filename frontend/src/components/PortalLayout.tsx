@@ -33,6 +33,23 @@ export function PortalLayout() {
   });
   const needsAcceptance = notice.data ? !notice.data.data.accepted : false;
 
+  // IFT: the Carta de Derechos Minimos must be AVAILABLE to every MX
+  // subscriber — a permanent footer link makes availability provable.
+  const legalInfo = useQuery({
+    queryKey: ['portal-legal-info'],
+    queryFn: async () => {
+      const token = portalTokenStore.getAccess();
+      const res = await fetch('/api/v1/portal/legal-info', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('legal info fetch failed');
+      return res.json() as Promise<{ data: { locale: string; carta_derechos_url: string } }>;
+    },
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+  const cartaUrl = legalInfo.data?.data.locale === 'MX' ? legalInfo.data.data.carta_derechos_url : null;
+
   async function handleLogout() {
     await logout();
   }
@@ -107,6 +124,11 @@ export function PortalLayout() {
         {t('portalLayout.footer', { year: new Date().getFullYear() })}
         {' · '}
         <Link to="/portal/privacy" style={styles.footerLink}>{t('portalLayout.privacyLink')}</Link>
+        {cartaUrl && (
+          <a href={cartaUrl} target="_blank" rel="noopener noreferrer" style={styles.footerLink}>
+            {t('portalLayout.cartaDerechosLink')}
+          </a>
+        )}
       </footer>
     </div>
   );

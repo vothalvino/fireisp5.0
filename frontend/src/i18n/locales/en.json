@@ -355,7 +355,8 @@
     "footer": "© {{year}} FireISP",
     "privacyBanner": "Please review our privacy notice.",
     "privacyBannerLink": "Review and accept",
-    "privacyLink": "Privacy notice"
+    "privacyLink": "Privacy notice",
+    "cartaDerechosLink": "Carta de Derechos Mínimos"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1447,7 +1448,9 @@
     "privacyVersion": "Notice version",
     "privacyVersionHint": "Changing the version asks every subscriber to accept the notice again.",
     "privacyNotice": "Notice text (markdown)",
-    "privacyPlaceholder": "Empty = built-in template"
+    "privacyPlaceholder": "Empty = built-in template",
+    "fiscalProfeco": "PROFECO contract registration no.",
+    "fiscalCartaUrl": "Carta de Derechos URL (blank = official IFT)"
   },
   "emailSettings": {
     "title": "Outbound Email (SMTP) Settings",
