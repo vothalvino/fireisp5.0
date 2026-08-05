@@ -337,7 +337,8 @@
     },
     "dataImport": "CSV import",
     "suspensionConsole": "Suspension console",
-    "technicianMap": "Technician map"
+    "technicianMap": "Technician map",
+    "documentTemplates": "Legal Documents"
   },
   "layout": {
     "brandName": "🔥 FireISP",
@@ -3277,6 +3278,20 @@
       "notes": "Notes",
       "needOne": "Enter at least one reading, or tick the waive checkbox.",
       "complete": "Complete work order"
+    },
+    "documents": {
+      "title": "Legal documents",
+      "pending": "Pending signature",
+      "openSign": "Read & sign",
+      "signTitle": "Sign document",
+      "signedBy": "Signed by {{name}}",
+      "alreadySigned": "Already signed by {{name}}.",
+      "signerName": "Full name of the signer",
+      "signHere": "Signature",
+      "signerRequired": "Enter the signer’s full name.",
+      "signatureRequired": "Draw the signature first.",
+      "signing": "Saving…",
+      "signButton": "Sign document"
     }
   },
   "ticketDetail": {
@@ -4942,5 +4957,30 @@
     "enableCheckFirst": "Update checks are off, so there is nothing to compare against. Enable them to deploy from here.",
     "agentPending": "The deploy agent has not reported in yet. It is installed automatically by redeploy and checks in within about 30 seconds — if this persists, run: journalctl -u fireisp-deploy-agent -n 30",
     "agentPendingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine."
+  },
+  "documentTemplates": {
+    "title": "Legal Document Templates",
+    "intro": "The legal texts the flow generates and the client signs on-site: the installation authorization (signed on arrival), the activation contract (contrato de adhesión, signed when the install is done), and an optional equipment loan annex. Paste your PROFECO-registered text — a template only generates documents once you activate it.",
+    "new": "New template",
+    "edit": "Edit template",
+    "name": "Name",
+    "type": "Type",
+    "body": "Document text (Markdown)",
+    "status": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "activeToggle": "Active — generate this document for every new installation",
+    "activeHint": "Activating also arms the work-order gates: an installation cannot start with the authorization unsigned, nor complete with the activation contract unsigned.",
+    "placeholders": "Placeholders",
+    "nameRequired": "Name is required.",
+    "bodyRequired": "The document text is required.",
+    "loadError": "Failed to load templates.",
+    "empty": "No templates yet — create one and paste your legal text.",
+    "types": {
+      "installation_authorization": "Installation authorization (on arrival)",
+      "activation_contract": "Activation contract (contrato de adhesión)",
+      "equipment_comodato": "Equipment loan (comodato)",
+      "custom": "Custom"
+    }
   }
 }

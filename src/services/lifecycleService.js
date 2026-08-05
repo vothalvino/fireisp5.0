@@ -416,6 +416,24 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
       }
     }
 
+    // Legal documents (migration 447): one pending instance per ACTIVE
+    // template — the arrival authorization and the activation contract the
+    // technician has the client sign on-site. Same transaction, deliberately
+    // NOT best-effort: a legal document that silently failed to generate is a
+    // compliance hole, so a failure aborts the start. Orgs with no active
+    // templates generate nothing and are completely unaffected.
+    if (order.order_type === 'new_install') {
+      const legalDocumentService = require('./legalDocumentService');
+      await legalDocumentService.generateForOrder(conn.query.bind(conn), {
+        orgId: order.organization_id ?? orgId ?? null,
+        clientId,
+        contractId: contractIdToLink || null,
+        orderId,
+        workOrderId: installWorkOrder?.id || null,
+        createdBy: userId,
+      });
+    }
+
     await conn.commit();
 
     const [rows] = await db.query('SELECT * FROM service_orders WHERE id = ?', [orderId]);

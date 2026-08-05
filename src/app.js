@@ -72,6 +72,7 @@ const networkHealthRoutes = require('./routes/networkHealth');
 const settingsRoutes = require('./routes/settings');
 const systemVersionRoutes = require('./routes/systemVersion');
 const messageTemplateRoutes = require('./routes/messageTemplates');
+const { templatesRouter: documentTemplateRoutes, documentsRouter: signedDocumentRoutes } = require('./routes/legalDocuments');
 const auditLogRoutes = require('./routes/auditLogs');
 const fileRoutes = require('./routes/files');
 const serviceAreaRoutes = require('./routes/serviceAreas');
@@ -625,6 +626,8 @@ v1.use('/settings', adminIpAllowlist, settingsRoutes);
 // Install-operator only, and gated inside the router — see routes/systemVersion.js.
 v1.use('/system', systemVersionRoutes);
 v1.use('/message-templates', messageTemplateRoutes);
+v1.use('/document-templates', documentTemplateRoutes);
+v1.use('/signed-documents', signedDocumentRoutes);
 v1.use('/audit-logs', adminIpAllowlist, auditLogRoutes);
 v1.use('/files', fileRoutes);
 v1.use('/service-areas', serviceAreaRoutes);

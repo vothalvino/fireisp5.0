@@ -63,6 +63,25 @@ function touchesAcceptance(body) {
     || 'acceptance_waived' in body || 'acceptance_notes' in body;
 }
 
+// ---------------------------------------------------------------------------
+// Legal-document gates (migration 447). An installation WO whose service order
+// has a PENDING arrival authorization cannot move to in_progress; one with a
+// PENDING activation contract cannot complete. Only the transition INTO the
+// target status is gated, mirroring the acceptance gate above; orgs with no
+// active templates never generate instances, so the gates never exist there.
+// ---------------------------------------------------------------------------
+async function legalGateError(before, body) {
+  const merged = (field) => (field in body ? body[field] : before?.[field]);
+  const target = merged('status');
+  if (!target || target === before?.status) return null;
+  if (target !== 'in_progress' && target !== 'completed') return null;
+  const legalDocumentService = require('../services/legalDocumentService');
+  return legalDocumentService.pendingGateError(
+    { work_type: merged('work_type'), service_order_id: merged('service_order_id') },
+    target,
+  );
+}
+
 /**
  * Guard for the `assigned_to` field on create/update/patch. Resolves to an error
  * string when the target user may not be assigned, or null when assignment is
@@ -238,6 +257,8 @@ router.put('/:id', requirePermission('work_orders.update'), validate(updateWorkO
     if (!before) return res.status(404).json({ error: 'Work order not found' });
     const gateErr = acceptanceGateError(before, req.body);
     if (gateErr) return res.status(422).json({ error: gateErr });
+    const legalErr = await legalGateError(before, req.body);
+    if (legalErr) return res.status(422).json({ error: legalErr });
     // Acceptance columns are append-preserve, not full-replace like the rest of
     // PUT: a reading recorded at handoff is a historical measurement — a later
     // PUT that simply doesn't carry it must not blank it.
@@ -307,6 +328,8 @@ router.patch('/:id', requirePermission('work_orders.update'), validate(patchWork
     }
     const patchGateErr = acceptanceGateError(beforePatch, req.body);
     if (patchGateErr) return res.status(422).json({ error: patchGateErr });
+    const patchLegalErr = await legalGateError(beforePatch, req.body);
+    if (patchLegalErr) return res.status(422).json({ error: patchLegalErr });
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => req.body[f] ?? null);
     const acceptanceStamp = touchesAcceptance(req.body) ? ', acceptance_recorded_at = NOW()' : '';

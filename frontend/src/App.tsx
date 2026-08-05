@@ -142,6 +142,7 @@ import { ConcessionTitleList } from '@/pages/ConcessionTitleList';
 import { IftStatisticalReportList } from '@/pages/IftStatisticalReportList';
 import { FacturaPublicaList } from '@/pages/FacturaPublicaList';
 import { MessageTemplateList } from '@/pages/MessageTemplateList';
+import { DocumentTemplates } from '@/pages/DocumentTemplates';
 import { PromotionList } from '@/pages/PromotionList';
 import { TaxRuleList } from '@/pages/TaxRuleList';
 import { TaxRateList } from '@/pages/TaxRateList';
@@ -389,6 +390,7 @@ export function App() {
                 <Route path="queue-stats" element={<QueueStats />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="message-templates" element={<MessageTemplateList />} />
+                <Route path="document-templates" element={<DocumentTemplates />} />
                 <Route path="ai-assistant" element={<AIAssistantSettings />} />
                 <Route path="security-access-control" element={<SecurityAccessControlPage />} />
                 <Route path="automation" element={<AutomationPage />} />

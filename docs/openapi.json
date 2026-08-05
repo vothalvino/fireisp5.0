@@ -20494,6 +20494,319 @@
         }
       }
     },
+    "/document-templates": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List legal document templates (installation authorization, activation contract, comodato)",
+        "operationId": "listDocumentTemplates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DocumentTemplate[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Create a legal document template",
+        "operationId": "createDocumentTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "legalDocuments_createDocumentTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "DocumentTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/document-templates/{id}": {
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Update a legal document template",
+        "operationId": "updateDocumentTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "legalDocuments_updateDocumentTemplate",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DocumentTemplate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Soft-delete a legal document template",
+        "operationId": "deleteDocumentTemplate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    },
+    "/signed-documents": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List generated legal-document instances (filter by client_id/contract_id/service_order_id/work_order_id/status)",
+        "operationId": "listSignedDocuments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SignedDocument[] (bodies omitted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signed-documents/{id}": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Read one legal-document instance including its frozen body and signature",
+        "operationId": "getSignedDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SignedDocument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signed-documents/{id}/sign": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Capture the client signature on a pending document (signer name + canvas image; hash-verified)",
+        "operationId": "signDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "legalDocuments_signDocument",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SignedDocument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signed-documents/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Cancel a stale pending document instance",
+        "operationId": "cancelSignedDocument",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SignedDocument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signed-documents/generate": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Generate pending instances for a service order from the active templates (skips types already covered)",
+        "operationId": "generateSignedDocuments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "legalDocuments_generateDocuments",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Generation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -60089,6 +60402,113 @@
             "type": "string"
           },
           "5": {
+            "type": "string"
+          }
+        }
+      },
+      "legalDocuments_createDocumentTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "template_type": {
+            "type": "string",
+            "enum": [
+              "installation_authorization",
+              "activation_contract",
+              "equipment_comodato",
+              "custom"
+            ]
+          },
+          "body_md": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500000
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "template_type",
+          "body_md"
+        ]
+      },
+      "legalDocuments_updateDocumentTemplate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "template_type": {
+            "type": "string",
+            "enum": [
+              "installation_authorization",
+              "activation_contract",
+              "equipment_comodato",
+              "custom"
+            ]
+          },
+          "body_md": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500000
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "legalDocuments_signDocument": {
+        "type": "object",
+        "properties": {
+          "signer_name": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "signature_image": {
+            "type": "string",
+            "minimum": 30,
+            "maximum": 700000
+          }
+        },
+        "required": [
+          "signer_name",
+          "signature_image"
+        ]
+      },
+      "legalDocuments_generateDocuments": {
+        "type": "object",
+        "properties": {
+          "service_order_id": {
+            "type": "number",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "service_order_id"
+        ]
+      },
+      "legalDocuments_TEMPLATE_TYPES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
             "type": "string"
           }
         }

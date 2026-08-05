@@ -5,13 +5,14 @@
 // (dispatch → start → complete/cancel) and materials sub-resource.
 // =============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
 import { styles, modalStyles } from './crudStyles';
 import { ClientPicker } from '@/components/ClientPicker';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
+import { MarkdownView } from '@/components/MarkdownView';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -432,6 +433,215 @@ function PickupChecklistPanel({ workOrderId }: { workOrderId: number }) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Legal documents (migration 447) — the panel the technician opens on-site.
+// Pending documents block the WO transitions server-side; this is where the
+// client reads the frozen text and signs on the device.
+// ---------------------------------------------------------------------------
+interface SignedDocSummary {
+  id: number; template_type: string; title: string; status: string;
+  signer_name: string | null; signed_at: string | null;
+}
+
+function SignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const dirty = useRef(false);
+
+  function pos(e: React.PointerEvent<HTMLCanvasElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  function start(e: React.PointerEvent<HTMLCanvasElement>) {
+    drawing.current = true;
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function move(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = pos(e);
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#111';
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    dirty.current = true;
+  }
+  function end() {
+    drawing.current = false;
+    if (dirty.current && canvasRef.current) onChange(canvasRef.current.toDataURL('image/png'));
+  }
+  function clear() {
+    const c = canvasRef.current;
+    const ctx = c?.getContext('2d');
+    if (c && ctx) ctx.clearRect(0, 0, c.width, c.height);
+    dirty.current = false;
+    onChange(null);
+  }
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={420}
+        height={140}
+        data-testid="signature-canvas"
+        style={{ border: '1px dashed var(--border-color, #9ca3af)', borderRadius: 8, background: '#fff', touchAction: 'none', width: '100%', maxWidth: 420 }}
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerLeave={end}
+      />
+      <button type="button" style={{ ...styles.btnSecondary, marginTop: 4, padding: '3px 10px', fontSize: '0.78rem' }} onClick={clear}>
+        Clear
+      </button>
+    </div>
+  );
+}
+
+function SignDocumentModal({ docId, onClose, onSigned }: {
+  docId: number; onClose: () => void; onSigned: () => void;
+}) {
+  const { t } = useTranslation();
+  const [signerName, setSignerName] = useState('');
+  const [signature, setSignature] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const docQ = useQuery({
+    queryKey: ['signed-document', docId],
+    queryFn: async () => {
+      const res = await (api.GET as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+        '/signed-documents/{id}', { params: { path: { id: docId } } },
+      );
+      if (res.error) throw new Error('Failed to load the document');
+      return (res.data as { data: SignedDocSummary & { rendered_body: string } }).data;
+    },
+  });
+
+  async function submit() {
+    if (!signerName.trim()) { setErr(t('workOrders.documents.signerRequired')); return; }
+    if (!signature) { setErr(t('workOrders.documents.signatureRequired')); return; }
+    setErr('');
+    setBusy(true);
+    try {
+      const res = await (api.POST as unknown as (p: string, o: unknown) => Promise<{ error?: { error?: { message?: string } } }>)(
+        '/signed-documents/{id}/sign',
+        { params: { path: { id: docId } }, body: { signer_name: signerName.trim(), signature_image: signature } },
+      );
+      if (res.error) throw new Error(res.error.error?.message || 'Failed to sign');
+      onSigned();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to sign');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div style={{ ...modalStyles.panel, maxWidth: 640 }} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('workOrders.documents.signTitle')}>
+        <div style={modalStyles.header}>
+          <h2 style={modalStyles.title}>{docQ.data?.title ?? t('workOrders.documents.signTitle')}</h2>
+        </div>
+        <div style={{ ...modalStyles.form, maxHeight: '70vh', overflowY: 'auto' }}>
+          {docQ.isLoading && <p>{t('common.loading')}</p>}
+          {docQ.data && (
+            <>
+              <div style={{ border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 8, padding: '0.75rem', background: 'var(--bg-subtle, #f9fafb)' }}>
+                <MarkdownView markdown={docQ.data.rendered_body} />
+              </div>
+              {docQ.data.status === 'signed' ? (
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>
+                  ✅ {t('workOrders.documents.alreadySigned', { name: docQ.data.signer_name ?? '' })}
+                </p>
+              ) : (
+                <>
+                  <label style={modalStyles.label}>
+                    {t('workOrders.documents.signerName')}
+                    <input style={modalStyles.input} value={signerName} onChange={e => setSignerName(e.target.value)} maxLength={200} />
+                  </label>
+                  <label style={modalStyles.label}>{t('workOrders.documents.signHere')}</label>
+                  <SignatureCanvas onChange={setSignature} />
+                  {err && <p style={{ color: '#ef4444', fontSize: '0.85rem', margin: 0 }}>{err}</p>}
+                  <div style={modalStyles.actions}>
+                    <button type="button" style={styles.btnSecondary} onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
+                    <button type="button" style={styles.btnPrimary} onClick={submit} disabled={busy}>
+                      {busy ? t('workOrders.documents.signing') : t('workOrders.documents.signButton')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; serviceOrderId: number | null }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [signingId, setSigningId] = useState<number | null>(null);
+
+  const docsQ = useQuery({
+    queryKey: ['wo-documents', workOrderId, serviceOrderId],
+    queryFn: async () => {
+      const query: Record<string, number> = serviceOrderId ? { service_order_id: serviceOrderId } : { work_order_id: workOrderId };
+      const res = await (api.GET as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
+        '/signed-documents', { params: { query } },
+      );
+      if (res.error) throw new Error('unavailable');
+      return (res.data as { data: SignedDocSummary[] }).data;
+    },
+    retry: false,
+  });
+
+  if (docsQ.isError) return null;
+  const docs = docsQ.data ?? [];
+  if (!docs.length) return null;
+
+  return (
+    <div style={{ padding: '0.5rem 1rem 0.75rem' }}>
+      <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.documents.title')}</strong>
+      <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {docs.map(d => (
+          <li key={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: '0.82rem', padding: '5px 8px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
+            <span style={{ flex: 1, fontWeight: 500 }}>{d.title}</span>
+            {d.status === 'signed' ? (
+              <span style={{ color: 'var(--accent, #16a34a)' }}>✅ {t('workOrders.documents.signedBy', { name: d.signer_name ?? '' })}</span>
+            ) : d.status === 'pending' ? (
+              <>
+                <span style={{ color: '#b45309' }}>{t('workOrders.documents.pending')}</span>
+                <button style={{ ...styles.btnPrimary, padding: '3px 12px', fontSize: '0.78rem' }} onClick={() => setSigningId(d.id)}>
+                  {t('workOrders.documents.openSign')}
+                </button>
+              </>
+            ) : (
+              <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{d.status}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {signingId !== null && (
+        <SignDocumentModal
+          docId={signingId}
+          onClose={() => setSigningId(null)}
+          onSigned={() => void qc.invalidateQueries({ queryKey: ['wo-documents', workOrderId, serviceOrderId] })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AcceptanceModal — install handoff readings (migration 445)
 // ---------------------------------------------------------------------------
 // Completing a contract-linked installation WO records ground truth at
@@ -775,6 +985,9 @@ export function WorkOrders() {
                       {expandedId === wo.id && (
                         <tr key={`${wo.id}-materials`}>
                           <td colSpan={8} style={{ padding: 0 }}>
+                            {wo.work_type === 'installation' && (
+                              <DocumentsPanel workOrderId={wo.id} serviceOrderId={wo.service_order_id} />
+                            )}
                             {wo.work_type === 'pickup'
                               ? <PickupChecklistPanel workOrderId={wo.id} />
                               : <MaterialsPanel workOrderId={wo.id} />}

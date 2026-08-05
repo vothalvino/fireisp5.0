@@ -317,7 +317,8 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders
       .mockResolvedValueOnce([[]]) // no open install WO for this order yet
       .mockResolvedValueOnce([{ insertId: 70 }]) // INSERT work_orders (installation)
-      .mockResolvedValueOnce([[{ id: 70, organization_id: 1, service_order_id: 1, work_type: 'installation', status: 'pending', assigned_to: null }]]); // SELECT WO
+      .mockResolvedValueOnce([[{ id: 70, organization_id: 1, service_order_id: 1, work_type: 'installation', status: 'pending', assigned_to: null }]]) // SELECT WO
+      .mockResolvedValueOnce([[]]); // legal documents: no active templates (migration 447)
 
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]); // final re-fetch (pool, post-commit)
     provisioningService.provisionNewContract.mockResolvedValue({ pppoe: { username: 'acme01', password: 'x' } });
@@ -376,7 +377,8 @@ describe('startOrder', () => {
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders (sets client_id + contract_id)
       .mockResolvedValueOnce([[]]) // no open install WO
       .mockResolvedValueOnce([{ insertId: 71 }]) // INSERT work_orders
-      .mockResolvedValueOnce([[{ id: 71, organization_id: 1, work_type: 'installation', assigned_to: null }]]); // SELECT WO
+      .mockResolvedValueOnce([[{ id: 71, organization_id: 1, work_type: 'installation', assigned_to: null }]]) // SELECT WO
+      .mockResolvedValueOnce([[]]); // legal documents: no active templates
 
     db.getConnection.mockResolvedValueOnce(leadConn).mockResolvedValueOnce(mainConn);
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 60, contract_id: 900 }]]);
@@ -394,6 +396,41 @@ describe('startOrder', () => {
     expect(updateCall[0]).toMatch(/client_id = \?/);
     expect(updateCall[1]).toEqual(expect.arrayContaining([60, 900]));
     expect(result.contract.id).toBe(900);
+  });
+
+  test('new_install generates one pending legal document per ACTIVE template, in the same transaction', async () => {
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install',
+    });
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50, name: 'Acme' });
+
+    conn.query.mockImplementation(async (sql) => {
+      const t = String(sql).replace(/\s+/g, ' ');
+      if (/FROM service_orders WHERE id = \?.*FOR UPDATE/.test(t)) return [[{ id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install', organization_id: 1, order_number: 'SO-000001' }]];
+      if (/SELECT id FROM plans/.test(t)) return [[{ id: 2 }]];
+      if (/INSERT INTO contracts/.test(t)) return [{ insertId: 900 }];
+      if (/SELECT name FROM clients/.test(t)) return [[{ name: 'Acme' }]];
+      if (/SELECT \* FROM contracts WHERE id = \?/.test(t)) return [[{ id: 900, status: 'pending', plan_id: 2 }]];
+      if (/UPDATE service_orders SET/.test(t)) return [{ affectedRows: 1 }];
+      if (/SELECT id, assigned_to FROM work_orders/.test(t)) return [[]];
+      if (/INSERT INTO work_orders/.test(t)) return [{ insertId: 70 }];
+      if (/SELECT \* FROM work_orders WHERE id = \?/.test(t)) return [[{ id: 70, organization_id: 1, assigned_to: null }]];
+      if (/FROM document_templates/.test(t)) return [[{ id: 4, template_type: 'installation_authorization', name: 'Autorización', body_md: 'Cliente {{client.name}}' }]];
+      if (/FROM clients WHERE/.test(t)) return [[{ id: 50, name: 'Acme' }]];
+      if (/FROM organizations WHERE/.test(t)) return [[{ id: 1, name: 'ISP' }]];
+      if (/INSERT INTO signed_documents/.test(t)) return [{ insertId: 501 }];
+      return [[]];
+    });
+    db.query.mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]);
+    provisioningService.provisionNewContract.mockResolvedValue({});
+
+    await lifecycleService.startOrder(1, { orgId: 1, userId: 9 });
+
+    const docInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO signed_documents/.test(sql));
+    expect(docInsert).toBeDefined();
+    expect(docInsert[1][6]).toBe('installation_authorization'); // template_type
+    expect(docInsert[1][8]).toBe('Cliente Acme');               // rendered + frozen
+    expect(String(docInsert[1][9])).toMatch(/^[a-f0-9]{64}$/);  // sha256
   });
 
   test('non-new_install order types do not create a contract', async () => {
