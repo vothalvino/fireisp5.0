@@ -28,6 +28,28 @@ DROP PROCEDURE IF EXISTS migration_448_test_window;
 DELIMITER //
 CREATE PROCEDURE migration_448_test_window()
 BEGIN
+  -- Reconcile scheduled_tasks.task_type with schema.sql: the CREATE in
+  -- migration 047 never gained 'maintenance'/'webhook_retry', which
+  -- schema.sql has carried for ages — so seeding task_type='maintenance'
+  -- (this migration) truncated on a chain-built database, and migration
+  -- 162's 'webhook_retry' seed was silently stored as '' (its own comment
+  -- says so). Widen the chain to the documented final state.
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'scheduled_tasks'
+      AND COLUMN_NAME  = 'task_type'
+      AND COLUMN_TYPE LIKE '%maintenance%'
+  ) THEN
+    ALTER TABLE scheduled_tasks
+      MODIFY COLUMN task_type ENUM('auto_suspend', 'generate_invoice', 'radius_sync',
+                                   'snmp_poll', 'usage_rollup', 'cleanup',
+                                   'notification', 'backup', 'maintenance',
+                                   'webhook_retry', 'other')
+        NOT NULL DEFAULT 'other'
+        COMMENT 'Category of the scheduled task';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
@@ -44,6 +66,11 @@ DELIMITER ;
 
 CALL migration_448_test_window();
 DROP PROCEDURE IF EXISTS migration_448_test_window;
+
+-- Repair migration 162's seed: on non-strict servers its 'webhook_retry' was
+-- silently stored as '' because the enum lacked the value until now.
+UPDATE scheduled_tasks SET task_type = 'webhook_retry'
+WHERE task_name = 'webhook_retry' AND task_type = '';
 
 INSERT INTO scheduled_tasks
   (organization_id, task_name, task_type, description, cron_expression, priority, is_enabled)
