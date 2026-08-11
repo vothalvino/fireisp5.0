@@ -83,6 +83,29 @@ describe('NotificationBell', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/notifications/read-all'));
   });
 
+  it('has a visible close action that dismisses the panel', async () => {
+    renderBell();
+    const bell = screen.getByRole('button', { name: /Notifications/ });
+    fireEvent.click(bell);
+
+    await screen.findByRole('dialog', { name: 'Notifications' });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Notifications' })).not.toBeInTheDocument();
+    expect(bell).toHaveAttribute('aria-expanded', 'false');
+    expect(bell).toHaveFocus();
+  });
+
+  it('dismisses the panel on an outside pointer press', async () => {
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    await screen.findByRole('dialog', { name: 'Notifications' });
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole('dialog', { name: 'Notifications' })).not.toBeInTheDocument();
+  });
+
   it('deep-links a device notification to /devices/:id', async () => {
     mockGet.mockImplementation((path: string) => {
       if (path === '/notifications/unread-count') return Promise.resolve({ data: { data: { count: 1 } } });

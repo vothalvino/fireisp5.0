@@ -50,6 +50,7 @@ export function NotificationBell() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
 
   const { data: unread = 0 } = useQuery({
     queryKey: ['notifications-unread'],
@@ -91,22 +92,30 @@ export function NotificationBell() {
     onSettled: refresh,
   });
 
-  // Close on outside click / Escape
+  // Close on an outside mouse/touch/pen press or Escape.
   useEffect(() => {
     if (!open) return;
-    function onDocClick(e: MouseEvent) {
+    function onDocPointerDown(e: PointerEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        bellRef.current?.focus();
+      }
     }
-    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('pointerdown', onDocPointerDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('pointerdown', onDocPointerDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  function closePanel() {
+    setOpen(false);
+    bellRef.current?.focus();
+  }
 
   function handleItemClick(n: NotificationRow) {
     if (!n.is_read) markRead.mutate(n.id);
@@ -118,9 +127,12 @@ export function NotificationBell() {
   return (
     <div ref={rootRef} className="notif-bell-root">
       <button
+        ref={bellRef}
+        type="button"
         className="notif-bell-btn"
         aria-label={t('notifications.bellLabel', { count: unread })}
         aria-expanded={open}
+        aria-haspopup="dialog"
         onClick={() => setOpen(v => !v)}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -133,12 +145,22 @@ export function NotificationBell() {
       {open && (
         <div className="notif-panel" role="dialog" aria-label={t('notifications.title')}>
           <div className="notif-panel-head">
-            <span>{t('notifications.title')}</span>
-            {unread > 0 && (
-              <button className="notif-mark-all" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
-                {t('notifications.markAllRead')}
+            <span className="notif-panel-title">{t('notifications.title')}</span>
+            <div className="notif-panel-actions">
+              {unread > 0 && (
+                <button type="button" className="notif-mark-all" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
+                  {t('notifications.markAllRead')}
+                </button>
+              )}
+              <button
+                type="button"
+                className="notif-close"
+                onClick={closePanel}
+                aria-label={t('common.close')}
+              >
+                <span aria-hidden="true">&#x2715;</span>
               </button>
-            )}
+            </div>
           </div>
           <ul className="notif-list">
             {items.length === 0 && <li className="notif-empty">{t('notifications.empty')}</li>}
