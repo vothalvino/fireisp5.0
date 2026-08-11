@@ -1,10 +1,11 @@
 // =============================================================================
 // FireISP 5.0 — ChangelogPanel (P3.8)
 // =============================================================================
-// Bell icon with unread badge + slide-in "What's New" panel.
+// Bell icon with unread badge + document-level "What's New" panel.
 // =============================================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
@@ -98,6 +99,7 @@ export function ChangelogPanel() {
   return (
     <>
       <button
+        type="button"
         onClick={handleOpen}
         aria-label={t('changelog.title')}
         style={styles.bellBtn}
@@ -111,75 +113,77 @@ export function ChangelogPanel() {
         )}
       </button>
 
-      {/* Overlay */}
-      {open && (
-        <div
-          style={styles.overlay}
-          onClick={handleClose}
-          aria-hidden="true"
-          data-testid="changelog-overlay"
-        />
-      )}
+      {open && createPortal(
+        <>
+          <div
+            style={styles.overlay}
+            onClick={handleClose}
+            aria-hidden="true"
+            data-testid="changelog-overlay"
+          />
 
-      {/* Slide-in panel */}
-      <div
-        style={{
-          ...styles.panel,
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
-        }}
-        role={open ? 'dialog' : undefined}
-        aria-modal={open ? true : undefined}
-        aria-label={open ? t('changelog.title') : undefined}
-        data-testid="changelog-panel"
-      >
-        <div style={styles.panelHeader}>
-          <h2 style={styles.panelTitle}>{t('changelog.title')}</h2>
-          <div style={styles.headerActions}>
-            <button
-              onClick={markAllRead}
-              style={styles.markBtn}
-              data-testid="changelog-mark-all-read"
-            >
-              {t('changelog.markAllRead')}
-            </button>
-            <button
-              onClick={handleClose}
-              style={styles.closeBtn}
-              aria-label={t('changelog.close')}
-              data-testid="changelog-close"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        <div style={styles.entryList}>
-          {entries.length === 0 && (
-            <p style={styles.emptyMsg}>{t('changelog.noEntries')}</p>
-          )}
-          {entries.map((entry) => (
-            <div key={entry.id} style={styles.entry} data-testid="changelog-entry">
-              <div style={styles.entryMeta}>
-                <span style={styles.entryDate}>
-                  {new Date(entry.date).toLocaleDateString()}
-                </span>
-                {isEntryNew(entry) ? (
-                  <span style={styles.newBadge}>{t('changelog.newBadge')}</span>
-                ) : null}
-              </div>
-              <h3 style={styles.entryTitle}>{entry.title}</h3>
-              <p style={styles.entryBody}>{entry.body}</p>
-              <div style={styles.tagList}>
-                {entry.tags.map((tag) => (
-                  <span key={tag} style={styles.tag}>
-                    {tag}
-                  </span>
-                ))}
+          {/* Portaled to body so the mobile sidebar's transform cannot become
+              this fixed panel's containing block or leave it over the page. */}
+          <div
+            style={styles.panel}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('changelog.title')}
+            data-testid="changelog-panel"
+          >
+            <div style={styles.panelHeader}>
+              <h2 style={styles.panelTitle}>{t('changelog.title')}</h2>
+              <div style={styles.headerActions}>
+                <button
+                  type="button"
+                  onClick={markAllRead}
+                  style={styles.markBtn}
+                  data-testid="changelog-mark-all-read"
+                >
+                  {t('changelog.markAllRead')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  style={styles.closeBtn}
+                  aria-label={t('changelog.close')}
+                  data-testid="changelog-close"
+                >
+                  ✕
+                </button>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+
+            <div style={styles.entryList}>
+              {entries.length === 0 && (
+                <p style={styles.emptyMsg}>{t('changelog.noEntries')}</p>
+              )}
+              {entries.map((entry) => (
+                <div key={entry.id} style={styles.entry} data-testid="changelog-entry">
+                  <div style={styles.entryMeta}>
+                    <span style={styles.entryDate}>
+                      {new Date(entry.date).toLocaleDateString()}
+                    </span>
+                    {isEntryNew(entry) ? (
+                      <span style={styles.newBadge}>{t('changelog.newBadge')}</span>
+                    ) : null}
+                  </div>
+                  <h3 style={styles.entryTitle}>{entry.title}</h3>
+                  <p style={styles.entryBody}>{entry.body}</p>
+                  <div style={styles.tagList}>
+                    {entry.tags.map((tag) => (
+                      <span key={tag} style={styles.tag}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
     </>
   );
 }
@@ -228,7 +232,6 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 1000,
     display: 'flex',
     flexDirection: 'column',
-    transition: 'transform 0.25s ease',
     overflowY: 'auto',
   },
   panelHeader: {
@@ -258,12 +261,18 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary, #555)',
   },
   closeBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    width: '44px',
+    height: '44px',
     background: 'none',
     border: 'none',
     fontSize: '1rem',
     cursor: 'pointer',
     color: 'var(--text-secondary, #555)',
-    padding: '4px',
+    padding: 0,
   },
   entryList: {
     flex: 1,

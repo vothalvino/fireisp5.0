@@ -359,3 +359,34 @@ test('API health endpoint is reachable', async ({ request }) => {
   const body = await res.json();
   expect(body.status).toBe('ok');
 });
+
+test('mobile blocking alerts and notifications remain dismissible', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 240 });
+  await page.goto('/login');
+
+  await page.fill('input[type="email"]', ADMIN_EMAIL);
+  await page.fill('input[type="password"]', ADMIN_PASSWORD);
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\/$/);
+
+  // A fresh demo database has no DR drill history, so admins receive this
+  // blocking alert. Its top close action must remain reachable even when the
+  // translated content is taller than a landscape phone viewport.
+  const drillDialog = page.getByRole('alertdialog');
+  await expect(drillDialog).toBeVisible({ timeout: 10_000 });
+  const drillClose = drillDialog.getByRole('button', { name: 'Close' });
+  await expect(drillClose).toBeInViewport();
+  await drillClose.click();
+  await expect(drillDialog).not.toBeVisible();
+
+  const mobileTopbar = page.locator('.mobile-topbar');
+  await expect(mobileTopbar).toBeVisible();
+  await mobileTopbar.getByRole('button', { name: /Notifications/i }).click();
+
+  const notifications = page.getByRole('dialog', { name: 'Notifications' });
+  await expect(notifications).toBeVisible();
+  const closeNotifications = notifications.getByRole('button', { name: 'Close' });
+  await expect(closeNotifications).toBeInViewport();
+  await closeNotifications.click();
+  await expect(notifications).not.toBeVisible();
+});

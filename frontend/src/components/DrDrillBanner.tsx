@@ -143,41 +143,53 @@ export function DrDrillBanner() {
 
       {/* Modal dialog */}
       <div
+        className="dr-drill-modal"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="dr-drill-modal-title"
         aria-describedby="dr-drill-modal-desc"
         style={{ ...styles.modal, borderTop: `4px solid ${accentColor}` }}
       >
-        <div style={styles.iconRow}>
-          <span style={{ fontSize: '2rem' }}>{isFailed ? '🚨' : '⚠️'}</span>
-        </div>
+        <button
+          type="button"
+          className="dr-drill-modal-close"
+          onClick={handleDismiss}
+          aria-label={t('common.close')}
+        >
+          <span aria-hidden="true">&#x2715;</span>
+        </button>
 
-        <h2 id="dr-drill-modal-title" style={{ ...styles.title, color: accentColor }}>
-          {t('drDrill.modalTitle')}
-        </h2>
+        <div className="dr-drill-modal-scroll" style={styles.modalScroll}>
+          <div style={styles.iconRow}>
+            <span style={{ fontSize: '2rem' }}>{isFailed ? '🚨' : '⚠️'}</span>
+          </div>
 
-        <p id="dr-drill-modal-desc" style={styles.headline}>{headline}</p>
-        <p style={styles.detail}>{detail}</p>
+          <h2 id="dr-drill-modal-title" style={{ ...styles.title, color: accentColor }}>
+            {t('drDrill.modalTitle')}
+          </h2>
 
-        <p style={styles.hint}>
-          {t('drDrill.hint')}
-        </p>
+          <p id="dr-drill-modal-desc" style={styles.headline}>{headline}</p>
+          <p style={styles.detail}>{detail}</p>
 
-        <div style={styles.actions}>
-          {/* In-app runbook on the /dr-drill page (the old /docs/dr-drill.md
-              href pointed at a repo file nothing serves → SPA 404). Dismiss on
-              navigate so the modal doesn't cover the page it just opened. */}
-          <Link to="/dr-drill" onClick={handleDismiss} style={styles.docsLink}>
-            {t('drDrill.openRunbook')}
-          </Link>
-          <button
-            type="button"
-            onClick={handleDismiss}
-            style={styles.dismissBtn}
-          >
-            {t('drDrill.dismiss')}
-          </button>
+          <p style={styles.hint}>
+            {t('drDrill.hint')}
+          </p>
+
+          <div style={styles.actions}>
+            {/* In-app runbook on the /dr-drill page (the old /docs/dr-drill.md
+                href pointed at a repo file nothing serves → SPA 404). Dismiss on
+                navigate so the modal doesn't cover the page it just opened. */}
+            <Link to="/dr-drill" onClick={handleDismiss} style={styles.docsLink}>
+              {t('drDrill.openRunbook')}
+            </Link>
+            <button
+              type="button"
+              onClick={handleDismiss}
+              style={styles.dismissBtn}
+            >
+              {t('drDrill.dismiss')}
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -203,14 +215,20 @@ const styles = {
     zIndex: 1001,
     background: 'var(--bg-card)',
     borderRadius: 8,
-    padding: '2rem',
     maxWidth: 520,
     width: 'calc(100% - 2rem)',
     boxShadow: '0 8px 40px rgba(0,0,0,.25)',
     fontFamily: 'var(--font-sans)',
     display: 'flex' as const,
     flexDirection: 'column' as const,
+    overflow: 'hidden',
+  },
+  modalScroll: {
+    display: 'flex' as const,
+    flexDirection: 'column' as const,
     gap: '0.85rem',
+    minHeight: 0,
+    padding: 'clamp(1.25rem, 5vw, 2rem)',
   },
   iconRow: {
     textAlign: 'center' as const,
