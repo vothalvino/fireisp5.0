@@ -55,8 +55,22 @@ sql {
         JOIN contracts c ON c.id = r.contract_id \
         WHERE r.username = '%{SQL-User-Name}' \
           AND r.status = 'active' \
-          AND c.status = 'active' \
-        LIMIT 1"
+          AND (c.status = 'active' \
+               OR (c.status = 'pending' \
+                   AND c.test_window_cleanup_pending = 0 \
+                   AND c.test_window_expires_at > NOW())) \
+        UNION ALL \
+        SELECT r.username, 'Expiration' AS Attribute, \
+               CONCAT(DAY(c.test_window_expires_at), ' ', \
+                      ELT(MONTH(c.test_window_expires_at), 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'), ' ', \
+                      DATE_FORMAT(c.test_window_expires_at, '%Y %H:%i:%s')) AS Value, ':=' AS op \
+        FROM radius r \
+        JOIN contracts c ON c.id = r.contract_id \
+        WHERE r.username = '%{SQL-User-Name}' \
+          AND r.status = 'active' \
+          AND c.status = 'pending' \
+          AND c.test_window_cleanup_pending = 0 \
+          AND c.test_window_expires_at > NOW()"
 
     authorize_reply_query = "\
         SELECT r.username, 'Framed-IP-Address' AS Attribute, \
@@ -75,7 +89,17 @@ sql {
                CONCAT(r.ipv6_delegated_prefix, '/', r.ipv6_prefix_len) AS Value, ':=' AS op \
         FROM radius r \
         WHERE r.username = '%{SQL-User-Name}' \
-          AND r.ipv6_delegated_prefix IS NOT NULL"
+          AND r.ipv6_delegated_prefix IS NOT NULL \
+        UNION ALL \
+        SELECT r.username, 'Session-Timeout' AS Attribute, \
+               CAST(GREATEST(TIMESTAMPDIFF(SECOND, NOW(), c.test_window_expires_at), 1) AS CHAR) AS Value, ':=' AS op \
+        FROM radius r \
+        JOIN contracts c ON c.id = r.contract_id \
+        WHERE r.username = '%{SQL-User-Name}' \
+          AND r.status = 'active' \
+          AND c.status = 'pending' \
+          AND c.test_window_cleanup_pending = 0 \
+          AND c.test_window_expires_at > NOW()"
 
     # --- NAS / Client queries ---
     client_query = "\
@@ -173,7 +197,7 @@ radacct -h localhost -s testing123
 
 | Issue | Solution |
 |-------|----------|
-| Auth rejected | Check `radius.status` = 'active' AND `contracts.status` = 'active' |
+| Auth rejected | Check `radius.status = 'active'` and either `contracts.status = 'active'` or a pending contract has a future `test_window_expires_at` with no cleanup pending |
 | No IP assigned | Ensure `radius.ip_address` is populated or use IP pools |
 | CoA timeout | Verify NAS firewall allows UDP port 3799 inbound |
 | Accounting not logged | Check FreeRADIUS SQL user has INSERT on `connection_logs` |

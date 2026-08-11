@@ -157,7 +157,7 @@ describe('POST /api/contracts/:id/unsuspend', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.contract_id).toBe(5);
     expect(res.body.data.status).toBe('active');
-    expect(suspensionService.reconnectContract).toHaveBeenCalledWith(5, 1, null);
+    expect(suspensionService.reconnectContract).toHaveBeenCalledWith(5, 1, null, { orgId: 1 });
   });
 
   test('passes invoice_id to suspensionService when provided', async () => {
@@ -170,7 +170,27 @@ describe('POST /api/contracts/:id/unsuspend', () => {
       .set('Authorization', `Bearer ${authToken}`)
       .send({ invoice_id: 55 });
 
-    expect(suspensionService.reconnectContract).toHaveBeenCalledWith(8, 1, 55);
+    expect(suspensionService.reconnectContract).toHaveBeenCalledWith(8, 1, 55, { orgId: 1 });
+  });
+
+  test('a never-activated suspended contract is safely returned to pending activation', async () => {
+    mockAuthUser();
+    db.query.mockResolvedValueOnce([[
+      { id: 9, status: 'suspended', organization_id: 1, first_activated_at: null },
+    ]]);
+    suspensionService.reconnectContract.mockResolvedValueOnce({
+      contract_id: 9, status: 'pending', activation_required: true,
+    });
+
+    const res = await request(app)
+      .post('/api/contracts/9/unsuspend')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      contract_id: 9, status: 'pending', activation_required: true,
+    });
   });
 
   test('returns 404 when contract not found', async () => {

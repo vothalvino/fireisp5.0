@@ -91,8 +91,12 @@ async function reconnect(req, res, next) {
       return res.status(422).json({ error: { code: 'NOT_SUSPENDED', message: 'Contract is not suspended' } });
     }
 
-    await suspensionService.reconnectContract(contract_id, req.user.id, invoice_id || null);
-    res.json({ data: { contract_id, status: 'active' } });
+    const outcome = await suspensionService.reconnectContract(
+      contract_id, req.user.id, invoice_id || null, { orgId: req.orgId },
+    );
+    res.json({
+      data: outcome || { contract_id, status: 'active', activation_required: false },
+    });
   } catch (err) {
     next(err);
   }

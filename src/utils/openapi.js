@@ -33,7 +33,7 @@ function generateSpec() {
     info: {
       title: 'FireISP 5.0 API',
       version: '5.0.0',
-      description: 'Open source ISP management — customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0).',
+      description: 'Open source ISP management — customers, plans, billing, and network monitoring, with Mexican fiscal compliance (CFDI 4.0) enabled for MX organizations and omitted in global mode.',
       license: { name: 'MIT', url: 'https://opensource.org/licenses/MIT' },
     },
     servers: [
@@ -364,9 +364,9 @@ function generateSpec() {
         post: { tags: ['Service Orders'], summary: 'Create a ServiceOrder', operationId: 'createServiceOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('ServiceOrder'), responses: r201('ServiceOrder') },
       },
       '/service-orders/{id}/restore': { post: { tags: ['Service Orders'], summary: 'Restore a soft-deleted service order', operationId: 'restoreServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/start': { post: { tags: ['Service Orders'], summary: 'Start a service order (new -> in_process); auto-creates + provisions the contract for new_install orders', operationId: 'startServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/complete': { post: { tags: ['Service Orders'], summary: 'Complete a service order (in_process -> done); already-paid or raises an installation-fee invoice (sends welcome notification)', operationId: 'completeServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_completeServiceOrder'), responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/cancel': { post: { tags: ['Service Orders'], summary: 'Cancel a service order', operationId: 'cancelServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/start': { post: { tags: ['Service Orders'], summary: 'Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active reviewed activation template)', operationId: 'startServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/complete': { post: { tags: ['Service Orders'], summary: 'Complete an order; new_install uses the canonical evidence/signature activation gate and may return a recoverable network_activation warning', operationId: 'completeServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_completeServiceOrder'), responses: r200('ServiceOrder, optional invoice, and activation network outcome') } },
+      '/service-orders/{id}/cancel': { post: { tags: ['Service Orders'], summary: 'Cancel a service order; cancelling a new_install and its pending contract also requires contracts.update', operationId: 'cancelServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
       '/service-orders/{id}/tasks': {
         get: { tags: ['Service Orders'], summary: 'List onboarding checklist tasks', operationId: 'listServiceOrderTasks', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrderTask[]') },
         post: { tags: ['Service Orders'], summary: 'Add an onboarding checklist task', operationId: 'createServiceOrderTask', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_createServiceOrderTask'), responses: r201('ServiceOrderTask') },
@@ -408,9 +408,65 @@ function generateSpec() {
 
       // ---- Contracts ----
       ...crudPaths('contracts', 'Contracts', 'Contract'),
+      '/contracts/{id}/activation': {
+        get: {
+          tags: ['Contracts'],
+          summary: 'Get the staged installation, bounded test, client-signature, and permanent-activation state for a contract',
+          operationId: 'getContractActivationState',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: { ...activationStateResponse('Contract activation state'), 404: { description: 'Contract not found' } },
+        },
+      },
+      '/contracts/{id}/activation/prepare': {
+        post: {
+          tags: ['Contracts'],
+          summary: 'Prepare a pending contract for activation by creating or reusing its installation service order, technician visit, and MX-only signing documents',
+          operationId: 'prepareContractActivation',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: typedJsonBody({
+            type: 'object',
+            properties: { assigned_to: { type: 'integer', minimum: 1 } },
+            additionalProperties: false,
+          }, 'Optional commissioning technician assignment', false),
+          responses: { ...activationStateResponse('Contract activation state'), 404: { description: 'Contract not found' }, 422: { description: 'Contract is not pending or the technician is not assignable' } },
+        },
+      },
+      '/contracts/{id}/activation/retry-network': {
+        post: {
+          tags: ['Contracts'],
+          summary: 'Idempotently retry RouterOS provisioning for an already-activated contract without repeating activation or billing',
+          operationId: 'retryContractNetworkActivation',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: { ...networkRetryResponse(), 404: { description: 'Contract not found' }, 422: { description: 'The previously activated PPPoE contract does not have exactly one active, provisionable RADIUS/NAS account' } },
+        },
+      },
+      '/contracts/{id}/activation/cancel': {
+        post: {
+          tags: ['Contracts'],
+          summary: 'Cancel a pending contract activation and fail-closed its linked installation order, visit, RADIUS access, and test window',
+          operationId: 'cancelContractActivation',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: { ...activationStateResponse('Cancelled contract activation state and cancellation summary'), 404: { description: 'Contract not found' }, 422: { description: 'The contract is not pending or the activation changed concurrently' } },
+        },
+      },
+      '/contracts/{id}/activate': {
+        post: {
+          tags: ['Contracts'],
+          summary: 'Permanently activate a tested pending contract after the installation visit and any required MX activation contract are complete',
+          operationId: 'activateContract',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          requestBody: activationBillingBody(),
+          responses: { ...activationStateResponse('Activated contract state, optional invoice, and network activation outcome'), 404: { description: 'Contract or activation order not found' }, 422: { description: 'Activation prerequisite is incomplete' } },
+        },
+      },
       '/contracts/{id}/suspend': { post: { tags: ['Contracts'], summary: 'Suspend a contract and kick active RADIUS session via CoA Disconnect-Request', operationId: 'suspendContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('rule_id + invoice_id'), responses: { 200: { description: 'Contract suspended', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is already suspended' } } } },
       '/contracts/{id}/unsuspend': { post: { tags: ['Contracts'], summary: 'Unsuspend a contract and restore RADIUS access via CoA-Request', operationId: 'unsuspendContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('invoice_id'), responses: { 200: { description: 'Contract unsuspended', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not suspended' } } } },
-      '/contracts/{id}/renew': { post: { tags: ['Contracts'], summary: 'Renew (reactivate) a suspended, expired, or cancelled contract', operationId: 'renewContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('end_date + plan_id'), responses: { 200: { description: 'Contract renewed', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not in a renewable state' } } } },
+      '/contracts/{id}/renew': { post: { tags: ['Contracts'], summary: 'Renew a terminal contract; previously activated service returns active, while never-activated service returns pending with activation_required=true', operationId: 'renewContract', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('end_date + plan_id'), responses: { 200: { description: 'Renewal result, including activation_required and any recoverable network_activation warning', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not in a renewable state' } } } },
       '/contracts/{id}/terminate': { post: { tags: ['Contracts'], summary: 'Permanently terminate an active or suspended contract and send RADIUS disconnect', operationId: 'terminateContract', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'Contract terminated', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract cannot be terminated from its current state' } } } },
       '/contracts/{id}/regenerate-pppoe': { post: { tags: ['Contracts'], summary: 'Regenerate (rotate) the PPPoE password for a contract’s RADIUS account; keeps the username and best-effort pushes the new secret to the NAS', operationId: 'regenerateContractPppoe', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'New PPPoE credentials', content: { 'application/json': { schema: { type: 'object' } } } }, 404: { description: 'Contract not found' }, 422: { description: 'Contract is not PPPoE or has no RADIUS account' } } } },
 
@@ -2301,7 +2357,14 @@ function generateSpec() {
         get: { tags: ['Work Orders'], summary: 'Work order counts grouped by status', operationId: 'getWorkOrderStats', security: [{ bearerAuth: [] }], responses: r200('StatusCount[]') },
       },
       '/work-orders/assignable-users': {
-        get: { tags: ['Work Orders'], summary: 'Active users authorized to be assigned work orders (holders of work_orders.update)', operationId: 'listAssignableWorkOrderUsers', security: [{ bearerAuth: [] }], responses: r200('UserSummary[]') },
+        get: {
+          tags: ['Work Orders'],
+          summary: 'Active users authorized to be assigned work orders (holders of work_orders.update)',
+          operationId: 'listAssignableWorkOrderUsers',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'commissioning', in: 'query', schema: { type: 'boolean' }, description: 'When true, return only users with work_orders.view, work_orders.update, and speed_tests.create' }],
+          responses: r200('UserSummary[]'),
+        },
       },
       ...crudPaths('work-orders', 'Work Orders', 'WorkOrder'),
       // Override list to document ticket_id + service_order_id query filters
@@ -2323,8 +2386,10 @@ function generateSpec() {
         },
         post: { tags: ['Work Orders'], summary: 'Create a WorkOrder', operationId: 'createWorkOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('WorkOrder'), responses: r201('WorkOrder') },
       },
-      '/work-orders/{id}/test-window/start': { post: { tags: ['Work Orders'], summary: 'Open the install test window: temporarily enable the pending contract RADIUS account for on-site testing (bounded by install_test_window_minutes)', operationId: 'startTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Window state') } },
-      '/work-orders/{id}/test-window/end': { post: { tags: ['Work Orders'], summary: 'Close the install test window: disable the account again and disconnect the session', operationId: 'endTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Window state') } },
+      '/work-orders/{id}/test-window/start': { post: { tags: ['Work Orders'], summary: 'Open the install test window: temporarily enable the pending contract RADIUS account for on-site testing (bounded by install_test_window_minutes)', operationId: 'startTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { ...testWindowStartResponse(), 422: { description: 'The visit, contract, RADIUS line, legal gate, or bounded network state is not eligible' } } } },
+      '/work-orders/{id}/test-window/end': { post: { tags: ['Work Orders'], summary: 'Close the install test window: disable the account again and disconnect the session', operationId: 'endTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: testWindowEndResponse() } },
+      '/work-orders/{id}/test-window/complete': { post: { tags: ['Work Orders'], summary: 'Record the technician speed-test result and atomically switch the pending contract line off until permanent activation', operationId: 'completeTestWindow', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: commissioningMeasurementBody(), responses: { ...commissioningResultResponse(true), 422: { description: 'The installation visit or bounded test window is not eligible' } } } },
+      '/work-orders/{id}/commissioning-test': { post: { tags: ['Work Orders'], summary: 'Record work-order-bound technician speed evidence for a pending static/dual line while connectivity remains offline', operationId: 'recordOfflineCommissioningTest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: commissioningMeasurementBody(), responses: { ...commissioningResultResponse(false), 422: { description: 'The assigned installation visit or contract type is not eligible' } } } },
       '/work-orders/{id}/restore': {
         post: { tags: ['Work Orders'], summary: 'Restore a soft-deleted work order', operationId: 'restoreWorkOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('WorkOrder') },
       },
@@ -3011,6 +3076,229 @@ function generateSpec() {
 // Helper functions for spec generation
 function jsonBody(desc) {
   return { description: desc, content: { 'application/json': { schema: { type: 'object' } } } };
+}
+function typedJsonBody(schema, description, required = true) {
+  return { description, required, content: { 'application/json': { schema } } };
+}
+function speedMeasurementSchema() {
+  return {
+    type: 'object',
+    required: ['download_mbps', 'upload_mbps'],
+    additionalProperties: false,
+    properties: {
+      download_mbps: { type: 'number', minimum: 0.001 },
+      upload_mbps: { type: 'number', minimum: 0.001 },
+      latency_ms: { type: 'number', minimum: 0 },
+      jitter_ms: { type: 'number', minimum: 0 },
+      packet_loss_pct: { type: 'number', minimum: 0, maximum: 100 },
+      server_location: { type: 'string', maxLength: 150 },
+      notes: { type: 'string', maxLength: 5000 },
+    },
+  };
+}
+function commissioningMeasurementBody() {
+  return typedJsonBody(
+    speedMeasurementSchema(),
+    'Technician-measured throughput and optional quality details',
+  );
+}
+function activationBillingBody() {
+  return typedJsonBody({
+    type: 'object',
+    required: ['billing'],
+    additionalProperties: false,
+    allOf: [{
+      if: {
+        required: ['billing'],
+        properties: { billing: { const: 'create_invoice' } },
+      },
+      then: { required: ['installation_fee'] },
+    }],
+    properties: {
+      billing: { type: 'string', enum: ['already_paid', 'create_invoice'] },
+      installation_fee: { type: 'number', minimum: 0.01 },
+      description: { type: 'string', maxLength: 255 },
+    },
+  }, 'Billing disposition; create_invoice additionally requires installation_fee and invoices.create');
+}
+function activationStateSchema() {
+  return {
+    type: 'object',
+    required: ['contract_id', 'status', 'can_activate', 'blockers'],
+    additionalProperties: true,
+    properties: {
+      contract_id: { type: 'integer' },
+      client_id: { type: 'integer' },
+      status: { type: 'string' },
+      connection_type: { type: ['string', 'null'] },
+      test_window_expires_at: { type: ['string', 'null'], format: 'date-time' },
+      test_window_cleanup_pending: { type: 'boolean' },
+      service_order_prepared: { type: 'boolean' },
+      work_order_prepared: { type: 'boolean' },
+      speed_test_recorded: { type: 'boolean' },
+      arrival_authorization_pending: { type: 'boolean' },
+      document_sync_required: { type: 'boolean' },
+      network_retry_available: { type: 'boolean' },
+      service_order: { type: ['object', 'null'], additionalProperties: true },
+      work_order: { type: ['object', 'null'], additionalProperties: true },
+      speed_test: { type: ['object', 'null'], additionalProperties: true },
+      documents: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      can_activate: { type: 'boolean' },
+      blockers: { type: 'array', items: { type: 'string' } },
+      invoice: { type: ['object', 'null'], additionalProperties: true },
+      network_activation: {
+        type: ['object', 'null'],
+        additionalProperties: true,
+        properties: {
+          contract_id: { type: 'integer' },
+          nas_pushed: { type: 'boolean' },
+          nas_push_error: { type: 'string' },
+        },
+      },
+    },
+  };
+}
+function activationStateResponse(description) {
+  return {
+    200: {
+      description,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object', required: ['data'], properties: { data: activationStateSchema() },
+          },
+        },
+      },
+    },
+  };
+}
+function networkRetryResponse() {
+  return {
+    200: {
+      description: 'Idempotent RouterOS activation retry result',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: ['contract_id', 'radius_id', 'nas_id', 'success'],
+                properties: {
+                  contract_id: { type: 'integer' },
+                  service_order_id: { type: ['integer', 'null'] },
+                  radius_id: { type: 'integer' },
+                  nas_id: { type: 'integer' },
+                  success: { type: 'boolean' },
+                  error: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+function commissioningResultResponse(systemControlled) {
+  return {
+    200: {
+      description: systemControlled
+        ? 'Recorded speed test and bounded-window shutdown result'
+        : 'Recorded speed test; static/non-RADIUS line remains manually controlled',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: ['speed_test'],
+                additionalProperties: true,
+                properties: {
+                  speed_test: { type: 'object', additionalProperties: true },
+                  closed: { type: 'boolean' },
+                  recorded: { type: 'boolean' },
+                  line_state: { type: 'string', enum: ['offline'] },
+                  nas_disabled: { type: ['boolean', 'null'] },
+                  nas_disable_warning: { type: ['string', 'null'] },
+                  disconnect_confirmed: { type: 'boolean' },
+                  disconnect_warning: { type: ['string', 'null'] },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+function testWindowStartResponse() {
+  return {
+    200: {
+      description: 'Bounded temporary-access window state',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: ['contract_id', 'expires_at', 'minutes', 'nas_pushed', 'already_open'],
+                additionalProperties: false,
+                properties: {
+                  contract_id: { type: 'integer' },
+                  expires_at: { type: 'string', format: 'date-time' },
+                  minutes: { type: 'integer', minimum: 1 },
+                  nas_pushed: { type: 'boolean' },
+                  already_open: { type: 'boolean' },
+                  nas_disabled: { type: ['boolean', 'null'] },
+                  nas_disable_warning: { type: ['string', 'null'] },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+function testWindowEndResponse() {
+  return {
+    200: {
+      description: 'Fail-closed network cleanup result; warnings mean durable automatic retry remains pending',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: ['contract_id', 'closed'],
+                additionalProperties: false,
+                properties: {
+                  contract_id: { type: 'integer' },
+                  closed: { type: 'boolean' },
+                  prepared: { type: 'boolean' },
+                  active: { type: 'boolean' },
+                  reopened: { type: 'boolean' },
+                  nas_disabled: { type: ['boolean', 'null'] },
+                  nas_disable_warning: { type: ['string', 'null'] },
+                  disconnect_confirmed: { type: 'boolean' },
+                  disconnect_outcome: { type: ['string', 'null'] },
+                  disconnect_warning: { type: ['string', 'null'] },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 }
 function r200(desc) {
   return { 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } };

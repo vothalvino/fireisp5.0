@@ -281,7 +281,12 @@ describe('WorkOrders — legal documents panel', () => {
 // active contract → panel absent (activation owns the line).
 // =============================================================================
 describe('WorkOrders — install test window', () => {
-  function mockWindowPaths({ contract }: { contract: { status: string; test_window_expires_at: string | null } }) {
+  function mockWindowPaths({ contract }: { contract: {
+    status: string;
+    connection_type?: string;
+    test_window_expires_at: string | null;
+    test_window_cleanup_pending?: boolean;
+  } }) {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/work-orders') {
         return Promise.resolve({ data: { data: [{ ...installOrder, id: 704, contract_id: 901, service_order_id: 16 }], meta: { total: 1, page: 1, limit: 25 } }, error: undefined });
@@ -304,6 +309,7 @@ describe('WorkOrders — install test window', () => {
     fireEvent.click(screen.getByText('Installation — SO-000011'));
 
     expect(await screen.findByText(/Line is down until activation/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open contract commissioning/ })).toHaveAttribute('href', '/contracts/901');
     fireEvent.click(screen.getByText('Start test window'));
     await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
       '/api/v1/work-orders/704/test-window/start',
@@ -312,7 +318,7 @@ describe('WorkOrders — install test window', () => {
   });
 
   it('shows the open window with its bound and an End action', async () => {
-    mockWindowPaths({ contract: { status: 'pending', test_window_expires_at: '2026-08-05 12:30:00' } });
+    mockWindowPaths({ contract: { status: 'pending', test_window_expires_at: '2099-08-05 12:30:00' } });
     renderPage();
     await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Installation — SO-000011'));
@@ -325,11 +331,41 @@ describe('WorkOrders — install test window', () => {
     ));
   });
 
+  it('shows cleanup retry instead of claiming an expired retained window is still open', async () => {
+    mockWindowPaths({ contract: {
+      status: 'pending',
+      test_window_expires_at: '2000-08-05 12:30:00',
+      test_window_cleanup_pending: true,
+    } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText(/live-session shutdown is still being verified/)).toBeInTheDocument();
+    expect(screen.queryByText(/Test internet ON/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry shutdown' }));
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/work-orders/704/test-window/end',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+  });
+
   it('renders no panel once the contract is active', async () => {
     mockWindowPaths({ contract: { status: 'active', test_window_expires_at: null } });
     renderPage();
     await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Installation — SO-000011'));
     await waitFor(() => expect(screen.queryByText('Test window')).not.toBeInTheDocument());
+  });
+
+  it('sends a static installation to contract commissioning without offering a RADIUS window', async () => {
+    mockWindowPaths({ contract: { status: 'pending', connection_type: 'static', test_window_expires_at: null } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByText(/static\/non-RADIUS line must be tested and switched off manually/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start test window' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open contract commissioning/ })).toHaveAttribute('href', '/contracts/901');
   });
 });

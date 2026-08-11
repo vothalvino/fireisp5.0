@@ -19,8 +19,10 @@ vi.mock('@/api/client', () => ({
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
+let mockRole = 'admin';
+let mockPermissions: string[] | undefined;
 vi.mock('@/auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, role: 'admin' } }),
+  useAuth: () => ({ user: { id: 1, role: mockRole, permissions: mockPermissions } }),
 }));
 
 // Row shape now comes straight from the GET /service-orders LEFT JOIN handler
@@ -82,6 +84,8 @@ function renderPage() {
 describe('ServiceOrderList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRole = 'admin';
+    mockPermissions = undefined;
     mockResponses();
   });
 
@@ -109,10 +113,12 @@ describe('ServiceOrderList page', () => {
     expect(screen.getByText('(lead)')).toBeInTheDocument();
   });
 
-  it('shows a Start action for a new order and a Complete action for an in_process order', async () => {
+  it('shows Start for a new order and sends an in-process new install to the canonical contract activation flow', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Start')).toBeInTheDocument());
-    expect(screen.getByText('Complete')).toBeInTheDocument();
+    const activationLink = screen.getByRole('link', { name: 'Activate contract' });
+    expect(activationLink).toHaveAttribute('href', '/contracts/900');
+    expect(screen.queryByText('Complete')).not.toBeInTheDocument();
   });
 
   it('does not show a manual Link Contract action for new_install orders (auto-provisioned on Start)', async () => {
@@ -171,6 +177,7 @@ describe('ServiceOrderList page', () => {
   });
 
   it('opens the Complete dialog, gates submit on a fee for create_invoice, and shows the invoice confirmation', async () => {
+    mockResponses([{ ...inProcessOrder, order_type: 'upgrade' }]);
     mockApiPost.mockImplementation((path: string) => {
       if (path === '/service-orders/{id}/complete') {
         return Promise.resolve({
@@ -204,6 +211,37 @@ describe('ServiceOrderList page', () => {
       }),
     ));
     await waitFor(() => expect(screen.getByText('INV-000005')).toBeInTheDocument());
+  });
+
+  it('does not offer invoice creation without invoices.create', async () => {
+    mockRole = 'custom';
+    mockPermissions = ['service_orders.update'];
+    mockResponses([{ ...inProcessOrder, order_type: 'upgrade' }]);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete' }));
+    const dialog = within(await screen.findByRole('dialog', { name: /Complete Service Order/i }));
+    expect(dialog.queryByLabelText('Create installation invoice')).not.toBeInTheDocument();
+    expect(dialog.getByLabelText('Installation already paid')).toBeChecked();
+  });
+
+  it('does not let a service-order-only technician cancel a new install that owns a pending contract', async () => {
+    mockRole = 'custom';
+    mockPermissions = ['service_orders.update'];
+    mockResponses([inProcessOrder]);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Activate contract' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+
+  it('keeps non-install cancellation available with service_orders.update alone', async () => {
+    mockRole = 'custom';
+    mockPermissions = ['service_orders.update'];
+    mockResponses([{ ...inProcessOrder, order_type: 'relocation' }]);
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
   it('asks for confirmation before cancelling and does not call the API when declined', async () => {

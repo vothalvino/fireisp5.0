@@ -8,10 +8,10 @@
 //   • startOrder           — new -> in_process, one transaction: locks the
 //                            order row, auto-creates + provisions the contract
 //                            for new_install orders (migration 380)
-//   • completeOrder        — in_process -> done, one transaction: activates a
-//                            pending contract and/or raises an installation
-//                            invoice, THEN emits the welcome notification
-//                            after commit (migration 380)
+//   • completeOrder        — in_process -> done, one transaction: evidence-
+//                            gated activation for linked new installs and/or
+//                            an installation invoice, THEN emits the welcome
+//                            notification after commit (migration 380)
 //   • cancelOrder          — new/in_process -> cancelled, one transaction:
 //                            cancels + deprovisions a still-pending
 //                            auto-created contract (migration 380)
@@ -34,7 +34,9 @@ const eventBus = require('./eventBus');
 const provisioningService = require('./subscriberProvisioningService');
 const billingService = require('./billingService');
 const logger = require('../utils/logger').child({ service: 'lifecycle' });
-const { ValidationError, NotFoundError, AppError } = require('../utils/errors');
+const {
+  ValidationError, NotFoundError, AppError, ForbiddenError,
+} = require('../utils/errors');
 
 // Default onboarding checklist applied to every new service order.
 const DEFAULT_ONBOARDING_TASKS = [
@@ -302,6 +304,34 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
       throw new ValidationError(`Invalid service order transition: ${order.status} → in_process`);
     }
 
+    if (order.order_type === 'new_install') {
+      const activationOrgId = order.organization_id ?? orgId ?? null;
+      if (activationOrgId !== null) {
+        // Lock the organization row shared with template create/update/delete.
+        // This makes the MX precondition stable until dispatch, contract
+        // provisioning, WO creation, and legal-instance generation commit.
+        const [organizations] = await conn.query(
+          `SELECT o.locale,
+                  EXISTS (
+                    SELECT 1 FROM document_templates dt
+                     WHERE dt.organization_id = o.id
+                       AND dt.template_type = 'activation_contract'
+                       AND dt.is_active = 1 AND dt.deleted_at IS NULL
+                  ) AS has_activation_template
+             FROM organizations o
+            WHERE o.id = ?
+            FOR UPDATE`,
+          [activationOrgId],
+        );
+        if (organizations[0]?.locale === 'MX'
+            && Number(organizations[0].has_activation_template) !== 1) {
+          throw new ValidationError(
+            'Configure and activate at least one reviewed MX activation-contract template before dispatching a new installation',
+          );
+        }
+      }
+    }
+
     let contractIdToLink = order.contract_id || null;
 
     if (order.order_type === 'new_install' && !order.contract_id) {
@@ -465,9 +495,11 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
 }
 
 /**
- * Complete a service order: in_process -> done (migration 380). Activates the
- * linked `pending` contract (if any) and, when `billing === 'create_invoice'`,
- * raises a one-off issued invoice for the installation fee
+ * Complete a service order: in_process -> done (migration 380). For a linked
+ * `new_install`, activates its `pending` contract only after all field,
+ * testing, and jurisdictional-signature evidence passes. Other order types
+ * never perform first activation. When `billing === 'create_invoice'`, raises
+ * a one-off issued invoice for the installation fee
  * (billingService.createOneOffInvoice, on the SAME connection so it commits
  * or rolls back atomically with the contract activation and the status
  * transition). `billing === 'already_paid'` skips invoicing entirely.
@@ -482,9 +514,20 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
  * @param {string} options.billing - already_paid | create_invoice
  * @param {number|null} [options.installationFee] - Required when billing = create_invoice
  * @param {string|null} [options.description]
+ * @param {boolean} [options.canActivateContract=true] - Caller authorization,
+ *   re-checked against the locked order type to close route-level TOCTOU.
+ * @param {boolean} [options.canCreateInvoice=true] - Caller authorization for
+ *   the optional installation invoice.
  * @returns {Promise<{ order: object, invoice: object|null }>}
  */
-async function completeOrder(orderId, { orgId = null, billing, installationFee = null, description = null } = {}) {
+async function completeOrder(orderId, {
+  orgId = null,
+  billing,
+  installationFee = null,
+  description = null,
+  canActivateContract = true,
+  canCreateInvoice = true,
+} = {}) {
   // ---- Validate FIRST, before any write ----
   const preOrder = await ServiceOrder.findById(orderId, orgId);
   if (!preOrder) throw new NotFoundError('Service order');
@@ -496,6 +539,9 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
   let invoiceDescription = null;
   let invoiceCurrency = null;
   if (billing === 'create_invoice') {
+    if (!canCreateInvoice) {
+      throw new ForbiddenError('Creating an installation invoice requires invoices.create');
+    }
     if (!preOrder.client_id) {
       throw new ValidationError('Service order has no client — cannot raise an installation invoice');
     }
@@ -525,6 +571,7 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
   const conn = await db.getConnection();
   let updatedOrder;
   let invoice = null;
+  let permanentlyActivatedContractId = null;
   try {
     await conn.beginTransaction();
 
@@ -536,31 +583,181 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
       throw new ValidationError(`Invalid service order transition: ${order.status} → done`);
     }
 
-    if (order.contract_id) {
-      // Guarded UPDATE: only a still-pending contract is activated here. If
-      // the row IS pending but the RADIUS-consistency trigger rejects the
-      // activation (trg_contracts_radius_consistency_bu, e.g. the RADIUS
-      // account was somehow removed after start), the SIGNAL 45000 throws
-      // here and rolls back the whole transaction — app.js's global error
-      // handler already maps ER_SIGNAL_EXCEPTION/errno 1644 to a 422
-      // (src/app.js:732-737), so it propagates as a client error, not a 500.
-      const [activation] = await conn.query(
-        "UPDATE contracts SET status = 'active', test_window_expires_at = NULL WHERE id = ? AND status = 'pending'",
-        [order.contract_id],
+    if (order.order_type === 'new_install') {
+      // The generic service-order completion route is also used for upgrades,
+      // relocations, and similar operational work. It passes the caller's
+      // contracts.update capability into this transaction so an order_type
+      // edit racing the route's pre-read cannot turn ordinary completion into
+      // an unauthorized permanent subscriber activation.
+      if (!canActivateContract) {
+        throw new ForbiddenError('Completing a new installation requires contracts.update');
+      }
+      // Permanent subscriber activation has one canonical gate.  The order
+      // row above is already locked; lock its contract too, then evaluate all
+      // field-work evidence in this SAME transaction so neither the contract
+      // screen nor the service-order screen can bypass a requirement.
+      if (!order.contract_id) {
+        throw new ValidationError('A new installation must be linked to a pending contract before activation');
+      }
+
+      const contractParams = [order.contract_id];
+      let contractScope = '';
+      if (orgId !== null) {
+        contractScope = ' AND organization_id = ?';
+        contractParams.push(orgId);
+      }
+      const [contractRows] = await conn.query(
+        `SELECT * FROM contracts
+          WHERE id = ?${contractScope} AND deleted_at IS NULL
+          FOR UPDATE`,
+        contractParams,
       );
-      // Formal activation is what turns the line on permanently (migration
-      // 448: provisioning creates the account inactive, the technician's test
-      // window is temporary). Same transaction as the status flip — and ONLY
-      // when the flip actually happened: a non-pending contract (already
-      // active, or cancelled out from under the order) must not have its
-      // account force-enabled here.
-      if (activation.affectedRows > 0) {
-        await conn.query(
-          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL",
-          [order.contract_id],
+      const contract = contractRows[0];
+      if (!contract) throw new ValidationError('Linked contract not found in this organization');
+      if (contract.status !== 'pending') {
+        throw new ValidationError(`The linked contract must still be pending before activation (currently: ${contract.status})`);
+      }
+      const sameForeignKey = (left, right) => {
+        if (left === null || left === undefined) return right === null || right === undefined;
+        if (right === null || right === undefined) return false;
+        return String(left) === String(right);
+      };
+      if (!sameForeignKey(order.client_id, contract.client_id)
+          || !sameForeignKey(order.plan_id, contract.plan_id)) {
+        throw new ValidationError(
+          'The installation order client/plan no longer matches the locked contract; cancel and prepare activation again',
         );
       }
+      if (Number(contract.test_window_cleanup_pending) === 1) {
+        throw new ValidationError('Technician test-window network cleanup must finish before permanent activation');
+      }
+      if (contract.test_window_expires_at !== null && contract.test_window_expires_at !== undefined) {
+        throw new ValidationError('End the technician test window before permanent activation');
+      }
+
+      const [workOrders] = await conn.query(
+        `SELECT * FROM work_orders
+          WHERE service_order_id = ? AND contract_id = ?
+            AND work_type = 'installation' AND deleted_at IS NULL
+          ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+        [order.id, order.contract_id],
+      );
+      const installWorkOrder = workOrders[0];
+      if (!installWorkOrder) {
+        throw new ValidationError('Create and complete the linked installation work order before activating the contract');
+      }
+      if (installWorkOrder.status !== 'completed') {
+        throw new ValidationError('Complete the newest linked installation work order before activating the contract');
+      }
+      const hasAcceptance = installWorkOrder.acceptance_signal_dbm !== null
+          && installWorkOrder.acceptance_signal_dbm !== undefined
+        || installWorkOrder.acceptance_link_mbps !== null
+          && installWorkOrder.acceptance_link_mbps !== undefined
+        || installWorkOrder.acceptance_rx_dbm !== null
+          && installWorkOrder.acceptance_rx_dbm !== undefined
+        || Number(installWorkOrder.acceptance_waived) === 1;
+      if (!hasAcceptance) {
+        throw new ValidationError('Record an installation acceptance reading or explicit waiver before activating the contract');
+      }
+
+      const [speedTests] = await conn.query(
+        `SELECT id FROM speed_tests
+          WHERE contract_id = ? AND work_order_id = ?
+            AND test_source = 'technician' AND tested_at >= ?
+            AND deleted_at IS NULL
+          ORDER BY tested_at DESC, id DESC LIMIT 1`,
+        [order.contract_id, installWorkOrder.id, order.started_at],
+      );
+      if (!speedTests[0]) {
+        throw new ValidationError('A technician speed test bound to this installation work order is required before activation');
+      }
+
+      // Legal signatures are STRICTLY jurisdictional.  Global organizations
+      // never query or require Mexican templates.  For MX, every activation
+      // template that is active NOW must have a signed, non-deleted instance
+      // generated from that exact template for this exact order.  This closes
+      // both historical holes in the work-order gate: missing instances and
+      // cancelled/declined instances no longer pass just because none is
+      // currently pending.
+      const activationOrgId = order.organization_id ?? orgId ?? contract.organization_id ?? null;
+      let locale = 'global';
+      if (activationOrgId !== null) {
+        const [orgRows] = await conn.query(
+          'SELECT locale FROM organizations WHERE id = ? LIMIT 1 FOR UPDATE',
+          [activationOrgId],
+        );
+        locale = orgRows[0]?.locale || 'global';
+      }
+      if (locale === 'MX') {
+        const [requiredTemplates] = await conn.query(
+          `SELECT id, name FROM document_templates
+            WHERE organization_id = ? AND template_type = 'activation_contract'
+              AND is_active = 1 AND deleted_at IS NULL
+            ORDER BY id FOR UPDATE`,
+          [activationOrgId],
+        );
+        if (requiredTemplates.length === 0) {
+          throw new ValidationError(
+            'Configure and activate at least one reviewed MX activation-contract template before service goes live',
+          );
+        }
+        if (requiredTemplates.length) {
+          const [signedDocuments] = await conn.query(
+            `SELECT template_id FROM signed_documents
+              WHERE service_order_id = ? AND organization_id = ?
+                AND client_id <=> ? AND contract_id = ?
+                AND template_type = 'activation_contract' AND status = 'signed'
+                AND deleted_at IS NULL
+              FOR UPDATE`,
+            [order.id, activationOrgId, order.client_id, order.contract_id],
+          );
+          const signedIds = new Set(signedDocuments.map(row => Number(row.template_id)));
+          const missing = requiredTemplates.filter(template => !signedIds.has(Number(template.id)));
+          if (missing.length) {
+            throw new ValidationError(
+              `The client must sign every required activation contract before service goes live (missing: ${missing.map(t => t.name).join(', ')})`,
+            );
+          }
+        }
+      }
+
+      // The exact-one assertion is intentionally stronger than the old
+      // best-effort guarded UPDATE.  With both rows locked, zero means a data
+      // integrity/concurrency failure and may not be followed by an order
+      // completion or invoice.
+      const [activation] = await conn.query(
+        `UPDATE contracts
+            SET status = 'active',
+                first_activated_at = COALESCE(first_activated_at, NOW()),
+                test_window_expires_at = NULL,
+                test_window_cleanup_pending = 0
+          WHERE id = ? AND status = 'pending'
+            AND test_window_expires_at IS NULL
+            AND test_window_cleanup_pending = 0`,
+        [order.contract_id],
+      );
+      if (activation.affectedRows !== 1) {
+        throw new ValidationError('Contract activation was modified concurrently — please reload and retry');
+      }
+      permanentlyActivatedContractId = order.contract_id;
+      await conn.query(
+        "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL",
+        [order.contract_id],
+      );
+      // Standard FreeRADIUS SQL credentials were removed when commissioning
+      // closed. Re-materialize them in this same activation transaction so a
+      // signed subscriber is usable immediately, without waiting for bulk sync.
+      const radiusService = require('./radiusService');
+      await radiusService.syncFreeradiusContract(order.contract_id, {
+        organizationId: activationOrgId,
+        enabled: true,
+        runner: conn,
+      });
     }
+    // upgrade/downgrade/relocation/reconnect orders may complete against an
+    // already-live contract, but never perform a first pending -> active
+    // transition. Otherwise creating a differently-labelled order would be a
+    // trivial way around every installation gate above.
 
     if (billing === 'create_invoice') {
       invoice = await billingService.createOneOffInvoice({
@@ -593,12 +790,59 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
     conn.release();
   }
 
+  // RouterOS direct-API test windows remove the temporary local PPP secret
+  // when the window closes. After the durable DB activation commits, restore
+  // that subscriber as the permanent service. This can never roll back a
+  // signed/activated contract: FreeRADIUS-SQL needs no push, and a RouterOS
+  // transport failure is surfaced in the return value + logs for retry/repair.
+  let nasPushed = false;
+  let nasPushError = null;
+  if (permanentlyActivatedContractId) {
+    try {
+      const [radiusRows] = await db.query(
+        `SELECT * FROM radius
+          WHERE contract_id = ? AND deleted_at IS NULL
+          ORDER BY id DESC LIMIT 1`,
+        [permanentlyActivatedContractId],
+      );
+      const radius = radiusRows[0];
+      if (radius?.nas_id) {
+        const Nas = require('../models/Nas');
+        const routerProvisioningService = require('./routerProvisioningService');
+        const nas = await Nas.findByIdOrFail(radius.nas_id, orgId);
+        await routerProvisioningService.pushSubscriber(nas, {
+          username: radius.username,
+          password: radius.password,
+          profile: radius.profile,
+          comment: `FireISP permanent activation contract#${permanentlyActivatedContractId}`,
+        });
+        nasPushed = true;
+      }
+    } catch (err) {
+      nasPushError = err.message;
+      logger.warn(
+        { err: err.message, contractId: permanentlyActivatedContractId },
+        'Permanent activation committed but RouterOS subscriber restore failed (best-effort)',
+      );
+    }
+  }
+
   // Emit AFTER commit so a notification-hook failure can never roll back the
   // billing/contract-activation transaction above.
   await emitActivation(updatedOrder, orgId).catch(err =>
     logger.warn({ err: err.message, orderId }, 'Failed to emit service_order.activated'));
 
-  return { order: updatedOrder, invoice };
+  return {
+    order: updatedOrder,
+    invoice,
+    activation: permanentlyActivatedContractId
+      ? {
+        contract_id: permanentlyActivatedContractId,
+        nas_pushed: nasPushed,
+        ...(nasPushError ? { nas_push_error: nasPushError } : {}),
+      }
+      : null,
+  };
 }
 
 /**
@@ -619,11 +863,15 @@ async function completeOrder(orderId, { orgId = null, billing, installationFee =
  * @param {number|null} [options.orgId]
  * @returns {Promise<{ order: object, contractCancelled: boolean }>}
  */
-async function cancelOrder(orderId, { orgId = null } = {}) {
+async function cancelOrder(orderId, { orgId = null, canCancelContract = true } = {}) {
   const conn = await db.getConnection();
   let updatedOrder;
   let contractCancelled = false;
   let contractIdForDisconnect = null;
+  let cleanupRadius = null;
+  let cleanupMarked = false;
+  let cleanupOrgId = orgId;
+  let cleanupContractId = null;
   try {
     await conn.beginTransaction();
 
@@ -632,19 +880,65 @@ async function cancelOrder(orderId, { orgId = null } = {}) {
     const order = lockedRows[0];
     if (!order) throw new NotFoundError('Service order');
 
+    // Cancellation of a new installation can also cancel the linked pending
+    // contract and revoke its commissioning access. Re-check the caller's
+    // contracts.update authority against the transaction-locked order_type so
+    // a concurrent relabel cannot turn ordinary SO cancellation into a
+    // contract lifecycle mutation.
+    if (order.order_type === 'new_install' && !canCancelContract) {
+      throw new ForbiddenError('Cancelling a new installation requires contracts.update');
+    }
+
     const allowed = ['new', 'in_process'];
     if (!allowed.includes(order.status)) {
       throw new ValidationError(`Invalid service order transition: ${order.status} → cancelled`);
     }
 
     if (order.contract_id) {
-      const [contractRows] = await conn.query('SELECT * FROM contracts WHERE id = ? FOR UPDATE', [order.contract_id]);
+      const contractParams = [order.contract_id];
+      const contractScope = orgId === null
+        ? ''
+        : ' AND (organization_id = ? OR organization_id IS NULL)';
+      if (orgId !== null) contractParams.push(orgId);
+      const [contractRows] = await conn.query(
+        `SELECT * FROM contracts WHERE id = ?${contractScope} FOR UPDATE`,
+        contractParams,
+      );
       const contract = contractRows[0];
       if (contract && contract.status === 'pending') {
-        await conn.query(
-          "UPDATE contracts SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+        cleanupOrgId = contract.organization_id ?? order.organization_id ?? orgId ?? null;
+        const hasTestWindowState = (contract.test_window_expires_at !== null
+          && contract.test_window_expires_at !== undefined)
+          || Number(contract.test_window_cleanup_pending) === 1;
+        const pendingPppoe = ['pppoe', 'pppoe_dual'].includes(contract.connection_type);
+        const [radiusRows] = await conn.query(
+          `SELECT * FROM radius
+            WHERE contract_id = ?
+            ORDER BY (deleted_at IS NULL) DESC, id DESC FOR UPDATE`,
           [order.contract_id],
         );
+        cleanupRadius = radiusRows;
+        if (hasTestWindowState || pendingPppoe) {
+          // Every pending PPPoE cancellation is a network shutdown, including
+          // pre-window legacy rows that may already have a RouterOS local
+          // secret. Preserve a NULL expiry for those unbounded rows: unlike a
+          // real test window, a no-target disconnect cannot become safe merely
+          // because an artificial timestamp elapsed.
+          await conn.query(
+            `UPDATE contracts
+                SET status = 'cancelled', test_window_cleanup_pending = 1,
+                    test_window_cleanup_attempted_at = NULL
+              WHERE id = ? AND status = 'pending'`,
+            [order.contract_id],
+          );
+          cleanupMarked = true;
+          cleanupContractId = order.contract_id;
+        } else {
+          await conn.query(
+            "UPDATE contracts SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+            [order.contract_id],
+          );
+        }
         // Deactivate any RADIUS account tied to this contract so it stops
         // authenticating new PPPoE sessions (radius.status is a separate
         // column from contracts.status — see radiusServerService#findSubscriber).
@@ -652,8 +946,14 @@ async function cancelOrder(orderId, { orgId = null } = {}) {
           "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
           [order.contract_id],
         );
+        const radiusService = require('./radiusService');
+        await radiusService.syncFreeradiusContract(order.contract_id, {
+          organizationId: cleanupOrgId,
+          enabled: false,
+          runner: conn,
+        });
         contractCancelled = true;
-        contractIdForDisconnect = order.contract_id;
+        if (!cleanupMarked) contractIdForDisconnect = order.contract_id;
       }
       // Any other contract status (active, terminated, already cancelled, …)
       // is left untouched — see function doc.
@@ -689,7 +989,20 @@ async function cancelOrder(orderId, { orgId = null } = {}) {
     conn.release();
   }
 
-  if (contractIdForDisconnect) {
+  if (cleanupMarked) {
+    // The database/FreeRADIUS shutdown above is durable. RouterOS is external
+    // I/O: failure leaves the marker in place for the scheduled sweeper.
+    try {
+      const testWindowService = require('./testWindowService');
+      await testWindowService.finalizeMarkedCleanup(cleanupContractId, {
+        orgId: cleanupOrgId,
+        radius: cleanupRadius,
+        reason: 'service_order_cancel',
+      });
+    } catch (err) {
+      logger.warn({ err: err.message, orderId }, 'Deferred test-window cleanup after service-order cancel');
+    }
+  } else if (contractIdForDisconnect) {
     // Best-effort CoA Disconnect-Request for any currently-live session —
     // never blocks or rolls back the cancel itself (mirrors the non-fatal CoA
     // pattern already used by suspensionService.suspendContract/terminate).

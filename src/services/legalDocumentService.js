@@ -20,10 +20,10 @@
 //   * sign()              — verifies the frozen hash, stores signer name +
 //                           canvas signature + timestamp + IP (Código de
 //                           Comercio data-message audit trail).
-//   * pendingGateError()  — the work-order transition gates: arrival
-//                           authorization blocks in_progress, activation
-//                           contract blocks completed. Gates exist only when
-//                           an instance was actually generated.
+//   * pendingGateError()  — the work-order transition gates: every active
+//                           arrival template must be signed before work starts,
+//                           and every active activation template must be signed
+//                           before completion.
 // =============================================================================
 
 const crypto = require('crypto');
@@ -100,7 +100,10 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
  * Generate one pending instance per ACTIVE template for a starting order.
  * Same transaction as the order start — all documents exist or none do.
  */
-async function generateForOrder(run, { orgId, clientId, contractId, orderId, workOrderId, createdBy, skipTypes = null }) {
+async function generateForOrder(run, {
+  orgId, clientId, contractId, orderId, workOrderId, createdBy,
+  skipTypes = null, onlyTemplateIds = null,
+}) {
   // STRICTLY MX (user decision, 2026-08-05): the legal-paper flow exists for
   // Mexican organizations only. Checked HERE — the single funnel — so every
   // caller (startOrder, the /generate backfill route) inherits it. An org-less
@@ -118,12 +121,21 @@ async function generateForOrder(run, { orgId, clientId, contractId, orderId, wor
   const [templates] = await run(
     `SELECT * FROM document_templates
      WHERE ${orgCond} AND is_active = 1 AND deleted_at IS NULL
-     ORDER BY FIELD(template_type, 'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom'), id`,
+     ORDER BY FIELD(template_type, 'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom'), id
+     FOR UPDATE`,
     templateParams,
   );
   if (!templates.length) return [];
 
-  const wanted = skipTypes ? templates.filter(t => !skipTypes.has(t.template_type)) : templates;
+  let wanted = skipTypes ? templates.filter(t => !skipTypes.has(t.template_type)) : templates;
+  // Contract activation preparation backfills templates by ID, not merely by
+  // type: an MX ISP may activate a second activation-contract template after
+  // an order started, and the client must receive a signable instance of that
+  // exact newly-required template without duplicating the existing one.
+  if (onlyTemplateIds) {
+    const wantedIds = new Set([...onlyTemplateIds].map(Number));
+    wanted = wanted.filter(template => wantedIds.has(Number(template.id)));
+  }
   if (!wanted.length) return [];
 
   const context = await buildContext(run, { orgId, clientId, contractId, orderId });
@@ -196,22 +208,75 @@ async function sign(documentId, { orgId, signerName, signatureImage, signedIp, p
  * Work-order transition gate. `target` is 'in_progress' or 'completed'.
  * Returns a human-readable refusal, or null when the transition may proceed.
  */
-async function pendingGateError(workOrder, target) {
+async function pendingGateError(workOrder, target, { runner = db, lock = false } = {}) {
   if (workOrder.work_type !== 'installation' || !workOrder.service_order_id) return null;
   const gateType = target === 'in_progress' ? 'installation_authorization'
     : target === 'completed' ? 'activation_contract'
       : null;
   if (!gateType) return null;
-  const [rows] = await db.query(
-    `SELECT id, title FROM signed_documents
-     WHERE service_order_id = ? AND template_type = ? AND status = 'pending' AND deleted_at IS NULL
-     LIMIT 1`,
-    [workOrder.service_order_id, gateType],
+
+  const run = typeof runner === 'function' ? runner : runner.query.bind(runner);
+  const lockSql = lock ? ' FOR UPDATE' : '';
+
+  // The work-order legal gates are just as jurisdictional as generation and
+  // final activation. Resolve the organization from the authoritative service
+  // order rather than trusting request-shaped WO data. A global org must not
+  // be blocked by historical Mexican document rows left after a locale change.
+  const [orderOrganizations] = await run(
+    `SELECT so.organization_id, so.client_id, so.contract_id,
+            COALESCE(o.locale, 'global') AS locale
+       FROM service_orders so
+       LEFT JOIN organizations o ON o.id = so.organization_id
+      WHERE so.id = ? AND so.deleted_at IS NULL
+      LIMIT 1${lockSql}`,
+    [workOrder.service_order_id],
   );
-  if (!rows.length) return null;
+  const orderOrganization = orderOrganizations[0];
+  if (!orderOrganization || orderOrganization.locale !== 'MX') return null;
+
+  const [templates] = await run(
+    `SELECT id, name FROM document_templates
+      WHERE organization_id = ? AND template_type = ?
+        AND is_active = 1 AND deleted_at IS NULL
+      ORDER BY id${lockSql}`,
+    [orderOrganization.organization_id, gateType],
+  );
+
+  // Arrival paperwork is optional: an MX organization with no active arrival
+  // template may start work. A formal activation contract is mandatory before
+  // an installation can be completed.
+  if (!templates.length) {
+    return gateType === 'activation_contract'
+      ? 'Configure at least one active activation contract template and obtain the client signature before completing this installation'
+      : null;
+  }
+
+  const [documents] = await run(
+    `SELECT template_id, status, title FROM signed_documents
+      WHERE service_order_id = ? AND organization_id = ?
+        AND client_id <=> ? AND contract_id <=> ?
+        AND template_type = ? AND deleted_at IS NULL${lockSql}`,
+    [
+      workOrder.service_order_id,
+      orderOrganization.organization_id,
+      orderOrganization.client_id,
+      orderOrganization.contract_id,
+      gateType,
+    ],
+  );
+  const signedTemplateIds = new Set(
+    documents
+      .filter(document => document.status === 'signed')
+      .map(document => Number(document.template_id)),
+  );
+  const unsignedTemplate = templates.find(
+    template => !signedTemplateIds.has(Number(template.id)),
+  );
+  if (!unsignedTemplate) return null;
+
   return gateType === 'installation_authorization'
-    ? `The client must sign "${rows[0].title}" (installation authorization) before work starts — open Documents on this work order`
-    : `The client must sign "${rows[0].title}" (activation contract) before this installation can be completed — open Documents on this work order`;
+    ? `The client must sign "${unsignedTemplate.name}" (installation authorization) before work starts — open Documents on this work order`
+    : `The client must sign "${unsignedTemplate.name}" (activation contract) before this installation can be completed — open Documents on this work order`;
 }
 
 module.exports = { render, buildContext, generateForOrder, sign, pendingGateError };

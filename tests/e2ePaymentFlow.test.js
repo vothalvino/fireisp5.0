@@ -187,13 +187,15 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       connection_type: 'pppoe',
       start_date: '2026-02-01',
       billing_day: 1,
-      status: 'active',
     };
 
     const mockContract = {
       id: 1,
       organization_id: 1,
       ...contractPayload,
+      // Direct contract creation is deliberately offline until the guided
+      // installation/test/signature workflow completes.
+      status: 'pending',
       price_override: null,
       ip_address: null,
     };
@@ -232,7 +234,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         id: 1,
         client_id: 10,
         plan_id: 5,
-        status: 'active',
+        status: 'pending',
       });
       expect(res.body.data.provisioning.pppoe.username).toBeTruthy();
       expect(res.body.data.provisioning.pppoe.password).toBeTruthy();
@@ -590,7 +592,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         .mockResolvedValueOnce([[{ id: clientId }]])
         .mockResolvedValueOnce([[{
           id: 1, organization_id: 1, client_id: clientId, plan_id: planId,
-          start_date: '2026-02-01', billing_day: 1, status: 'active',
+          start_date: '2026-02-01', billing_day: 1, status: 'pending',
         }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
@@ -600,7 +602,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
         .send({
           client_id: clientId, plan_id: planId,
           connection_type: 'pppoe', start_date: '2026-02-01',
-          billing_day: 1, status: 'active',
+          billing_day: 1,
         });
 
       expect(contractRes.status).toBe(201);
@@ -608,6 +610,8 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       expect(contractId).toBe(1);
 
       // --- Step 4: Generate invoice ---
+      // Activation is a separate installation workflow; this payment-focused
+      // test resumes after that workflow has made the contract active.
       // billingController: SELECT contract, SELECT plan
       // billingService.generateBillingPeriod: 4 db.query calls
       db.query

@@ -47,16 +47,33 @@ async function findNasByIp(ip) {
   return rows[0] || null;
 }
 
-/** Resolve an active subscriber + its plan by RADIUS username. */
-async function findSubscriber(username) {
+/**
+ * Resolve a subscriber in the source NAS's organization whose contract may
+ * authenticate now. A pending line is accepted only inside its bounded
+ * installation test window; checking the timestamp here makes expiry fail
+ * closed immediately even if the five-minute cleanup sweep has not yet changed
+ * radius.status back to inactive.
+ */
+async function findSubscriber(username, organizationId) {
   const [rows] = await db.query(
     `SELECT r.id, r.client_id, r.contract_id, r.username, r.password, r.ip_address,
-            c.plan_id
+            c.plan_id, c.status AS contract_status,
+            CASE WHEN c.status = 'pending'
+                 THEN GREATEST(TIMESTAMPDIFF(SECOND, NOW(), c.test_window_expires_at), 1)
+                 ELSE NULL END AS test_window_seconds_remaining
        FROM radius r
        LEFT JOIN contracts c ON c.id = r.contract_id
-      WHERE r.username = ? AND r.deleted_at IS NULL AND r.status = 'active'
+      WHERE r.username = ? AND r.organization_id <=> ?
+        AND r.deleted_at IS NULL AND r.status = 'active'
+        AND (
+          c.id IS NULL
+          OR c.status = 'active'
+          OR (c.status = 'pending'
+              AND c.test_window_cleanup_pending = 0
+              AND c.test_window_expires_at > NOW())
+        )
       LIMIT 1`,
-    [username],
+    [username, organizationId],
   );
   return rows[0] || null;
 }
@@ -104,6 +121,12 @@ function buildAcceptAttributes(subscriber, plan, withMessageAuth) {
   ];
   if (isIpv4(subscriber.ip_address)) {
     parts.push(coa.encodeFramedIPAddress(subscriber.ip_address)); // static Framed-IP (IPv4 only)
+  }
+  if (subscriber.contract_status === 'pending') {
+    const remaining = Math.floor(Number(subscriber.test_window_seconds_remaining));
+    if (Number.isSafeInteger(remaining) && remaining > 0) {
+      parts.push(codec.encodeIntAttr(ATTR.SESSION_TIMEOUT, remaining));
+    }
   }
   if (plan) {
     const attrMap = generateAttributes(plan);
@@ -166,7 +189,7 @@ async function handleAuth(msg, rinfo, respond) {
   let accept = false;
   let subscriber = null;
   if (username) {
-    subscriber = await findSubscriber(username);
+    subscriber = await findSubscriber(username, nas.organization_id);
     // Require a non-empty stored password — never authenticate a blank credential.
     if (subscriber && subscriber.password) {
       const userPw = codec.getAttr(pkt.attributes, ATTR.USER_PASSWORD);

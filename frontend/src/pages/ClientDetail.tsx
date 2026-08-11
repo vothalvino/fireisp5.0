@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { gql } from '@/api/graphql';
@@ -1140,6 +1140,7 @@ function PortalPasswordModal({
 
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>('contracts');
@@ -1161,6 +1162,7 @@ export function ClientDetail() {
   const canCreateContract = can(user, 'contracts.create');
   const canCreateCreditNote = can(user, 'credit_notes.create');
   const canEditCreditNote = can(user, 'credit_notes.update');
+  const isMxOrg = user?.organization_locale === 'MX';
 
   const { data: client, isLoading, error } = useQuery({
     queryKey: ['client-detail-gql', id],
@@ -1274,7 +1276,9 @@ export function ClientDetail() {
         {canEdit && (
           <div style={styles.headerActions}>
             <button type="button" style={styles.actionBtn} onClick={() => setShowEdit(true)}>✏️ Edit</button>
-            <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>
+            {isMxOrg && (
+              <button type="button" style={styles.actionBtn} onClick={() => setShowMxProfile(true)}>🧾 MX Profile</button>
+            )}
             <button type="button" style={styles.actionBtn} onClick={() => setShowPortalPassword(true)}>🔑 Portal Password</button>
           </div>
         )}
@@ -1415,7 +1419,10 @@ export function ClientDetail() {
           lockedClientId={Number(id)}
           lockedClientName={client.name}
           onClose={() => setShowNewContract(false)}
-          onCreated={() => { refetchClient(); setActiveTab('contracts'); }}
+          onCreated={(contractId) => {
+            void refetchClient();
+            navigate(`/contracts/${contractId}`);
+          }}
         />
       )}
       {creditNoteModal && (
@@ -1439,7 +1446,7 @@ export function ClientDetail() {
           onSaved={() => { setShowAddContact(false); refetchClient(); }}
         />
       )}
-      {showMxProfile && (
+      {showMxProfile && isMxOrg && (
         <MxProfileModal
           clientId={client.id}
           onClose={() => setShowMxProfile(false)}

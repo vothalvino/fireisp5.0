@@ -21,6 +21,9 @@ class SpeedTest extends BaseModel {
       // and therefore visible to every tenant. That silently reopens the leak
       // migration 438 closed, for every new row.
       'organization_id',
+      // work_order_id is intentionally NOT fillable. It is trusted
+      // commissioning evidence written only by the dedicated work-order
+      // commands; generic speed-test CRUD must never mint activation proof.
       'client_id', 'contract_id', 'device_id',
       'test_source', 'server_location',
       'download_mbps', 'upload_mbps', 'latency_ms', 'jitter_ms',

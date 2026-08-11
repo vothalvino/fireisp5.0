@@ -282,7 +282,7 @@ async function provisionNewContract(runner, contract, { seed, pppoeUsername, ppp
 async function enableIpv6Line(runner, contract) {
   const organizationId = contract.organization_id ?? null;
   const [radiusRows] = await runner.query(
-    'SELECT id, ipv6_pool_id FROM radius WHERE contract_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
+    'SELECT id, ipv6_pool_id, status FROM radius WHERE contract_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
     [contract.id],
   );
 
@@ -298,8 +298,8 @@ async function enableIpv6Line(runner, contract) {
   }
 
   await runner.query(
-    'UPDATE radius SET ipv6_pool_id = ?, status = ? WHERE id = ?',
-    [ipv6PoolId, 'active', radius.id],
+    'UPDATE radius SET ipv6_pool_id = ? WHERE id = ?',
+    [ipv6PoolId, radius.id],
   );
 
   logger.info({ contractId: contract.id, radiusId: radius.id, ipv6PoolId }, 'Enabled IPv6 line on dual-stack upgrade');

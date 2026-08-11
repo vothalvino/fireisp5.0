@@ -10,7 +10,9 @@ const createContract = {
   billing_day: { type: 'number', min: 1, max: 28 },
   price_override: { type: 'number', min: 0 },
   ip_address: { type: 'string', max: 45 },
-  status: { type: 'string', enum: ['pending', 'active', 'suspended', 'cancelled', 'terminated'] },
+  // Direct creation always begins pending/offline. Permanent activation is a
+  // separate evidence-gated lifecycle action, never an insert-time choice.
+  status: { type: 'string', enum: ['pending'] },
   facturar: { type: 'boolean' },
   escalation_enabled: { type: 'boolean' },
   escalate_on_disconnect: { type: 'boolean' },
@@ -45,8 +47,21 @@ const createContractAddon = {
   end_date: { type: 'string' },
 };
 
+const prepareContractActivation = {
+  assigned_to: { type: 'number', min: 1 },
+};
+
+const activateContract = {
+  billing: { type: 'string', required: true, enum: ['already_paid', 'create_invoice'] },
+  installation_fee: { type: 'number', min: 0.01 },
+  description: { type: 'string', max: 255 },
+};
+
 const patchContract = Object.fromEntries(
   Object.entries(updateContract).map(([k, v]) => [k, { ...v, required: false }]),
 );
 
-module.exports = { createContract, updateContract, patchContract, createContractAddon };
+module.exports = {
+  createContract, updateContract, patchContract, createContractAddon,
+  prepareContractActivation, activateContract,
+};

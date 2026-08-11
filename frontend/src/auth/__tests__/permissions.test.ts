@@ -49,6 +49,10 @@ describe('can()', () => {
       expect(can({ role: 'technician' }, 'devices.create')).toBe(true);
       expect(can({ role: 'technician' }, 'devices.update')).toBe(true);
       expect(can({ role: 'technician' }, 'devices.delete')).toBe(true);
+    expect(can({ role: 'technician' }, 'work_orders.update')).toBe(true);
+    expect(can({ role: 'technician' }, 'speed_tests.create')).toBe(true);
+    expect(can({ role: 'technician' }, 'signed_documents.view')).toBe(true);
+    expect(can({ role: 'technician' }, 'signed_documents.sign')).toBe(true);
       expect(can({ role: 'technician' }, 'clients.create')).toBe(false);
     });
 

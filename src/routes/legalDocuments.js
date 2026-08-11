@@ -22,6 +22,7 @@ const {
 const legalDocumentService = require('../services/legalDocumentService');
 const auditLog = require('../services/auditLog');
 const Organization = require('../models/Organization');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const templatesRouter = Router();
 const documentsRouter = Router();
@@ -52,6 +53,15 @@ function orgCond(orgId, params, column = 'organization_id') {
   return `${column} = ?`;
 }
 
+async function lockTemplateOrganization(conn, orgId) {
+  if (orgId === null || orgId === undefined) return;
+  const [rows] = await conn.query(
+    'SELECT id FROM organizations WHERE id = ? FOR UPDATE',
+    [orgId],
+  );
+  if (!rows[0]) throw new NotFoundError('Organization');
+}
+
 // ---------------------------------------------------------------------------
 // Templates CRUD
 // ---------------------------------------------------------------------------
@@ -69,51 +79,116 @@ templatesRouter.get('/', requirePermission('document_templates.view'), async (re
 });
 
 templatesRouter.post('/', requirePermission('document_templates.create'), validate(createDocumentTemplate), async (req, res, next) => {
+  const conn = await db.getConnection();
   try {
-    const [ins] = await db.query(
+    await conn.beginTransaction();
+    await lockTemplateOrganization(conn, req.orgId);
+    const [ins] = await conn.query(
       `INSERT INTO document_templates (organization_id, template_type, name, body_md, is_active, created_by)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [req.orgId ?? null, req.body.template_type, req.body.name, req.body.body_md,
         req.body.is_active ? 1 : 0, req.user?.id ?? null],
     );
-    const [rows] = await db.query('SELECT * FROM document_templates WHERE id = ?', [ins.insertId]);
+    const [rows] = await conn.query('SELECT * FROM document_templates WHERE id = ?', [ins.insertId]);
+    await conn.commit();
     await auditLog.log({
       userId: req.user?.id, organizationId: req.orgId, action: 'create',
       tableName: 'document_templates', recordId: ins.insertId, newValues: { name: req.body.name, template_type: req.body.template_type },
     }).catch(() => {});
     res.status(201).json({ data: rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
 });
 
 templatesRouter.put('/:id', requirePermission('document_templates.update'), validate(updateDocumentTemplate), async (req, res, next) => {
+  const conn = await db.getConnection();
   try {
+    await conn.beginTransaction();
+    await lockTemplateOrganization(conn, req.orgId);
     const fields = ['name', 'template_type', 'body_md', 'is_active'].filter(f => f in req.body);
-    if (!fields.length) return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+    if (!fields.length) throw new ValidationError('No fields to update');
+
+    const templateParams = [req.params.id];
+    const templateCond = orgCond(req.orgId, templateParams);
+    const [templates] = await conn.query(
+      `SELECT * FROM document_templates
+        WHERE id = ? AND ${templateCond} AND deleted_at IS NULL
+        FOR UPDATE`,
+      templateParams,
+    );
+    const template = templates[0];
+    if (!template) throw new NotFoundError('Template');
+
+    const materialFields = ['name', 'template_type', 'body_md'];
+    const changedMaterial = materialFields.filter(field => (
+      Object.prototype.hasOwnProperty.call(req.body, field)
+      && String(req.body[field]) !== String(template[field])
+    ));
+    if (changedMaterial.length && Number(template.is_active) === 1) {
+      throw new ValidationError(
+        'Deactivate this template before changing legal content; activate a new template ID for a new reviewed version',
+      );
+    }
+    if (changedMaterial.length) {
+      // No status/deletion filter is intentional: once any frozen instance
+      // references this ID, its source metadata is permanent history. Staff
+      // can toggle is_active, then create a new template/version ID.
+      const [instances] = await conn.query(
+        'SELECT id FROM signed_documents WHERE template_id = ? LIMIT 1',
+        [template.id],
+      );
+      if (instances[0]) {
+        throw new ValidationError(
+          'This template already has a generated document and its legal content is permanently immutable; create a new template version',
+        );
+      }
+    }
+
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => (f === 'is_active' ? (req.body[f] ? 1 : 0) : req.body[f]));
-    const params = [...values, req.params.id];
+    const params = [...values, template.id];
     const cond = orgCond(req.orgId, params);
-    const [result] = await db.query(
-      `UPDATE document_templates SET ${sets} WHERE id = ? AND ${cond} AND deleted_at IS NULL`,
+    const [result] = await conn.query(
+      `UPDATE document_templates SET ${sets}
+        WHERE id = ? AND ${cond} AND deleted_at IS NULL`,
       params,
     );
-    if (!result.affectedRows) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } });
-    const [rows] = await db.query('SELECT * FROM document_templates WHERE id = ?', [req.params.id]);
+    if (!result.affectedRows) throw new ValidationError('Template was modified concurrently — reload and retry');
+    const [rows] = await conn.query('SELECT * FROM document_templates WHERE id = ?', [template.id]);
+    await conn.commit();
     res.json({ data: rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
 });
 
 templatesRouter.delete('/:id', requirePermission('document_templates.delete'), async (req, res, next) => {
+  const conn = await db.getConnection();
   try {
+    await conn.beginTransaction();
+    await lockTemplateOrganization(conn, req.orgId);
     const params = [req.params.id];
     const cond = orgCond(req.orgId, params);
-    const [result] = await db.query(
+    const [result] = await conn.query(
       `UPDATE document_templates SET deleted_at = NOW() WHERE id = ? AND ${cond} AND deleted_at IS NULL`,
       params,
     );
-    if (!result.affectedRows) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } });
+    if (!result.affectedRows) throw new NotFoundError('Template');
+    await conn.commit();
     res.status(204).send();
-  } catch (err) { next(err); }
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -192,40 +267,75 @@ documentsRouter.post('/:id/cancel', requirePermission('signed_documents.create')
 // before a template was activated). Skips types that already have a live
 // (pending or signed) instance for the order so re-clicks never duplicate.
 documentsRouter.post('/generate', requireMxOrg, requirePermission('signed_documents.create'), validate(generateDocuments), async (req, res, next) => {
+  const conn = await db.getConnection();
   try {
+    await conn.beginTransaction();
     const soParams = [req.body.service_order_id];
     const soCond = orgCond(req.orgId, soParams);
-    const [soRows] = await db.query(
-      `SELECT * FROM service_orders WHERE id = ? AND ${soCond} AND deleted_at IS NULL`,
+    const [soRows] = await conn.query(
+      `SELECT * FROM service_orders
+        WHERE id = ? AND ${soCond} AND deleted_at IS NULL
+        FOR UPDATE`,
       soParams,
     );
     const order = soRows[0];
-    if (!order) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Service order not found' } });
-    if (!order.client_id) return res.status(422).json({ error: { code: 'NO_CLIENT', message: 'Service order has no client yet — start it first' } });
+    if (!order) throw new NotFoundError('Service order');
+    if (!order.client_id) throw new ValidationError('Service order has no client yet — start it first');
 
-    const [existing] = await db.query(
-      `SELECT DISTINCT template_type FROM signed_documents
-       WHERE service_order_id = ? AND status IN ('pending', 'signed') AND deleted_at IS NULL`,
+    const [woRows] = await conn.query(
+      `SELECT id, status FROM work_orders
+        WHERE service_order_id = ? AND work_type = 'installation'
+          AND deleted_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
       [order.id],
     );
-    const have = new Set(existing.map(r => r.template_type));
-
-    const [woRows] = await db.query(
-      'SELECT id FROM work_orders WHERE service_order_id = ? AND work_type = \'installation\' AND deleted_at IS NULL ORDER BY id LIMIT 1',
-      [order.id],
+    const workOrder = woRows[0] || null;
+    const canGenerateArrivalAuthorization = Boolean(
+      workOrder && ['pending', 'assigned'].includes(workOrder.status),
+    );
+    // Dedupe by immutable template ID, not by broad type. An ISP may enable a
+    // second reviewed activation/arrival template after an order was created;
+    // the client needs an instance of that exact version. Arrival paperwork
+    // is meaningful only before the installation visit starts.
+    const [missingTemplates] = await conn.query(
+      `SELECT dt.id FROM document_templates dt
+        WHERE dt.organization_id = ? AND dt.is_active = 1
+          AND dt.deleted_at IS NULL
+          AND (dt.template_type <> 'installation_authorization' OR ? = 1)
+          AND NOT EXISTS (
+            SELECT 1 FROM signed_documents sd
+             WHERE sd.service_order_id = ? AND sd.organization_id = dt.organization_id
+               AND sd.client_id <=> ? AND sd.contract_id <=> ?
+               AND sd.template_id = dt.id AND sd.template_type = dt.template_type
+               AND sd.status IN ('pending','signed') AND sd.deleted_at IS NULL
+          )
+        ORDER BY dt.id`,
+      [
+        order.organization_id ?? req.orgId,
+        canGenerateArrivalAuthorization ? 1 : 0,
+        order.id,
+        order.client_id,
+        order.contract_id,
+      ],
     );
 
-    const created = await legalDocumentService.generateForOrder(db.query.bind(db), {
+    const created = await legalDocumentService.generateForOrder(conn.query.bind(conn), {
       orgId: order.organization_id ?? req.orgId ?? null,
       clientId: order.client_id,
       contractId: order.contract_id || null,
       orderId: order.id,
-      workOrderId: woRows[0]?.id || null,
+      workOrderId: workOrder?.id || null,
       createdBy: req.user?.id ?? null,
-      skipTypes: have,
+      onlyTemplateIds: new Set(missingTemplates.map(template => Number(template.id))),
     });
+    await conn.commit();
     res.status(201).json({ data: { generated: created.length, documents: created } });
-  } catch (err) { next(err); }
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
 });
 
 module.exports = { templatesRouter, documentsRouter };

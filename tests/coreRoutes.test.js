@@ -155,6 +155,47 @@ describe('Contract Routes — /api/contracts', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.id).toBe(2);
+      const insert = conn.query.mock.calls.find(([sql]) => /INSERT INTO contracts/.test(sql));
+      expect(insert[0]).toMatch(/`status`/);
+      expect(insert[1]).toContain('pending');
+    });
+
+    test('rejects creating an already-active contract — every new line starts pending/offline', async () => {
+      mockAuthUser();
+      const res = await request(app)
+        .post('/api/contracts')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ client_id: 10, plan_id: 5, start_date: '2025-01-01', status: 'active' });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.details).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'status' }),
+      ]));
+      expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('global organizations cannot enable the MX-only facturar flag on create', async () => {
+      mockAuthUser();
+      const conn = {
+        query: jest.fn().mockResolvedValueOnce([[{ locale: 'global' }]]),
+        beginTransaction: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValue(conn);
+
+      const res = await request(app)
+        .post('/api/contracts')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          client_id: 10, plan_id: 5, start_date: '2025-01-01', facturar: true,
+        });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/Mexican organizations/i);
+      expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO contracts/.test(sql))).toBe(false);
+      expect(conn.rollback).toHaveBeenCalled();
     });
 
     test('rejects creating a contract on an archived plan with 422 PLAN_ARCHIVED', async () => {
@@ -257,6 +298,22 @@ describe('Contract Routes — /api/contracts', () => {
       expect(res.body.data.status).toBe('suspended');
     });
 
+    test('global organizations cannot enable the MX-only facturar flag on update', async () => {
+      mockAuthUser();
+      db.query
+        .mockResolvedValueOnce([[mockContract]])
+        .mockResolvedValueOnce([[{ locale: 'global' }]]);
+
+      const res = await request(app)
+        .put('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ facturar: true });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/Mexican organizations/i);
+      expect(db.query.mock.calls.some(([sql]) => /^UPDATE `contracts`/.test(String(sql)))).toBe(false);
+    });
+
     // Migration 388 — configurable diagnostic thresholds: the 3 per-contract
     // override columns must be on Contract.fillable (or BaseModel.update
     // silently drops them) and the validation schema (or validate() 422s).
@@ -337,49 +394,38 @@ describe('Contract Routes — /api/contracts', () => {
       expect(radiusCall[1]).toEqual([1]);
     });
 
-    test('Edit-modal reactivation (suspended -> active via PUT) reactivates the RADIUS account (Case B)', async () => {
+    test('generic suspended -> active is rejected in favor of the unsuspend action', async () => {
       mockAuthUser();
-      db.query
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findByIdOrFail (status: suspended)
-        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])     // findById (inside Contract.update)
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // UPDATE radius -> active
+      db.query.mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]]);
 
       const res = await request(app)
         .put('/api/contracts/1')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'active' });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/unsuspend action/i);
       const radiusCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
       );
-      expect(radiusCall).toBeTruthy();
-      expect(radiusCall[0]).toContain("'active'");
-      expect(radiusCall[0]).toContain("IN ('suspended', 'inactive')");
-      expect(radiusCall[1]).toEqual([1]);
+      expect(radiusCall).toBeUndefined();
     });
 
-    test('Edit-modal reactivation from a terminated contract (terminal -> active via PUT) reactivates RADIUS too', async () => {
+    test('generic terminal -> active is rejected in favor of renewal', async () => {
       mockAuthUser();
-      db.query
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'terminated' }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      db.query.mockResolvedValueOnce([[{ ...mockContract, status: 'terminated' }]]);
 
       const res = await request(app)
         .put('/api/contracts/1')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'active' });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/renew action/i);
       const radiusCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
       );
-      expect(radiusCall).toBeTruthy();
-      expect(radiusCall[0]).toContain("'active'");
-      expect(radiusCall[1]).toEqual([1]);
+      expect(radiusCall).toBeUndefined();
 
       // Adversarial-review finding (medium, confirmed): a terminated contract
       // reactivated via the Edit modal was never actually "suspended", so it
@@ -390,34 +436,21 @@ describe('Contract Routes — /api/contracts', () => {
       expect(logCall).toBeUndefined();
     });
 
-    // Adversarial-review finding (medium, confirmed): the FSM also allows
-    // pending -> active — a brand-new contract's ORDINARY first activation
-    // via the Edit modal, the single most common path through this branch.
-    // old.status !== 'suspended' here, so this must sync radius exactly like
-    // any other ->active transition but must NOT write a suspension_logs
-    // row — the contract was never suspended, so logging 'unsuspended' with
-    // suspended_at=NOW()/restored_at=NOW() would be a phantom
-    // zero-duration suspension polluting the audit/compliance table.
-    test('pending -> active via PUT reactivates RADIUS but writes NO suspension_logs row', async () => {
+    test('pending -> active via PUT is rejected in favor of the evidence-gated activation flow', async () => {
       mockAuthUser();
-      db.query
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'pending' }]])  // findByIdOrFail
-        .mockResolvedValueOnce([{ affectedRows: 1 }])                       // UPDATE contracts
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])   // findById (inside Contract.update)
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);                      // UPDATE radius -> active
+      db.query.mockResolvedValueOnce([[{ ...mockContract, status: 'pending' }]]);
 
       const res = await request(app)
         .put('/api/contracts/1')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'active' });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/technician test and client signature/i);
       const radiusCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
       );
-      expect(radiusCall).toBeTruthy();
-      expect(radiusCall[0]).toContain("'active'");
-      expect(radiusCall[0]).toContain("IN ('suspended', 'inactive')");
+      expect(radiusCall).toBeUndefined();
 
       const logCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
@@ -427,6 +460,43 @@ describe('Contract Routes — /api/contracts', () => {
         c => typeof c[0] === 'string' && c[0].includes('UPDATE suspension_logs SET restored_at'),
       );
       expect(closeCall).toBeUndefined();
+    });
+
+    test.each(['suspended', 'cancelled'])(
+      'generic %s -> pending is rejected; only lifecycle reset routes may use that FSM edge',
+      async (status) => {
+        mockAuthUser();
+        db.query.mockResolvedValueOnce([[{ ...mockContract, status }]]);
+
+        const res = await request(app)
+          .patch('/api/contracts/1')
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ status: 'pending' });
+
+        expect(res.status).toBe(422);
+        expect(res.body.error.message).toMatch(/renew or reconnect workflow/i);
+        expect(db.query.mock.calls.some(([sql]) => /^UPDATE `contracts`/.test(String(sql)))).toBe(false);
+      },
+    );
+
+    test.each([
+      ['pppoe', 'static'],
+      ['static', 'pppoe'],
+    ])('rejects cross-family connection change %s -> %s without a reprovisioning workflow', async (before, after) => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[
+        { ...mockContract, status: 'pending', connection_type: before },
+      ]]);
+
+      const res = await request(app)
+        .patch('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ connection_type: after });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/dedicated reprovisioning workflow/i);
+      expect(db.query.mock.calls.some(([sql]) => /^UPDATE `contracts`/.test(String(sql)))).toBe(false);
+      expect(db.query.mock.calls.some(([sql]) => /UPDATE radius/.test(String(sql)))).toBe(false);
     });
 
     // Migration-384-era hardening: the generic PUT/PATCH status toggle now
@@ -457,33 +527,24 @@ describe('Contract Routes — /api/contracts', () => {
       expect(logCall[0]).toContain("'suspended'");
     });
 
-    test('Edit-modal reactivation (suspended -> active via PUT) writes an \'unsuspended\' suspension_logs row and closes any open prior row', async () => {
+    test('rejected generic reactivation does not mutate the suspension audit trail', async () => {
       mockAuthUser();
-      db.query
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]])  // findByIdOrFail
-        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE contracts
-        .mockResolvedValueOnce([[{ ...mockContract, status: 'active' }]])     // findById (inside Contract.update)
-        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // UPDATE radius -> active
-        .mockResolvedValueOnce([[]])                                          // sendRadiusCoA: no RADIUS account (awaited)
-        .mockResolvedValueOnce([[{ suspended_at: new Date('2026-07-01T00:00:00Z') }]])  // closeOpenSuspensionAndGetStart SELECT
-        .mockResolvedValueOnce([{ affectedRows: 1 }])                        // closeOpenSuspensionAndGetStart UPDATE close
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);                       // INSERT suspension_logs
+      db.query.mockResolvedValueOnce([[{ ...mockContract, status: 'suspended' }]]);
 
       const res = await request(app)
         .put('/api/contracts/1')
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'active' });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(422);
       const closeCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && c[0].includes('UPDATE suspension_logs SET restored_at'),
       );
-      expect(closeCall).toBeTruthy();
+      expect(closeCall).toBeUndefined();
       const logCall = db.query.mock.calls.find(
         c => typeof c[0] === 'string' && c[0].includes('INSERT INTO suspension_logs'),
       );
-      expect(logCall).toBeTruthy();
-      expect(logCall[0]).toContain("'unsuspended'");
+      expect(logCall).toBeUndefined();
     });
   });
 
@@ -600,7 +661,13 @@ describe('Contract Routes — /api/contracts', () => {
     test('deletes a contract and returns 204', async () => {
       mockAuthUser();
       db.query
-        .mockResolvedValueOnce([[mockContract]])       // findByIdOrFail
+        .mockResolvedValueOnce([[{ // terminal, non-RADIUS contract needs no external cleanup
+          ...mockContract,
+          status: 'cancelled',
+          connection_type: 'static',
+          test_window_expires_at: null,
+          test_window_cleanup_pending: 0,
+        }]]) // findByIdOrFail
         .mockResolvedValueOnce([{ affectedRows: 1 }]); // soft-DELETE (UPDATE deleted_at)
 
       const res = await request(app)
@@ -608,6 +675,24 @@ describe('Contract Routes — /api/contracts', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(204);
+    });
+
+    test.each([
+      ['pending', /cancel.*activation/i],
+      ['active', /terminate.*before deleting/i],
+      ['suspended', /terminate.*before deleting/i],
+    ])('rejects deleting %s service until its lifecycle shutdown action runs', async (status, message) => {
+      mockAuthUser();
+      db.query.mockResolvedValueOnce([[{ ...mockContract, status }]]);
+
+      const res = await request(app)
+        .delete('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(message);
+      expect(db.query.mock.calls.some(([sql]) => /deleted_at = NOW\(\)/.test(String(sql))))
+        .toBe(false);
     });
   });
 

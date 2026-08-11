@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const dgram = require('dgram');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'suspension' });
+const { ValidationError } = require('../utils/errors');
 // NOTE: the action values below are written as SQL literals ('suspended',
 // 'unsuspended') rather than interpolated from SUSPENSION_ACTIONS on purpose —
 // the new `node src/scripts/sql-column-check.js` gate can only validate an ENUM
@@ -246,42 +247,130 @@ async function suspendContract(contractId, ruleId, userId, invoiceId) {
 }
 
 /**
- * Reconnect a suspended contract. Changes status, logs the event, and sends RADIUS CoA.
+ * Reconnect a suspended contract. A previously-live subscriber (proven by
+ * first_activated_at) returns directly to active. A never-activated contract
+ * is instead reset to pending/offline so every caller—including automation
+ * and payment-driven reconnects—must go through commissioning before first
+ * service. The conditional writes are the transaction's state/proof lock.
  */
-async function reconnectContract(contractId, userId, invoiceId) {
+async function reconnectContract(contractId, userId, invoiceId, { orgId = null } = {}) {
   logger.info({ contractId, invoiceId }, 'Reconnecting contract');
   const conn = await db.getConnection();
+  let activationRequired = false;
+  let cleanupRequired = false;
   try {
     await conn.beginTransaction();
 
-    await conn.execute(
-      'UPDATE contracts SET status = ? WHERE id = ?',
-      ['active', contractId],
+    const orgClause = orgId === null ? '' : ' AND organization_id = ?';
+    const orgParams = orgId === null ? [] : [orgId];
+    const [reactivated] = await conn.execute(
+      `UPDATE contracts SET status = ?
+        WHERE id = ? AND status = 'suspended'
+          AND first_activated_at IS NOT NULL AND deleted_at IS NULL${orgClause}`,
+      ['active', contractId, ...orgParams],
     );
 
-    // Restore the RADIUS account so it can authenticate again. Guarded to
-    // ONLY flip an account that is currently 'suspended' — this function is
-    // billing/rule-driven (called by suspension_rules evaluation and the
-    // /unsuspend route) and must NEVER resurrect an 'inactive' (terminated or
-    // cancelled) account; reinstating a fully terminated/cancelled contract
-    // is a deliberate staff action handled separately by POST /:id/renew. If
-    // the account is already 'active' (e.g. reconnecting after a
-    // softSuspendContract walled-garden restriction, which never touches
-    // radius.status), this UPDATE simply matches 0 rows — harmless.
-    await conn.execute(
-      "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'suspended'",
-      [contractId],
-    );
+    if (reactivated.affectedRows === 1) {
+      // Restore only a suspended account. Inactive terminal/cancelled service
+      // remains a deliberate /renew decision.
+      await conn.execute(
+        "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'suspended'",
+        [contractId],
+      );
+    } else {
+      // The only alternative accepted here is a suspended line that has never
+      // crossed the activation boundary. Every PPPoE reset gets durable
+      // cleanup, even without a window marker: pre-feature provisioning may
+      // already have pushed an unbounded RouterOS local secret. Static/dual
+      // rows have no RADIUS/NAS window and clear impossible stale state.
+      const [cleanPppoeReset] = await conn.execute(
+        `UPDATE contracts
+            SET status = 'pending', test_window_cleanup_pending = 1,
+                test_window_cleanup_attempted_at = NULL,
+                test_window_expires_at = NULL
+          WHERE id = ? AND status = 'suspended'
+            AND first_activated_at IS NULL
+            AND connection_type IN ('pppoe','pppoe_dual')
+            AND test_window_expires_at IS NULL AND test_window_cleanup_pending = 0
+            AND deleted_at IS NULL${orgClause}`,
+        [contractId, ...orgParams],
+      );
+      let pppoeReset = cleanPppoeReset.affectedRows === 1;
+      if (pppoeReset) cleanupRequired = true;
+      let resetApplied = pppoeReset;
+      if (!resetApplied) {
+        const [nonPppoeReset] = await conn.execute(
+          `UPDATE contracts
+              SET status = 'pending', test_window_cleanup_pending = 0,
+                  test_window_expires_at = NULL
+            WHERE id = ? AND status = 'suspended'
+              AND first_activated_at IS NULL
+              AND connection_type IN ('static','dual')
+              AND deleted_at IS NULL${orgClause}`,
+          [contractId, ...orgParams],
+        );
+        resetApplied = nonPppoeReset.affectedRows === 1;
+      }
+      if (!resetApplied) {
+        const [windowedPppoeReset] = await conn.execute(
+          `UPDATE contracts
+              SET status = 'pending', test_window_cleanup_pending = 1,
+                  test_window_expires_at = COALESCE(
+                    test_window_expires_at, DATE_SUB(NOW(), INTERVAL 1 SECOND)
+                  )
+            WHERE id = ? AND status = 'suspended'
+              AND first_activated_at IS NULL
+              AND connection_type IN ('pppoe','pppoe_dual')
+              AND (test_window_expires_at IS NOT NULL OR test_window_cleanup_pending = 1)
+              AND deleted_at IS NULL${orgClause}`,
+          [contractId, ...orgParams],
+        );
+        pppoeReset = windowedPppoeReset.affectedRows === 1;
+        resetApplied = pppoeReset;
+        cleanupRequired = pppoeReset;
+      }
+      if (resetApplied) {
+        activationRequired = true;
+        if (pppoeReset) {
+          await conn.execute(
+            "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+            [contractId],
+          );
+          const radiusService = require('./radiusService');
+          await radiusService.syncFreeradiusContract(contractId, {
+            organizationId: orgId,
+            enabled: false,
+            runner: conn,
+          });
+        }
+      } else {
+        // Soft/walled-garden suspension deliberately leaves an already-live
+        // contract active. Preserve that established reconnect use case, but
+        // require the same durable first-activation proof and reject every
+        // other source state.
+        const [states] = await conn.execute(
+          `SELECT status, first_activated_at FROM contracts
+            WHERE id = ? AND deleted_at IS NULL${orgClause} FOR UPDATE`,
+          [contractId, ...orgParams],
+        );
+        if (!(states[0]?.status === 'active' && states[0]?.first_activated_at)) {
+          throw new ValidationError('Only a suspended contract can be reconnected');
+        }
+      }
+    }
 
-    // Send RADIUS CoA to re-enable the subscriber
+    // Send RADIUS CoA only when service was previously activated. A reset to
+    // pending is intentionally offline and must never receive reconnect CoA.
     let coaSent = false;
-    let coaResponse = null;
-    try {
-      const coaResult = await sendRadiusCoA(contractId, 'reconnect');
-      coaSent = coaResult.sent;
-      coaResponse = coaResult.response;
-    } catch (_coaErr) {
-      coaResponse = 'CoA send failed';
+    let coaResponse = activationRequired ? 'activation_required' : null;
+    if (!activationRequired) {
+      try {
+        const coaResult = await sendRadiusCoA(contractId, 'reconnect');
+        coaSent = coaResult.sent;
+        coaResponse = coaResult.response;
+      } catch (_coaErr) {
+        coaResponse = 'CoA send failed';
+      }
     }
 
     // suspended_at is NOT NULL on EVERY row, including this 'unsuspended' one.
@@ -296,7 +385,9 @@ async function reconnectContract(contractId, userId, invoiceId) {
     await logSuspensionEvent(conn.execute.bind(conn), {
       contractId,
       action: 'unsuspended',
-      reason: describeTrigger('reconnect', null, userId, invoiceId),
+      reason: activationRequired
+        ? `${describeTrigger('reconnect', null, userId, invoiceId)}; first activation required`
+        : describeTrigger('reconnect', null, userId, invoiceId),
       triggeredByValue: triggeredBy(userId),
       userId,
       coaSent,
@@ -314,6 +405,21 @@ async function reconnectContract(contractId, userId, invoiceId) {
     conn.release();
   }
 
+  if (activationRequired) {
+    // Best-effort external RouterOS cleanup after the fail-closed DB commit.
+    // The durable marker remains set on failure for the scheduled sweep.
+    if (cleanupRequired) {
+      const testWindowService = require('./testWindowService');
+      await testWindowService.cleanupMarkedWindow(contractId, {
+        orgId, reason: 'first_activation_reset', requireMarker: true,
+      }).catch(err => logger.warn(
+        { err: err.message, contractId },
+        'Never-activated reconnect reset; RouterOS cleanup remains pending',
+      ));
+    }
+    return { contract_id: Number(contractId), status: 'pending', activation_required: true };
+  }
+
   // Lift any open walled-garden restriction so the next re-auth leaves the
   // address list (lazy require — radiusService requires this module too)
   const [walled] = await db.query(
@@ -325,6 +431,7 @@ async function reconnectContract(contractId, userId, invoiceId) {
     const radiusService = require('./radiusService');
     await radiusService.walledGardenReconnect(contractId, userId);
   }
+  return { contract_id: Number(contractId), status: 'active', activation_required: false };
 }
 
 /**

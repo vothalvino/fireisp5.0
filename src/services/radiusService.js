@@ -14,6 +14,7 @@ const { serializeLoginTime } = require('./radiusLoginTimeService');
 // speedWindowService requires radiusService only lazily (inside
 // applySpeedWindows), so this top-level require is cycle-free.
 const speedWindowService = require('./speedWindowService');
+const { ValidationError } = require('../utils/errors');
 const {
   WALLED_GARDEN_REASON_PREFIX,
   OPEN_WALLED_GARDEN_PREDICATE,
@@ -40,6 +41,7 @@ async function syncAccount(contractId) {
   logger.info({ contractId }, 'Syncing RADIUS account');
   const [rows] = await db.query(`
     SELECT c.id AS contract_id, c.status AS contract_status,
+           c.test_window_expires_at,
            p.download_speed_mbps, p.upload_speed_mbps, p.name AS plan_name,
            r.id AS radius_id, r.username, r.status AS radius_status
     FROM contracts c
@@ -57,12 +59,24 @@ async function syncAccount(contractId) {
     return { synced: false, message: 'No RADIUS account for this contract' };
   }
 
-  // Sync status: if contract is active, radius should be active; anything
-  // else maps to 'inactive' — the enum is ('active','inactive','suspended')
+  // Sync status: a formally-active contract stays online permanently. A
+  // pending contract is online only while its bounded installation test
+  // window is still live; this prevents a plan/profile sync from closing a
+  // technician's test window early, without turning pending service into an
+  // unbounded activation. Anything else maps to 'inactive' — the enum is
+  // ('active','inactive','suspended')
   // and the previous 'disabled' literal was NOT a member: in strict-mode
   // MySQL every non-active sync errored, invisibly to sql:check because the
   // value travels through a bind parameter.
-  const expectedStatus = row.contract_status === 'active' ? 'active' : 'inactive';
+  const windowExpiresAt = row.test_window_expires_at
+    ? new Date(row.test_window_expires_at).getTime()
+    : 0;
+  const testWindowOpen = row.contract_status === 'pending'
+    && Number.isFinite(windowExpiresAt)
+    && windowExpiresAt > Date.now();
+  const expectedStatus = row.contract_status === 'active' || testWindowOpen
+    ? 'active'
+    : 'inactive';
   if (row.radius_status !== expectedStatus) {
     await db.query('UPDATE radius SET status = ? WHERE id = ?', [expectedStatus, row.radius_id]);
   }
@@ -329,6 +343,133 @@ function expandAttributeRows(attrMap) {
 }
 
 /**
+ * Materialize or remove the standard FreeRADIUS SQL rows for one contract.
+ * This is the synchronous commissioning path: the periodic all-account sync is
+ * too late for a technician waiting on site, and it never visits inactive rows
+ * to delete their stale credentials.
+ *
+ * Ownership is resolved through the contract before touching the globally
+ * keyed rad* tables. `runner` may be a transaction connection so the RADIUS
+ * status/window bound and credential rows commit atomically.
+ */
+async function syncFreeradiusContract(contractId, {
+  organizationId = null,
+  enabled,
+  runner = db,
+} = {}) {
+  const params = [contractId];
+  const orgScope = organizationId === null || organizationId === undefined
+    ? ''
+    : ' AND (c.organization_id = ? OR c.organization_id IS NULL)';
+  if (orgScope) params.push(organizationId);
+  const [rows] = await runner.query(
+    `SELECT r.id AS radius_id, r.username, r.password, r.auth_method,
+            r.simultaneous_use, r.ip_address AS radius_ip, r.nas_id,
+            r.status AS radius_status, r.deleted_at AS radius_deleted_at,
+            c.status AS contract_status, c.connection_type,
+            c.test_window_expires_at, c.test_window_cleanup_pending,
+            CONCAT(
+              DAY(c.test_window_expires_at), ' ',
+              ELT(MONTH(c.test_window_expires_at),
+                  'Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'), ' ',
+              DATE_FORMAT(c.test_window_expires_at, '%Y %H:%i:%s')
+            ) AS radius_expiration,
+            GREATEST(TIMESTAMPDIFF(SECOND, NOW(), c.test_window_expires_at), 1) AS window_seconds_remaining,
+            c.deleted_at AS contract_deleted_at, c.plan_id,
+            p.download_speed_mbps, p.upload_speed_mbps,
+            p.burst_download_mbps, p.burst_upload_mbps,
+            p.burst_threshold_mbps, p.burst_time_seconds,
+            p.radius_vendor, p.priority,
+            (c.status = 'active' OR (
+              c.status = 'pending'
+              AND c.test_window_cleanup_pending = 0
+              AND c.test_window_expires_at > NOW()
+            )) AS may_authenticate
+       FROM contracts c
+       JOIN radius r ON r.contract_id = c.id
+       LEFT JOIN plans p ON p.id = c.plan_id
+      WHERE c.id = ?${orgScope}
+      ORDER BY (r.deleted_at IS NULL) DESC, r.id DESC
+      `,
+    params,
+  );
+  if (!rows.length) return { found: false, enabled: false };
+
+  // Always delete first: end/cancel must remove stale SQL credentials even
+  // though radius.status already became inactive and the full sync skips it.
+  for (const account of rows) {
+    await runner.query('DELETE FROM radcheck WHERE username = ?', [account.username]);
+    await runner.query('DELETE FROM radreply WHERE username = ?', [account.username]);
+    await runner.query('DELETE FROM radusergroup WHERE username = ?', [account.username]);
+  }
+
+  if (!enabled) {
+    return {
+      found: true,
+      enabled: false,
+      username: rows[0].username,
+    };
+  }
+  if (rows.length !== 1) {
+    throw new ValidationError('The contract has multiple RADIUS accounts and cannot be enabled safely');
+  }
+  const account = rows[0];
+  if (account.radius_deleted_at || account.contract_deleted_at
+      || account.radius_status !== 'active' || !account.may_authenticate
+      || !['pppoe', 'pppoe_dual'].includes(account.connection_type)) {
+    throw new ValidationError('The contract is not eligible for FreeRADIUS commissioning access');
+  }
+
+  // Test-window contracts are PPPoE; their cleartext credential must be usable
+  // immediately by the standard FreeRADIUS SQL authorize module.
+  await runner.query(
+    'INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+    [account.username, 'Cleartext-Password', ':=', account.password],
+  );
+  await runner.query(
+    'INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+    [account.username, 'Simultaneous-Use', ':=', String(account.simultaneous_use ?? 1)],
+  );
+  if (account.contract_status === 'pending') {
+    if (!account.radius_expiration || !(Number(account.window_seconds_remaining) > 0)) {
+      throw new ValidationError('The test-window RADIUS expiration bound could not be calculated');
+    }
+    await runner.query(
+      'INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+      [account.username, 'Expiration', ':=', account.radius_expiration],
+    );
+    await runner.query(
+      'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+      [account.username, 'Session-Timeout', ':=', String(account.window_seconds_remaining)],
+    );
+  }
+  if (account.radius_ip) {
+    await runner.query(
+      'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+      [account.username, 'Framed-IP-Address', ':=', account.radius_ip],
+    );
+  }
+  if (account.plan_id) {
+    if (account.contract_status !== 'pending') {
+      await runner.query(
+        'INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)',
+        [account.username, planGroupName(account.plan_id)],
+      );
+    }
+    // Also emit the plan policy per-user so a brand-new plan works immediately
+    // even before its periodic radgroupreply refresh.
+    for (const attr of expandAttributeRows(generateAttributes(account))) {
+      await runner.query(
+        'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+        [account.username, attr.attribute, attr.op, attr.value],
+      );
+    }
+  }
+  return { found: true, enabled: true, username: account.username };
+}
+
+/**
  * Synchronize the FreeRADIUS SQL tables (radcheck, radreply, radusergroup,
  * radgroupcheck, radgroupreply) from FireISP state for a given organization.
  *
@@ -381,6 +522,16 @@ async function syncFreeradiusTables(organizationId) {
             -- fall back to auth_type_accept — i.e. accept ANY password for
             -- that MAC on an install that chose cleartext.
             COALESCE(r.organization_id, c.organization_id) AS organization_id,
+            c.status AS contract_status,
+            CONCAT(
+              DAY(c.test_window_expires_at), ' ',
+              ELT(MONTH(c.test_window_expires_at),
+                  'Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'), ' ',
+              DATE_FORMAT(c.test_window_expires_at, '%Y %H:%i:%s')
+            ) AS radius_expiration,
+            GREATEST(TIMESTAMPDIFF(SECOND, NOW(), c.test_window_expires_at), 1)
+              AS window_seconds_remaining,
             c.plan_id,
             p.download_speed_mbps, p.upload_speed_mbps,
             p.burst_download_mbps, p.burst_upload_mbps,
@@ -397,6 +548,12 @@ async function syncFreeradiusTables(organizationId) {
      LEFT JOIN ip_pools ipv6_pool ON ipv6_pool.id = r.ipv6_pool_id
      WHERE r.status = 'active'
        AND r.deleted_at IS NULL
+       AND (
+         c.id IS NULL
+         OR c.status = 'active'
+         OR (c.status = 'pending' AND c.test_window_cleanup_pending = 0
+             AND c.test_window_expires_at > NOW())
+       )
        ${orgFilter}`,
     orgParams,
   );
@@ -659,7 +816,9 @@ async function syncFreeradiusTables(organizationId) {
         }
 
         // Session-Timeout (per-user overrides plan group value in FreeRADIUS precedence)
-        if (profile.session_timeout_seconds !== null && profile.session_timeout_seconds !== undefined) {
+        if (sub.contract_status !== 'pending'
+            && profile.session_timeout_seconds !== null
+            && profile.session_timeout_seconds !== undefined) {
           await db.query(
             'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
             [username, 'Session-Timeout', ':=', String(profile.session_timeout_seconds)],
@@ -726,13 +885,41 @@ async function syncFreeradiusTables(organizationId) {
         // NAT64/DNS64: dns64_prefix is configured on the DNS64 resolver, not sent via RADIUS
       }
 
-      // Map user to plan group (if plan is known)
-      if (sub.plan_id) {
-        const group = planGroupName(sub.plan_id);
+      if (sub.contract_status === 'pending') {
+        if (!sub.radius_expiration || !(Number(sub.window_seconds_remaining) > 0)) {
+          throw new ValidationError('The test-window RADIUS expiration bound could not be calculated');
+        }
         await db.query(
-          'INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)',
-          [username, group],
+          'INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+          [username, 'Expiration', ':=', sub.radius_expiration],
         );
+        await db.query(
+          'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+          [username, 'Session-Timeout', ':=', String(sub.window_seconds_remaining)],
+        );
+        // Do not attach a temporary subscriber to a plan group: a plan/profile
+        // Session-Timeout could overwrite the shorter commissioning bound on
+        // installations that do not run the FreeRADIUS expiration module.
+        if (sub.plan_id) {
+          for (const attr of expandAttributeRows(generateAttributes(sub))) {
+            await db.query(
+              'INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)',
+              [username, attr.attribute, attr.op, attr.value],
+            );
+          }
+        }
+      }
+
+      // Map permanent users to plan groups. Pending commissioning writes the
+      // speed attributes directly above so no group can weaken its time bound.
+      if (sub.plan_id) {
+        if (sub.contract_status !== 'pending') {
+          const group = planGroupName(sub.plan_id);
+          await db.query(
+            'INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)',
+            [username, group],
+          );
+        }
       }
 
       synced++;
@@ -1107,6 +1294,7 @@ module.exports = {
   syncAccount,
   syncAllAccounts,
   syncFreeradiusTables,
+  syncFreeradiusContract,
   checkCertificateExpiry,
   getActiveSession,
   getSessionByClientId,

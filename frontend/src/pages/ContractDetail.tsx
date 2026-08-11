@@ -10,14 +10,18 @@
 // REST endpoints via postContractAction (same helper as ContractList).
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { gql } from '@/api/graphql';
 import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
-import { overlay, modalBox, cancelBtn, dangerBtn } from '@/components/ClientFormModal';
+import { MarkdownView } from '@/components/MarkdownView';
+import {
+  overlay, modalBox, cancelBtn, dangerBtn, inputStyle, labelStyle, submitBtn,
+} from '@/components/ClientFormModal';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the contract + all sub-resources in one request
@@ -153,16 +157,30 @@ async function fetchContractDetail(id: string): Promise<Contract> {
 
 const API_BASE = '/api/v1';
 
+interface ContractActionResult {
+  status?: string;
+  activation_required?: boolean;
+  network_activation?: {
+    nas_pushed?: boolean;
+    nas_push_error?: string | null;
+  } | null;
+}
+
 async function postContractAction(
   id: string,
   action: 'suspend' | 'unsuspend' | 'renew' | 'terminate',
-): Promise<void> {
+): Promise<ContractActionResult> {
   const res = await authedFetch(`${API_BASE}/contracts/${id}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`Failed to ${action} contract`);
+  const payload = await res.json().catch(() => ({})) as {
+    data?: ContractActionResult;
+    network_activation?: ContractActionResult['network_activation'];
+  };
+  return { ...(payload.data ?? {}), network_activation: payload.network_activation ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,17 +1050,1060 @@ function ContractInfoCard({ contract }: { contract: Contract }) {
 }
 
 // ---------------------------------------------------------------------------
+// Guided first activation
+// ---------------------------------------------------------------------------
+
+interface ActivationServiceOrder {
+  id: number;
+  order_number: string;
+  status: string;
+  assigned_to: number | null;
+  started_at: string | null;
+}
+
+interface ActivationWorkOrder {
+  id: number;
+  status: string;
+  assigned_to: number | null;
+  acceptance: Record<string, unknown> | null;
+}
+
+interface ActivationDocument {
+  id: number;
+  template_type: string;
+  title: string;
+  status: string;
+  signer_name: string | null;
+  signed_at: string | null;
+}
+
+interface ActivationSpeedTest {
+  download_mbps: number | string;
+  upload_mbps: number | string;
+  latency_ms?: number | string | null;
+  jitter_ms?: number | string | null;
+  packet_loss_pct?: number | string | null;
+  server_location?: string | null;
+  notes?: string | null;
+  tested_at?: string | null;
+}
+
+interface ContractActivationState {
+  contract_id: number;
+  client_id: number;
+  status: string;
+  connection_type: string | null;
+  test_window_expires_at: string | null;
+  test_window_cleanup_pending?: boolean;
+  radius_status: string | null;
+  service_order_prepared?: boolean;
+  service_order: ActivationServiceOrder | null;
+  work_order_prepared?: boolean;
+  work_order: ActivationWorkOrder | null;
+  documents: ActivationDocument[];
+  arrival_authorization_pending?: boolean;
+  document_sync_required?: boolean;
+  speed_test: ActivationSpeedTest | null;
+  speed_test_recorded?: boolean;
+  can_activate: boolean;
+  blockers: string[];
+  network_retry_available?: boolean;
+}
+
+interface AssignableUser {
+  id: number;
+  first_name: string;
+  last_name: string;
+}
+
+async function activationError(response: Response, fallback: string): Promise<string> {
+  try {
+    const json = await response.json() as { error?: string | { message?: string } };
+    if (typeof json.error === 'string') return json.error;
+    if (json.error?.message) return json.error.message;
+  } catch { /* empty/non-JSON response */ }
+  return fallback;
+}
+
+async function fetchActivationState(contractId: string): Promise<ContractActivationState> {
+  const response = await authedFetch(`${API_BASE}/contracts/${contractId}/activation`);
+  if (!response.ok) throw new Error(await activationError(response, 'Failed to load activation status'));
+  const json = await response.json() as { data: ContractActivationState };
+  return json.data;
+}
+
+async function fetchActivationAssignableUsers(fallback: string): Promise<AssignableUser[]> {
+  const response = await (api.GET as unknown as (
+    path: string,
+    options: unknown,
+  ) => Promise<{ data?: unknown; error?: unknown }>)('/work-orders/assignable-users', {
+    params: { query: { commissioning: true } },
+  });
+  if (response.error) {
+    const apiError = response.error as {
+      error?: string | { message?: string };
+      message?: string;
+    };
+    const message = typeof apiError.error === 'string'
+      ? apiError.error
+      : apiError.error?.message ?? apiError.message ?? fallback;
+    throw new Error(message);
+  }
+  return ((response.data as { data?: AssignableUser[] } | undefined)?.data) ?? [];
+}
+
+async function postActivationState(
+  url: string,
+  body: Record<string, unknown> | undefined,
+  fallback: string,
+): Promise<ContractActivationState | null> {
+  const response = await authedFetch(url, {
+    method: 'POST',
+    ...(body
+      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      : {}),
+  });
+  if (!response.ok) throw new Error(await activationError(response, fallback));
+  const json = await response.json().catch(() => null) as { data?: ContractActivationState } | null;
+  return json?.data ?? null;
+}
+
+function ActivationSignatureCanvas({ onChange }: { onChange: (value: string | null) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const dirty = useRef(false);
+
+  function point(event: React.PointerEvent<HTMLCanvasElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function start(event: React.PointerEvent<HTMLCanvasElement>) {
+    drawing.current = true;
+    const context = canvasRef.current?.getContext('2d');
+    if (!context) return;
+    const { x, y } = point(event);
+    context.beginPath();
+    context.moveTo(x, y);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function move(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+    const context = canvasRef.current?.getContext('2d');
+    if (!context) return;
+    const { x, y } = point(event);
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.strokeStyle = '#111';
+    context.lineTo(x, y);
+    context.stroke();
+    dirty.current = true;
+  }
+
+  function end() {
+    drawing.current = false;
+    if (dirty.current && canvasRef.current) onChange(canvasRef.current.toDataURL('image/png'));
+  }
+
+  function clear() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+    dirty.current = false;
+    onChange(null);
+  }
+
+  const { t } = useTranslation();
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={420}
+        height={140}
+        data-testid="activation-signature-canvas"
+        style={{ border: '1px dashed var(--border-strong, #9ca3af)', borderRadius: 8, background: '#fff', touchAction: 'none', width: '100%', maxWidth: 420 }}
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerLeave={end}
+      />
+      <button type="button" style={{ ...cancelBtn, marginTop: 4, padding: '3px 10px' }} onClick={clear}>
+        {t('contractActivation.clearSignature')}
+      </button>
+    </div>
+  );
+}
+
+function ActivationSignModal({ documentId, onClose, onSigned }: {
+  documentId: number;
+  onClose: () => void;
+  onSigned: () => void;
+}) {
+  const { t } = useTranslation();
+  const [signerName, setSignerName] = useState('');
+  const [signature, setSignature] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const documentQ = useQuery({
+    queryKey: ['activation-document', documentId],
+    queryFn: async () => {
+      const response = await (api.GET as unknown as (
+        path: string,
+        options: unknown,
+      ) => Promise<{ data?: unknown; error?: unknown }>)('/signed-documents/{id}', {
+        params: { path: { id: documentId } },
+      });
+      if (response.error) throw new Error(t('contractActivation.documentLoadFailed'));
+      return (response.data as { data: ActivationDocument & { rendered_body: string } }).data;
+    },
+  });
+
+  const signMutation = useMutation({
+    mutationFn: async () => {
+      if (!signerName.trim()) throw new Error(t('contractActivation.signerRequired'));
+      if (!signature) throw new Error(t('contractActivation.signatureRequired'));
+      const response = await (api.POST as unknown as (
+        path: string,
+        options: unknown,
+      ) => Promise<{ error?: { error?: { message?: string } } }>)('/signed-documents/{id}/sign', {
+        params: { path: { id: documentId } },
+        body: { signer_name: signerName.trim(), signature_image: signature },
+      });
+      if (response.error) throw new Error(response.error.error?.message || t('contractActivation.signFailed'));
+    },
+    onSuccess: () => { onSigned(); onClose(); },
+    onError: (cause: Error) => setError(cause.message),
+  });
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={t('contractActivation.signDocument')} onClick={onClose}>
+      <div style={{ ...modalBox, width: 640, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={event => event.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <h3 style={{ margin: '0 0 0.75rem' }}>
+            {documentQ.data?.title ?? t('contractActivation.signDocument')}
+          </h3>
+          <button type="button" style={cancelBtn} onClick={onClose} aria-label={t('common.close', 'Close')}>✕</button>
+        </div>
+        {documentQ.isLoading && <p>{t('common.loading')}</p>}
+        {documentQ.isError && <p style={{ color: '#991b1b' }}>{t('contractActivation.documentLoadFailed')}</p>}
+        {documentQ.data && (
+          <>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.75rem', background: 'var(--bg-subtle)' }}>
+              <MarkdownView markdown={documentQ.data.rendered_body} />
+            </div>
+            {documentQ.data.status === 'signed' ? (
+              <p>{t('contractActivation.signedBy', { name: documentQ.data.signer_name ?? '' })}</p>
+            ) : (
+              <>
+                <label style={labelStyle}>
+                  {t('contractActivation.signerName')}
+                  <input style={inputStyle} value={signerName} onChange={event => setSignerName(event.target.value)} maxLength={200} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.signature')}</label>
+                <ActivationSignatureCanvas onChange={setSignature} />
+                {error && <p style={{ color: '#991b1b', fontSize: '0.84rem' }}>{error}</p>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' }}>
+                  <button type="button" style={cancelBtn} onClick={onClose}>{t('common.cancel')}</button>
+                  <button type="button" style={submitBtn} disabled={signMutation.isPending} onClick={() => { setError(''); signMutation.mutate(); }}>
+                    {signMutation.isPending ? t('common.saving') : t('contractActivation.signDocument')}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function countdown(expiresAt: string, now: number): string {
+  const remaining = Math.max(0, new Date(expiresAt).getTime() - now);
+  const totalSeconds = Math.ceil(remaining / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function humanizeBlocker(code: string): string {
+  return code.replace(/_/g, ' ').replace(/^./, (character: string) => character.toUpperCase());
+}
+
+function ActivationDocumentRow({ document, canSign, onSign }: {
+  document: ActivationDocument;
+  canSign: boolean;
+  onSign: (documentId: number) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div style={activationStyles.documentRow}>
+      <span style={{ flex: 1 }}>{document.title}</span>
+      {document.status === 'signed' ? (
+        <span style={{ color: '#166534' }}>{t('contractActivation.signedBy', { name: document.signer_name ?? '' })}</span>
+      ) : document.status === 'pending' ? (
+        <>
+          <span style={{ color: '#92400e' }}>{t('contractActivation.pendingSignature')}</span>
+          {canSign ? (
+            <button type="button" style={styles.actionBtn} onClick={() => onSign(document.id)}>
+              {t('contractActivation.readAndSign')}
+            </button>
+          ) : (
+            <span style={{ color: 'var(--text-dimmed)', fontSize: '0.76rem' }}>
+              {t('contractActivation.signPermissionRequired')}
+            </span>
+          )}
+        </>
+      ) : (
+        <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{humanizeBlocker(document.status)}</span>
+      )}
+    </div>
+  );
+}
+
+function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUpdateWorkOrders, canCreateSpeedTests, canViewSignedDocuments, canSignDocuments, operatorUserId, canSuperviseCommissioning, onActivated, onCancelled }: {
+  contractId: string;
+  isMxOrg: boolean;
+  canEdit: boolean;
+  canCreateInvoices: boolean;
+  canUpdateWorkOrders: boolean;
+  canCreateSpeedTests: boolean;
+  canViewSignedDocuments: boolean;
+  canSignDocuments: boolean;
+  operatorUserId: number | null;
+  canSuperviseCommissioning: boolean;
+  onActivated: (networkWarning?: string) => void;
+  onCancelled: (cleanupPending: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [technicianId, setTechnicianId] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  const [signingId, setSigningId] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [speed, setSpeed] = useState({ download: '', upload: '', latency: '', jitter: '', loss: '', server: '', notes: '' });
+  const [acceptance, setAcceptance] = useState({ signal: '', link: '', rx: '', waived: false, notes: '' });
+  const [billing, setBilling] = useState<'already_paid' | 'create_invoice'>('already_paid');
+  const [fee, setFee] = useState('');
+  const [description, setDescription] = useState('');
+  const [networkWarning, setNetworkWarning] = useState('');
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  const activationQ = useQuery({
+    queryKey: ['contract-activation', contractId],
+    queryFn: () => fetchActivationState(contractId),
+    retry: false,
+    refetchInterval: query => {
+      const current = query.state.data as ContractActivationState | undefined;
+      if (current?.blockers.includes('test_window_cleanup_pending')) return 5_000;
+      return current?.test_window_expires_at ? 30_000 : false;
+    },
+  });
+
+  const state = activationQ.data;
+  const workOrder = state?.work_order ?? null;
+  const serviceOrderPrepared = state?.service_order_prepared ?? Boolean(state?.service_order);
+  const workOrderPrepared = state?.work_order_prepared ?? Boolean(workOrder);
+  const expiresAt = state?.test_window_expires_at ?? null;
+  const needsDocumentSync = Boolean(
+    isMxOrg && (
+      state?.document_sync_required
+      ?? (canViewSignedDocuments
+        && state?.blockers.includes('signature_missing')
+        && !state.documents.some(document => document.template_type === 'activation_contract' && document.status === 'pending'))
+    ),
+  );
+
+  useEffect(() => {
+    if (!expiresAt) return undefined;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [expiresAt]);
+
+  const usersQ = useQuery({
+    queryKey: ['activation-assignable-users'],
+    queryFn: () => fetchActivationAssignableUsers(t('contractActivation.techniciansLoadFailed')),
+    enabled: canEdit && (!workOrder || workOrder.assigned_to == null || reassigning),
+    retry: false,
+  });
+
+  function installState(next: ContractActivationState | null) {
+    if (next) queryClient.setQueryData(['contract-activation', contractId], next);
+    else void queryClient.invalidateQueries({ queryKey: ['contract-activation', contractId] });
+  }
+
+  function refreshActivation() {
+    void queryClient.invalidateQueries({ queryKey: ['contract-activation', contractId] });
+  }
+
+  const prepareMutation = useMutation({
+    mutationFn: () => postActivationState(
+      `${API_BASE}/contracts/${contractId}/activation/prepare`,
+      technicianId ? { assigned_to: Number(technicianId) } : {},
+      t('contractActivation.prepareFailed'),
+    ),
+    onSuccess: result => {
+      installState(result);
+      setReassigning(false);
+      setTechnicianId('');
+    },
+  });
+
+  const windowMutation = useMutation({
+    mutationFn: (action: 'start' | 'end') => {
+      if (!workOrder) throw new Error(t('contractActivation.prepareFirst'));
+      return postActivationState(
+        `${API_BASE}/work-orders/${workOrder.id}/test-window/${action}`,
+        undefined,
+        t('contractActivation.testActionFailed'),
+      );
+    },
+    // Window commands return their own compact command result, not the full
+    // activation projection. Refetch the projection instead of caching that
+    // response under the activation query key.
+    onSuccess: result => {
+      const outcome = result as unknown as {
+        nas_disable_warning?: string | null;
+        disconnect_warning?: string | null;
+      } | null;
+      setNetworkWarning(
+        [outcome?.nas_disable_warning, outcome?.disconnect_warning].filter(Boolean).join(' · '),
+      );
+      refreshActivation();
+    },
+  });
+
+  const speedMutation = useMutation({
+    mutationFn: () => {
+      if (!workOrder) throw new Error(t('contractActivation.prepareFirst'));
+      const download = Number(speed.download);
+      const upload = Number(speed.upload);
+      if (!Number.isFinite(download) || download <= 0 || !Number.isFinite(upload) || upload <= 0) {
+        throw new Error(t('contractActivation.speedRequired'));
+      }
+      const body: Record<string, unknown> = { download_mbps: download, upload_mbps: upload };
+      if (speed.latency !== '') body.latency_ms = Number(speed.latency);
+      if (speed.jitter !== '') body.jitter_ms = Number(speed.jitter);
+      if (speed.loss !== '') body.packet_loss_pct = Number(speed.loss);
+      if (speed.server.trim()) body.server_location = speed.server.trim();
+      if (speed.notes.trim()) body.notes = speed.notes.trim();
+      const systemControlled = state?.connection_type === 'pppoe' || state?.connection_type === 'pppoe_dual';
+      if (systemControlled) {
+        return postActivationState(
+          `${API_BASE}/work-orders/${workOrder.id}/test-window/complete`,
+          body,
+          t('contractActivation.speedFailed'),
+        );
+      }
+      // Static/dual lines do not have a RADIUS account, so there is no safe
+      // system-controlled test window to toggle. The dedicated commissioning
+      // command still verifies the assigned technician and derives every
+      // ownership field from the linked installation work order.
+      return postActivationState(
+        `${API_BASE}/work-orders/${workOrder.id}/commissioning-test`,
+        body,
+        t('contractActivation.speedFailed'),
+      );
+    },
+    onSuccess: result => {
+      const outcome = result as unknown as {
+        nas_disable_warning?: string | null;
+        disconnect_warning?: string | null;
+      } | null;
+      setNetworkWarning(
+        [outcome?.nas_disable_warning, outcome?.disconnect_warning].filter(Boolean).join(' · '),
+      );
+      refreshActivation();
+    },
+  });
+
+  const acceptanceMutation = useMutation({
+    mutationFn: async () => {
+      if (!workOrder) throw new Error(t('contractActivation.prepareFirst'));
+      const body: Record<string, unknown> = { status: 'completed' };
+      if (acceptance.signal !== '') body.acceptance_signal_dbm = Number(acceptance.signal);
+      if (acceptance.link !== '') body.acceptance_link_mbps = Number(acceptance.link);
+      if (acceptance.rx !== '') body.acceptance_rx_dbm = Number(acceptance.rx);
+      const hasReading = acceptance.signal !== '' || acceptance.link !== '' || acceptance.rx !== '';
+      if (!hasReading && !acceptance.waived) throw new Error(t('contractActivation.acceptanceRequired'));
+      if (acceptance.waived) {
+        if (!acceptance.notes.trim()) throw new Error(t('contractActivation.waiverNotesRequired'));
+        body.acceptance_waived = true;
+      }
+      if (acceptance.notes.trim()) body.acceptance_notes = acceptance.notes.trim();
+      const response = await authedFetch(`${API_BASE}/work-orders/${workOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await activationError(response, t('contractActivation.handoffFailed')));
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['contract-activation', contractId] }),
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: () => {
+      const feeNumber = Number(fee);
+      if (billing === 'create_invoice' && (!Number.isFinite(feeNumber) || feeNumber <= 0)) {
+        throw new Error(t('contractActivation.feeRequired'));
+      }
+      const body: Record<string, unknown> = { billing };
+      if (billing === 'create_invoice') {
+        body.installation_fee = feeNumber;
+        body.description = description.trim() || t('contractActivation.installationFeeDefault');
+      }
+      return postActivationState(
+        `${API_BASE}/contracts/${contractId}/activate`,
+        body,
+        t('contractActivation.activateFailed'),
+      );
+    },
+    onSuccess: result => {
+      const warning = (result as unknown as {
+        network_activation?: { nas_push_error?: string | null };
+      } | null)?.network_activation?.nas_push_error;
+      onActivated(warning ?? undefined);
+    },
+  });
+
+  const cancelActivationMutation = useMutation({
+    mutationFn: () => postActivationState(
+      `${API_BASE}/contracts/${contractId}/activation/cancel`,
+      undefined,
+      t('contractActivation.cancelActivationFailed'),
+    ),
+    onSuccess: result => onCancelled(Boolean(result?.test_window_cleanup_pending)),
+  });
+
+  if (activationQ.isLoading) {
+    return <section style={activationStyles.card}><p style={{ margin: 0 }}>{t('contractActivation.loading')}</p></section>;
+  }
+  if (activationQ.isError || !state) {
+    return (
+      <section style={activationStyles.card}>
+        <h2 style={activationStyles.title}>{t('contractActivation.title')}</h2>
+        <p style={{ color: '#991b1b' }}>{activationQ.error instanceof Error ? activationQ.error.message : t('contractActivation.loadFailed')}</p>
+        <button type="button" style={styles.actionBtn} onClick={() => void activationQ.refetch()}>{t('contractActivation.retry')}</button>
+      </section>
+    );
+  }
+
+  const windowOpen = Boolean(expiresAt && new Date(expiresAt).getTime() > now);
+  const windowTracked = Boolean(expiresAt);
+  const cleanupPending = Boolean(
+    state.test_window_cleanup_pending || state.blockers.includes('test_window_cleanup_pending'),
+  );
+  const systemControlledLine = state.connection_type === 'pppoe' || state.connection_type === 'pppoe_dual';
+  const jurisdictionDocuments = isMxOrg ? state.documents ?? [] : [];
+  const documents = canViewSignedDocuments ? jurisdictionDocuments : [];
+  const arrivalDocuments = documents.filter(document => document.template_type === 'installation_authorization');
+  const handoffDocuments = documents.filter(document => document.template_type !== 'installation_authorization');
+  // The start button still respects the authorization gate even when this
+  // user may not view document metadata; no title/signer information leaks.
+  const arrivalAuthorizationPending = state.arrival_authorization_pending
+    ?? jurisdictionDocuments.some(
+      document => document.template_type === 'installation_authorization' && document.status === 'pending',
+    );
+  const activationTemplateMissing = isMxOrg && state.blockers.includes('activation_template_missing');
+  const signatureBlocked = isMxOrg && (
+    state.blockers.includes('signature_missing') || activationTemplateMissing
+  );
+  const visitCompleted = workOrder?.status === 'completed';
+  const needsRecommission = Boolean(
+    state.blockers.includes('service_order_not_in_process')
+    || (visitCompleted
+      && (state.blockers.includes('speed_test_missing') || state.blockers.includes('acceptance_missing'))),
+  );
+  const workOrderReadyForTest = Boolean(
+    workOrder?.assigned_to && ['assigned', 'in_progress'].includes(workOrder.status),
+  );
+  const isAssignedOperator = operatorUserId !== null && workOrder?.assigned_to != null
+    && Number(workOrder.assigned_to) === Number(operatorUserId);
+  const canOperateCommissioning = canUpdateWorkOrders && (canSuperviseCommissioning || isAssignedOperator);
+  const canCompleteInstallation = canUpdateWorkOrders
+    && (canSuperviseCommissioning || isAssignedOperator);
+  const speedTestRecorded = state.speed_test_recorded ?? Boolean(state.speed_test);
+  const canSubmitAcceptance = speedTestRecorded && !signatureBlocked;
+  const canRecordSpeed = canOperateCommissioning && canCreateSpeedTests;
+  const feeValid = billing === 'already_paid' || (fee.trim() !== '' && Number(fee) > 0);
+  const blockerLabels: Record<string, string> = {
+    service_order_missing: t('contractActivation.blockers.serviceOrderMissing'),
+    service_order_not_in_process: t('contractActivation.blockers.serviceOrderNotInProcess'),
+    work_order_missing: t('contractActivation.blockers.workOrderMissing'),
+    work_order_not_completed: t('contractActivation.blockers.workOrderNotCompleted'),
+    acceptance_missing: t('contractActivation.blockers.acceptanceMissing'),
+    test_window_open: t('contractActivation.blockers.testWindowOpen'),
+    test_window_cleanup_pending: t('contractActivation.blockers.testWindowCleanupPending'),
+    speed_test_missing: t('contractActivation.blockers.speedTestMissing'),
+    activation_template_missing: t('contractActivation.blockers.activationTemplateMissing'),
+    signature_missing: t('contractActivation.blockers.signatureMissing'),
+  };
+  const actionError = prepareMutation.error || windowMutation.error || speedMutation.error
+    || acceptanceMutation.error || activateMutation.error || cancelActivationMutation.error;
+
+  return (
+    <section style={activationStyles.card} aria-labelledby="contract-activation-title">
+      <div style={activationStyles.header}>
+        <div>
+          <h2 id="contract-activation-title" style={activationStyles.title}>{t('contractActivation.title')}</h2>
+          <p style={activationStyles.intro}>{t('contractActivation.intro')}</p>
+        </div>
+        <div style={{ ...activationStyles.lineState, ...(windowOpen ? activationStyles.lineOn : activationStyles.lineOff) }}>
+          {!systemControlledLine
+            ? t('contractActivation.manualLineControl')
+            : cleanupPending
+              ? t('contractActivation.lineShutdownPending')
+            : windowOpen && expiresAt
+              ? t('contractActivation.lineOn', { remaining: countdown(expiresAt, now) })
+              : t('contractActivation.lineOff')}
+        </div>
+      </div>
+
+      {actionError && (
+        <div style={styles.errorBanner} role="alert">
+          {actionError instanceof Error ? actionError.message : t('contractActivation.actionFailed')}
+        </div>
+      )}
+      {networkWarning && (
+        <div style={{ ...activationStyles.autoOffWarning, margin: '0.75rem 1.25rem' }} role="alert">
+          {t('contractActivation.networkDisableWarning', { warning: networkWarning })}
+        </div>
+      )}
+
+      <div style={activationStyles.step}>
+        <h3 style={activationStyles.stepTitle}>1. {t('contractActivation.installationVisit')}</h3>
+        <p style={activationStyles.help}>{t('contractActivation.installationVisitHelp')}</p>
+        {state.service_order && (
+          <p style={activationStyles.summary}>
+            {t('contractActivation.serviceOrder')}: <strong>{state.service_order.order_number}</strong> · {state.service_order.status}
+          </p>
+        )}
+        {workOrder && (
+          <p style={activationStyles.summary}>
+            {t('contractActivation.workOrder')}: <strong>#{workOrder.id}</strong> · {workOrder.status}
+          </p>
+        )}
+        {!state.service_order && !workOrder && (serviceOrderPrepared || workOrderPrepared) && (
+          <p style={activationStyles.summary}>{t('contractActivation.visitPreparedRestricted')}</p>
+        )}
+        {isMxOrg && canViewSignedDocuments && workOrder && (
+          <div style={{ margin: '0.75rem 0' }}>
+            <strong style={{ fontSize: '0.84rem' }}>{t('contractActivation.arrivalAuthorization')}</strong>
+            <p style={activationStyles.help}>{t('contractActivation.arrivalAuthorizationHelp')}</p>
+            {arrivalDocuments.map(document => (
+              <ActivationDocumentRow key={document.id} document={document} canSign={canSignDocuments} onSign={setSigningId} />
+            ))}
+          </div>
+        )}
+        {workOrder?.assigned_to != null && !visitCompleted && canEdit && !reassigning && (
+          <button type="button" style={styles.actionBtn} onClick={() => setReassigning(true)}>
+            {t('contractActivation.reassignTechnician')}
+          </button>
+        )}
+        {canEdit && (!workOrder || workOrder.assigned_to == null || reassigning || needsDocumentSync || needsRecommission) && (
+          <div style={activationStyles.row}>
+            {(!workOrder || workOrder.assigned_to == null || reassigning) && (
+              <label style={{ ...labelStyle, margin: 0, minWidth: 230 }}>
+                {t('contractActivation.technician')}
+                <select style={inputStyle} value={technicianId} onChange={event => setTechnicianId(event.target.value)}>
+                  <option value="">{t('contractActivation.unassigned')}</option>
+                  {(usersQ.data ?? []).map(option => (
+                    <option key={option.id} value={option.id}>{`${option.first_name} ${option.last_name}`.trim()}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button
+              type="button"
+              style={submitBtn}
+              disabled={prepareMutation.isPending || activationTemplateMissing || (reassigning && !technicianId)}
+              onClick={() => prepareMutation.mutate()}
+            >
+              {prepareMutation.isPending
+                ? t('contractActivation.preparing')
+                : needsRecommission
+                  ? t('contractActivation.recommissionVisit')
+                : needsDocumentSync && workOrder?.assigned_to != null
+                  ? t('contractActivation.syncDocuments')
+                  : workOrder && reassigning
+                    ? t('contractActivation.reassignTechnician')
+                    : workOrder ? t('contractActivation.assignTechnician') : t('contractActivation.prepareVisit')}
+            </button>
+            {reassigning && (
+              <button type="button" style={cancelBtn} onClick={() => { setReassigning(false); setTechnicianId(''); }}>
+                {t('common.cancel')}
+              </button>
+            )}
+          </div>
+        )}
+        {needsRecommission && (
+          <p style={activationStyles.autoOffWarning}>{t('contractActivation.recommissionVisitHelp')}</p>
+        )}
+        {usersQ.isError && (
+          <div style={styles.errorBanner} role="alert">
+            {usersQ.error instanceof Error ? usersQ.error.message : t('contractActivation.techniciansLoadFailed')}
+            {' '}
+            <button type="button" style={styles.actionBtn} onClick={() => void usersQ.refetch()}>
+              {t('contractActivation.retry')}
+            </button>
+          </div>
+        )}
+        {!workOrderPrepared && !canEdit && <p style={activationStyles.help}>{t('contractActivation.waitingForPreparation')}</p>}
+        {workOrder && <Link to="/work-orders" style={styles.infoLink}>{t('contractActivation.openWorkOrders')}</Link>}
+      </div>
+
+      {canEdit && (
+        <div style={{ ...activationStyles.step, borderBottom: 0 }}>
+          {confirmCancel ? (
+            <div style={activationStyles.row}>
+              <span style={activationStyles.help}>{t('contractActivation.cancelActivationConfirm')}</span>
+              <button
+                type="button"
+                style={cancelBtn}
+                disabled={cancelActivationMutation.isPending}
+                onClick={() => cancelActivationMutation.mutate()}
+              >
+                {cancelActivationMutation.isPending
+                  ? t('contractActivation.cancellingActivation')
+                  : t('contractActivation.cancelActivation')}
+              </button>
+              <button type="button" style={styles.actionBtn} onClick={() => setConfirmCancel(false)}>
+                {t('contractActivation.keepActivation')}
+              </button>
+            </div>
+          ) : (
+            <button type="button" style={cancelBtn} onClick={() => setConfirmCancel(true)}>
+              {t('contractActivation.cancelActivation')}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div style={activationStyles.step}>
+        <h3 style={activationStyles.stepTitle}>2. {t('contractActivation.connectionTest')}</h3>
+        <p style={activationStyles.help}>{t('contractActivation.connectionTestHelp')}</p>
+        {!workOrder ? (
+          <p style={activationStyles.help}>
+            {workOrderPrepared
+              ? t('contractActivation.commissioningDetailsRestricted')
+              : t('contractActivation.prepareFirst')}
+          </p>
+        ) : (
+          <>
+            {systemControlledLine && canUpdateWorkOrders && (windowTracked || canOperateCommissioning) && (
+              <div style={activationStyles.row}>
+                {windowTracked ? (
+                  <button type="button" style={cancelBtn} disabled={windowMutation.isPending} onClick={() => windowMutation.mutate('end')}>
+                    {t('contractActivation.endTestWindow')}
+                  </button>
+                ) : (
+                  <button type="button" style={submitBtn} disabled={windowMutation.isPending || arrivalAuthorizationPending || !workOrderReadyForTest} onClick={() => windowMutation.mutate('start')}>
+                    {t('contractActivation.startTestWindow')}
+                  </button>
+                )}
+                <span style={activationStyles.help}>
+                  {windowOpen
+                    ? t('contractActivation.temporaryInternetOn')
+                    : cleanupPending
+                      ? t('contractActivation.temporaryInternetShutdownPending')
+                      : t('contractActivation.temporaryInternetOff')}
+                </span>
+              </div>
+            )}
+            {arrivalAuthorizationPending && (
+              <p style={activationStyles.autoOffWarning}>{t('contractActivation.authorizationBeforeTest')}</p>
+            )}
+            {!workOrderReadyForTest && (
+              <p style={activationStyles.autoOffWarning}>{t('contractActivation.assignBeforeTest')}</p>
+            )}
+            {!systemControlledLine && (
+              <p style={activationStyles.autoOffWarning}>{t('contractActivation.manualShutdownHelp')}</p>
+            )}
+
+            {speedTestRecorded && (
+              <div style={activationStyles.result}>
+                <strong>{t('contractActivation.speedRecorded')}</strong>{' '}
+                {state.speed_test && t('contractActivation.speedSummary', {
+                  download: state.speed_test.download_mbps,
+                  upload: state.speed_test.upload_mbps,
+                })}
+                <div>
+                  {systemControlledLine
+                    ? cleanupPending
+                      ? t('contractActivation.lineShutdownPendingAfterTest')
+                      : t('contractActivation.lineClosedAfterTest')
+                    : t('contractActivation.recordManualOff')}
+                </div>
+              </div>
+            )}
+
+            {((systemControlledLine && windowOpen) || (!systemControlledLine && workOrderReadyForTest)) && canRecordSpeed && (
+              <div style={activationStyles.formGrid}>
+                <label style={labelStyle}>{t('contractActivation.downloadMbps')} *
+                  <input aria-label={t('contractActivation.downloadMbps')} style={inputStyle} type="number" min="0.01" step="0.01" value={speed.download} onChange={event => setSpeed(previous => ({ ...previous, download: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.uploadMbps')} *
+                  <input aria-label={t('contractActivation.uploadMbps')} style={inputStyle} type="number" min="0.01" step="0.01" value={speed.upload} onChange={event => setSpeed(previous => ({ ...previous, upload: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.latencyMs')}
+                  <input style={inputStyle} type="number" min="0" step="0.01" value={speed.latency} onChange={event => setSpeed(previous => ({ ...previous, latency: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.jitterMs')}
+                  <input style={inputStyle} type="number" min="0" step="0.01" value={speed.jitter} onChange={event => setSpeed(previous => ({ ...previous, jitter: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.packetLoss')}
+                  <input style={inputStyle} type="number" min="0" max="100" step="0.01" value={speed.loss} onChange={event => setSpeed(previous => ({ ...previous, loss: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.server')}
+                  <input style={inputStyle} value={speed.server} onChange={event => setSpeed(previous => ({ ...previous, server: event.target.value }))} />
+                </label>
+                <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>{t('contractActivation.testNotes')}
+                  <input style={inputStyle} value={speed.notes} onChange={event => setSpeed(previous => ({ ...previous, notes: event.target.value }))} />
+                </label>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <p style={activationStyles.autoOffWarning}>
+                    {systemControlledLine ? t('contractActivation.recordAutoOff') : t('contractActivation.recordManualOff')}
+                  </p>
+                  <button type="button" style={submitBtn} disabled={speedMutation.isPending} onClick={() => speedMutation.mutate()}>
+                    {speedMutation.isPending
+                      ? t('contractActivation.recordingTest')
+                      : systemControlledLine ? t('contractActivation.recordTest') : t('contractActivation.recordStaticTest')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {isMxOrg && canViewSignedDocuments && (
+        <div style={activationStyles.step} data-testid="mx-activation-documents">
+          <h3 style={activationStyles.stepTitle}>3. {t('contractActivation.clientSignature')}</h3>
+          <p style={activationStyles.help}>{t('contractActivation.clientSignatureHelp')}</p>
+          {!handoffDocuments.length ? (
+            <p style={activationStyles.help}>{t('contractActivation.noDocuments')}</p>
+          ) : handoffDocuments.map(document => (
+            <ActivationDocumentRow key={document.id} document={document} canSign={canSignDocuments} onSign={setSigningId} />
+          ))}
+        </div>
+      )}
+
+      <div style={activationStyles.step}>
+        <h3 style={activationStyles.stepTitle}>{isMxOrg ? '4' : '3'}. {t('contractActivation.installationHandoff')}</h3>
+        <p style={activationStyles.help}>{t('contractActivation.installationHandoffHelp')}</p>
+        {visitCompleted ? (
+          <p style={activationStyles.done}>{t('contractActivation.visitCompleted')}</p>
+        ) : !workOrder ? (
+          <p style={activationStyles.help}>{t('contractActivation.prepareFirst')}</p>
+        ) : (
+          <>
+            {signatureBlocked && <p style={activationStyles.autoOffWarning}>{t('contractActivation.signBeforeHandoff')}</p>}
+            {!speedTestRecorded && <p style={activationStyles.help}>{t('contractActivation.testBeforeHandoff')}</p>}
+            {canCompleteInstallation && (
+              <div style={activationStyles.formGrid}>
+                <label style={labelStyle}>{t('contractActivation.signalDbm')}
+                  <input style={inputStyle} type="number" step="0.01" value={acceptance.signal} onChange={event => setAcceptance(previous => ({ ...previous, signal: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.linkMbps')}
+                  <input style={inputStyle} type="number" min="0" step="0.01" value={acceptance.link} onChange={event => setAcceptance(previous => ({ ...previous, link: event.target.value }))} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.opticalRxDbm')}
+                  <input style={inputStyle} type="number" step="0.01" value={acceptance.rx} onChange={event => setAcceptance(previous => ({ ...previous, rx: event.target.value }))} />
+                </label>
+                <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 7, alignSelf: 'end', paddingBottom: 10 }}>
+                  <input type="checkbox" checked={acceptance.waived} onChange={event => setAcceptance(previous => ({ ...previous, waived: event.target.checked }))} />
+                  {t('contractActivation.waiveReadings')}
+                </label>
+                <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>{t('contractActivation.acceptanceNotes')}
+                  <input style={inputStyle} value={acceptance.notes} onChange={event => setAcceptance(previous => ({ ...previous, notes: event.target.value }))} />
+                </label>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <button type="button" style={submitBtn} disabled={!canSubmitAcceptance || acceptanceMutation.isPending} onClick={() => acceptanceMutation.mutate()}>
+                    {acceptanceMutation.isPending ? t('contractActivation.completingVisit') : t('contractActivation.completeVisit')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ ...activationStyles.step, borderBottom: 0 }}>
+        <h3 style={activationStyles.stepTitle}>{isMxOrg ? '5' : '4'}. {t('contractActivation.permanentActivation')}</h3>
+        <p style={activationStyles.help}>{t('contractActivation.permanentActivationHelp')}</p>
+        {state.blockers.length > 0 && (
+          <div style={activationStyles.blockers}>
+            <strong>{t('contractActivation.blockersTitle')}</strong>
+            <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.25rem' }}>
+              {state.blockers.map(code => <li key={code}>{blockerLabels[code] ?? humanizeBlocker(code)}</li>)}
+            </ul>
+          </div>
+        )}
+        {canEdit ? (
+          <div>
+            <label style={activationStyles.radioLabel}>
+              <input type="radio" name="activation-billing" checked={billing === 'already_paid'} onChange={() => setBilling('already_paid')} />
+              {t('contractActivation.installationAlreadyPaid')}
+            </label>
+            {canCreateInvoices && (
+              <label style={activationStyles.radioLabel}>
+                <input type="radio" name="activation-billing" checked={billing === 'create_invoice'} onChange={() => setBilling('create_invoice')} />
+                {t('contractActivation.createInstallationInvoice')}
+              </label>
+            )}
+            {billing === 'create_invoice' && (
+              <div style={activationStyles.formGrid}>
+                <label style={labelStyle}>{t('contractActivation.installationFee')} *
+                  <input style={inputStyle} type="number" min="0.01" step="0.01" value={fee} onChange={event => setFee(event.target.value)} />
+                </label>
+                <label style={labelStyle}>{t('contractActivation.invoiceDescription')}
+                  <input style={inputStyle} value={description} placeholder={t('contractActivation.installationFeeDefault')} onChange={event => setDescription(event.target.value)} />
+                </label>
+              </div>
+            )}
+            <button
+              type="button"
+              style={{ ...submitBtn, marginTop: '0.75rem' }}
+              disabled={!state.can_activate || !feeValid || activateMutation.isPending}
+              onClick={() => activateMutation.mutate()}
+            >
+              {activateMutation.isPending ? t('contractActivation.activating') : t('contractActivation.activatePermanently')}
+            </button>
+          </div>
+        ) : (
+          <p style={activationStyles.help}>{t('contractActivation.activationPermissionRequired')}</p>
+        )}
+      </div>
+
+      {signingId !== null && isMxOrg && canViewSignedDocuments && canSignDocuments && (
+        <ActivationSignModal
+          documentId={signingId}
+          onClose={() => setSigningId(null)}
+          onSigned={() => void queryClient.invalidateQueries({ queryKey: ['contract-activation', contractId] })}
+        />
+      )}
+    </section>
+  );
+}
+
+interface NetworkRetryResult {
+  contract_id: number;
+  service_order_id: number | null;
+  radius_id: number;
+  nas_id: number;
+  success: boolean;
+  error?: string;
+}
+
+function NetworkActivationRecovery({ contractId, canRetry, immediateWarning, onRecovered }: {
+  contractId: string;
+  canRetry: boolean;
+  immediateWarning: string | null;
+  onRecovered: () => void;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [retryError, setRetryError] = useState('');
+  const [retrySuccess, setRetrySuccess] = useState(false);
+
+  const activationQ = useQuery({
+    queryKey: ['contract-activation', contractId],
+    queryFn: () => fetchActivationState(contractId),
+    retry: false,
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await authedFetch(`${API_BASE}/contracts/${contractId}/activation/retry-network`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(await activationError(response, t('contractActivation.networkRetryFailed')));
+      }
+      const json = await response.json() as { data: NetworkRetryResult };
+      return json.data;
+    },
+    onSuccess: result => {
+      if (!result.success) {
+        setRetrySuccess(false);
+        setRetryError(result.error || t('contractActivation.networkRetryFailed'));
+        return;
+      }
+      setRetryError('');
+      setRetrySuccess(true);
+      onRecovered();
+      void queryClient.invalidateQueries({ queryKey: ['contract-activation', contractId] });
+      void queryClient.invalidateQueries({ queryKey: ['contract-radius', contractId] });
+    },
+    onError: (cause: Error) => {
+      setRetrySuccess(false);
+      setRetryError(cause.message);
+    },
+  });
+
+  const available = Boolean(activationQ.data?.network_retry_available);
+  const visibleWarning = retryError || immediateWarning;
+  if (!available && !visibleWarning && !retrySuccess) return null;
+
+  return (
+    <section style={{ ...activationStyles.card, borderColor: visibleWarning ? '#f59e0b' : 'var(--border-strong)' }} aria-labelledby="network-activation-recovery-title">
+      <div style={{ padding: '0.9rem 1.1rem' }}>
+        <h2 id="network-activation-recovery-title" style={{ ...activationStyles.title, fontSize: '1rem' }}>
+          {t('contractActivation.networkRecoveryTitle')}
+        </h2>
+        {visibleWarning ? (
+          <p style={{ ...activationStyles.autoOffWarning, margin: '0.6rem 0' }} role="alert">
+            {t('contractActivation.networkActivationWarning', { warning: visibleWarning })}
+          </p>
+        ) : retrySuccess ? (
+          <p style={{ ...activationStyles.done, margin: '0.6rem 0' }}>{t('contractActivation.networkRetrySucceeded')}</p>
+        ) : (
+          <p style={activationStyles.help}>{t('contractActivation.networkRecoveryHelp')}</p>
+        )}
+        {canRetry ? (
+          <button
+            type="button"
+            style={submitBtn}
+            disabled={retryMutation.isPending}
+            onClick={() => { setRetryError(''); setRetrySuccess(false); retryMutation.mutate(); }}
+          >
+            {retryMutation.isPending ? t('contractActivation.retryingNetwork') : t('contractActivation.retryNetworkActivation')}
+          </button>
+        ) : (
+          <p style={activationStyles.help}>{t('contractActivation.networkRetryPermissionRequired')}</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function ContractDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>('invoices');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionWarning, setActionWarning] = useState<string | null>(null);
+  const [renewRequiresActivation, setRenewRequiresActivation] = useState(false);
+  const [activationNetworkWarning, setActivationNetworkWarning] = useState<string | null>(null);
 
   const canEdit = can(user, 'contracts.update');
+  const canCreateInvoices = can(user, 'invoices.create');
+  const canUpdateWorkOrders = can(user, 'work_orders.update');
+  const canCreateSpeedTests = can(user, 'speed_tests.create');
+  const canViewSignedDocuments = can(user, 'signed_documents.view');
+  const canSignDocuments = can(user, 'signed_documents.sign');
+  const isMxOrg = user?.organization_locale === 'MX';
   // Assigning/unassigning devices writes devices.contract_id → devices.update.
   const canManageDevices = can(user, 'devices.update');
   const canCreateDevices = can(user, 'devices.create');
@@ -1063,11 +2124,20 @@ export function ContractDetail() {
   async function handleAction(action: 'suspend' | 'unsuspend' | 'renew' | 'terminate') {
     if (!id) return;
     setActionError(null);
+    setActionSuccess(null);
+    setActionWarning(null);
+    if (action !== 'renew') setRenewRequiresActivation(false);
     try {
-      await postContractAction(id, action);
+      const result = await postContractAction(id, action);
       await refetchContract();
       // A renew may (re)provision the PPPoE account — surface the credentials.
-      if (action === 'renew' && isPppoe) {
+      if (action === 'renew' && result.activation_required) {
+        setRenewRequiresActivation(true);
+        setActivationNetworkWarning(null);
+        void queryClient.invalidateQueries({ queryKey: ['contract-activation', id] });
+      } else if (action === 'renew' && isPppoe) {
+        setRenewRequiresActivation(false);
+        setActivationNetworkWarning(result.network_activation?.nas_push_error ?? null);
         queryClient.invalidateQueries({ queryKey: ['contract-radius', id] });
         setActiveTab('pppoe');
       }
@@ -1094,7 +2164,7 @@ export function ContractDetail() {
   }
 
   const status = contract.status;
-  const canSuspend   = status === 'active' || status === 'pending';
+  const canSuspend   = status === 'active';
   const canUnsuspend = status === 'suspended';
   const canTerminate = status === 'active' || status === 'suspended';
   const canRenew     = status === 'suspended' || status === 'cancelled' || status === 'expired' || status === 'terminated';
@@ -1175,6 +2245,60 @@ export function ContractDetail() {
       {/* Action error */}
       {actionError && (
         <div style={styles.errorBanner}>{actionError}</div>
+      )}
+      {actionWarning && (
+        <div style={activationStyles.autoOffWarning} role="alert">{actionWarning}</div>
+      )}
+      {renewRequiresActivation && (
+        <div style={activationStyles.autoOffWarning}>
+          {t('contractActivation.lineOff')}. {t('contractActivation.intro')}
+        </div>
+      )}
+      {actionSuccess && (
+        <div style={activationStyles.successBanner}>{actionSuccess}</div>
+      )}
+
+      {((status === 'active' && isPppoe) || activationNetworkWarning) && id && (
+        <NetworkActivationRecovery
+          contractId={id}
+          canRetry={canEdit}
+          immediateWarning={activationNetworkWarning}
+          onRecovered={() => {
+            setActivationNetworkWarning(null);
+          }}
+        />
+      )}
+
+      {status === 'pending' && !actionSuccess && id && (
+        <ActivationCard
+          contractId={id}
+          isMxOrg={isMxOrg}
+          canEdit={canEdit}
+          canCreateInvoices={canCreateInvoices}
+          canUpdateWorkOrders={canUpdateWorkOrders}
+          canCreateSpeedTests={canCreateSpeedTests}
+          canViewSignedDocuments={canViewSignedDocuments}
+          canSignDocuments={canSignDocuments}
+          operatorUserId={user?.id == null ? null : Number(user.id)}
+          canSuperviseCommissioning={canEdit}
+          onActivated={(networkWarning) => {
+            setRenewRequiresActivation(false);
+            setActionWarning(null);
+            setActionSuccess(t(isPppoe ? 'contractActivation.activated' : 'contractActivation.activatedManual'));
+            setActivationNetworkWarning(networkWarning ?? null);
+            void queryClient.invalidateQueries({ queryKey: ['contract-detail-gql', id] });
+            void queryClient.invalidateQueries({ queryKey: ['contract-activation', id] });
+            void queryClient.invalidateQueries({ queryKey: ['contract-radius', id] });
+          }}
+          onCancelled={(cleanupPending) => {
+            setRenewRequiresActivation(false);
+            setActionSuccess(t('contractActivation.activationCancelled'));
+            setActionWarning(cleanupPending ? t('contractActivation.activationCancelCleanupPending') : null);
+            void queryClient.invalidateQueries({ queryKey: ['contract-detail-gql', id] });
+            void queryClient.invalidateQueries({ queryKey: ['contract-activation', id] });
+            void queryClient.invalidateQueries({ queryKey: ['contracts'] });
+          }}
+        />
       )}
 
       {/* Info card */}
@@ -1344,4 +2468,91 @@ const styles = {
   td:       { padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', verticalAlign: 'middle' as const },
   msg:      { padding: '2rem 1.5rem', color: 'var(--text-muted)', fontStyle: 'italic' as const, margin: 0 },
   msgError: { padding: '2rem 1.5rem', color: '#ef4444', margin: 0 },
+};
+
+const activationStyles = {
+  card: {
+    background: 'var(--bg-card)',
+    border: '2px solid var(--accent)',
+    borderRadius: 10,
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
+    marginBottom: '1.5rem',
+    overflow: 'hidden',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '1rem',
+    padding: '1rem 1.25rem',
+    background: 'color-mix(in srgb, var(--accent) 7%, var(--bg-card))',
+    flexWrap: 'wrap' as const,
+  },
+  title: { margin: 0, color: 'var(--text-primary)', fontSize: '1.2rem' },
+  intro: { margin: '0.35rem 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: 680 },
+  lineState: {
+    borderRadius: 999,
+    padding: '0.4rem 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    whiteSpace: 'nowrap' as const,
+  },
+  lineOn: { background: '#dcfce7', color: '#166534', border: '1px solid #86efac' },
+  lineOff: { background: '#f3f4f6', color: '#4b5563', border: '1px solid #d1d5db' },
+  step: { padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' },
+  stepTitle: { margin: 0, color: 'var(--text-primary)', fontSize: '1rem' },
+  help: { margin: '0.35rem 0 0.6rem', color: 'var(--text-secondary)', fontSize: '0.82rem' },
+  summary: { margin: '0.25rem 0', color: 'var(--text-secondary)', fontSize: '0.84rem' },
+  row: { display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' as const, margin: '0.75rem 0' },
+  formGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+    gap: '0.35rem 0.85rem',
+    marginTop: '0.75rem',
+  },
+  result: {
+    marginTop: '0.75rem',
+    padding: '0.65rem 0.8rem',
+    borderRadius: 7,
+    background: '#dcfce7',
+    color: '#166534',
+    fontSize: '0.83rem',
+  },
+  autoOffWarning: {
+    margin: '0 0 0.5rem',
+    padding: '0.55rem 0.7rem',
+    borderRadius: 7,
+    background: '#fef3c7',
+    color: '#92400e',
+    fontSize: '0.8rem',
+  },
+  documentRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.65rem',
+    padding: '0.6rem 0.7rem',
+    borderRadius: 7,
+    background: 'var(--bg-subtle)',
+    fontSize: '0.83rem',
+    flexWrap: 'wrap' as const,
+  },
+  done: { color: '#166534', fontWeight: 600, fontSize: '0.85rem', margin: '0.5rem 0 0' },
+  blockers: {
+    padding: '0.65rem 0.8rem',
+    margin: '0.75rem 0',
+    borderRadius: 7,
+    background: '#fff7ed',
+    color: '#9a3412',
+    fontSize: '0.82rem',
+  },
+  radioLabel: { display: 'flex', alignItems: 'center', gap: 7, marginTop: '0.55rem', fontSize: '0.85rem', cursor: 'pointer' },
+  successBanner: {
+    background: '#dcfce7',
+    color: '#166534',
+    border: '1px solid #86efac',
+    borderRadius: 7,
+    padding: '0.65rem 0.9rem',
+    marginBottom: '1rem',
+    fontSize: '0.85rem',
+  },
 };

@@ -46,7 +46,9 @@ jest.mock('../src/middleware/ipAllowlist', () => ({
 
 // Task-runner dependency mocks (needed to load app.js)
 jest.mock('../src/services/billingService',           () => ({ generateBillingPeriod: jest.fn(), generateInvoice: jest.fn() }));
-jest.mock('../src/services/suspensionService',        () => ({ evaluateRules: jest.fn(), suspendContract: jest.fn() }));
+jest.mock('../src/services/suspensionService',        () => ({
+  evaluateRules: jest.fn(), suspendContract: jest.fn(), reconnectContract: jest.fn(),
+}));
 jest.mock('../src/services/radiusService',            () => ({ syncAllAccounts: jest.fn(), syncFreeradiusTables: jest.fn(), checkCertificateExpiry: jest.fn(), kickDuplicateSessions: jest.fn() }));
 jest.mock('../src/services/snmpPoller',               () => ({ poll: jest.fn() }));
 jest.mock('../src/services/snmpTrapReceiver',         () => ({ stop: jest.fn(), start: jest.fn() }));
@@ -346,6 +348,39 @@ describe('automationService — additional branch coverage', () => {
 
   afterEach(() => jest.clearAllMocks());
 
+  describe('batch unsuspend activation boundary', () => {
+    it('rejects a pending or never-activated target before reconnecting it', async () => {
+      const suspensionService = require('../src/services/suspensionService');
+      const reconnect = jest.spyOn(suspensionService, 'reconnectContract').mockResolvedValue(undefined);
+      db.query.mockResolvedValueOnce([[
+        { id: 10, status: 'pending', first_activated_at: null },
+      ]]);
+
+      await expect(automationService.applyBatchOperation(
+        42, 'unsuspend', { entity_id: 10 }, {},
+      )).rejects.toThrow(/suspended and previously activated/i);
+      expect(reconnect).not.toHaveBeenCalled();
+      reconnect.mockRestore();
+    });
+
+    it('passes org scope to the safe reconnect service for proven suspended service', async () => {
+      const suspensionService = require('../src/services/suspensionService');
+      const reconnect = jest.spyOn(suspensionService, 'reconnectContract').mockResolvedValue({
+        contract_id: 10, status: 'active', activation_required: false,
+      });
+      db.query.mockResolvedValueOnce([[
+        { id: 10, status: 'suspended', first_activated_at: '2025-01-01 00:00:00' },
+      ]]);
+
+      await automationService.applyBatchOperation(
+        42, 'unsuspend', { entity_id: 10 }, { user_id: 7, invoice_id: 8 },
+      );
+
+      expect(reconnect).toHaveBeenCalledWith(10, 7, 8, { orgId: 42 });
+      reconnect.mockRestore();
+    });
+  });
+
   describe('createBatchJob — item failure path', () => {
     it('records failure status when applyBatchOperation throws', async () => {
       // An unimplemented operation throws at applyBatchOperation's default case
@@ -370,10 +405,8 @@ describe('automationService — additional branch coverage', () => {
   });
 
   describe('runProvisioningPipeline — activate_contract with contract_id', () => {
-    it('activate_contract stage with contract_id runs db.query (covers line 313)', async () => {
-      // Test line 313: activate_contract with non-null contract_id
-      // Use a full pipeline run but the stage won't throw
-      const pipelineResult = { id: 1, name: 'ContractPipeline', status: 'completed' };
+    it('fails honestly instead of bypassing the guided activation evidence gate', async () => {
+      const pipelineResult = { id: 1, name: 'ContractPipeline', status: 'failed' };
       db.query
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])  // INSERT pipeline
         // Stage 0 (assign_ip)
@@ -387,32 +420,31 @@ describe('automationService — additional branch coverage', () => {
         // Stage 2 (activate_contract — WITH contract_id)
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE current_stage
         .mockResolvedValueOnce([{ insertId: 12 }])        // INSERT stage
-        .mockResolvedValueOnce([{ affectedRows: 1 }])    // UPDATE contracts
-        .mockResolvedValueOnce([{ affectedRows: 1 }])    // UPDATE stage completed
-        // Stage 3 (send_notification)
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
-        .mockResolvedValueOnce([{ insertId: 13 }])
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])    // UPDATE stage failed
         // Final
-        .mockResolvedValueOnce([{ affectedRows: 1 }])            // UPDATE pipeline completed
+        .mockResolvedValueOnce([{ affectedRows: 1 }])            // UPDATE pipeline failed
         .mockResolvedValueOnce([[pipelineResult], []]);            // SELECT final
 
       const result = await automationService.runProvisioningPipeline(1, {
         name: 'ContractPipeline', contract_id: 5, client_id: null, triggered_by: 1,
       });
-      expect(result.status).toBe('completed');
-      // Verify UPDATE contracts was called
+      expect(result.status).toBe('failed');
       const contractUpdateCall = db.query.mock.calls.find(c =>
         typeof c[0] === 'string' && c[0].includes("UPDATE contracts SET status = 'active'"),
       );
-      expect(contractUpdateCall).toBeDefined();
+      expect(contractUpdateCall).toBeUndefined();
+
+      const finalUpdate = db.query.mock.calls.find(c =>
+        typeof c[0] === 'string'
+        && c[0].includes('UPDATE provisioning_pipelines')
+        && c[0].includes('stages_results'),
+      );
+      expect(finalUpdate[1][2]).toMatch(/guided activation flow/i);
     });
   });
 
   describe('runProvisioningPipeline — stage failure path (covers lines 271-274)', () => {
-    it('marks pipeline as failed when a stage db.query rejects', async () => {
-      // Cause the activate_contract stage to fail by rejecting its db.query call.
-      // The pipeline catches this, sets status=failed, and breaks out of the loop.
+    it('records activate_contract as failed and does not run later stages', async () => {
       const pipelineFailed = { id: 1, name: 'FailPipeline', status: 'failed' };
       db.query
         .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])  // INSERT pipeline
@@ -424,12 +456,10 @@ describe('automationService — additional branch coverage', () => {
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([{ insertId: 11 }])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
-        // Stage 2 (activate_contract — contract_id=5, UPDATE contracts rejects)
+        // Stage 2 (activate_contract — contract_id=5 requires guided workflow)
         .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE current_stage
         .mockResolvedValueOnce([{ insertId: 12 }])        // INSERT stage
-        .mockRejectedValueOnce(new Error('DB connection lost'))  // UPDATE contracts FAILS
-        // After failure: UPDATE stage status='failed'
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])    // UPDATE stage status='failed'
         // Pipeline breaks — no more stages
         .mockResolvedValueOnce([{ affectedRows: 1 }])            // UPDATE pipeline failed
         .mockResolvedValueOnce([[pipelineFailed], []]);           // SELECT final
@@ -438,6 +468,11 @@ describe('automationService — additional branch coverage', () => {
         name: 'FailPipeline', contract_id: 5, client_id: null, triggered_by: 1,
       });
       expect(result.status).toBe('failed');
+
+      const stageInsertNames = db.query.mock.calls
+        .filter(c => typeof c[0] === 'string' && c[0].includes('INSERT INTO provisioning_pipeline_stages'))
+        .map(c => c[1][3]);
+      expect(stageInsertNames).toEqual(['assign_ip', 'configure_device', 'activate_contract']);
     });
   });
 

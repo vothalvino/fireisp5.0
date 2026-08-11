@@ -168,6 +168,30 @@ describe('syncFreeradiusTables — PPPoE subscriber', () => {
     expect(result.errors).toBe(0);
     expect(result.plans_synced).toBe(1);
   });
+
+  test('periodic sync preserves a pending commissioning account bound and avoids plan timeout override', async () => {
+    const pending = {
+      ...subscriber,
+      contract_status: 'pending',
+      radius_expiration: '10 Aug 2026 11:00:00',
+      window_seconds_remaining: 1739,
+      session_timeout_seconds: 86400,
+    };
+    const calls = setupMockDb({ subscribers: [pending] });
+
+    await syncFreeradiusTables(10);
+
+    expect(calls[1].sql).toMatch(/ELT\(MONTH\(c\.test_window_expires_at\)/);
+    expect(calls).toContainEqual(expect.objectContaining({
+      sql: expect.stringContaining('INSERT INTO radcheck'),
+      params: ['user1@isp.net', 'Expiration', ':=', '10 Aug 2026 11:00:00'],
+    }));
+    expect(calls).toContainEqual(expect.objectContaining({
+      sql: expect.stringContaining('INSERT INTO radreply'),
+      params: ['user1@isp.net', 'Session-Timeout', ':=', '1739'],
+    }));
+    expect(calls.some(call => call.sql.includes('INSERT INTO radusergroup'))).toBe(false);
+  });
 });
 
 describe('syncFreeradiusTables — MAB subscriber (auth_type_accept mode)', () => {

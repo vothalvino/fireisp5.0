@@ -131,6 +131,35 @@ describe('radiusServerService — embedded RADIUS server', () => {
 
       expect(svc._counters.accepts).toBe(1);
       expect(svc._counters.rejects).toBe(0);
+
+      // Authentication itself checks the bound, not merely radius.status, so
+      // an expired pending window fails closed before the periodic sweep runs.
+      const subscriberLookup = db.query.mock.calls.find(([sql]) => /FROM radius/.test(sql));
+      expect(subscriberLookup[0]).toMatch(/c\.status = 'pending'[\s\S]*c\.test_window_cleanup_pending = 0[\s\S]*c\.test_window_expires_at > NOW\(\)/);
+    });
+
+    test('a pending commissioning window emits its remaining lifetime as Session-Timeout', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+        if (/FROM radius/.test(sql)) {
+          return Promise.resolve([[
+            {
+              ...SUBSCRIBER_ROW,
+              contract_status: 'pending',
+              test_window_seconds_remaining: 117,
+            },
+          ]]);
+        }
+        if (/FROM plans/.test(sql)) return Promise.resolve([[PLAN_ROW]]);
+        return Promise.resolve([[]]);
+      });
+      const { pkt } = buildPapRequest({ id: 10 });
+      let captured = null;
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, (buf) => { captured = buf; });
+
+      const resp = codec.decodePacket(captured);
+      expect(resp.code).toBe(codec.CODE.ACCESS_ACCEPT);
+      expect(codec.getInt(resp.attributes, codec.ATTR.SESSION_TIMEOUT)).toBe(117);
     });
 
     test('an active speed window overlays the plan policy in the Access-Accept (§10.2)', async () => {
@@ -175,6 +204,39 @@ describe('radiusServerService — embedded RADIUS server', () => {
       expect(captured).not.toBeNull();
       const resp = codec.decodePacket(captured);
       expect(resp.code).toBe(codec.CODE.ACCESS_REJECT);
+      expect(svc._counters.rejects).toBe(1);
+      expect(svc._counters.accepts).toBe(0);
+    });
+
+    test('a NAS cannot authenticate a subscriber owned by another organization', async () => {
+      const foreignSubscriber = {
+        ...SUBSCRIBER_ROW,
+        organization_id: 2,
+      };
+      db.query.mockImplementation((sql, params = []) => {
+        if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+        if (/FROM radius/.test(sql)) {
+          // Model the database predicate: the vulnerable global username query
+          // would return org 2's valid credentials, while the fixed query is
+          // scoped to the source NAS's org 1 and therefore returns no row.
+          const scopedToNasOrg = /r\.organization_id <=> \?/.test(sql)
+            && params[1] === NAS_ROW.organization_id;
+          return Promise.resolve([scopedToNasOrg ? [] : [foreignSubscriber]]);
+        }
+        if (/FROM plans/.test(sql)) return Promise.resolve([[PLAN_ROW]]);
+        return Promise.resolve([[]]);
+      });
+
+      const { pkt } = buildPapRequest();
+      let captured = null;
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, (buf) => { captured = buf; });
+
+      expect(captured).not.toBeNull();
+      expect(codec.decodePacket(captured).code).toBe(codec.CODE.ACCESS_REJECT);
+
+      const subscriberLookup = db.query.mock.calls.find(([sql]) => /FROM radius/.test(sql));
+      expect(subscriberLookup[0]).toMatch(/r\.organization_id <=> \?/);
+      expect(subscriberLookup[1]).toEqual(['bob', NAS_ROW.organization_id]);
       expect(svc._counters.rejects).toBe(1);
       expect(svc._counters.accepts).toBe(0);
     });

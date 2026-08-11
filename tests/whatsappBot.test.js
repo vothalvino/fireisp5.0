@@ -247,11 +247,11 @@ describe('bound-client capabilities', () => {
     const r1 = await bot.handleInbound({ phone: PHONE, body: '6' });
     expect(r1.reply).toMatch(/what day/i);
     wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_date', context: { contract: { id: 9 } } });
-    const r2 = await bot.handleInbound({ phone: PHONE, body: '2026-08-05' });
+    const r2 = await bot.handleInbound({ phone: PHONE, body: '2099-08-05' });
     expect(r2.reply).toMatch(/what time/i);
-    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_slot', context: { contract: { id: 9 }, date: '2026-08-05' } });
+    wa.getConversationState.mockResolvedValue({ clientId: 7, state: 'await_visit_slot', context: { contract: { id: 9 }, date: '2099-08-05' } });
     const r3 = await bot.handleInbound({ phone: PHONE, body: '1' });
-    expect(cap.scheduleVisit).toHaveBeenCalledWith(expect.objectContaining({ preferredDate: '2026-08-05', slot: 'morning' }));
+    expect(cap.scheduleVisit).toHaveBeenCalledWith(expect.objectContaining({ preferredDate: '2099-08-05', slot: 'morning' }));
     expect(r3.reply).toMatch(/#91/);
   });
 

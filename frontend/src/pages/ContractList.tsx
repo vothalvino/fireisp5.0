@@ -9,10 +9,11 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { Pagination } from '@/components/Pagination';
 
@@ -195,22 +196,44 @@ async function patchContractStatus(
   if (!res.ok) throw new Error('Failed to update contract');
 }
 
+async function cancelPendingActivation(id: number): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/contracts/${id}/activation/cancel`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to cancel contract activation');
+}
+
+interface ContractActionResult {
+  status?: string;
+  activation_required?: boolean;
+  network_activation?: {
+    nas_pushed?: boolean;
+    nas_push_error?: string | null;
+  } | null;
+}
+
 async function postContractAction(
   id: number,
   action: 'suspend' | 'unsuspend' | 'renew' | 'terminate',
   extra?: Record<string, unknown>,
-): Promise<void> {
+): Promise<ContractActionResult> {
   const res = await authedFetch(`${API_BASE}/contracts/${id}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(extra ?? {}),
   });
   if (!res.ok) throw new Error(`Failed to ${action} contract`);
+  const payload = await res.json().catch(() => ({})) as {
+    data?: ContractActionResult;
+    network_activation?: ContractActionResult['network_activation'];
+  };
+  return { ...(payload.data ?? {}), network_activation: payload.network_activation ?? null };
 }
 
-async function createContract(body: CreateContractBody): Promise<void> {
+async function createContract(body: CreateContractBody): Promise<number> {
   const res = await api.POST('/contracts', { body: body as never });
   if (res.error) throw new Error('Failed to create contract');
+  return Number((res.data as unknown as { data: { id: number } }).data.id);
 }
 
 interface UpdateContractBody {
@@ -221,7 +244,6 @@ interface UpdateContractBody {
   billing_day?: number;
   price_override?: number;
   ip_address?: string;
-  status?: string;
   facturar?: boolean;
   escalation_enabled?: boolean;
   escalate_on_disconnect?: boolean;
@@ -328,11 +350,12 @@ const TODAY = new Date().toISOString().split('T')[0];
 interface NewContractModalProps {
   plans: Plan[];
   clients: Client[];
+  isMxOrg: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (contractId: number) => void;
 }
 
-function NewContractModal({ plans, clients, onClose, onCreated }: NewContractModalProps) {
+function NewContractModal({ plans, clients, isMxOrg, onClose, onCreated }: NewContractModalProps) {
   const [form, setForm] = useState({
     client_id: '',
     plan_id: '',
@@ -367,10 +390,12 @@ function NewContractModal({ plans, clients, onClose, onCreated }: NewContractMod
         billing_day: form.billing_day ? Math.min(28, Math.max(1, Number(form.billing_day))) : undefined,
         ip_address: form.ip_address || undefined,
         price_override: form.price_override ? Number(form.price_override) : undefined,
-        facturar: form.facturar,
       };
-      await createContract(body);
-      onCreated();
+      // `facturar` is an MX fiscal option. Omitting it outside MX keeps the
+      // global contract payload free from SAT/CFDI-only fields.
+      if (isMxOrg) body.facturar = form.facturar;
+      const contractId = await createContract(body);
+      onCreated(contractId);
       onClose();
     } catch {
       setError('Failed to create contract. Check all fields and try again.');
@@ -500,15 +525,17 @@ function NewContractModal({ plans, clients, onClose, onCreated }: NewContractMod
             />
           </label>
 
-          {/* Facturar */}
-          <label style={modalStyles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={form.facturar}
-              onChange={e => setField('facturar', e.target.checked)}
-            />
-            Generate CFDI invoice automatically
-          </label>
+          {/* CFDI belongs to the MX jurisdiction only. */}
+          {isMxOrg && (
+            <label style={modalStyles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={form.facturar}
+                onChange={e => setField('facturar', e.target.checked)}
+              />
+              Generate CFDI invoice automatically
+            </label>
+          )}
 
           {error && <p style={modalStyles.error}>{error}</p>}
 
@@ -572,7 +599,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 interface RenewModalProps {
   contractId: number;
   onClose: () => void;
-  onRenewed: () => void;
+  onRenewed: (result: ContractActionResult) => void;
 }
 
 function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
@@ -587,8 +614,8 @@ function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
     try {
       // Use the dedicated /renew endpoint — PATCH {status:'active'} is blocked by
       // the DB FSM trigger for suspended/expired/cancelled contracts.
-      await postContractAction(contractId, 'renew', { end_date: endDate || null });
-      onRenewed();
+      const result = await postContractAction(contractId, 'renew', { end_date: endDate || null });
+      onRenewed(result);
       onClose();
     } catch {
       setError('Failed to renew contract. Please try again.');
@@ -642,15 +669,23 @@ function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
 interface EditContractModalProps {
   contract: Contract;
   plans: Plan[];
+  isMxOrg: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
 
-const EDIT_STATUSES = ['pending', 'active', 'suspended', 'cancelled', 'terminated'];
-
-function EditContractModal({ contract, plans, onClose, onSaved }: EditContractModalProps) {
+function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditContractModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const connectionOptions = ['pppoe', 'pppoe_dual'].includes(contract.connection_type ?? '')
+    ? [
+      { value: 'pppoe', label: 'PPPoE' },
+      { value: 'pppoe_dual', label: 'PPPoE Dual' },
+    ]
+    : [
+      { value: 'static', label: 'Static' },
+      { value: 'dual', label: 'Dual' },
+    ];
   const [form, setForm] = useState({
     plan_id: String(contract.plan_id),
     connection_type: contract.connection_type || 'pppoe',
@@ -659,7 +694,6 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
     billing_day: contract.billing_day != null ? String(contract.billing_day) : '',
     ip_address: contract.ip_address || '',
     price_override: contract.price_override != null ? String(contract.price_override) : '',
-    status: contract.status,
     facturar: !!contract.facturar,
     // Migration 387: default ON (matches the DB column default) unless the
     // contract explicitly has it off; escalate_on_disconnect defaults OFF.
@@ -681,8 +715,6 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
       const body: UpdateContractBody = {
         plan_id: Number(form.plan_id),
         connection_type: form.connection_type,
-        status: form.status,
-        facturar: form.facturar,
         escalation_enabled: form.escalation_enabled,
         escalate_on_disconnect: form.escalate_on_disconnect,
         end_date: form.end_date || null,
@@ -699,6 +731,9 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
         wireless_signal_min_dbm: form.wireless_signal_min_dbm === '' ? null : Number(form.wireless_signal_min_dbm),
         wireless_link_capacity_min_mbps: form.wireless_link_capacity_min_mbps === '' ? null : Number(form.wireless_link_capacity_min_mbps),
       };
+      // Contract state is changed only by the dedicated lifecycle actions.
+      // The generic Edit form must never be an activation/suspension bypass.
+      if (isMxOrg) body.facturar = form.facturar;
       if (form.start_date) body.start_date = form.start_date;
       if (form.billing_day) body.billing_day = Math.min(28, Math.max(1, Number(form.billing_day)));
       if (form.ip_address) body.ip_address = form.ip_address;
@@ -750,19 +785,15 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
           <label style={modalStyles.label}>
             Connection Type
             <select style={modalStyles.select} value={form.connection_type} onChange={e => setField('connection_type', e.target.value)}>
-              <option value="pppoe">PPPoE</option>
-              <option value="pppoe_dual">PPPoE Dual</option>
-              <option value="static">Static</option>
-              <option value="dual">Dual</option>
+              {!connectionOptions.some(option => option.value === form.connection_type) && (
+                <option value={form.connection_type}>{form.connection_type}</option>
+              )}
+              {connectionOptions.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
           </label>
-
-          <label style={modalStyles.label}>
-            Status
-            <select style={modalStyles.select} value={form.status} onChange={e => setField('status', e.target.value)}>
-              {EDIT_STATUSES.map(s => <option key={s} value={s}>{capitalizeStatus(s)}</option>)}
-            </select>
-          </label>
+          <p style={modalStyles.hint}>{t('contractList.editModal.connectionFamilyHelp')}</p>
 
           <label style={modalStyles.label}>
             Start Date
@@ -789,10 +820,12 @@ function EditContractModal({ contract, plans, onClose, onSaved }: EditContractMo
             <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.price_override} onChange={e => setField('price_override', e.target.value)} />
           </label>
 
-          <label style={modalStyles.checkboxLabel}>
-            <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
-            Generate CFDI invoice automatically
-          </label>
+          {isMxOrg && (
+            <label style={modalStyles.checkboxLabel}>
+              <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
+              Generate CFDI invoice automatically
+            </label>
+          )}
 
           <label style={modalStyles.checkboxLabel}>
             <input
@@ -1068,13 +1101,15 @@ function ContractDetailModal({ contract, plans, onClose }: ContractDetailModalPr
 type ConfirmAction =
   | { type: 'suspend'; contractId: number }
   | { type: 'terminate'; contractId: number }
-  | { type: 'cancel'; contractId: number }
+  | { type: 'cancel'; contractId: number; pending: boolean }
   | { type: 'delete'; contractId: number };
 
 const STATUS_OPTIONS = ['', 'active', 'pending', 'suspended', 'cancelled', 'terminated', 'expired'];
 
 export function ContractList() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -1083,8 +1118,10 @@ export function ContractList() {
   const [renewId, setRenewId] = useState<number | null>(null);
   const [editContract, setEditContract] = useState<Contract | null>(null);
   const [detailContract, setDetailContract] = useState<Contract | null>(null);
+  const [renewNetworkWarning, setRenewNetworkWarning] = useState<{ contractId: number; message: string } | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
   const sort = useTableSort('created_at', 'DESC');
+  const isMxOrg = user?.organization_locale === 'MX';
 
   useEffect(() => { setPage(1); }, [sort.sortBy, sort.sortDir]);
 
@@ -1127,10 +1164,11 @@ export function ContractList() {
     },
   });
 
-  // Mutation for cancel (still uses PATCH — no RADIUS session to kick)
+  // Pending cancellation owns a linked activation SO/WO and temporary network
+  // state, so it must use the canonical fail-closed activation command.
   const cancelMutation = useMutation({
-    mutationFn: ({ id }: { id: number }) =>
-      patchContractStatus(id, 'cancelled'),
+    mutationFn: ({ id, pending }: { id: number; pending: boolean }) =>
+      pending ? cancelPendingActivation(id) : patchContractStatus(id, 'cancelled'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts'] });
     },
@@ -1158,7 +1196,7 @@ export function ContractList() {
     } else if (confirm.type === 'delete') {
       deleteMutation.mutate({ id: confirm.contractId });
     } else {
-      cancelMutation.mutate({ id: confirm.contractId });
+      cancelMutation.mutate({ id: confirm.contractId, pending: confirm.pending });
     }
     setConfirm(null);
   }
@@ -1209,6 +1247,12 @@ export function ContractList() {
           {t('contractList.actionFailed')}
         </p>
       )}
+      {renewNetworkWarning && (
+        <p style={{ color: '#92400e', marginBottom: '0.75rem', fontSize: '0.85rem' }} role="alert">
+          {t('contractList.renewNetworkWarning', { warning: renewNetworkWarning.message })}{' '}
+          <Link to={`/contracts/${renewNetworkWarning.contractId}`}>{t('contractList.openContractRetry')}</Link>
+        </p>
+      )}
 
       {/* Table */}
       <div style={styles.tableCard}>
@@ -1248,7 +1292,7 @@ export function ContractList() {
                       clientName={clientMap.get(c.client_id) ?? null}
                       onSuspend={() => setConfirm({ type: 'suspend', contractId: c.id })}
                       onTerminate={() => setConfirm({ type: 'terminate', contractId: c.id })}
-                      onCancel={() => setConfirm({ type: 'cancel', contractId: c.id })}
+                      onCancel={() => setConfirm({ type: 'cancel', contractId: c.id, pending: c.status === 'pending' })}
                       onRenew={() => setRenewId(c.id)}
                       onEdit={() => setEditContract(c)}
                       onDelete={() => setConfirm({ type: 'delete', contractId: c.id })}
@@ -1277,8 +1321,12 @@ export function ContractList() {
         <NewContractModal
           plans={plansQ.data}
           clients={clientsQ.data}
+          isMxOrg={isMxOrg}
           onClose={() => setShowNew(false)}
-          onCreated={() => queryClient.invalidateQueries({ queryKey: ['contracts'] })}
+          onCreated={(contractId) => {
+            void queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            navigate(`/contracts/${contractId}`);
+          }}
         />
       )}
 
@@ -1286,7 +1334,16 @@ export function ContractList() {
         <RenewModal
           contractId={renewId}
           onClose={() => setRenewId(null)}
-          onRenewed={() => queryClient.invalidateQueries({ queryKey: ['contracts'] })}
+          onRenewed={(result) => {
+            void queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            if (result.activation_required) navigate(`/contracts/${renewId}`);
+            else if (result.network_activation?.nas_push_error) {
+              setRenewNetworkWarning({
+                contractId: renewId,
+                message: result.network_activation.nas_push_error,
+              });
+            }
+          }}
         />
       )}
 
@@ -1294,6 +1351,7 @@ export function ContractList() {
         <EditContractModal
           contract={editContract}
           plans={plansQ.data}
+          isMxOrg={isMxOrg}
           onClose={() => setEditContract(null)}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ['contracts'] })}
         />
@@ -1314,9 +1372,11 @@ export function ContractList() {
               ? 'Suspend this contract? The client will lose service.'
               : confirm.type === 'terminate'
                 ? 'Terminate this contract? This permanently ends service and cannot be undone.'
-                : confirm.type === 'delete'
+              : confirm.type === 'delete'
                   ? 'Delete this contract? It will be soft-deleted and removed from the list.'
-                  : 'Cancel this contract? This action is difficult to reverse.'
+                  : confirm.pending
+                    ? t('contractActivation.cancelActivationConfirm')
+                    : 'Cancel this contract? This action is difficult to reverse.'
           }
           onConfirm={handleConfirm}
           onCancel={() => setConfirm(null)}
@@ -1347,10 +1407,11 @@ function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, o
   const { t } = useTranslation();
   const plan = plans.find(p => p.id === c.plan_id);
 
-  const canSuspend = c.status === 'active' || c.status === 'pending';
+  const canSuspend = c.status === 'active';
   const canTerminate = c.status === 'active' || c.status === 'suspended';
   const canCancel = c.status !== 'cancelled' && c.status !== 'terminated' && c.status !== 'expired';
   const canRenew = c.status === 'suspended' || c.status === 'cancelled' || c.status === 'expired' || c.status === 'terminated';
+  const canDelete = c.status === 'cancelled' || c.status === 'terminated' || c.status === 'expired';
 
   return (
     <tr style={styles.tr}>
@@ -1396,6 +1457,15 @@ function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, o
         >
           ✏️ Edit
         </button>
+        {c.status === 'pending' && (
+          <Link
+            to={`/contracts/${c.id}`}
+            style={{ ...styles.actionBtn, display: 'inline-block', textDecoration: 'none', color: 'var(--accent)' }}
+            title={t('contractList.activateHint')}
+          >
+            ▶ {t('contractList.activate')}
+          </Link>
+        )}
         {canRenew && (
           <button
             style={styles.actionBtn}
@@ -1432,13 +1502,15 @@ function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, o
             ✕ Cancel
           </button>
         )}
-        <button
-          style={{ ...styles.actionBtn, color: '#991b1b' }}
-          onClick={onDelete}
-          title="Delete this contract"
-        >
-          🗑 Delete
-        </button>
+        {canDelete && (
+          <button
+            style={{ ...styles.actionBtn, color: '#991b1b' }}
+            onClick={onDelete}
+            title="Delete this contract"
+          >
+            🗑 Delete
+          </button>
+        )}
       </td>
     </tr>
   );

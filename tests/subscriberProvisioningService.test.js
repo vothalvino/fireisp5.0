@@ -221,7 +221,7 @@ describe('subscriberProvisioningService', () => {
   describe('enableIpv6Line()', () => {
     test('attaches an IPv6 pool to an existing RADIUS account', async () => {
       const runner = makeRunner([
-        [[{ id: 50, ipv6_pool_id: null }]], // radius lookup
+        [[{ id: 50, ipv6_pool_id: null, status: 'active' }]], // radius lookup
         [[{ id: 22 }]],                     // ipv6 pool lookup
         [{ affectedRows: 1 }],              // radius update
       ]);
@@ -230,7 +230,23 @@ describe('subscriberProvisioningService', () => {
       expect(result.radius).toBe(true);
       expect(result.ipv6_pool_id).toBe(22);
       const update = runner.calls.find(c => /UPDATE radius SET ipv6_pool_id/.test(c.sql));
-      expect(update.params).toEqual([22, 'active', 50]);
+      expect(update.params).toEqual([22, 50]);
+    });
+
+    test('a pending dual-stack upgrade preserves an inactive RADIUS account', async () => {
+      const runner = makeRunner([
+        [[{ id: 51, ipv6_pool_id: null, status: 'inactive' }]],
+        [[{ id: 22 }]],
+        [{ affectedRows: 1 }],
+      ]);
+
+      await svc.enableIpv6Line(runner, {
+        id: 10, organization_id: 1, status: 'pending', connection_type: 'pppoe_dual',
+      });
+
+      const update = runner.calls.find(c => /UPDATE radius SET ipv6_pool_id/.test(c.sql));
+      expect(update.sql).not.toMatch(/status\s*=/);
+      expect(update.params).toEqual([22, 51]);
     });
 
     test('reports a static dual upgrade when no RADIUS account exists', async () => {

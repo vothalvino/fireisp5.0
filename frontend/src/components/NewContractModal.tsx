@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
   extractApiError,
@@ -24,7 +25,7 @@ interface CreateContractBody {
   billing_day?: number;
   ip_address?: string;
   price_override?: number;
-  facturar: boolean;
+  facturar?: boolean;
 }
 
 async function fetchPlans(): Promise<Plan[]> {
@@ -33,19 +34,22 @@ async function fetchPlans(): Promise<Plan[]> {
   return (res.data as unknown as { data: Plan[] }).data ?? [];
 }
 
-async function createContract(body: CreateContractBody): Promise<void> {
-  const { error } = await api.POST('/contracts', { body: body as never });
+async function createContract(body: CreateContractBody): Promise<number> {
+  const { data, error } = await api.POST('/contracts', { body: body as never });
   if (error) throw new Error(extractApiError(error, 'Failed to create contract'));
+  return Number((data as unknown as { data: { id: number } }).data.id);
 }
 
 export interface NewContractModalProps {
   lockedClientId: number;
   lockedClientName?: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (contractId: number) => void;
 }
 
 export function NewContractModal({ lockedClientId, lockedClientName, onClose, onCreated }: NewContractModalProps) {
+  const { user } = useAuth();
+  const isMxOrg = user?.organization_locale === 'MX';
   const TODAY = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState({
     plan_id: '', connection_type: 'pppoe', start_date: TODAY,
@@ -66,7 +70,7 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
     setSubmitting(true);
     setError('');
     try {
-      await createContract({
+      const body: CreateContractBody = {
         client_id: lockedClientId,
         plan_id: Number(form.plan_id),
         connection_type: form.connection_type,
@@ -74,9 +78,12 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
         billing_day: form.billing_day ? Math.min(28, Math.max(1, Number(form.billing_day))) : undefined,
         ip_address: form.ip_address || undefined,
         price_override: form.price_override ? Number(form.price_override) : undefined,
-        facturar: form.facturar,
-      });
-      onCreated();
+      };
+      // `facturar` controls an MX/CFDI flow. Global organizations should not
+      // see it and should not send the jurisdiction-specific field at all.
+      if (isMxOrg) body.facturar = form.facturar;
+      const contractId = await createContract(body);
+      onCreated(contractId);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create contract');
@@ -132,10 +139,12 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
           <input type="number" min={0} step="0.01" style={inputStyle} value={form.price_override}
             onChange={e => setField('price_override', e.target.value)} placeholder="e.g. 350.00" />
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
-            Generate CFDI invoice automatically
-          </label>
+          {isMxOrg && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
+              Generate CFDI invoice automatically
+            </label>
+          )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1.25rem' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>

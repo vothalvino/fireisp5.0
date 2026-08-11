@@ -11,6 +11,7 @@ const db = require('../config/database');
 const billingService = require('../services/billingService');
 const Organization = require('../models/Organization');
 const provisioningService = require('../services/subscriberProvisioningService');
+const radiusService = require('../services/radiusService');
 const Client = require('../models/Client');
 const { assertPlanSelectable } = require('../services/planAvailability');
 
@@ -287,7 +288,33 @@ async function insertContractRow(row, orgId) {
       { seed, pppoeUsername: pppoeCreds?.username, pppoePassword: pppoeCreds?.password },
     );
 
-    await conn.query("UPDATE contracts SET status = 'active' WHERE id = ?", [contractId]);
+    // Deliberate migration-only exception to the guided first-activation gate:
+    // the contracts CSV represents subscribers that are already live at the
+    // source ISP, and preserves their service while data is moved into
+    // FireISP. Interactive/API-created contracts remain pending and must use
+    // /contracts/:id/activation/prepare + /activate with field evidence.
+    await conn.query(
+      `UPDATE contracts
+          SET status = 'active', first_activated_at = COALESCE(first_activated_at, NOW())
+        WHERE id = ?`,
+      [contractId],
+    );
+    if (provisioning.pppoe) {
+      // provisionNewContract intentionally creates every new PPPoE account
+      // inactive. CSV import is the one historical-live migration exception,
+      // so turn this exact account on and materialize its standard FreeRADIUS
+      // rows in the same transaction as the contract status flip. Without
+      // both writes the import reports an active subscriber who is offline.
+      await conn.query(
+        "UPDATE radius SET status = 'active' WHERE id = ? AND contract_id = ?",
+        [provisioning.pppoe.radius_id, contractId],
+      );
+      await radiusService.syncFreeradiusContract(contractId, {
+        organizationId: orgId,
+        enabled: true,
+        runner: conn,
+      });
+    }
 
     await conn.commit();
     return { contractId, pppoeUsername: provisioning.pppoe ? provisioning.pppoe.username : undefined };

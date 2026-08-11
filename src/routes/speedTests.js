@@ -124,9 +124,35 @@ async function assertOwnedReferences(req, res, next) {
 const rejectMove = rejectOrgReassignment('speed test');
 const adopt = adoptUnattributed('speed_tests', 'speed test');
 
-router.post('/', requirePermission('speed_tests.create'), validate(createSpeedTest), assertOwnedReferences, ctrl.create);
-router.put('/:id', requirePermission('speed_tests.update'), rejectMove, validate(updateSpeedTest), assertOwnedReferences, adopt, ctrl.update);
-router.delete('/:id', requirePermission('speed_tests.delete'), adopt, ctrl.destroy);
-router.post('/:id/restore', requirePermission('speed_tests.update'), adopt, ctrl.restore);
+function rejectCommissioningBinding(req, _res, next) {
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'work_order_id')) {
+    return next(new ValidationError(
+      'work_order_id is trusted commissioning evidence and may only be set through a work-order commissioning command',
+    ));
+  }
+  next();
+}
+
+async function rejectBoundCommissioningMutation(req, _res, next) {
+  try {
+    const [rows] = await db.query(
+      `SELECT st.work_order_id FROM speed_tests st
+        WHERE st.id = ? AND ${VISIBLE}
+        LIMIT 1`,
+      [req.params.id, req.orgId],
+    );
+    if (rows[0]?.work_order_id) {
+      throw new ValidationError(
+        'Work-order commissioning evidence is immutable; record a new commissioning test instead',
+      );
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
+router.post('/', requirePermission('speed_tests.create'), rejectCommissioningBinding, validate(createSpeedTest), assertOwnedReferences, ctrl.create);
+router.put('/:id', requirePermission('speed_tests.update'), rejectBoundCommissioningMutation, rejectMove, validate(updateSpeedTest), assertOwnedReferences, adopt, ctrl.update);
+router.delete('/:id', requirePermission('speed_tests.delete'), rejectBoundCommissioningMutation, adopt, ctrl.destroy);
+router.post('/:id/restore', requirePermission('speed_tests.update'), rejectBoundCommissioningMutation, adopt, ctrl.restore);
 
 module.exports = router;

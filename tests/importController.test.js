@@ -3,8 +3,10 @@
 // =============================================================================
 
 jest.mock('../src/config/database', () => ({ query: jest.fn(), getConnection: jest.fn() }));
+jest.mock('../src/services/radiusService', () => ({ syncFreeradiusContract: jest.fn().mockResolvedValue({ found: true, enabled: true }) }));
 
 const db = require('../src/config/database');
+const radiusService = require('../src/services/radiusService');
 const {
   parseCsv,
   parseCsvLine,
@@ -52,6 +54,7 @@ function makeContractConn({ insertId = 10, radiusUsernameTaken = false, ipPoolId
       }
       if (/^SELECT id FROM ip_pools/.test(sql)) return Promise.resolve([ipPoolId ? [{ id: ipPoolId }] : []]);
       if (/^INSERT INTO radius/.test(sql)) return Promise.resolve([{ insertId: 55 }]);
+      if (/^UPDATE radius SET status = 'active'/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
       if (/^UPDATE contracts SET status/.test(sql)) return Promise.resolve([{ affectedRows: 1 }]);
       return Promise.resolve([[]]);
     }),
@@ -238,7 +241,19 @@ describe('importController', () => {
       // trg_contracts_radius_consistency_bu only fires on UPDATE).
       expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO contracts/), expect.arrayContaining(['pending']));
       expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO radius/), expect.any(Array));
-      expect(conn.query).toHaveBeenCalledWith(expect.stringMatching(/^UPDATE contracts SET status = 'active'/), [7]);
+      expect(conn.query).toHaveBeenCalledWith(
+        expect.stringMatching(/^UPDATE contracts\s+SET status = 'active', first_activated_at = COALESCE/),
+        [7],
+      );
+      expect(conn.query).toHaveBeenCalledWith(
+        expect.stringMatching(/^UPDATE radius SET status = 'active'/),
+        [55, 7],
+      );
+      expect(radiusService.syncFreeradiusContract).toHaveBeenCalledWith(7, {
+        organizationId: 1,
+        enabled: true,
+        runner: conn,
+      });
       expect(conn.commit).toHaveBeenCalledTimes(1);
       expect(conn.rollback).not.toHaveBeenCalled();
       expect(conn.release).toHaveBeenCalledTimes(1);
@@ -255,6 +270,7 @@ describe('importController', () => {
       const result = res.json.mock.calls[0][0].data;
       expect(result).toEqual({ imported: 1, total: 1, errors: [], credentials: [] });
       expect(conn.query).not.toHaveBeenCalledWith(expect.stringMatching(/^INSERT INTO radius/), expect.anything());
+      expect(radiusService.syncFreeradiusContract).not.toHaveBeenCalled();
       expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 

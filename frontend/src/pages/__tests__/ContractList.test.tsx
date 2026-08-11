@@ -2,10 +2,10 @@
 // FireISP 5.0 — ContractList page tests
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ContractList } from '../ContractList';
 
 // ---------------------------------------------------------------------------
@@ -14,12 +14,21 @@ import { ContractList } from '../ContractList';
 
 const mockApiGet = vi.fn();
 const mockApiPut = vi.fn();
+const mockApiPost = vi.fn();
+const mockAuthedFetch = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
     PUT: (...args: unknown[]) => mockApiPut(...args),
+    POST: (...args: unknown[]) => mockApiPost(...args),
   },
+  authedFetch: (...args: unknown[]) => mockAuthedFetch(...args),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
+}));
+
+let mockLocale: 'global' | 'MX' = 'global';
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin', organization_locale: mockLocale } }),
 }));
 
 const contract1 = {
@@ -35,9 +44,15 @@ function renderContractList() {
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <ContractList />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}</span>;
 }
 
 const client1 = { id: 10, name: 'Acme Corp', email: 'a@example.com', status: 'active' };
@@ -45,6 +60,8 @@ const client1 = { id: 10, name: 'Acme Corp', email: 'a@example.com', status: 'ac
 describe('ContractList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLocale = 'global';
+    mockAuthedFetch.mockResolvedValue({ ok: true, json: async () => ({ data: {} }) });
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/contracts')
         return Promise.resolve({ data: { data: [contract1], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } }, error: undefined });
@@ -91,6 +108,42 @@ describe('ContractList page', () => {
   });
 
   describe('Edit Contract modal — escalation toggles (migration 387)', () => {
+    it('offers only same-family connection changes so Edit cannot strand provisioned service', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/contracts') return Promise.resolve({
+          data: { data: [{ ...contract1, connection_type: 'pppoe' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+          error: undefined,
+        });
+        if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+        if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      });
+      renderContractList();
+      fireEvent.click(await screen.findByRole('button', { name: /Edit/i }));
+      const connection = screen.getByLabelText('Connection Type');
+
+      expect(within(connection).getByRole('option', { name: 'PPPoE' })).toBeInTheDocument();
+      expect(within(connection).getByRole('option', { name: 'PPPoE Dual' })).toBeInTheDocument();
+      expect(within(connection).queryByRole('option', { name: 'Static' })).not.toBeInTheDocument();
+      expect(within(connection).queryByRole('option', { name: 'Dual' })).not.toBeInTheDocument();
+    });
+
+    it('does not expose or submit lifecycle status from the generic Edit form', async () => {
+      mockApiPut.mockResolvedValue({ data: { data: contract1 }, error: undefined });
+      renderContractList();
+      await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+      const dialog = await screen.findByRole('dialog', { name: /Edit Contract/i });
+      expect(within(dialog).queryByLabelText('Status')).not.toBeInTheDocument();
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(mockApiPut).toHaveBeenCalled());
+      const request = mockApiPut.mock.calls[0][1] as { body: Record<string, unknown> };
+      expect(request.body).not.toHaveProperty('status');
+      expect(request.body).not.toHaveProperty('facturar');
+    });
+
     it('defaults escalation_enabled ON and escalate_on_disconnect OFF when the contract has neither field set, and both are togglable', async () => {
       renderContractList();
       await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
@@ -133,6 +186,107 @@ describe('ContractList page', () => {
       expect((screen.getByLabelText('Auto-escalation enabled') as HTMLInputElement).checked).toBe(false);
       expect((screen.getByLabelText('Escalate on disconnection (client has UPS)') as HTMLInputElement).checked).toBe(true);
     });
+  });
+
+  it('sends a pending contract to guided activation and does not offer Suspend', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'pending' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderContractList();
+    const activate = await screen.findByRole('link', { name: /Activate/ });
+    expect(activate).toHaveAttribute('href', '/contracts/1');
+    expect(screen.queryByRole('button', { name: /Suspend/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+  });
+
+  it('cancels a pending contract through the canonical activation shutdown command', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'pending' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Cancel/ }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Yes, confirm' }));
+
+    await waitFor(() => expect(mockAuthedFetch).toHaveBeenCalledWith(
+      '/api/v1/contracts/1/activation/cancel',
+      { method: 'POST' },
+    ));
+  });
+
+  it('navigates a never-activated renewal to its required activation workflow', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'cancelled' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { status: 'pending', activation_required: true } }),
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Renew Contract/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Renew' }));
+
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/contracts/1'));
+  });
+
+  it('surfaces a RouterOS restore failure after renewal and links to the safe retry', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'cancelled' }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockAuthedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: { status: 'active', activation_required: false },
+        network_activation: { nas_pushed: false, nas_push_error: 'router timeout' },
+      }),
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Renew Contract/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Renew' }));
+
+    expect(await screen.findByText(/router timeout/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open the contract to retry/ })).toHaveAttribute('href', '/contracts/1');
+  });
+
+  it('keeps the MX-only CFDI option out of global create and edit forms', async () => {
+    renderContractList();
+    await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '+ New Contract' }));
+    expect(screen.queryByLabelText(/Generate CFDI invoice automatically/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+    expect(screen.queryByLabelText(/Generate CFDI invoice automatically/)).not.toBeInTheDocument();
   });
 
   describe('Edit Contract modal — diagnostic threshold overrides (migration 388)', () => {

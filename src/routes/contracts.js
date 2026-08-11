@@ -8,23 +8,138 @@ const Client = require('../models/Client');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
-const { createContract, updateContract, patchContract, createContractAddon } = require('../middleware/schemas/contracts');
+const {
+  createContract, updateContract, patchContract, createContractAddon,
+  prepareContractActivation, activateContract,
+} = require('../middleware/schemas/contracts');
 const db = require('../config/database');
 const suspensionService = require('../services/suspensionService');
 const inventorySerialService = require('../services/inventorySerialService');
 const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
 const routerProvisioningService = require('../services/routerProvisioningService');
+const contractActivationService = require('../services/contractActivationService');
+const testWindowService = require('../services/testWindowService');
 const { assertPlanSelectable } = require('../services/planAvailability');
 const Nas = require('../models/Nas');
 const auditLog = require('../services/auditLog');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'routes/contracts' });
 
 const router = Router();
 const ctrl = crudController(Contract);
+
+const ACTIVATION_FROZEN_FIELDS = new Set([
+  'client_id', 'plan_id', 'contract_template_mx_id', 'connection_type',
+  'start_date', 'end_date', 'billing_day', 'price_override', 'ip_address',
+  'facturar', 'status',
+]);
+
+async function activationProjectionPermissions(req) {
+  const [
+    includeDocuments, canViewServiceOrders, canViewWorkOrders,
+    canUpdateContracts, includeSpeedTest,
+  ] = await Promise.all([
+    userHasPermission(req, 'signed_documents.view'),
+    userHasPermission(req, 'service_orders.view'),
+    userHasPermission(req, 'work_orders.view'),
+    userHasPermission(req, 'contracts.update'),
+    userHasPermission(req, 'speed_tests.view'),
+  ]);
+  return {
+    includeDocuments,
+    includeServiceOrder: canViewServiceOrders || canUpdateContracts,
+    includeWorkOrder: canViewWorkOrders || canUpdateContracts,
+    includeSpeedTest,
+  };
+}
+
+function comparableContractValue(field, value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (field === 'start_date' || field === 'end_date') {
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    return String(value).slice(0, 10);
+  }
+  if (['client_id', 'plan_id', 'contract_template_mx_id', 'billing_day', 'price_override'].includes(field)) {
+    const numeric = Number(value);
+    return Number.isNaN(numeric) ? String(value) : numeric;
+  }
+  if (field === 'facturar') return Number(Boolean(Number(value)));
+  return String(value);
+}
+
+async function assertFacturarJurisdiction(body, orgId, runner = db) {
+  if (body.facturar !== true && Number(body.facturar) !== 1) return;
+  if (orgId === null || orgId === undefined) {
+    throw new ValidationError('facturar is available only for Mexican organizations');
+  }
+  const [rows] = await runner.query(
+    'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+    [orgId],
+  );
+  if (rows[0]?.locale !== 'MX') {
+    throw new ValidationError('facturar is available only for Mexican organizations');
+  }
+}
+
+async function updateContractWithActivationGuard(contract, body, orgId) {
+  const touched = [...ACTIVATION_FROZEN_FIELDS].filter(field => body[field] !== undefined);
+  if (!touched.length || Object.prototype.hasOwnProperty.call(body, 'organization_id')) {
+    return Contract.update(contract.id, body, orgId);
+  }
+
+  const filtered = {};
+  for (const field of Contract.fillable) {
+    if (field !== 'organization_id' && body[field] !== undefined) filtered[field] = body[field];
+  }
+  const columns = Object.keys(filtered);
+  if (!columns.length) return Contract.findByIdOrFail(contract.id, orgId);
+
+  // One conditional UPDATE is the concurrency boundary: prepare locks the
+  // contract before creating its order, while this statement locks/updates the
+  // contract only when there is no prepared installation OR every supplied
+  // activation field is unchanged. Including `new` orders closes the small
+  // prepare-commit -> start gap; a stale PUT cannot slip in between the old
+  // SELECT and Contract.update and change the values the order will activate.
+  const sets = columns.map(field => `\`${field}\` = ?`).join(', ');
+  const unchanged = touched.map(field => `\`${field}\` <=> ?`).join(' AND ');
+  const params = [
+    ...columns.map(field => filtered[field]),
+    contract.id,
+    orgId,
+    ...touched.map(field => comparableContractValue(field, body[field])),
+  ];
+  const [result] = await db.query(
+    `UPDATE \`contracts\`
+        SET ${sets}
+      WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM service_orders so
+             WHERE so.contract_id = \`contracts\`.id
+               AND so.organization_id = \`contracts\`.organization_id
+               AND so.order_type = 'new_install'
+               AND so.status IN ('new','in_process')
+               AND so.deleted_at IS NULL
+          )
+          OR (${unchanged})
+        )`,
+    params,
+  );
+  const current = await Contract.findByIdOrFail(contract.id, orgId);
+  if (result.affectedRows === 0) {
+    const changed = touched.filter(field =>
+      comparableContractValue(field, body[field]) !== comparableContractValue(field, current[field]));
+    if (changed.length) {
+      throw new ValidationError(
+        `Finish or cancel the prepared/in-process installation before changing activation fields: ${changed.join(', ')}`,
+      );
+    }
+  }
+  return current;
+}
 
 router.use(authenticate);
 router.use(orgScope);
@@ -35,8 +150,39 @@ router.use(orgScope);
  * from IPv4-only to dual-stack (IPv4 -> DUAL).
  */
 async function updateContractHandler(req, res, next) {
+  let retainedCleanup = null;
   try {
     const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    await assertFacturarJurisdiction(req.body, req.orgId);
+
+    // No generic form may turn service on. Each source status has a dedicated
+    // route whose side effects and evidence requirements cannot be represented
+    // by a status dropdown.
+    if (req.body.status === 'active' && old.status !== 'active') {
+      if (old.status === 'pending') {
+        throw new ValidationError('Activate pending service from the contract activation flow after the technician test and client signature');
+      }
+      if (old.status === 'suspended') {
+        throw new ValidationError('Use the contract unsuspend action to restore suspended service');
+      }
+      throw new ValidationError('Use the contract renew action to reactivate a cancelled, expired, or terminated contract');
+    }
+    if (req.body.status === 'pending' && old.status !== 'pending') {
+      throw new ValidationError(
+        'Only the renew or reconnect workflow can return previously closed service to pending activation',
+      );
+    }
+
+    if (req.body.connection_type !== undefined
+        && req.body.connection_type !== old.connection_type) {
+      const oldUsesRadius = provisioningService.isPppoe(old.connection_type);
+      const newUsesRadius = provisioningService.isPppoe(req.body.connection_type);
+      if (oldUsesRadius !== newUsesRadius) {
+        throw new ValidationError(
+          'Changing between PPPoE and static service families requires a dedicated reprovisioning workflow',
+        );
+      }
+    }
 
     // Reject duplicate static IPs before mutating the contract.
     if (req.body.ip_address && req.body.ip_address !== old.ip_address) {
@@ -65,50 +211,37 @@ async function updateContractHandler(req, res, next) {
       if (!client) throw new ValidationError('client_id does not belong to this organization');
     }
 
-    const record = await Contract.update(req.params.id, req.body, req.orgId);
+    // A pending PPPoE line must be quiesced before a state/type mutation even
+    // when it predates test-window markers: legacy provisioning may already
+    // have pushed an unbounded RouterOS local secret. The durable marker stays
+    // set until this mutation finishes and external cleanup is confirmed.
+    const changesStatus = req.body.status !== undefined && req.body.status !== old.status;
+    const changesType = req.body.connection_type !== undefined
+      && req.body.connection_type !== old.connection_type;
+    const hasWindowState = old.test_window_expires_at
+      || Number(old.test_window_cleanup_pending) === 1;
+    const legacyPendingPppoeShutdown = old.status === 'pending'
+      && provisioningService.isPppoe(old.connection_type);
+    if (old.status !== 'active'
+        && (hasWindowState || legacyPendingPppoeShutdown)
+        && (changesStatus || changesType)) {
+      retainedCleanup = await testWindowService.closeForContractMutation(old.id, {
+        orgId: req.orgId,
+        reason: changesStatus ? 'contract_status_change' : 'contract_connection_type_change',
+      });
+    }
 
-    // A direct PATCH/PUT status change bypasses the dedicated /suspend,
-    // /unsuspend, /terminate, and /renew routes' RADIUS sync entirely — e.g.
-    // the Edit Contract modal (ContractList.tsx EDIT_STATUSES) always PUTs a
-    // `status` field and legally drives active<->suspended (the FSM trigger
-    // permits both, and Contract.fillable + this route's own schema enum
-    // allow them), and the frontend's Cancel action is a plain
-    // PATCH {status:'cancelled'} (ContractList.tsx patchContractStatus).
-    // Sync radius.status for EVERY status transition the FSM lets through
-    // this handler, mirroring each dedicated route's own radius handling so
-    // a subscriber's live/dead PPPoE state never diverges from
-    // contracts.status regardless of which endpoint drove the change:
-    //   -> suspended                     : radius active -> suspended (+ CoA disconnect)
-    //   -> active                        : radius suspended/inactive -> active (+ CoA
-    //                                       reconnect) — mirrors /renew's reactivation;
-    //                                       the FSM also allows
-    //                                       terminated/cancelled/expired -> active
-    //                                       through this same handler, so an inactive
-    //                                       account must be resurrected here too or a
-    //                                       contract edited back to 'active' would stay
-    //                                       silently offline (same failure mode /renew
-    //                                       fixes for its own endpoint).
-    //   -> terminated/cancelled/expired  : radius -> inactive (+ CoA disconnect)
-    //
-    // The suspended branch, and the active branch WHEN old.status was
-    // actually 'suspended', ALSO write a suspension_logs row (awaiting the
-    // CoA outcome first so it can be logged) — before this, an
-    // active<->suspended toggle driven through this generic handler left a
-    // hole in the audit trail that the dedicated /suspend and /unsuspend
-    // routes (via suspensionService.suspendContract/reconnectContract) always
-    // filled. A failed suspension_logs write must never fail the request
-    // (the contract/radius state is already committed by that point) but
-    // MUST be logged loudly — a silently-failing audit write is exactly the
-    // bug class being fixed here. The terminated/cancelled/expired branch
-    // stays log-free, matching the deliberate decision already made for
-    // POST /:id/terminate below (no 'terminated' value exists in the
-    // suspension_logs.action ENUM). The active branch's audit write is
-    // gated on old.status === 'suspended' specifically — pending->active
-    // (a brand-new contract's ordinary first activation) and
-    // terminated/cancelled/expired->active are real ->active transitions
-    // that sync radius exactly like a genuine reconnect, but they were
-    // never suspended, so logging an 'unsuspended' row for them would be a
-    // phantom zero-duration suspension polluting the audit table.
+    const record = await updateContractWithActivationGuard(old, req.body, req.orgId);
+    if (retainedCleanup?.prepared
+        && retainedCleanup.nas_disabled !== false
+        && retainedCleanup.disconnect_confirmed === true) {
+      await testWindowService.releaseCleanupMarker(old.id, { orgId: req.orgId });
+      retainedCleanup = null;
+    }
+
+    // Generic transitions that turn service OFF retain their historical
+    // RADIUS/audit side effects. All transitions INTO active were removed
+    // above and belong to /activate, /unsuspend, or /renew.
     if (req.body.status !== undefined && req.body.status !== old.status) {
       const newStatus = req.body.status;
       if (newStatus === 'suspended') {
@@ -137,56 +270,6 @@ async function updateContractHandler(req, res, next) {
           });
         } catch (logErr) {
           logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update suspend');
-        }
-      } else if (newStatus === 'active') {
-        await db.query(
-          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status IN ('suspended', 'inactive')",
-          [record.id],
-        );
-        let coaSent = false;
-        let coaResponse = null;
-        try {
-          const r = await suspensionService.sendRadiusCoA(record.id, 'reconnect');
-          coaSent = r.sent;
-          coaResponse = r.response;
-        } catch (_e) {
-          coaResponse = 'CoA send failed';
-        }
-        // Only write (and look for) a suspension_logs audit row when the
-        // contract was ACTUALLY suspended — old.status === 'suspended'. The
-        // FSM also allows pending->active (a brand-new contract's normal
-        // first activation via the Edit modal — the single most common path
-        // through this branch) and terminated/cancelled/expired->active.
-        // Neither of those is a real reconnect: without this guard,
-        // closeOpenSuspensionAndGetStart finds no open row (returns null)
-        // and logSuspensionEvent still fabricates an 'unsuspended' row with
-        // suspended_at=NOW()/restored_at=NOW() — a phantom zero-duration
-        // suspension for a contract that was never suspended, polluting the
-        // suspension_logs audit/compliance table on every ordinary
-        // activation. The radius sync + CoA above are unconditional and
-        // unchanged — they predate this suspension-logging addition and
-        // correctly cover every ->active source (suspended AND inactive).
-        if (old.status === 'suspended') {
-          try {
-            // Closes any suspension_logs row left open by a prior /suspend
-            // (or a prior suspended->active toggle through this same
-            // handler) so restored_at IS NULL keeps meaning "still
-            // suspended" no matter which endpoint reactivated the contract.
-            const suspendedAt = await suspensionService.closeOpenSuspensionAndGetStart(db.query.bind(db), record.id);
-            await suspensionService.logSuspensionEvent(db.query.bind(db), {
-              contractId: record.id,
-              action: 'unsuspended',
-              reason: `manual status change to 'active' via contract update (user #${req.user.id})`,
-              triggeredByValue: 'manual',
-              userId: req.user.id,
-              coaSent,
-              coaResponse,
-              suspendedAt,
-              restoredAt: new Date(),
-            });
-          } catch (logErr) {
-            logger.error({ err: logErr.message, contractId: record.id }, 'Failed to write suspension_logs row for contract-update reactivate');
-          }
         }
       } else if (['terminated', 'cancelled', 'expired'].includes(newStatus)) {
         await db.query(
@@ -223,23 +306,153 @@ async function updateContractHandler(req, res, next) {
       .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract update'));
 
     res.json({ data: provisioning ? { ...record, provisioning } : record });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // If network cleanup succeeded but the business mutation failed, the line
+    // is safely down and the retained concurrency marker can be released.
+    if (retainedCleanup?.prepared
+        && retainedCleanup.nas_disabled !== false
+        && retainedCleanup.disconnect_confirmed === true) {
+      await testWindowService.releaseCleanupMarker(req.params.id, { orgId: req.orgId }).catch(() => {});
+    }
+    next(err);
+  }
 }
 
 router.get('/', requirePermission('contracts.view'), ctrl.list);
 router.get('/:id', requirePermission('contracts.view'), ctrl.get);
+router.get('/:id/activation', requirePermission('contracts.view'), async (req, res, next) => {
+  try {
+    const projection = await activationProjectionPermissions(req);
+    const state = await contractActivationService.getActivationState(req.params.id, {
+      orgId: req.orgId,
+      ...projection,
+    });
+    res.json({ data: state });
+  } catch (err) { next(err); }
+});
+router.post(
+  '/:id/activation/retry-network',
+  requirePermission('contracts.update'),
+  async (req, res, next) => {
+    try {
+      const result = await contractActivationService.retryNetworkActivation(req.params.id, {
+        orgId: req.orgId,
+      });
+      await auditLog.log({
+        userId: req.user?.id, organizationId: req.orgId,
+        action: 'activation_network_retry', tableName: Contract.tableName,
+        recordId: Number(req.params.id),
+        newValues: {
+          service_order_id: result.service_order_id,
+          radius_id: result.radius_id,
+          nas_id: result.nas_id,
+          success: result.success,
+        },
+      }).catch(() => {});
+      res.json({ data: result });
+    } catch (err) { next(err); }
+  },
+);
+router.post(
+  '/:id/activation/prepare',
+  requirePermission('contracts.update'),
+  validate(prepareContractActivation, { strip: true }),
+  async (req, res, next) => {
+    try {
+      const projection = await activationProjectionPermissions(req);
+      const state = await contractActivationService.prepareActivation(req.params.id, {
+        orgId: req.orgId,
+        userId: req.user?.id ?? null,
+        assignedTo: req.body.assigned_to ?? null,
+        ...projection,
+      });
+      await auditLog.log({
+        userId: req.user?.id, organizationId: req.orgId,
+        action: 'activation_prepare', tableName: Contract.tableName,
+        recordId: Number(req.params.id),
+        newValues: {
+          service_order_id: state.service_order?.id || null,
+          work_order_id: state.work_order?.id || null,
+          assigned_to: req.body.assigned_to ?? null,
+        },
+      }).catch(() => {});
+      res.json({ data: state });
+    } catch (err) { next(err); }
+  },
+);
+router.post(
+  '/:id/activate',
+  requirePermission('contracts.update'),
+  validate(activateContract, { strip: true }),
+  async (req, res, next) => {
+    try {
+      const canCreateInvoice = req.body.billing !== 'create_invoice'
+        || await userHasPermission(req, 'invoices.create');
+      if (!canCreateInvoice) {
+        throw new ForbiddenError('Creating an installation invoice requires invoices.create');
+      }
+      const projection = await activationProjectionPermissions(req);
+      const state = await contractActivationService.activate(req.params.id, {
+        orgId: req.orgId,
+        userId: req.user?.id ?? null,
+        billing: req.body.billing,
+        installationFee: req.body.installation_fee,
+        description: req.body.description,
+        canCreateInvoice,
+        ...projection,
+      });
+      await auditLog.log({
+        userId: req.user?.id, organizationId: req.orgId,
+        action: 'activate', tableName: Contract.tableName,
+        recordId: Number(req.params.id),
+        newValues: {
+          status: state.status,
+          service_order_id: state.service_order?.id || null,
+          invoice_id: state.invoice?.id || null,
+        },
+      }).catch(() => {});
+      res.json({ data: state });
+    } catch (err) { next(err); }
+  },
+);
+router.post(
+  '/:id/activation/cancel',
+  requirePermission('contracts.update'),
+  async (req, res, next) => {
+    try {
+      const projection = await activationProjectionPermissions(req);
+      const state = await contractActivationService.cancelActivation(req.params.id, {
+        orgId: req.orgId,
+        ...projection,
+      });
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'cancel_activation',
+        tableName: Contract.tableName,
+        recordId: Number(req.params.id),
+        newValues: state.cancellation,
+      }).catch(() => {});
+      res.json({ data: state });
+    } catch (err) { next(err); }
+  },
+);
 router.post('/', requirePermission('contracts.create'), validate(createContract), async (req, res, next) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
     if (req.orgId) req.body.organization_id = req.orgId;
+    await assertFacturarJurisdiction(req.body, req.orgId, conn);
 
     // Build the contract insert from fillable columns (transactional write).
     const filtered = {};
     for (const key of Contract.fillable) {
       if (req.body[key] !== undefined) filtered[key] = req.body[key];
     }
+    // The line remains offline until the activation workflow proves the
+    // technician test + acceptance (+ MX signatures where applicable).
+    filtered.status = 'pending';
 
     // Reject duplicate static IPs before creating the contract.
     if (filtered.ip_address) {
@@ -307,13 +520,46 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
 router.put('/:id', requirePermission('contracts.update'), validate(updateContract), updateContractHandler);
 router.patch('/:id', requirePermission('contracts.update'), validate(patchContract), updateContractHandler);
 router.delete('/:id', requirePermission('contracts.delete'), async (req, res, next) => {
+  let retainedCleanup = null;
   try {
     const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    if (!['cancelled', 'terminated', 'expired'].includes(old.status)) {
+      if (old.status === 'pending') {
+        throw new ValidationError(
+          'Cancel the pending activation before deleting this contract',
+        );
+      }
+      throw new ValidationError(
+        'Terminate live or suspended service before deleting this contract',
+      );
+    }
+    if (old.status !== 'active'
+        && (old.test_window_expires_at
+          || Number(old.test_window_cleanup_pending) === 1
+          || provisioningService.isPppoe(old.connection_type))) {
+      retainedCleanup = await testWindowService.closeForContractMutation(old.id, {
+        orgId: req.orgId,
+        reason: 'contract_delete',
+      });
+    }
     await Contract.delete(req.params.id, req.orgId);
+    if (retainedCleanup?.prepared
+        && retainedCleanup.nas_disabled !== false
+        && retainedCleanup.disconnect_confirmed === true) {
+      await testWindowService.releaseCleanupMarker(old.id, { orgId: req.orgId });
+      retainedCleanup = null;
+    }
     topologyContextService.invalidate(old.id, 'contract')
       .catch(err => logger.warn({ err: err.message, contractId: old.id }, 'topology invalidate failed on contract delete'));
     res.status(204).send();
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (retainedCleanup?.prepared
+        && retainedCleanup.nas_disabled !== false
+        && retainedCleanup.disconnect_confirmed === true) {
+      await testWindowService.releaseCleanupMarker(req.params.id, { orgId: req.orgId }).catch(() => {});
+    }
+    next(err);
+  }
 });
 router.post('/:id/restore', requirePermission('contracts.update'), async (req, res, next) => {
   try {
@@ -372,12 +618,17 @@ router.post('/:id/unsuspend', requirePermission('contracts.update'), async (req,
     if (contracts[0].status !== 'suspended') {
       return res.status(422).json({ error: { code: 'NOT_SUSPENDED', message: 'Contract is not suspended' } });
     }
-    await suspensionService.reconnectContract(
+    const outcome = await suspensionService.reconnectContract(
       parseInt(req.params.id, 10),
       req.user.id,
       req.body.invoice_id || null,
+      { orgId: req.orgId },
     );
-    res.json({ data: { contract_id: parseInt(req.params.id, 10), status: 'active' } });
+    res.json({
+      data: outcome || {
+        contract_id: parseInt(req.params.id, 10), status: 'active', activation_required: false,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -413,43 +664,83 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       await assertPlanSelectable(db, req.body.plan_id, req.orgId);
     }
 
-    // PPPoE re-provisioning: a pppoe/pppoe_dual contract cannot be activated
-    // without a RADIUS account (trg_contracts_radius_consistency_bu). When the
-    // account was removed (e.g. when the contract was cancelled), recreate one
-    // with fresh credentials via the canonical provisioner so the renew succeeds
-    // instead of failing the trigger. Runs before the activation UPDATE so the
-    // account exists when the trigger fires.
-    let provisioning = null;
-    if (contract.connection_type === 'pppoe' || contract.connection_type === 'pppoe_dual') {
-      const [radRows] = await db.query('SELECT COUNT(*) AS cnt FROM radius WHERE contract_id = ?', [contract.id]);
-      if (radRows[0].cnt === 0) {
-        provisioning = await provisioningService.provisionNewContract(db, contract);
-      } else {
-        // An existing account may have been deactivated by a prior
-        // terminate/cancel (radius.status='inactive' — see suspendContract/
-        // routes/contracts.js updateContractHandler/lifecycleService.cancelOrder).
-        // A renew is an explicit staff decision to reinstate service, so
-        // reactivate it here rather than leaving the contract 'active' but
-        // offline. Unlike suspensionService.reconnectContract (billing-driven,
-        // automatic — see its "never resurrect inactive" guard), this
-        // intentionally CAN resurrect a deactivated account.
+    // A terminal/suspended contract with no first-activation marker was never
+    // legitimately live (for example: pending -> cancelled). Reinstating it
+    // directly would bypass commissioning, acceptance, and—on MX tenants—the
+    // client's signatures. Shut down any leftover test/NAS credentials, move
+    // it back to pending through the explicit FSM edge, and hand it back to
+    // the guided activation flow. Existing/imported subscribers carry the
+    // durable marker and continue through the ordinary direct-renew path.
+    if (!contract.first_activated_at) {
+      const pppoe = provisioningService.isPppoe(contract.connection_type);
+      // A never-activated terminal PPPoE record may be a pre-window legacy
+      // line with a local RouterOS secret despite carrying no marker. Always
+      // run the idempotent shutdown before reopening it for commissioning.
+      if (pppoe) {
+        await testWindowService.cleanupMarkedWindow(contract.id, {
+          orgId: req.orgId,
+          reason: 'first_activation_reset',
+          requireMarker: false,
+        });
+      }
+      if (pppoe) {
         await db.query(
-          "UPDATE radius SET status = 'active' WHERE contract_id = ? AND deleted_at IS NULL AND status = 'inactive'",
+          `UPDATE radius SET status = 'inactive'
+            WHERE contract_id = ? AND deleted_at IS NULL`,
           [contract.id],
         );
       }
+
+      const resetSets = ["status = 'pending'"];
+      const resetParams = [];
+      if (!pppoe) {
+        resetSets.push('test_window_expires_at = NULL');
+        resetSets.push('test_window_cleanup_pending = 0');
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'end_date')) {
+        resetSets.push('end_date = ?');
+        resetParams.push(updates.end_date);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'plan_id')) {
+        resetSets.push('plan_id = ?');
+        resetParams.push(updates.plan_id);
+      }
+      const [reset] = await db.query(
+        `UPDATE contracts SET ${resetSets.join(', ')}
+          WHERE id = ? AND organization_id = ? AND status = ?
+            AND first_activated_at IS NULL AND deleted_at IS NULL`,
+        [...resetParams, contract.id, req.orgId, contract.status],
+      );
+      if (reset.affectedRows !== 1) {
+        throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
+      }
+      const record = await Contract.findByIdOrFail(contract.id, req.orgId);
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'renew_activation_reset',
+        tableName: Contract.tableName,
+        recordId: record.id,
+        oldValues: { status: contract.status, first_activated_at: null },
+        newValues: { ...updates, status: 'pending', activation_required: true },
+      }).catch(() => {});
+      return res.json({
+        data: { ...record, activation_required: true },
+        activation_required: true,
+      });
     }
 
-    const record = await Contract.update(req.params.id, updates, req.orgId);
-    // Restore RADIUS access for states whose service was disconnected: both
-    // suspend and terminate send a RADIUS disconnect, so without this a renewed
-    // (reinstated) contract would be status='active' yet still offline. The CoA
-    // reconnect is best-effort — don't fail the renew if it can't be delivered.
-    if (contract.status === 'suspended' || contract.status === 'terminated') {
-      suspensionService
-        .reconnectContract(parseInt(req.params.id, 10), req.user.id, req.body.invoice_id || null)
-        .catch(() => {});
-    }
+    const renewal = await contractActivationService.renewPreviouslyActivated(contract.id, {
+      orgId: req.orgId,
+      endDate: Object.prototype.hasOwnProperty.call(updates, 'end_date')
+        ? updates.end_date
+        : undefined,
+      planId: Object.prototype.hasOwnProperty.call(updates, 'plan_id')
+        ? updates.plan_id
+        : undefined,
+    });
+    const record = renewal.contract;
+    const provisioning = renewal.provisioning;
     await auditLog.log({
       userId: req.user?.id,
       organizationId: req.orgId,
@@ -457,11 +748,20 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       tableName: Contract.tableName,
       recordId: record.id,
       oldValues: { status: contract.status },
-      newValues: { ...updates, radius_reprovisioned: Boolean(provisioning) },
+      newValues: {
+        ...updates,
+        radius_reprovisioned: Boolean(provisioning),
+        network_activation: renewal.network_activation,
+      },
     }).catch(() => {});
     // When a RADIUS account was recreated, return its (fresh) credentials so the
     // operator can reconfigure the subscriber's CPE.
-    res.json({ data: record, ...(provisioning && provisioning.pppoe ? { provisioning } : {}) });
+    res.json({
+      data: { ...record, activation_required: false },
+      activation_required: false,
+      network_activation: renewal.network_activation,
+      ...(provisioning && provisioning.pppoe ? { provisioning } : {}),
+    });
   } catch (err) { next(err); }
 });
 
@@ -498,11 +798,14 @@ router.post('/:id/regenerate-pppoe', requirePermission('contracts.update'), asyn
     const password = provisioningService.generatePassword();
     await db.query('UPDATE radius SET password = ? WHERE id = ?', [password, radius.id]);
 
-    // Best-effort: push the new secret to the NAS (RouterOS direct-API devices).
+    // Best-effort: push the new secret only for formally active service. A
+    // pending/suspended/terminal contract may rotate its stored credential,
+    // but materialising a local RouterOS PPP secret would create an unbounded
+    // network path outside the technician test-window lifecycle.
     // FreeRADIUS-SQL deployments pick the new password up on the next sync. The
     // subscriber's CPE must still be reconfigured with these credentials.
     let pushed = false;
-    if (radius.nas_id) {
+    if (radius.nas_id && contract.status === 'active') {
       try {
         const nas = await Nas.findByIdOrFail(radius.nas_id, req.orgId);
         await routerProvisioningService.pushSubscriber(nas, {

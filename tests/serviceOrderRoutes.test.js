@@ -17,17 +17,29 @@ jest.mock('../src/services/lifecycleService', () => ({
   completeOrder: jest.fn(),
   cancelOrder: jest.fn(),
 }));
+jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
+const ServiceOrder = require('../src/models/ServiceOrder');
+const User = require('../src/models/User');
 const lifecycleService = require('../src/services/lifecycleService');
+const auditLog = require('../src/services/auditLog');
 const app = require('../src/app');
 
 function adminToken() {
   return jwt.sign(
     { sub: 1, email: 'admin@example.com', role: 'admin', orgId: 42 },
+    config.jwt.secret,
+    { expiresIn: '1h' },
+  );
+}
+
+function technicianToken() {
+  return jwt.sign(
+    { sub: 2, email: 'tech@example.com', role: 'technician', orgId: 42 },
     config.jwt.secret,
     { expiresIn: '1h' },
   );
@@ -49,6 +61,8 @@ describe('Service order routes (§1.2)', () => {
     jest.clearAllMocks();
     mockAuth();
   });
+
+  afterEach(() => jest.restoreAllMocks());
 
   test('POST /service-orders generates an order number and seeds tasks', async () => {
     lifecycleService.nextOrderNumber.mockResolvedValue('SO-000001');
@@ -268,6 +282,9 @@ describe('Service order routes (§1.2)', () => {
   });
 
   test('POST /service-orders/:id/complete with already_paid transitions the order', async () => {
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
     lifecycleService.completeOrder.mockResolvedValue({ order: { id: 10, status: 'done' }, invoice: null });
     const res = await request(app)
       .post('/api/v1/service-orders/10/complete')
@@ -278,10 +295,41 @@ describe('Service order routes (§1.2)', () => {
     expect(res.body.data.invoice).toBeUndefined();
     expect(lifecycleService.completeOrder).toHaveBeenCalledWith('10', expect.objectContaining({
       orgId: 42, billing: 'already_paid', installationFee: undefined,
+      canActivateContract: true, canCreateInvoice: true,
+    }));
+  });
+
+  test('new-install completion preserves the post-commit network warning and retry identifiers', async () => {
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
+    const activation = {
+      contract_id: 77,
+      nas_pushed: false,
+      nas_push_error: 'connect ETIMEDOUT',
+    };
+    lifecycleService.completeOrder.mockResolvedValue({
+      order: { id: 10, status: 'done', contract_id: 77 },
+      invoice: null,
+      activation,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/complete')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ billing: 'already_paid' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.activation).toEqual(activation);
+    expect(auditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+      newValues: expect.objectContaining({ activation }),
     }));
   });
 
   test('POST /service-orders/:id/complete with create_invoice passes the fee and surfaces the invoice', async () => {
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
     lifecycleService.completeOrder.mockResolvedValue({
       order: { id: 10, status: 'done' },
       invoice: { id: 5, invoice_number: 'INV-000005', total: 500 },
@@ -294,10 +342,96 @@ describe('Service order routes (§1.2)', () => {
     expect(res.body.data.invoice).toEqual({ id: 5, invoice_number: 'INV-000005', total: 500 });
     expect(lifecycleService.completeOrder).toHaveBeenCalledWith('10', expect.objectContaining({
       orgId: 42, billing: 'create_invoice', installationFee: 500, description: 'Install fee',
+      canActivateContract: true, canCreateInvoice: true,
     }));
   });
 
+  test('a technician with only service_orders.update cannot permanently activate a new installation', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/complete')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({ billing: 'already_paid' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/contracts\.update/i);
+    expect(lifecycleService.completeOrder).not.toHaveBeenCalled();
+  });
+
+  test('service_orders.update still completes an ordinary non-install order', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'upgrade', status: 'in_process', organization_id: 42,
+    });
+    lifecycleService.completeOrder.mockResolvedValue({
+      order: { id: 10, order_type: 'upgrade', status: 'done' }, invoice: null,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/complete')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({ billing: 'already_paid' });
+
+    expect(res.status).toBe(200);
+    expect(lifecycleService.completeOrder).toHaveBeenCalledWith(
+      '10', expect.objectContaining({ canActivateContract: false, canCreateInvoice: true }),
+    );
+  });
+
+  test('creating an invoice during completion requires invoices.create', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'upgrade', status: 'in_process', organization_id: 42,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/complete')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({ billing: 'create_invoice', installation_fee: 500 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/invoices\.create/i);
+    expect(lifecycleService.completeOrder).not.toHaveBeenCalled();
+  });
+
   test('POST /service-orders/:id/cancel delegates to cancelOrder and reports whether a contract was deprovisioned', async () => {
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
     lifecycleService.cancelOrder.mockResolvedValue({
       order: { id: 10, status: 'cancelled' },
       contractCancelled: true,
@@ -308,7 +442,66 @@ describe('Service order routes (§1.2)', () => {
       .send({});
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('cancelled');
-    expect(lifecycleService.cancelOrder).toHaveBeenCalledWith('10', expect.objectContaining({ orgId: 42 }));
+    expect(lifecycleService.cancelOrder).toHaveBeenCalledWith('10', expect.objectContaining({
+      orgId: 42, canCancelContract: true,
+    }));
+  });
+
+  test('service_orders.update alone cannot cancel a new installation and its pending contract', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'in_process', organization_id: 42,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/cancel')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/contracts\.update/i);
+    expect(lifecycleService.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  test('service_orders.update still cancels an ordinary non-install order', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'repair', status: 'in_process', organization_id: 42,
+    });
+    lifecycleService.cancelOrder.mockResolvedValue({
+      order: { id: 10, order_type: 'repair', status: 'cancelled' },
+      contractCancelled: false,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/cancel')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(lifecycleService.cancelOrder).toHaveBeenCalledWith('10', expect.objectContaining({
+      canCancelContract: false,
+    }));
   });
 
   test('GET /service-orders returns client_name/lead_name from the dedicated LEFT JOIN handler', async () => {

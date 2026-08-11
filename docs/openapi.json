@@ -3,7 +3,7 @@
   "info": {
     "title": "FireISP 5.0 API",
     "version": "5.0.0",
-    "description": "Open source ISP management — customers, plans, billing, network monitoring, and Mexican fiscal compliance (CFDI 4.0).",
+    "description": "Open source ISP management — customers, plans, billing, and network monitoring, with Mexican fiscal compliance (CFDI 4.0) enabled for MX organizations and omitted in global mode.",
     "license": {
       "name": "MIT",
       "url": "https://opensource.org/licenses/MIT"
@@ -4596,7 +4596,7 @@
         "tags": [
           "Service Orders"
         ],
-        "summary": "Start a service order (new -> in_process); auto-creates + provisions the contract for new_install orders",
+        "summary": "Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active reviewed activation template)",
         "operationId": "startServiceOrder",
         "security": [
           {
@@ -4632,7 +4632,7 @@
         "tags": [
           "Service Orders"
         ],
-        "summary": "Complete a service order (in_process -> done); already-paid or raises an installation-fee invoice (sends welcome notification)",
+        "summary": "Complete an order; new_install uses the canonical evidence/signature activation gate and may return a recoverable network_activation warning",
         "operationId": "completeServiceOrder",
         "security": [
           {
@@ -4661,7 +4661,7 @@
         },
         "responses": {
           "200": {
-            "description": "ServiceOrder",
+            "description": "ServiceOrder, optional invoice, and activation network outcome",
             "content": {
               "application/json": {
                 "schema": {
@@ -4678,7 +4678,7 @@
         "tags": [
           "Service Orders"
         ],
-        "summary": "Cancel a service order",
+        "summary": "Cancel a service order; cancelling a new_install and its pending contract also requires contracts.update",
         "operationId": "cancelServiceOrder",
         "security": [
           {
@@ -5924,6 +5924,807 @@
         }
       }
     },
+    "/contracts/{id}/activation": {
+      "get": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Get the staged installation, bounded test, client-signature, and permanent-activation state for a contract",
+        "operationId": "getContractActivationState",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract activation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "status",
+                        "can_activate",
+                        "blockers"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "client_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "connection_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "test_window_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "test_window_cleanup_pending": {
+                          "type": "boolean"
+                        },
+                        "service_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "work_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "speed_test_recorded": {
+                          "type": "boolean"
+                        },
+                        "arrival_authorization_pending": {
+                          "type": "boolean"
+                        },
+                        "document_sync_required": {
+                          "type": "boolean"
+                        },
+                        "network_retry_available": {
+                          "type": "boolean"
+                        },
+                        "service_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "work_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "speed_test": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "can_activate": {
+                          "type": "boolean"
+                        },
+                        "blockers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "invoice": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "network_activation": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true,
+                          "properties": {
+                            "contract_id": {
+                              "type": "integer"
+                            },
+                            "nas_pushed": {
+                              "type": "boolean"
+                            },
+                            "nas_push_error": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/activation/prepare": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Prepare a pending contract for activation by creating or reusing its installation service order, technician visit, and MX-only signing documents",
+        "operationId": "prepareContractActivation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional commissioning technician assignment",
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "assigned_to": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contract activation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "status",
+                        "can_activate",
+                        "blockers"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "client_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "connection_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "test_window_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "test_window_cleanup_pending": {
+                          "type": "boolean"
+                        },
+                        "service_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "work_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "speed_test_recorded": {
+                          "type": "boolean"
+                        },
+                        "arrival_authorization_pending": {
+                          "type": "boolean"
+                        },
+                        "document_sync_required": {
+                          "type": "boolean"
+                        },
+                        "network_retry_available": {
+                          "type": "boolean"
+                        },
+                        "service_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "work_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "speed_test": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "can_activate": {
+                          "type": "boolean"
+                        },
+                        "blockers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "invoice": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "network_activation": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true,
+                          "properties": {
+                            "contract_id": {
+                              "type": "integer"
+                            },
+                            "nas_pushed": {
+                              "type": "boolean"
+                            },
+                            "nas_push_error": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "Contract is not pending or the technician is not assignable"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/activation/retry-network": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Idempotently retry RouterOS provisioning for an already-activated contract without repeating activation or billing",
+        "operationId": "retryContractNetworkActivation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Idempotent RouterOS activation retry result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "radius_id",
+                        "nas_id",
+                        "success"
+                      ],
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "service_order_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "radius_id": {
+                          "type": "integer"
+                        },
+                        "nas_id": {
+                          "type": "integer"
+                        },
+                        "success": {
+                          "type": "boolean"
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "The previously activated PPPoE contract does not have exactly one active, provisionable RADIUS/NAS account"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/activation/cancel": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Cancel a pending contract activation and fail-closed its linked installation order, visit, RADIUS access, and test window",
+        "operationId": "cancelContractActivation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled contract activation state and cancellation summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "status",
+                        "can_activate",
+                        "blockers"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "client_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "connection_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "test_window_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "test_window_cleanup_pending": {
+                          "type": "boolean"
+                        },
+                        "service_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "work_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "speed_test_recorded": {
+                          "type": "boolean"
+                        },
+                        "arrival_authorization_pending": {
+                          "type": "boolean"
+                        },
+                        "document_sync_required": {
+                          "type": "boolean"
+                        },
+                        "network_retry_available": {
+                          "type": "boolean"
+                        },
+                        "service_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "work_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "speed_test": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "can_activate": {
+                          "type": "boolean"
+                        },
+                        "blockers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "invoice": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "network_activation": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true,
+                          "properties": {
+                            "contract_id": {
+                              "type": "integer"
+                            },
+                            "nas_pushed": {
+                              "type": "boolean"
+                            },
+                            "nas_push_error": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract not found"
+          },
+          "422": {
+            "description": "The contract is not pending or the activation changed concurrently"
+          }
+        }
+      }
+    },
+    "/contracts/{id}/activate": {
+      "post": {
+        "tags": [
+          "Contracts"
+        ],
+        "summary": "Permanently activate a tested pending contract after the installation visit and any required MX activation contract are complete",
+        "operationId": "activateContract",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Billing disposition; create_invoice additionally requires installation_fee and invoices.create",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "billing"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "billing"
+                      ],
+                      "properties": {
+                        "billing": {
+                          "const": "create_invoice"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "installation_fee"
+                      ]
+                    }
+                  }
+                ],
+                "properties": {
+                  "billing": {
+                    "type": "string",
+                    "enum": [
+                      "already_paid",
+                      "create_invoice"
+                    ]
+                  },
+                  "installation_fee": {
+                    "type": "number",
+                    "minimum": 0.01
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 255
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Activated contract state, optional invoice, and network activation outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "status",
+                        "can_activate",
+                        "blockers"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "client_id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "connection_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "test_window_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "test_window_cleanup_pending": {
+                          "type": "boolean"
+                        },
+                        "service_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "work_order_prepared": {
+                          "type": "boolean"
+                        },
+                        "speed_test_recorded": {
+                          "type": "boolean"
+                        },
+                        "arrival_authorization_pending": {
+                          "type": "boolean"
+                        },
+                        "document_sync_required": {
+                          "type": "boolean"
+                        },
+                        "network_retry_available": {
+                          "type": "boolean"
+                        },
+                        "service_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "work_order": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "speed_test": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "can_activate": {
+                          "type": "boolean"
+                        },
+                        "blockers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "invoice": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "network_activation": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true,
+                          "properties": {
+                            "contract_id": {
+                              "type": "integer"
+                            },
+                            "nas_pushed": {
+                              "type": "boolean"
+                            },
+                            "nas_push_error": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contract or activation order not found"
+          },
+          "422": {
+            "description": "Activation prerequisite is incomplete"
+          }
+        }
+      }
+    },
     "/contracts/{id}/suspend": {
       "post": {
         "tags": [
@@ -6033,7 +6834,7 @@
         "tags": [
           "Contracts"
         ],
-        "summary": "Renew (reactivate) a suspended, expired, or cancelled contract",
+        "summary": "Renew a terminal contract; previously activated service returns active, while never-activated service returns pending with activation_required=true",
         "operationId": "renewContract",
         "security": [
           {
@@ -6062,7 +6863,7 @@
         },
         "responses": {
           "200": {
-            "description": "Contract renewed",
+            "description": "Renewal result, including activation_required and any recoverable network_activation warning",
             "content": {
               "application/json": {
                 "schema": {
@@ -41219,6 +42020,16 @@
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "commissioning",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "When true, return only users with work_orders.view, work_orders.update, and speed_tests.create"
+          }
+        ],
         "responses": {
           "200": {
             "description": "UserSummary[]",
@@ -41490,14 +42301,64 @@
         ],
         "responses": {
           "200": {
-            "description": "Window state",
+            "description": "Bounded temporary-access window state",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "expires_at",
+                        "minutes",
+                        "nas_pushed",
+                        "already_open"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "expires_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "minutes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "nas_pushed": {
+                          "type": "boolean"
+                        },
+                        "already_open": {
+                          "type": "boolean"
+                        },
+                        "nas_disabled": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "nas_disable_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "422": {
+            "description": "The visit, contract, RADIUS line, legal gate, or bounded network state is not eligible"
           }
         }
       }
@@ -41526,14 +42387,345 @@
         ],
         "responses": {
           "200": {
-            "description": "Window state",
+            "description": "Fail-closed network cleanup result; warnings mean durable automatic retry remains pending",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_id",
+                        "closed"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "contract_id": {
+                          "type": "integer"
+                        },
+                        "closed": {
+                          "type": "boolean"
+                        },
+                        "prepared": {
+                          "type": "boolean"
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "reopened": {
+                          "type": "boolean"
+                        },
+                        "nas_disabled": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "nas_disable_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "disconnect_confirmed": {
+                          "type": "boolean"
+                        },
+                        "disconnect_outcome": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "disconnect_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/work-orders/{id}/test-window/complete": {
+      "post": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Record the technician speed-test result and atomically switch the pending contract line off until permanent activation",
+        "operationId": "completeTestWindow",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Technician-measured throughput and optional quality details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "download_mbps",
+                  "upload_mbps"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "download_mbps": {
+                    "type": "number",
+                    "minimum": 0.001
+                  },
+                  "upload_mbps": {
+                    "type": "number",
+                    "minimum": 0.001
+                  },
+                  "latency_ms": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "jitter_ms": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "packet_loss_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "server_location": {
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 5000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded speed test and bounded-window shutdown result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "speed_test"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "speed_test": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "closed": {
+                          "type": "boolean"
+                        },
+                        "recorded": {
+                          "type": "boolean"
+                        },
+                        "line_state": {
+                          "type": "string",
+                          "enum": [
+                            "offline"
+                          ]
+                        },
+                        "nas_disabled": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "nas_disable_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "disconnect_confirmed": {
+                          "type": "boolean"
+                        },
+                        "disconnect_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The installation visit or bounded test window is not eligible"
+          }
+        }
+      }
+    },
+    "/work-orders/{id}/commissioning-test": {
+      "post": {
+        "tags": [
+          "Work Orders"
+        ],
+        "summary": "Record work-order-bound technician speed evidence for a pending static/dual line while connectivity remains offline",
+        "operationId": "recordOfflineCommissioningTest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Technician-measured throughput and optional quality details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "download_mbps",
+                  "upload_mbps"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "download_mbps": {
+                    "type": "number",
+                    "minimum": 0.001
+                  },
+                  "upload_mbps": {
+                    "type": "number",
+                    "minimum": 0.001
+                  },
+                  "latency_ms": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "jitter_ms": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "packet_loss_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "server_location": {
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 5000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded speed test; static/non-RADIUS line remains manually controlled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "speed_test"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "speed_test": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "closed": {
+                          "type": "boolean"
+                        },
+                        "recorded": {
+                          "type": "boolean"
+                        },
+                        "line_state": {
+                          "type": "string",
+                          "enum": [
+                            "offline"
+                          ]
+                        },
+                        "nas_disabled": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "nas_disable_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "disconnect_confirmed": {
+                          "type": "boolean"
+                        },
+                        "disconnect_warning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The assigned installation visit or contract type is not eligible"
           }
         }
       }
@@ -55230,11 +56422,7 @@
           "status": {
             "type": "string",
             "enum": [
-              "pending",
-              "active",
-              "suspended",
-              "cancelled",
-              "terminated"
+              "pending"
             ]
           },
           "facturar": {
@@ -55442,6 +56630,38 @@
         },
         "required": [
           "plan_addon_id"
+        ]
+      },
+      "contracts_prepareContractActivation": {
+        "type": "object",
+        "properties": {
+          "assigned_to": {
+            "type": "number",
+            "minimum": 1
+          }
+        }
+      },
+      "contracts_activateContract": {
+        "type": "object",
+        "properties": {
+          "billing": {
+            "type": "string",
+            "enum": [
+              "already_paid",
+              "create_invoice"
+            ]
+          },
+          "installation_fee": {
+            "type": "number",
+            "minimum": 0.01
+          },
+          "description": {
+            "type": "string",
+            "maximum": 255
+          }
+        },
+        "required": [
+          "billing"
         ]
       },
       "coverageZones_createCoverageZone": {
@@ -71598,6 +72818,44 @@
             "maximum": 500
           }
         }
+      },
+      "workOrders_completeTestWindow": {
+        "type": "object",
+        "properties": {
+          "download_mbps": {
+            "type": "number",
+            "minimum": 0.001
+          },
+          "upload_mbps": {
+            "type": "number",
+            "minimum": 0.001
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "jitter_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "packet_loss_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "server_location": {
+            "type": "string",
+            "maximum": 150
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 5000
+          }
+        },
+        "required": [
+          "download_mbps",
+          "upload_mbps"
+        ]
       }
     }
   }
