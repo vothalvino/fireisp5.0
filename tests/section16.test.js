@@ -37,6 +37,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
 const app = require('../src/app');
+const { mockTxConnection } = require('./fixtures/mockTxConnection');
 
 function adminToken() {
   return jwt.sign(
@@ -132,13 +133,21 @@ describe('POST /api/v1/regulatory-compliance/consent', () => {
       .post('/api/v1/regulatory-compliance/consent')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '10')
-      .send({ client_id: 1, consent_version: '1.0', purpose: 'marketing', channel: 'email' });
+      .send({
+        client_id: 1,
+        consent_version: '1.0',
+        purpose: 'marketing',
+        channel: 'phone',
+        communication_channel: 'email',
+      });
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('id');
   });
 });
 
 describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
+  let conn;
+
   beforeEach(() => {
     mockDbAuth();
     db.query.mockImplementation((sql) => {
@@ -150,16 +159,87 @@ describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
       }
       return Promise.resolve([{ affectedRows: 1 }]);
     });
+
+    conn = {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      execute: jest.fn().mockImplementation((sql) => {
+        if (typeof sql === 'string' && sql.includes('FROM subscriber_consents') && sql.includes('FOR UPDATE')) {
+          return Promise.resolve([[
+            { id: 1, client_id: 7, purpose: 'marketing', communication_channel: 'email' },
+          ]]);
+        }
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(conn);
   });
   afterEach(() => { jest.clearAllMocks(); });
 
-  it('returns 200 on withdraw', async () => {
+  it('transactionally withdraws all active marketing grants for the same tenant, client, and channel', async () => {
     const res = await request(app)
       .put('/api/v1/regulatory-compliance/consent/1/withdraw')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '10');
+
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
+    expect(conn.beginTransaction).toHaveBeenCalledTimes(1);
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(conn.rollback).not.toHaveBeenCalled();
+    expect(conn.release).toHaveBeenCalledTimes(1);
+
+    const [lookupSql, lookupParams] = conn.execute.mock.calls[0];
+    expect(lookupSql).toMatch(/WHERE id = \? AND organization_id = \?[\s\S]*FOR UPDATE/);
+    expect(lookupParams).toEqual(['1', 10]);
+
+    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[1];
+    expect(withdrawSql).toMatch(/organization_id = \? AND client_id = \?/);
+    expect(withdrawSql).toMatch(/purpose = 'marketing' AND communication_channel = \?/);
+    expect(withdrawSql).toMatch(/withdrawn_at IS NULL/);
+    expect(withdrawParams).toEqual([10, 7, 'email']);
+
+    const [dndSql, dndParams] = conn.execute.mock.calls[2];
+    expect(dndSql).toMatch(/INSERT INTO client_dnd_preferences/);
+    expect(dndSql).toMatch(/ON DUPLICATE KEY UPDATE[\s\S]*opt_out = 1/);
+    expect(dndParams).toEqual([10, 7, 'email', 'Marketing consent withdrawn']);
+  });
+
+  it('rolls back and returns 404 when the consent does not belong to the tenant', async () => {
+    conn.execute.mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .put('/api/v1/regulatory-compliance/consent/99/withdraw')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(404);
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+    expect(conn.release).toHaveBeenCalledTimes(1);
+    expect(conn.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves per-entry withdrawal behavior for non-marketing consent without changing DND', async () => {
+    conn.execute.mockResolvedValueOnce([[
+      { id: 2, client_id: 7, purpose: 'service_delivery', communication_channel: null },
+    ]]);
+    conn.execute.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const res = await request(app)
+      .put('/api/v1/regulatory-compliance/consent/2/withdraw')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(200);
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(conn.execute).toHaveBeenCalledTimes(2);
+    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[1];
+    expect(withdrawSql).toMatch(/WHERE id = \? AND organization_id = \? AND withdrawn_at IS NULL/);
+    expect(withdrawParams).toEqual(['2', 10]);
+    expect(conn.execute.mock.calls.some(([sql]) => /client_dnd_preferences/.test(sql))).toBe(false);
   });
 });
 
@@ -1004,6 +1084,58 @@ describe('GET /api/v1/consumer-protection/contract-templates-mx', () => {
       .set('X-Org-Id', '10');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('data');
+  });
+});
+
+describe('MX registered contract-template evidence guards', () => {
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('requires official registration metadata before creating a registered record', async () => {
+    mockDbAuth();
+    const res = await request(app)
+      .post('/api/v1/consumer-protection/contract-templates-mx')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({
+        template_name: 'Contrato 2026', template_body: 'Texto oficial',
+        version: '1.0', status: 'registered',
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/registration number.*registration date/i);
+    expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `contract_templates_mx`/.test(sql)))
+      .toBe(false);
+  });
+
+  it('permanently freezes the text and registration metadata of a registered record', async () => {
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      const s = String(sql);
+      if (/`users`/.test(s)) {
+        return [[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]];
+      }
+      if (/SELECT \* FROM `contract_templates_mx`/.test(s)) {
+        return [[{
+          id: 71, organization_id: 10, template_name: 'Contrato 2026',
+          ift_registration_number: 'IFT-2026-001', registered_at: '2026-01-15',
+          version: '1.0', template_body: 'Texto oficial', status: 'registered',
+          deleted_at: null,
+        }]];
+      }
+      return [[]];
+    });
+
+    const res = await request(app)
+      .put('/api/v1/consumer-protection/contract-templates-mx/71')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ template_body: 'Texto alterado' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/permanently immutable/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.execute.mock.calls.some(([sql]) => /^UPDATE `contract_templates_mx`/.test(sql)))
+      .toBe(false);
   });
 });
 

@@ -32,6 +32,31 @@ const crypto = require('crypto');
 const CARTA_DERECHOS_DEFAULT_URL = 'https://www.ift.org.mx/usuarios-y-audiencias/carta-de-derechos-minimos-de-los-usuarios';
 const db = require('../config/database');
 const { ValidationError, NotFoundError } = require('../utils/errors');
+const privacyNoticeService = require('./privacyNoticeService');
+const communicationConsentService = require('./communicationConsentService');
+const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateService');
+
+// Global organizations deliberately receive an operational acknowledgment,
+// not a jurisdiction-specific legal contract.  It is bundled so a fresh
+// global install is signable without an administrator pretending to review a
+// legal template. MX remains fail-closed on the ISP's own reviewed template.
+const GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID = 0;
+const GLOBAL_ACKNOWLEDGMENT_TYPE = 'service_acknowledgment';
+const GLOBAL_ACKNOWLEDGMENT_TITLE = 'Service installation acknowledgment';
+const GLOBAL_ACKNOWLEDGMENT_BODY = `# Service installation acknowledgment
+
+- Customer: **{{client.name}}**
+- Service address: **{{order.address}}**
+- Plan: **{{plan.name}}**
+- Service order: **{{order.number}}**
+- Date: **{{date}}**
+
+I confirm that the provider presented the installed service and plan details, gave me an opportunity to review the installation handoff, and explained how to request support.
+
+My optional promotional communication choices are shown separately on this signing screen. Refusing promotional messages does not affect essential service, billing, outage, security, or support communications, and I may change those choices later.
+
+This is a factual service-installation and handoff acknowledgment. It is generic, is not jurisdiction-specific legal advice, and does not replace any service agreement or privacy notice that applies between the customer and provider.
+`;
 
 /** {{a.b}} substitution. Values are stringified; null/undefined → '—'. */
 function render(body, context) {
@@ -46,23 +71,54 @@ function render(body, context) {
   });
 }
 
-/** Flat render context for an order's documents. All reads on `run`. */
+function sha256(value) {
+  return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
+}
+
+function canonicalDateTime(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+/**
+ * Flat render context for an order's documents. Every relationship is scoped
+ * to the tenant and to the same client/contract/order chain before any PII is
+ * interpolated. This deliberately rejects malformed historical rows rather
+ * than freezing another tenant's data into a new signed document.
+ */
 async function buildContext(run, { orgId, clientId, contractId, orderId }) {
   const [[client]] = await run(
-    'SELECT * FROM clients WHERE id = ? AND deleted_at IS NULL',
-    [clientId],
+    `SELECT * FROM clients
+      WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL`,
+    [clientId, orgId],
   );
   const [[contract]] = contractId
-    ? await run('SELECT * FROM contracts WHERE id = ? AND deleted_at IS NULL', [contractId])
+    ? await run(
+      `SELECT * FROM contracts
+        WHERE id = ? AND organization_id <=> ? AND client_id = ?
+          AND deleted_at IS NULL`,
+      [contractId, orgId, clientId],
+    )
     : [[null]];
   const [[plan]] = contract?.plan_id
-    ? await run('SELECT * FROM plans WHERE id = ?', [contract.plan_id])
+    ? await run(
+      `SELECT * FROM plans
+        WHERE id = ? AND deleted_at IS NULL
+          AND (organization_id = ? OR organization_id IS NULL)`,
+      [contract.plan_id, orgId],
+    )
     : [[null]];
   const [[order]] = orderId
-    ? await run('SELECT * FROM service_orders WHERE id = ? AND deleted_at IS NULL', [orderId])
+    ? await run(
+      `SELECT * FROM service_orders
+        WHERE id = ? AND organization_id <=> ? AND client_id = ?
+          AND contract_id <=> ? AND deleted_at IS NULL`,
+      [orderId, orgId, clientId, contractId],
+    )
     : [[null]];
   const [[org]] = orgId
-    ? await run('SELECT * FROM organizations WHERE id = ?', [orgId])
+    ? await run('SELECT * FROM organizations WHERE id = ? AND deleted_at IS NULL', [orgId])
     : [[null]];
   const [[orgMx]] = orgId
     ? await run('SELECT * FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL', [orgId])
@@ -71,6 +127,12 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
     'SELECT * FROM client_mx_profiles WHERE client_id = ? AND deleted_at IS NULL',
     [clientId],
   );
+
+  if (!client || !contract || !plan || !order || !org) {
+    throw new ValidationError(
+      'The installation client, contract, plan, order, and organization must form one active tenant-scoped chain',
+    );
+  }
 
   const now = new Date();
   return {
@@ -104,27 +166,40 @@ async function generateForOrder(run, {
   orgId, clientId, contractId, orderId, workOrderId, createdBy,
   skipTypes = null, onlyTemplateIds = null,
 }) {
-  // STRICTLY MX (user decision, 2026-08-05): the legal-paper flow exists for
-  // Mexican organizations only. Checked HERE — the single funnel — so every
-  // caller (startOrder, the /generate backfill route) inherits it. An org-less
-  // context (legacy single-tenant rows) has no locale to check and generates
-  // nothing.
+  // An org-less legacy context has no locale or durable tenant identity.
   if (orgId === null || orgId === undefined) return [];
   const [localeRows] = await run(
     'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
     [orgId],
   );
-  if (localeRows[0]?.locale !== 'MX') return [];
+  const locale = localeRows[0]?.locale || 'global';
 
-  const templateParams = [orgId];
-  const orgCond = 'organization_id = ?';
-  const [templates] = await run(
-    `SELECT * FROM document_templates
-     WHERE ${orgCond} AND is_active = 1 AND deleted_at IS NULL
-     ORDER BY FIELD(template_type, 'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom'), id
-     FOR UPDATE`,
-    templateParams,
-  );
+  let templates;
+  if (locale === 'MX') {
+    [templates] = await run(
+      `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+         FROM document_templates dt
+         LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+        WHERE dt.organization_id = ? AND dt.is_active = 1 AND dt.deleted_at IS NULL
+        ORDER BY FIELD(dt.template_type, 'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom'), dt.id
+       FOR UPDATE`,
+      [orgId],
+    );
+    // Validate the entire active MX set before filtering by requested IDs. An
+    // unlinked legacy contract must not be hidden by a partial backfill call.
+    mxRegisteredTemplateService.assertOneRegisteredSource(
+      templates.filter(template => template.template_type === 'activation_contract'),
+      orgId,
+    );
+  } else {
+    templates = [{
+      id: null,
+      virtual_id: GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID,
+      template_type: GLOBAL_ACKNOWLEDGMENT_TYPE,
+      name: GLOBAL_ACKNOWLEDGMENT_TITLE,
+      body_md: GLOBAL_ACKNOWLEDGMENT_BODY,
+    }];
+  }
   if (!templates.length) return [];
 
   let wanted = skipTypes ? templates.filter(t => !skipTypes.has(t.template_type)) : templates;
@@ -134,7 +209,9 @@ async function generateForOrder(run, {
   // exact newly-required template without duplicating the existing one.
   if (onlyTemplateIds) {
     const wantedIds = new Set([...onlyTemplateIds].map(Number));
-    wanted = wanted.filter(template => wantedIds.has(Number(template.id)));
+    wanted = wanted.filter(template => wantedIds.has(
+      template.id === null ? Number(template.virtual_id) : Number(template.id),
+    ));
   }
   if (!wanted.length) return [];
 
@@ -142,66 +219,350 @@ async function generateForOrder(run, {
   const created = [];
   for (const tpl of wanted) {
     const body = render(tpl.body_md, context);
-    const hash = crypto.createHash('sha256').update(body, 'utf8').digest('hex');
+    const hash = sha256(body);
+    const mxSnapshot = tpl.template_type === 'activation_contract'
+      ? mxRegisteredTemplateService.assertActiveActivationTemplate(tpl, orgId)
+      : null;
     const [ins] = await run(
       `INSERT INTO signed_documents
          (organization_id, client_id, contract_id, service_order_id, work_order_id,
-          template_id, template_type, title, rendered_body, content_sha256, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+          template_id, template_type, title, rendered_body, content_sha256,
+          contract_template_mx_id, mx_registration_number, mx_registered_at,
+          mx_template_version, mx_source_sha256, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
       [orgId, clientId, contractId, orderId, workOrderId,
-        tpl.id, tpl.template_type, tpl.name, body, hash, createdBy],
+        tpl.id, tpl.template_type, tpl.name, body, hash,
+        mxSnapshot?.contractTemplateMxId ?? null,
+        mxSnapshot?.registrationNumber ?? null,
+        mxSnapshot?.registeredAt ?? null,
+        mxSnapshot?.version ?? null,
+        mxSnapshot?.sourceSha256 ?? null,
+        createdBy],
     );
     created.push({ id: ins.insertId, template_type: tpl.template_type, title: tpl.name });
   }
   return created;
 }
 
+function normalizedCommunicationEvidence(value) {
+  if (!value) return null;
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  return {
+    email: Boolean(parsed.email),
+    sms: Boolean(parsed.sms),
+    whatsapp: Boolean(parsed.whatsapp),
+    confirmed: parsed.confirmed === true || Number(parsed.confirmed) === 1,
+    privacy_notice_version: parsed.privacy_notice_version || null,
+    privacy_notice_hash: parsed.privacy_notice_hash || null,
+  };
+}
+
+/** Stable digest covering the complete assisted-signature evidence envelope. */
+function evidenceDigest(document, {
+  signerName = document.signer_name,
+  signatureImage = document.signature_image,
+  signedAt = document.signed_at,
+  signedIp = document.signed_ip,
+  capturedBy = document.captured_by,
+  communicationChoices = document.communication_choices,
+} = {}) {
+  const canonical = {
+    version: 2,
+    signing_method: 'assisted_canvas',
+    document_id: document.id === null || document.id === undefined ? null : String(document.id),
+    organization_id: document.organization_id === null || document.organization_id === undefined
+      ? null : String(document.organization_id),
+    client_id: document.client_id === null || document.client_id === undefined ? null : String(document.client_id),
+    contract_id: document.contract_id === null || document.contract_id === undefined ? null : String(document.contract_id),
+    service_order_id: document.service_order_id === null || document.service_order_id === undefined
+      ? null : String(document.service_order_id),
+    work_order_id: document.work_order_id === null || document.work_order_id === undefined
+      ? null : String(document.work_order_id),
+    template_type: document.template_type || null,
+    title: document.title || null,
+    document_content_sha256: document.content_sha256,
+    rendered_body_sha256: sha256(document.rendered_body),
+    contract_template_mx_id: document.contract_template_mx_id === null
+      || document.contract_template_mx_id === undefined
+      ? null : String(document.contract_template_mx_id),
+    mx_registration_number: document.mx_registration_number || null,
+    mx_registered_at: mxRegisteredTemplateService.dateOnly(document.mx_registered_at),
+    mx_template_version: document.mx_template_version || null,
+    mx_source_sha256: document.mx_source_sha256 || null,
+    signer_name: String(signerName || '').trim(),
+    signature_image_sha256: sha256(signatureImage),
+    signed_at: canonicalDateTime(signedAt),
+    signed_ip: signedIp || null,
+    captured_by: capturedBy === null || capturedBy === undefined ? null : String(capturedBy),
+    communication_choices: normalizedCommunicationEvidence(communicationChoices),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex');
+}
+
+function verifyEvidence(document) {
+  if (!document?.evidence_sha256 || !document.signature_image) return null;
+  if (sha256(document.rendered_body) !== document.content_sha256) return false;
+  return evidenceDigest(document) === document.evidence_sha256;
+}
+
+function signatureEvidenceIsValid(document) {
+  // Newly generated global acknowledgments and registered MX contracts have
+  // no legacy representation: their status only counts when the complete
+  // evidence envelope verifies. Older, unlinked document types remain
+  // readable during migration, but an evidence hash that exists must verify.
+  const evidenceRequired = document.template_type === GLOBAL_ACKNOWLEDGMENT_TYPE
+    || (document.template_type === 'activation_contract'
+      && document.contract_template_mx_id !== null
+      && document.contract_template_mx_id !== undefined);
+  const verified = verifyEvidence(document);
+  return evidenceRequired ? verified === true : (verified === null || verified === true);
+}
+
+function signatureImageBytes(dataUrl) {
+  const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(dataUrl || ''));
+  if (!match) return null;
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length < 8) return null;
+  const isPng = match[1] === 'png'
+    && bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  const isJpeg = match[1] === 'jpeg'
+    && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  return isPng || isJpeg ? bytes : null;
+}
+
 /** Capture the client's signature on a pending document. */
-async function sign(documentId, { orgId, signerName, signatureImage, signedIp, performedBy: _performedBy }) {
+async function sign(documentId, {
+  orgId,
+  signerName,
+  signatureImage,
+  signedIp,
+  performedBy,
+  communicationOptIns,
+  communicationChoicesConfirmed,
+  privacyNoticeVersion,
+  privacyNoticeHash,
+}) {
   if (!signerName || !String(signerName).trim()) {
     throw new ValidationError('signer_name is required');
   }
-  if (!signatureImage || !/^data:image\/(png|jpeg);base64,/.test(signatureImage)) {
-    throw new ValidationError('signature_image must be a PNG/JPEG data URL');
-  }
-  if (signatureImage.length > 500_000) {
+  if (typeof signatureImage === 'string' && signatureImage.length > 500_000) {
     throw new ValidationError('signature_image is too large (max ~500 KB)');
   }
-
-  const params = [documentId];
-  let orgCond = '';
-  if (orgId !== null && orgId !== undefined) {
-    orgCond = 'AND (organization_id = ? OR organization_id IS NULL)';
-    params.push(orgId);
-  }
-  const [rows] = await db.query(
-    `SELECT * FROM signed_documents WHERE id = ? ${orgCond} AND deleted_at IS NULL`,
-    params,
-  );
-  const doc = rows[0];
-  if (!doc) throw new NotFoundError('Document');
-  if (doc.status !== 'pending') {
-    throw new ValidationError(`Document is not pending (currently: ${doc.status})`);
+  if (!signatureImageBytes(signatureImage)) {
+    throw new ValidationError('signature_image must contain valid PNG/JPEG bytes');
   }
 
-  // Integrity: the body the client is signing must be the body frozen at
-  // generation. A mismatch means the row was tampered with — refuse.
-  const hash = crypto.createHash('sha256').update(doc.rendered_body, 'utf8').digest('hex');
-  if (hash !== doc.content_sha256) {
-    throw new ValidationError('Document integrity check failed — the stored body does not match its generation hash');
-  }
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const params = [documentId];
+    const orgCondition = orgId === null || orgId === undefined
+      ? 'organization_id IS NULL'
+      : 'organization_id = ?';
+    if (orgId !== null && orgId !== undefined) params.push(orgId);
+    const [scopeRows] = await conn.query(
+      `SELECT service_order_id, organization_id, work_order_id, client_id,
+              contract_id, template_type
+         FROM signed_documents
+        WHERE id = ? AND ${orgCondition} AND deleted_at IS NULL`,
+      params,
+    );
+    const scope = scopeRows[0];
+    if (!scope) throw new NotFoundError('Document');
 
-  const [result] = await db.query(
-    `UPDATE signed_documents
-     SET status = 'signed', signer_name = ?, signature_image = ?, signed_at = NOW(), signed_ip = ?
-     WHERE id = ? AND status = 'pending'`,
-    [String(signerName).trim(), signatureImage, signedIp || null, documentId],
-  );
-  if (result.affectedRows === 0) {
-    throw new ValidationError('Document was signed or cancelled concurrently — reload');
+    // Work-order transitions lock WO -> service order. Use the same order
+    // here, which both serializes sibling signatures and avoids an inverted
+    // lock order when a technician signs while completion is attempted.
+    let lockedWorkOrder = null;
+    if (scope.work_order_id !== null && scope.work_order_id !== undefined) {
+      const [workOrders] = await conn.query(
+        `SELECT id, status FROM work_orders
+          WHERE id = ? AND organization_id <=> ?
+            AND client_id = ? AND contract_id <=> ?
+            AND service_order_id <=> ? AND work_type = 'installation'
+            AND deleted_at IS NULL
+          FOR UPDATE`,
+        [
+          scope.work_order_id,
+          scope.organization_id,
+          scope.client_id,
+          scope.contract_id,
+          scope.service_order_id,
+        ],
+      );
+      lockedWorkOrder = workOrders[0] || null;
+      if (!lockedWorkOrder) {
+        throw new ValidationError('The document installation work order no longer matches this customer and contract');
+      }
+    }
+
+    let lockedOrder = null;
+    if (scope.service_order_id !== null && scope.service_order_id !== undefined) {
+      const [orders] = await conn.query(
+        `SELECT so.id, so.order_type, so.status, so.client_id, so.contract_id,
+                c.status AS contract_status
+           FROM service_orders so
+           LEFT JOIN contracts c ON c.id = so.contract_id
+            AND c.organization_id <=> so.organization_id
+            AND c.client_id = so.client_id AND c.deleted_at IS NULL
+          WHERE so.id = ? AND so.organization_id <=> ?
+            AND so.client_id = ? AND so.contract_id <=> ?
+            AND so.deleted_at IS NULL
+          FOR UPDATE`,
+        [
+          scope.service_order_id,
+          scope.organization_id,
+          scope.client_id,
+          scope.contract_id,
+        ],
+      );
+      lockedOrder = orders[0] || null;
+      if (!lockedOrder) {
+        throw new ValidationError('The document service order no longer matches this customer and contract');
+      }
+    }
+
+    const [rows] = await conn.query(
+      `SELECT * FROM signed_documents
+        WHERE id = ? AND ${orgCondition} AND deleted_at IS NULL
+        FOR UPDATE`,
+      params,
+    );
+    const doc = rows[0];
+    if (!doc) throw new NotFoundError('Document');
+    if (doc.status !== 'pending') {
+      throw new ValidationError(`Document is not pending (currently: ${doc.status})`);
+    }
+
+    if (lockedOrder
+        && (lockedOrder.order_type !== 'new_install' || lockedOrder.status !== 'in_process')) {
+      throw new ValidationError(
+        'Signing documents can only be signed while their linked new installation is active',
+      );
+    }
+
+    // Integrity: the body the client is signing must be the body frozen at
+    // generation. A mismatch means the row was tampered with — refuse.
+    const hash = sha256(doc.rendered_body);
+    if (hash !== doc.content_sha256) {
+      throw new ValidationError('Document integrity check failed — the stored body does not match its generation hash');
+    }
+
+    const isHandoffSignature = ['activation_contract', GLOBAL_ACKNOWLEDGMENT_TYPE]
+      .includes(doc.template_type);
+    let communicationChoicesJson = null;
+    if (isHandoffSignature) {
+      // A handoff document describes work presented to the customer. It must
+      // not be signable immediately after lead conversion while the field
+      // visit is still pending. Lock and verify the authoritative installation
+      // WO, including every tenant/ownership edge carried by the document.
+      if (!lockedOrder
+          || Number(lockedOrder.client_id) !== Number(doc.client_id)
+          || Number(lockedOrder.contract_id) !== Number(doc.contract_id)
+          || lockedOrder.contract_status !== 'pending') {
+        throw new ValidationError(
+          'The customer handoff can only be signed while its linked new installation and pending contract are active',
+        );
+      }
+      if (!lockedWorkOrder || !['in_progress', 'completed'].includes(lockedWorkOrder.status)) {
+        throw new ValidationError('The installation visit must be in progress before the customer signs the handoff document');
+      }
+
+      const [priorChoices] = await conn.query(
+        `SELECT id FROM signed_documents
+          WHERE service_order_id <=> ? AND client_id = ?
+            AND organization_id <=> ?
+            AND id <> ? AND status = 'signed'
+            AND communication_choices IS NOT NULL AND deleted_at IS NULL
+          LIMIT 1 FOR UPDATE`,
+        [doc.service_order_id, doc.client_id, doc.organization_id, doc.id],
+      );
+      if (!priorChoices[0]) {
+        if (communicationChoicesConfirmed !== true) {
+          throw new ValidationError('Confirm that the customer reviewed all optional communication choices');
+        }
+        const notice = await privacyNoticeService.getNotice(
+          doc.organization_id,
+          conn.query.bind(conn),
+        );
+        if (!privacyNoticeVersion || !privacyNoticeHash) {
+          throw new ValidationError('The reviewed privacy notice version and hash are required');
+        }
+        if (privacyNoticeVersion !== notice.version || privacyNoticeHash !== notice.hash) {
+          throw new ValidationError('The privacy notice changed while signing; reload and review the current notice');
+        }
+        const recordedChoices = await communicationConsentService.recordSignedChoices(
+          conn.query.bind(conn),
+          {
+            organizationId: doc.organization_id,
+            clientId: doc.client_id,
+            serviceOrderId: doc.service_order_id,
+            workOrderId: doc.work_order_id,
+            signedDocumentId: doc.id,
+            capturedBy: performedBy,
+            ipAddress: signedIp,
+            notice,
+            choices: communicationOptIns,
+          },
+        );
+        // Keep the complete decision (including three explicit declines) and
+        // the exact notice evidence on the immutable signed document. Only
+        // affirmative grants also receive subscriber_consents ledger rows.
+        communicationChoicesJson = JSON.stringify({
+          ...recordedChoices,
+          confirmed: true,
+          privacy_notice_version: notice.version,
+          privacy_notice_hash: notice.hash,
+        });
+      }
+    }
+
+    const normalizedSignerName = String(signerName).trim();
+    // MySQL DATETIME stores whole seconds. Truncate before hashing so a row
+    // read back from the database reproduces the exact signing timestamp.
+    const signedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const evidenceSha256 = evidenceDigest(doc, {
+      signerName: normalizedSignerName,
+      signatureImage,
+      signedAt,
+      signedIp: signedIp || null,
+      capturedBy: performedBy || null,
+      communicationChoices: communicationChoicesJson,
+    });
+    const updateParams = [
+      normalizedSignerName, signatureImage, signedAt, signedIp || null,
+      performedBy || null, communicationChoicesJson, evidenceSha256,
+      documentId, doc.content_sha256,
+    ];
+    let updateOrg = 'organization_id IS NULL';
+    if (doc.organization_id !== null && doc.organization_id !== undefined) {
+      updateOrg = 'organization_id = ?';
+      updateParams.push(doc.organization_id);
+    }
+    const [result] = await conn.query(
+      `UPDATE signed_documents
+          SET status = 'signed', signer_name = ?, signature_image = ?,
+              signed_at = ?, signed_ip = ?, captured_by = ?,
+              communication_choices = ?, evidence_sha256 = ?
+        WHERE id = ? AND content_sha256 = ? AND ${updateOrg}
+          AND status = 'pending' AND deleted_at IS NULL`,
+      updateParams,
+    );
+    if (result.affectedRows === 0) {
+      throw new ValidationError('Document was signed or cancelled concurrently — reload');
+    }
+    const [fresh] = await conn.query('SELECT * FROM signed_documents WHERE id = ?', [documentId]);
+    await conn.commit();
+    return fresh[0];
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-  const [fresh] = await db.query('SELECT * FROM signed_documents WHERE id = ?', [documentId]);
-  return fresh[0];
 }
 
 /**
@@ -210,7 +571,7 @@ async function sign(documentId, { orgId, signerName, signatureImage, signedIp, p
  */
 async function pendingGateError(workOrder, target, { runner = db, lock = false } = {}) {
   if (workOrder.work_type !== 'installation' || !workOrder.service_order_id) return null;
-  const gateType = target === 'in_progress' ? 'installation_authorization'
+  let gateType = target === 'in_progress' ? 'installation_authorization'
     : target === 'completed' ? 'activation_contract'
       : null;
   if (!gateType) return null;
@@ -224,23 +585,53 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
   // be blocked by historical Mexican document rows left after a locale change.
   const [orderOrganizations] = await run(
     `SELECT so.organization_id, so.client_id, so.contract_id,
+            c.contract_template_mx_id,
             COALESCE(o.locale, 'global') AS locale
        FROM service_orders so
        LEFT JOIN organizations o ON o.id = so.organization_id
+       LEFT JOIN contracts c ON c.id = so.contract_id
+        AND c.organization_id = so.organization_id AND c.deleted_at IS NULL
       WHERE so.id = ? AND so.deleted_at IS NULL
       LIMIT 1${lockSql}`,
     [workOrder.service_order_id],
   );
   const orderOrganization = orderOrganizations[0];
-  if (!orderOrganization || orderOrganization.locale !== 'MX') return null;
+  if (!orderOrganization) return null;
+  if (orderOrganization.locale !== 'MX') {
+    if (target !== 'completed') return null;
+    gateType = GLOBAL_ACKNOWLEDGMENT_TYPE;
+  }
 
-  const [templates] = await run(
-    `SELECT id, name FROM document_templates
-      WHERE organization_id = ? AND template_type = ?
-        AND is_active = 1 AND deleted_at IS NULL
-      ORDER BY id${lockSql}`,
-    [orderOrganization.organization_id, gateType],
-  );
+  let templates;
+  let registeredSource = null;
+  if (orderOrganization.locale === 'MX') {
+    [templates] = await run(
+      `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+         FROM document_templates dt
+         LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+        WHERE dt.organization_id = ? AND dt.template_type = ?
+          AND dt.is_active = 1 AND dt.deleted_at IS NULL
+        ORDER BY dt.id${lockSql}`,
+      [orderOrganization.organization_id, gateType],
+    );
+    if (gateType === 'activation_contract' && templates.length) {
+      try {
+        registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
+          templates,
+          orderOrganization.organization_id,
+        );
+      } catch (err) {
+        if (err instanceof ValidationError) return err.message;
+        throw err;
+      }
+      if (Number(orderOrganization.contract_template_mx_id)
+          !== registeredSource.contractTemplateMxId) {
+        return 'The contract is not linked to the registered MX template used by the active activation document';
+      }
+    }
+  } else {
+    templates = [{ id: GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID, name: GLOBAL_ACKNOWLEDGMENT_TITLE }];
+  }
 
   // Arrival paperwork is optional: an MX organization with no active arrival
   // template may start work. A formal activation contract is mandatory before
@@ -252,7 +643,8 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
   }
 
   const [documents] = await run(
-    `SELECT template_id, status, title FROM signed_documents
+    `SELECT *
+       FROM signed_documents
       WHERE service_order_id = ? AND organization_id = ?
         AND client_id <=> ? AND contract_id <=> ?
         AND template_type = ? AND deleted_at IS NULL${lockSql}`,
@@ -266,7 +658,13 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
   );
   const signedTemplateIds = new Set(
     documents
-      .filter(document => document.status === 'signed')
+      .filter(document => document.status === 'signed'
+        && signatureEvidenceIsValid(document)
+        && (!registeredSource
+          || mxRegisteredTemplateService.snapshotMatchesRegisteredSource(
+            document,
+            registeredSource,
+          )))
       .map(document => Number(document.template_id)),
   );
   const unsignedTemplate = templates.find(
@@ -276,7 +674,21 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
 
   return gateType === 'installation_authorization'
     ? `The client must sign "${unsignedTemplate.name}" (installation authorization) before work starts — open Documents on this work order`
-    : `The client must sign "${unsignedTemplate.name}" (activation contract) before this installation can be completed — open Documents on this work order`;
+    : gateType === GLOBAL_ACKNOWLEDGMENT_TYPE
+      ? `The client must sign "${unsignedTemplate.name}" before this installation can be completed — open Documents on this work order`
+      : `The client must sign "${unsignedTemplate.name}" (activation contract) before this installation can be completed — open Documents on this work order`;
 }
 
-module.exports = { render, buildContext, generateForOrder, sign, pendingGateError };
+module.exports = {
+  render,
+  buildContext,
+  generateForOrder,
+  sign,
+  pendingGateError,
+  GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID,
+  GLOBAL_ACKNOWLEDGMENT_TYPE,
+  GLOBAL_ACKNOWLEDGMENT_TITLE,
+  evidenceDigest,
+  verifyEvidence,
+  signatureEvidenceIsValid,
+};

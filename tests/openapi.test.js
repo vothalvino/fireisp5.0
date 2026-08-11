@@ -88,6 +88,12 @@ describe('OpenAPI spec generation', () => {
       email: { type: 'email', required: true },
       age: { type: 'number', min: 0 },
       role: { type: 'string', enum: ['admin', 'user'] },
+      choices: {
+        type: 'object',
+        properties: { email: { type: 'boolean' } },
+        requiredProperties: ['email'],
+      },
+      digest: { type: 'string', pattern: /^[a-f0-9]{64}$/ },
     };
 
     const result = convertSchemaToOpenApi(schema);
@@ -98,5 +104,9 @@ describe('OpenAPI spec generation', () => {
     expect(result.properties.email.format).toBe('email');
     expect(result.properties.age.type).toBe('number');
     expect(result.properties.role.enum).toEqual(['admin', 'user']);
+    expect(result.properties.choices).toEqual({
+      type: 'object', properties: { email: { type: 'boolean' } }, required: ['email'],
+    });
+    expect(result.properties.digest.pattern).toBe('^[a-f0-9]{64}$');
   });
 });

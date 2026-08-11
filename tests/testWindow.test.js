@@ -5,6 +5,7 @@
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), execute: jest.fn(), getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
@@ -24,6 +25,7 @@ const suspensionService = require('../src/services/suspensionService');
 const Nas = require('../src/models/Nas');
 const routerProvisioningService = require('../src/services/routerProvisioningService');
 const routerosService = require('../src/services/routerosService');
+const legalDocumentService = require('../src/services/legalDocumentService');
 const { mockTxConnection } = require('./fixtures/mockTxConnection');
 
 const token = (sub, role = 'admin') => jwt.sign(
@@ -1342,6 +1344,38 @@ describe('POST /work-orders/:id/test-window/*', () => {
 // installation visits keep their historical completion flow.
 // ---------------------------------------------------------------------------
 describe('installation work-order completion commissioning gate', () => {
+  function signedGlobalAcknowledgment(serviceOrderId) {
+    const renderedBody = 'Frozen global installation handoff';
+    const document = {
+      id: 91,
+      organization_id: 42,
+      client_id: 77,
+      contract_id: 33,
+      service_order_id: serviceOrderId,
+      work_order_id: 13,
+      template_id: null,
+      template_type: 'service_acknowledgment',
+      title: 'Service installation acknowledgment',
+      rendered_body: renderedBody,
+      content_sha256: crypto.createHash('sha256').update(renderedBody).digest('hex'),
+      contract_template_mx_id: null,
+      mx_registration_number: null,
+      mx_registered_at: null,
+      mx_template_version: null,
+      mx_source_sha256: null,
+      status: 'signed',
+      signer_name: 'Test Customer',
+      signature_image: 'data:image/png;base64,iVBORw0KGgo=',
+      signed_at: '2026-08-11T08:00:00.000Z',
+      signed_ip: '127.0.0.1',
+      captured_by: 2,
+      communication_choices: null,
+      deleted_at: null,
+    };
+    document.evidence_sha256 = legalDocumentService.evidenceDigest(document);
+    return document;
+  }
+
   function wireCompletionGate({
     orderType = 'new_install',
     hasEvidence = 0,
@@ -1378,6 +1412,9 @@ describe('installation work-order completion commissioning gate', () => {
           contract_id: 33,
           locale: 'global',
         }]];
+      }
+      if (/FROM signed_documents/.test(sql) && /template_type = \?/.test(sql)) {
+        return [[signedGlobalAcknowledgment(serviceOrderId)]];
       }
       if (/SELECT so\.id, so\.order_type, so\.status, so\.contract_id/.test(sql)) {
         return [[{

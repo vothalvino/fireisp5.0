@@ -18,6 +18,8 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const activationService = require('../src/services/contractActivationService');
+const mxRegisteredTemplateService = require('../src/services/mxRegisteredContractTemplateService');
+const provisioningService = require('../src/services/subscriberProvisioningService');
 const { ValidationError } = require('../src/utils/errors');
 const app = require('../src/app');
 
@@ -107,8 +109,31 @@ test('GET readiness hides MX document metadata when the caller lacks signed_docu
   });
 });
 
-test('contracts.update operator can run document sync without receiving legal, SO, or speed metadata', async () => {
+test('contracts.update alone cannot prepare an installation or create its side effects', async () => {
   jest.spyOn(User, 'getPermissions').mockResolvedValue(['contracts.view', 'contracts.update']);
+  db.query.mockImplementation(async (sql) => {
+    if (/`users`/.test(String(sql))) {
+      return [[{
+        id: 2, email: 'viewer@example.com', role: 'technician', status: 'active',
+        organization_id: 42,
+      }]];
+    }
+    return [[]];
+  });
+  const res = await request(app)
+    .post('/api/v1/contracts/33/activation/prepare')
+    .set('Authorization', `Bearer ${VIEWER_TOKEN}`)
+    .send({});
+
+  expect(res.status).toBe(403);
+  expect(res.body.error.message).toMatch(/installations\.start/i);
+  expect(activationService.prepareActivation).not.toHaveBeenCalled();
+});
+
+test('operator with installations.start can prepare without receiving unauthorized metadata', async () => {
+  jest.spyOn(User, 'getPermissions').mockResolvedValue([
+    'contracts.view', 'contracts.update', 'installations.start',
+  ]);
   db.query.mockImplementation(async (sql) => {
     if (/`users`/.test(String(sql))) {
       return [[{
@@ -135,6 +160,7 @@ test('contracts.update operator can run document sync without receiving legal, S
     orgId: 42,
     userId: 2,
     assignedTo: null,
+    canStartInstallation: true,
     includeDocuments: false,
     includeServiceOrder: true,
     includeWorkOrder: true,
@@ -152,6 +178,7 @@ test('POST /contracts/:id/activation/prepare delegates optional technician assig
   expect(res.status).toBe(200);
   expect(activationService.prepareActivation).toHaveBeenCalledWith('33', {
     orgId: 42, userId: 1, assignedTo: 7,
+    canStartInstallation: true,
     includeDocuments: true, includeServiceOrder: true,
     includeWorkOrder: true, includeSpeedTest: true,
   });
@@ -282,6 +309,149 @@ test('GET activation preserves the MX activation_template_missing blocker for UI
 
   expect(res.status).toBe(200);
   expect(res.body.data.blockers).toContain('activation_template_missing');
+});
+
+test('POST derives the registered source used by the active MX activation document', async () => {
+  const conn = {
+    query: jest.fn(async (sql) => {
+      const s = String(sql).replace(/\s+/g, ' ');
+      if (/FROM plans/.test(s)) return [[{ id: 2 }]];
+      if (/^INSERT INTO contracts/.test(s)) return [{ insertId: 33, affectedRows: 1 }];
+      if (/SELECT name FROM clients/.test(s)) return [[{ name: 'María' }]];
+      return [[]];
+    }),
+    beginTransaction: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn(),
+  };
+  db.getConnection.mockResolvedValue(conn);
+  db.query.mockImplementation(async (sql) => {
+    const s = String(sql).replace(/\s+/g, ' ');
+    if (/`users`/.test(s)) {
+      return [[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]];
+    }
+    if (/FROM `?clients`?/.test(s)) return [[{ id: 9, organization_id: 42, name: 'María' }]];
+    if (/FROM `?contracts`?/.test(s)) {
+      return [[{
+        id: 33, organization_id: 42, client_id: 9, plan_id: 2,
+        contract_template_mx_id: 71, status: 'pending',
+      }]];
+    }
+    return [[]];
+  });
+  jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource').mockResolvedValue({
+    contractTemplateMxId: 71,
+  });
+  jest.spyOn(provisioningService, 'provisionNewContract').mockResolvedValue({});
+
+  const res = await request(app)
+    .post('/api/v1/contracts')
+    .set('Authorization', `Bearer ${TOKEN}`)
+    .send({ client_id: 9, plan_id: 2, start_date: '2026-08-11' });
+
+  expect(res.status).toBe(201);
+  expect(mxRegisteredTemplateService.resolveActiveContractSource).toHaveBeenCalledWith(
+    expect.any(Function),
+    expect.objectContaining({ orgId: 42, lock: true }),
+  );
+  const insert = conn.query.mock.calls.find(([sql]) => /^INSERT INTO contracts/.test(String(sql)));
+  expect(insert[0]).toMatch(/`contract_template_mx_id`/);
+  expect(insert[1]).toContain(71);
+  expect(conn.commit).toHaveBeenCalledTimes(1);
+});
+
+test('PATCH rejects an MX source that is not used by the active activation document', async () => {
+  const pending = {
+    id: 33, organization_id: 42, client_id: 9, plan_id: 2,
+    contract_template_mx_id: 71, connection_type: 'pppoe',
+    start_date: '2026-08-10', status: 'pending', first_activated_at: null,
+  };
+  db.query.mockImplementation(async (sql) => {
+    const s = String(sql).replace(/\s+/g, ' ');
+    if (/`users`/.test(s)) {
+      return [[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]];
+    }
+    if (/SELECT \* FROM `?contracts`? WHERE `?id`? = \?/.test(s)) return [[pending]];
+    return [[]];
+  });
+  jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource').mockRejectedValue(
+    new ValidationError('Contract must use the registered MX template referenced by the active activation document'),
+  );
+
+  const res = await request(app)
+    .patch('/api/v1/contracts/33')
+    .set('Authorization', `Bearer ${TOKEN}`)
+    .send({ contract_template_mx_id: 72 });
+
+  expect(res.status).toBe(422);
+  expect(res.body.error.message).toMatch(/active activation document/i);
+  expect(mxRegisteredTemplateService.resolveActiveContractSource).toHaveBeenCalledWith(
+    expect.any(Function),
+    { orgId: 42, contractTemplateMxId: 72 },
+  );
+  expect(db.query.mock.calls.some(([sql]) => /^UPDATE `?contracts`?/.test(String(sql)))).toBe(false);
+});
+
+test('PATCH cannot clear a pending MX source with an explicit null', async () => {
+  const pending = {
+    id: 33, organization_id: 42, client_id: 9, plan_id: 2,
+    contract_template_mx_id: 71, connection_type: 'pppoe',
+    start_date: '2026-08-10', status: 'pending', first_activated_at: null,
+  };
+  db.query.mockImplementation(async (sql) => {
+    const s = String(sql).replace(/\s+/g, ' ');
+    if (/`users`/.test(s)) {
+      return [[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]];
+    }
+    if (/SELECT \* FROM `?contracts`? WHERE `?id`? = \?/.test(s)) return [[pending]];
+    if (/^UPDATE `contracts`/.test(s)) return [{ affectedRows: 1 }];
+    return [[]];
+  });
+  jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource').mockResolvedValue({
+    contractTemplateMxId: 71,
+  });
+
+  const res = await request(app)
+    .patch('/api/v1/contracts/33')
+    .set('Authorization', `Bearer ${TOKEN}`)
+    .send({ contract_template_mx_id: null });
+
+  expect(res.status).toBe(200);
+  expect(mxRegisteredTemplateService.resolveActiveContractSource).toHaveBeenCalledWith(
+    expect.any(Function),
+    { orgId: 42, contractTemplateMxId: null },
+  );
+  const guardedUpdate = db.query.mock.calls.find(([sql]) => /^UPDATE `contracts`/.test(String(sql)));
+  expect(guardedUpdate[1][0]).toBe(71);
+});
+
+test('PATCH cannot relink an MX contract after its first activation', async () => {
+  const active = {
+    id: 33, organization_id: 42, client_id: 9, plan_id: 2,
+    contract_template_mx_id: 71, connection_type: 'pppoe',
+    start_date: '2026-08-10', status: 'active',
+    first_activated_at: '2026-08-11 12:00:00',
+  };
+  db.query.mockImplementation(async (sql) => {
+    const s = String(sql).replace(/\s+/g, ' ');
+    if (/`users`/.test(s)) {
+      return [[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 42 }]];
+    }
+    if (/SELECT \* FROM `?contracts`? WHERE `?id`? = \?/.test(s)) return [[active]];
+    return [[]];
+  });
+  const resolve = jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource');
+
+  const res = await request(app)
+    .patch('/api/v1/contracts/33')
+    .set('Authorization', `Bearer ${TOKEN}`)
+    .send({ contract_template_mx_id: 72 });
+
+  expect(res.status).toBe(422);
+  expect(res.body.error.message).toMatch(/immutable after first activation/i);
+  expect(resolve).not.toHaveBeenCalled();
+  expect(db.query.mock.calls.some(([sql]) => /^UPDATE `?contracts`?/.test(String(sql)))).toBe(false);
 });
 
 test('PATCH freezes material contract fields while a new installation is in process', async () => {

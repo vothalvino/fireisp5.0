@@ -140,6 +140,7 @@ describe('Contract Routes — /api/contracts', () => {
       };
       conn.query
         .mockResolvedValueOnce([[{ id: 5 }]])                       // assertPlanSelectable — plan 5 is live
+        .mockResolvedValueOnce([[{ locale: 'global' }]])            // resolveActiveContractSource — generic org
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT contracts
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
@@ -234,6 +235,7 @@ describe('Contract Routes — /api/contracts', () => {
       };
       conn.query
         .mockResolvedValueOnce([[{ id: 5 }]])                       // assertPlanSelectable — plan 5 is live and in-org/global
+        .mockResolvedValueOnce([[{ locale: 'global' }]])            // resolveActiveContractSource — generic org
         .mockResolvedValueOnce([{ insertId: 3, affectedRows: 1 }])  // INSERT contracts
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);

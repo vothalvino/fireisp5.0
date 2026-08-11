@@ -162,6 +162,29 @@ because that image only knows its own already-applied files. Old code against a
 forward schema is fine for additive migrations and breaks on a `DROP`, `RENAME`
 or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
 
+#### Installation consent/signing upgrade (migration 451)
+
+Migration 451 intentionally fails closed for Mexican installation contracts.
+After upgrading, any existing active `activation_contract` document template
+must be linked to the organization-owned registered source whose text matches it
+exactly. In the admin UI, record the external registration evidence under
+**Regulatory Compliance → Consumer Protection**, then select that registered
+source under **Document Templates**. New or pending MX installations will not
+start until this is complete. Global organizations do not use the Mexican
+registry and automatically receive the neutral service-installation
+acknowledgment.
+
+Do not manufacture or auto-backfill a registration link: the registration
+number, date, status, and exact registered text are operator-supplied evidence
+of an external authority process. FireISP validates and freezes that evidence;
+it does not register or legally approve the contract.
+
+Treat rollback 451 as evidence-destructive after this flow has gone live. It
+removes registration snapshots, signature-envelope hashes, communication
+choices, and consent provenance columns. Take a database backup and export any
+required evidence before running that rollback; rolling the application image
+back does not require rolling this additive database migration back.
+
 #### New settings arrive on their own
 
 `redeploy` appends any **managed setting** your `.env.prod` does not yet

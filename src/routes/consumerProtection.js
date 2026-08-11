@@ -11,9 +11,102 @@ const { requireMxLocale } = require('../middleware/orgLocale');
 const { requirePermission } = require('../middleware/rbac');
 const ContractTemplateMx = require('../models/ContractTemplateMx');
 const { crudController } = require('../controllers/crudController');
+const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
+const { ValidationError } = require('../utils/errors');
 
 const router = Router();
-const ctrl = crudController(ContractTemplateMx);
+
+function sameSourceValue(field, left, right) {
+  if (left === null || left === undefined || right === null || right === undefined) {
+    return left === right;
+  }
+  if (field === 'registered_at') {
+    return mxRegisteredTemplateService.dateOnly(left)
+      === mxRegisteredTemplateService.dateOnly(right);
+  }
+  return String(left) === String(right);
+}
+
+function assertRegistrationComplete(record) {
+  if (!String(record.template_name || '').trim()) {
+    throw new ValidationError('template_name is required');
+  }
+  if (record.status !== 'registered') return;
+  if (!String(record.ift_registration_number || '').trim()
+      || !record.registered_at
+      || !String(record.template_body || '').trim()) {
+    throw new ValidationError(
+      'A registered MX contract template requires its exact text, registration number, and registration date',
+    );
+  }
+}
+
+const ctrl = crudController(ContractTemplateMx, {
+  // Once registration has legal effect, the source text and official metadata
+  // are evidence, not editable configuration. transactionalWrites locks that
+  // row while checking downstream links, closing edit-vs-activation races.
+  transactionalWrites: true,
+  beforeCreate: async (req) => {
+    assertRegistrationComplete({ status: 'draft', ...req.body });
+  },
+  beforeUpdate: async (old, req, exec) => {
+    const next = { ...old, ...req.body };
+    assertRegistrationComplete(next);
+
+    if (old.status === 'registered'
+        && req.body.status !== undefined
+        && !['registered', 'expired', 'revoked'].includes(req.body.status)) {
+      throw new ValidationError('A registered MX contract template may only be expired or revoked; create a new version instead');
+    }
+    if (['expired', 'revoked'].includes(old.status)
+        && req.body.status !== undefined
+        && req.body.status !== old.status) {
+      throw new ValidationError('An expired or revoked MX contract template cannot be reactivated; create a new version');
+    }
+
+    const changedSource = mxRegisteredTemplateService.SOURCE_FIELDS.filter(field => (
+      req.body[field] !== undefined && !sameSourceValue(field, req.body[field], old[field])
+    ));
+    if (!changedSource.length) return;
+
+    if (mxRegisteredTemplateService.FROZEN_STATUSES.has(old.status)) {
+      throw new ValidationError(
+        'Registered MX contract text and registration metadata are permanently immutable; create a new version',
+      );
+    }
+
+    const [[references]] = await exec(
+      `SELECT
+         EXISTS(SELECT 1 FROM document_templates WHERE contract_template_mx_id = ? LIMIT 1) AS document_template_used,
+         EXISTS(SELECT 1 FROM contracts WHERE contract_template_mx_id = ? LIMIT 1) AS contract_used,
+         EXISTS(SELECT 1 FROM signed_documents WHERE contract_template_mx_id = ? LIMIT 1) AS signed_document_used`,
+      [old.id, old.id, old.id],
+    );
+    if (Number(references?.document_template_used) === 1
+        || Number(references?.contract_used) === 1
+        || Number(references?.signed_document_used) === 1) {
+      throw new ValidationError(
+        'This MX contract template is already linked to installation evidence and cannot be rewritten; create a new version',
+      );
+    }
+  },
+  beforeDelete: async (old, _req, exec) => {
+    const [[references]] = await exec(
+      `SELECT
+         EXISTS(SELECT 1 FROM document_templates WHERE contract_template_mx_id = ? LIMIT 1) AS document_template_used,
+         EXISTS(SELECT 1 FROM contracts WHERE contract_template_mx_id = ? LIMIT 1) AS contract_used,
+         EXISTS(SELECT 1 FROM signed_documents WHERE contract_template_mx_id = ? LIMIT 1) AS signed_document_used`,
+      [old.id, old.id, old.id],
+    );
+    if (Number(references?.document_template_used) === 1
+        || Number(references?.contract_used) === 1
+        || Number(references?.signed_document_used) === 1) {
+      throw new ValidationError(
+        'This MX contract template is part of installation or contract history and cannot be archived',
+      );
+    }
+  },
+});
 
 router.use(authenticate);
 router.use(orgScope);

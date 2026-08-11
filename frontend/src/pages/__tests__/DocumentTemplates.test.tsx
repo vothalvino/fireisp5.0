@@ -27,7 +27,19 @@ vi.mock('@/auth/AuthContext', () => ({
 
 const TPL = {
   id: 1, template_type: 'activation_contract', name: 'Contrato de adhesión',
-  body_md: 'Yo {{client.name}} contrato el plan {{plan.name}}.', is_active: 1, created_at: '2026-08-05',
+  body_md: 'Yo {{client.name}} contrato el plan {{plan.name}}.', contract_template_mx_id: 77,
+  is_active: 1, created_at: '2026-08-05',
+};
+
+const REGISTERED_SOURCE = {
+  id: 77,
+  organization_id: 1,
+  template_name: 'Contrato registrado 2026',
+  ift_registration_number: 'CRT-2026-0042',
+  registered_at: '2026-07-15',
+  version: '2026.1',
+  template_body: 'Texto exacto registrado para {{client.name}}.',
+  status: 'registered',
 };
 
 function renderPage() {
@@ -42,8 +54,12 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockLocale = 'MX';
-  mockApiGet.mockResolvedValue({ data: { data: [TPL] }, error: undefined });
+  mockApiGet.mockImplementation((path: string) => Promise.resolve({
+    data: { data: path === '/consumer-protection/contract-templates-mx' ? [REGISTERED_SOURCE] : [TPL] },
+    error: undefined,
+  }));
   mockApiPost.mockResolvedValue({ data: { data: { id: 2 } }, error: undefined });
+  mockApiPut.mockResolvedValue({ data: { data: { id: 1 } }, error: undefined });
 });
 
 describe('DocumentTemplates', () => {
@@ -90,5 +106,109 @@ describe('DocumentTemplates', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(await within(dialog).findByText('The document text is required.')).toBeInTheDocument();
     expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('uses the exact registered MX source and submits its evidence link', async () => {
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
+
+    await waitFor(() => expect(within(dialog).getByLabelText(/Registered MX contract source/)).toHaveValue('77'));
+    expect(within(dialog).getByLabelText(/Name \*/)).toHaveValue('Contrato registrado 2026');
+    expect(within(dialog).getByLabelText(/Name \*/)).toHaveAttribute('readonly');
+    expect(within(dialog).getByLabelText(/Document text/)).toHaveValue('Texto exacto registrado para {{client.name}}.');
+    expect(within(dialog).getByLabelText(/Document text/)).toHaveAttribute('readonly');
+    expect(within(dialog).getByText('CRT-2026-0042')).toBeInTheDocument();
+    expect(within(dialog).getByText('2026-07-15')).toBeInTheDocument();
+    expect(within(dialog).getByText('2026.1')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('Registered').length).toBeGreaterThan(0);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/document-templates/{id}', expect.objectContaining({
+      params: { path: { id: 1 } },
+      body: {
+        name: 'Contrato registrado 2026',
+        template_type: 'activation_contract',
+        body_md: 'Texto exacto registrado para {{client.name}}.',
+        contract_template_mx_id: 77,
+        is_active: true,
+      },
+    })));
+  });
+
+  it('keeps activation unavailable when no complete registered source exists', async () => {
+    mockApiGet.mockImplementation((path: string) => Promise.resolve({
+      data: {
+        data: path === '/consumer-protection/contract-templates-mx'
+          ? [{ ...REGISTERED_SOURCE, id: 88, status: 'submitted', ift_registration_number: null }]
+          : [TPL],
+      },
+      error: undefined,
+    }));
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByText('+ New template'));
+    const dialog = await screen.findByRole('dialog', { name: 'New template' });
+    fireEvent.change(within(dialog).getByLabelText(/Type \*/), { target: { value: 'activation_contract' } });
+
+    expect(await within(dialog).findByText(/No complete registered template evidence is available/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('checkbox')).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText(/Select a complete registered MX contract source/)).toBeInTheDocument();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('allows only an exact active-to-inactive transition after the linked source expires', async () => {
+    mockApiGet.mockImplementation((path: string) => Promise.resolve({
+      data: {
+        data: path === '/consumer-protection/contract-templates-mx'
+          ? [{ ...REGISTERED_SOURCE, status: 'expired' }]
+          : [TPL],
+      },
+      error: undefined,
+    }));
+
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
+
+    const activeToggle = within(dialog).getByRole('checkbox');
+    expect(activeToggle).toBeChecked();
+    fireEvent.click(activeToggle);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/document-templates/{id}', expect.objectContaining({
+      params: { path: { id: 1 } },
+      body: {
+        name: TPL.name,
+        template_type: TPL.template_type,
+        body_md: TPL.body_md,
+        contract_template_mx_id: TPL.contract_template_mx_id,
+        is_active: false,
+      },
+    })));
+  });
+
+  it('keeps a terminal-source activation template strict when it is not being deactivated', async () => {
+    mockApiGet.mockImplementation((path: string) => Promise.resolve({
+      data: {
+        data: path === '/consumer-protection/contract-templates-mx'
+          ? [{ ...REGISTERED_SOURCE, status: 'revoked' }]
+          : [{ ...TPL, is_active: 0 }],
+      },
+      error: undefined,
+    }));
+
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
+
+    expect(within(dialog).getByRole('checkbox')).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText(/Select a complete registered MX contract source/)).toBeInTheDocument();
+    expect(mockApiPut).not.toHaveBeenCalled();
   });
 });

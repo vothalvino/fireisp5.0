@@ -27,6 +27,29 @@ const TOKEN = jwt.sign(
 );
 const isAuthLookup = (s) => typeof s === 'string' && /`users`/.test(s);
 const ADMIN_ROW = [[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active', organization_id: 42 }]];
+const MX_SOURCE_ID = 71;
+function registeredTemplate(template) {
+  if (template.template_type !== 'activation_contract') return template;
+  if (template.__unlinked) {
+    const { __unlinked: _marker, ...unlinked } = template;
+    return unlinked;
+  }
+  const bodyMd = template.body_md ?? 'Registered MX activation body';
+  return {
+    is_active: 1,
+    body_md: bodyMd,
+    contract_template_mx_id: MX_SOURCE_ID,
+    mx_id: MX_SOURCE_ID,
+    mx_organization_id: 42,
+    mx_registration_number: 'IFT-2026-001',
+    mx_registered_at: '2026-01-15',
+    mx_template_version: '1.0',
+    mx_template_body: bodyMd,
+    mx_status: 'registered',
+    mx_deleted_at: null,
+    ...template,
+  };
+}
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -48,10 +71,10 @@ describe('render', () => {
 // ---------------------------------------------------------------------------
 describe('generateForOrder', () => {
   function runner(state) {
-    return async (sql) => {
+    return async (sql, params) => {
       const s = String(sql).replace(/\s+/g, ' ');
       if (/SELECT locale FROM organizations/.test(s)) return [[{ locale: state.locale ?? 'MX' }]];
-      if (/FROM document_templates/.test(s)) return [state.templates];
+      if (/FROM document_templates/.test(s)) return [state.templates.map(registeredTemplate)];
       if (/FROM clients WHERE/.test(s)) return [[{ id: 9, name: 'María', email: 'm@x.mx', address: 'Calle 1', city: 'CDMX' }]];
       if (/FROM contracts WHERE/.test(s)) return [[{ id: 33, plan_id: 2, connection_type: 'pppoe', start_date: '2026-08-05' }]];
       if (/FROM plans WHERE/.test(s)) return [[{ id: 2, name: 'Inalambrico 50', price: '400.00' }]];
@@ -61,6 +84,8 @@ describe('generateForOrder', () => {
       if (/FROM client_mx_profiles/.test(s)) return [[{ rfc: 'FAPM900215AB7' }]];
       if (/^INSERT INTO signed_documents/.test(s.trim())) {
         state.inserts.push(sql);
+        state.insertParams = state.insertParams || [];
+        state.insertParams.push(params);
         return [{ insertId: state.inserts.length }];
       }
       return [[]];
@@ -80,6 +105,13 @@ describe('generateForOrder', () => {
     });
     expect(created).toHaveLength(2);
     expect(created.map(c => c.template_type)).toEqual(['installation_authorization', 'activation_contract']);
+    expect(state.insertParams[1].slice(10, 15)).toEqual([
+      MX_SOURCE_ID,
+      'IFT-2026-001',
+      '2026-01-15',
+      '1.0',
+      crypto.createHash('sha256').update('Plan {{plan.name}} para {{client.name}}').digest('hex'),
+    ]);
 
     const skipped = await svc.generateForOrder(runner({ ...state, inserts: [] }), {
       orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
@@ -106,7 +138,7 @@ describe('generateForOrder', () => {
     expect(state.inserts).toHaveLength(1);
   });
 
-  it('STRICTLY MX: a global-locale org generates nothing, even with active templates', async () => {
+  it('generates one bundled neutral acknowledgment for a global-locale org', async () => {
     const state = {
       locale: 'global',
       templates: [{ id: 1, template_type: 'installation_authorization', name: 'X', body_md: 'Y' }],
@@ -115,7 +147,40 @@ describe('generateForOrder', () => {
     const created = await svc.generateForOrder(runner(state), {
       orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
     });
-    expect(created).toEqual([]);
+    expect(created).toEqual([{
+      id: 1,
+      template_type: 'service_acknowledgment',
+      title: 'Service installation acknowledgment',
+    }]);
+    expect(state.inserts).toHaveLength(1);
+    expect(state.insertParams[0].slice(10, 15)).toEqual([null, null, null, null, null]);
+  });
+
+  it('fails closed before rendering when the order is outside the exact tenant/client/contract chain', async () => {
+    const state = { locale: 'global', templates: [], inserts: [] };
+    const base = runner(state);
+    const run = async (sql, params) => {
+      if (/FROM service_orders WHERE/.test(String(sql).replace(/\s+/g, ' '))) return [[]];
+      return base(sql, params);
+    };
+
+    await expect(svc.generateForOrder(run, {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    })).rejects.toThrow(/one active tenant-scoped chain/i);
+    expect(state.inserts).toHaveLength(0);
+  });
+
+  it('fails closed for an active legacy MX activation template with no registered-source link', async () => {
+    const state = {
+      templates: [{
+        id: 2, template_type: 'activation_contract', name: 'Legacy contract',
+        body_md: 'Unregistered body', is_active: 1, __unlinked: true,
+      }],
+      inserts: [],
+    };
+    await expect(svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    })).rejects.toThrow(/not linked|missing registered-source/i);
     expect(state.inserts).toHaveLength(0);
   });
 
@@ -164,19 +229,26 @@ describe('POST /signed-documents/:id/sign', () => {
   const BODY = 'Yo María autorizo la instalación.';
   const HASH = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
   const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+  const NOTICE = 'Reviewed installation privacy notice';
+  const NOTICE_VERSION = 'install-v1';
+  const NOTICE_HASH = crypto.createHash('sha256').update(NOTICE, 'utf8').digest('hex');
 
   function wire(doc) {
+    mockTxConnection(db);
     db.query.mockImplementation(async (sql) => {
       if (isAuthLookup(sql)) return ADMIN_ROW;
-      if (/SELECT \* FROM signed_documents WHERE id = \?/.test(sql)) return [doc ? [{ ...doc }] : []];
-      if (/UPDATE signed_documents\s+SET status = 'signed'/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [doc ? [{ ...doc }] : []];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [doc ? [{ ...doc }] : []];
+      if (/UPDATE signed_documents[\s\S]*SET status = 'signed'/.test(sql)) return [{ affectedRows: 1 }];
       if (/SELECT \* FROM signed_documents WHERE id = \?$/.test(String(sql).trim())) return [[{ ...doc, status: 'signed' }]];
       return [[]];
     });
   }
 
   it('signs a pending, hash-intact document', async () => {
-    wire({ id: 7, organization_id: 42, status: 'pending', rendered_body: BODY, content_sha256: HASH });
+    wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'pending', rendered_body: BODY, content_sha256: HASH });
     const res = await request(app)
       .post('/api/v1/signed-documents/7/sign')
       .set('Authorization', `Bearer ${TOKEN}`)
@@ -188,7 +260,7 @@ describe('POST /signed-documents/:id/sign', () => {
   });
 
   it('refuses when the stored body no longer matches its generation hash', async () => {
-    wire({ id: 7, organization_id: 42, status: 'pending', rendered_body: BODY + ' tampered', content_sha256: HASH });
+    wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'pending', rendered_body: BODY + ' tampered', content_sha256: HASH });
     const res = await request(app)
       .post('/api/v1/signed-documents/7/sign')
       .set('Authorization', `Bearer ${TOKEN}`)
@@ -198,19 +270,335 @@ describe('POST /signed-documents/:id/sign', () => {
   });
 
   it('refuses a non-pending document and a non-image payload', async () => {
-    wire({ id: 7, organization_id: 42, status: 'signed', rendered_body: BODY, content_sha256: HASH });
+    wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'signed', rendered_body: BODY, content_sha256: HASH });
     const res = await request(app)
       .post('/api/v1/signed-documents/7/sign')
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({ signer_name: 'María', signature_image: SIG });
     expect(res.status).toBe(422);
 
-    wire({ id: 7, organization_id: 42, status: 'pending', rendered_body: BODY, content_sha256: HASH });
+    wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'pending', rendered_body: BODY, content_sha256: HASH });
     const res2 = await request(app)
       .post('/api/v1/signed-documents/7/sign')
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({ signer_name: 'María', signature_image: 'javascript:alert(1)//AAAAAAAAAAAAAAAAAAAAAA' });
     expect(res2.status).toBe(422);
+
+    wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'pending', rendered_body: BODY, content_sha256: HASH });
+    const res3 = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: 'data:image/png;base64,bm90LXJlYWxseS1wbmc=' });
+    expect(res3.status).toBe(422);
+    expect(res3.body.error.message).toMatch(/valid PNG\/JPEG bytes/i);
+  });
+
+  it('captures channel-specific marketing choices atomically with a handoff signature', async () => {
+    const doc = {
+      id: 7,
+      organization_id: 42,
+      client_id: 9,
+      contract_id: 33,
+      service_order_id: 16,
+      work_order_id: 13,
+      template_type: 'service_acknowledgment',
+      status: 'pending',
+      rendered_body: BODY,
+      content_sha256: HASH,
+    };
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [[{ ...doc }]];
+      }
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: doc.service_order_id, order_type: 'new_install', status: 'in_process',
+          client_id: doc.client_id, contract_id: doc.contract_id, contract_status: 'pending',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [[{ ...doc }]];
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
+      if (/communication_choices IS NOT NULL/.test(sql)) return [[]];
+      if (/FROM organizations WHERE id/.test(sql)) {
+        return [[{
+          name: 'Global ISP', legal_name: 'Global ISP LLC', email: 'privacy@example.test',
+          locale: 'global', privacy_notice: NOTICE, privacy_notice_version: NOTICE_VERSION,
+        }]];
+      }
+      if (/SELECT email, phone FROM clients/.test(sql)) {
+        return [[{ email: 'client@example.test', phone: '+526141234567' }]];
+      }
+      if (/UPDATE signed_documents/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SELECT \* FROM signed_documents WHERE id = \?$/.test(String(sql).trim())) {
+        return [[{ ...doc, status: 'signed', signer_name: 'María' }]];
+      }
+      return [{ affectedRows: 1, insertId: 91 }];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        signer_name: 'María',
+        signature_image: SIG,
+        communication_opt_ins: { email: true, sms: false, whatsapp: true },
+        communication_choices_confirmed: true,
+        privacy_notice_version: NOTICE_VERSION,
+        privacy_notice_hash: NOTICE_HASH,
+      });
+
+    expect(res.status).toBe(200);
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(conn.rollback).not.toHaveBeenCalled();
+    const consentWrites = conn.query.mock.calls.filter(([sql]) => /INSERT INTO subscriber_consents/.test(sql));
+    expect(consentWrites).toHaveLength(2);
+    const signedUpdate = conn.query.mock.calls.find(([sql]) => /UPDATE signed_documents/.test(sql));
+    expect(signedUpdate[0]).toMatch(/captured_by = \?/);
+    expect(signedUpdate[0]).toMatch(/evidence_sha256 = \?/);
+    expect(signedUpdate[1]).toContain(1);
+    expect(JSON.parse(signedUpdate[1][5])).toEqual({
+      email: true,
+      sms: false,
+      whatsapp: true,
+      confirmed: true,
+      privacy_notice_version: NOTICE_VERSION,
+      privacy_notice_hash: NOTICE_HASH,
+    });
+  });
+
+  it('refuses to record choices when the notice changed after it was reviewed', async () => {
+    const doc = {
+      id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+      service_order_id: 16, work_order_id: 13,
+      template_type: 'service_acknowledgment', status: 'pending',
+      rendered_body: BODY, content_sha256: HASH,
+    };
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [[{ ...doc }]];
+      }
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: doc.service_order_id, order_type: 'new_install', status: 'in_process',
+          client_id: doc.client_id, contract_id: doc.contract_id, contract_status: 'pending',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [[doc]];
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
+      if (/communication_choices IS NOT NULL/.test(sql)) return [[]];
+      if (/FROM organizations WHERE id/.test(sql)) {
+        return [[{
+          name: 'Global ISP', legal_name: 'Global ISP LLC', locale: 'global',
+          privacy_notice: NOTICE, privacy_notice_version: NOTICE_VERSION,
+        }]];
+      }
+      return [[]];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        signer_name: 'María',
+        signature_image: SIG,
+        communication_opt_ins: { email: false, sms: false, whatsapp: false },
+        communication_choices_confirmed: true,
+        privacy_notice_version: NOTICE_VERSION,
+        privacy_notice_hash: 'a'.repeat(64),
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/privacy notice changed/i);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+  });
+
+  it('refuses a handoff signature until every optional communication choice is reviewed', async () => {
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [[{
+          service_order_id: 16, organization_id: 42, work_order_id: 13,
+          client_id: 9, contract_id: 33, template_type: 'activation_contract',
+        }]];
+      }
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: 16, order_type: 'new_install', status: 'in_process',
+          client_id: 9, contract_id: 33, contract_status: 'pending',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+          service_order_id: 16, work_order_id: 13,
+          template_type: 'activation_contract', status: 'pending',
+          rendered_body: BODY, content_sha256: HASH,
+        }]];
+      }
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
+      if (/communication_choices IS NOT NULL/.test(sql)) return [[]];
+      return [[]];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/communication choices/i);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+  });
+
+  it('refuses a handoff signature before the installation visit is in progress', async () => {
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [[{
+          service_order_id: 16, organization_id: 42, work_order_id: 13,
+          client_id: 9, contract_id: 33, template_type: 'service_acknowledgment',
+        }]];
+      }
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: 16, order_type: 'new_install', status: 'in_process',
+          client_id: 9, contract_id: 33, contract_status: 'pending',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+          service_order_id: 16, work_order_id: 13,
+          template_type: 'service_acknowledgment', status: 'pending',
+          rendered_body: BODY, content_sha256: HASH,
+        }]];
+      }
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'assigned' }]];
+      return [[]];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/visit must be in progress/i);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a pending signature after its installation order was cancelled', async () => {
+    const doc = {
+      id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+      service_order_id: 16, work_order_id: 13,
+      template_type: 'service_acknowledgment', status: 'pending',
+      rendered_body: BODY, content_sha256: HASH,
+    };
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) return [[{ ...doc }]];
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'completed' }]];
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: 16, order_type: 'new_install', status: 'cancelled',
+          client_id: 9, contract_id: 33, contract_status: 'cancelled',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [[doc]];
+      return [[]];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/installation is active/i);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reset communication choices when a second required MX document is signed', async () => {
+    const doc = {
+      id: 8, organization_id: 42, client_id: 9, contract_id: 33,
+      service_order_id: 16, work_order_id: 13,
+      template_type: 'activation_contract', status: 'pending',
+      rendered_body: BODY, content_sha256: HASH,
+    };
+    const conn = mockTxConnection(db);
+    db.query.mockImplementation(async (sql) => {
+      if (isAuthLookup(sql)) return ADMIN_ROW;
+      if (/SELECT service_order_id, organization_id, work_order_id/.test(sql)) {
+        return [[{ ...doc }]];
+      }
+      if (/FROM service_orders so/.test(sql)) {
+        return [[{
+          id: doc.service_order_id, order_type: 'new_install', status: 'in_process',
+          client_id: doc.client_id, contract_id: doc.contract_id, contract_status: 'pending',
+        }]];
+      }
+      if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [[doc]];
+      if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
+      if (/communication_choices IS NOT NULL/.test(sql)) return [[{ id: 7 }]];
+      if (/UPDATE signed_documents/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SELECT \* FROM signed_documents WHERE id = \?$/.test(String(sql).trim())) {
+        return [[{ ...doc, status: 'signed' }]];
+      }
+      return [[]];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/8/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(200);
+    expect(conn.query.mock.calls.some(([sql]) => /subscriber_consents/.test(sql))).toBe(false);
+    expect(conn.query.mock.calls.some(([sql]) => /client_dnd_preferences/.test(sql))).toBe(false);
+    const update = conn.query.mock.calls.find(([sql]) => /UPDATE signed_documents/.test(sql));
+    expect(update[1][5]).toBeNull();
+  });
+
+  it('detects tampering in the complete signed-evidence envelope', () => {
+    const document = {
+      id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+      service_order_id: 16, work_order_id: 13,
+      template_type: 'activation_contract', title: 'Registered service contract',
+      rendered_body: BODY, content_sha256: HASH, signed_at: '2026-08-11T06:00:00.000Z',
+      contract_template_mx_id: MX_SOURCE_ID,
+      mx_registration_number: 'IFT-2026-001', mx_registered_at: '2026-01-15',
+      mx_template_version: '1.0', mx_source_sha256: crypto.createHash('sha256').update('Official').digest('hex'),
+      signer_name: 'María', signature_image: SIG, signed_ip: '127.0.0.1',
+      captured_by: 1,
+      communication_choices: JSON.stringify({
+        email: false, sms: false, whatsapp: false, confirmed: true,
+        privacy_notice_version: NOTICE_VERSION, privacy_notice_hash: NOTICE_HASH,
+      }),
+    };
+    document.evidence_sha256 = svc.evidenceDigest(document);
+    expect(svc.verifyEvidence(document)).toBe(true);
+    expect(svc.verifyEvidence({ ...document, rendered_body: `${BODY} tampered` })).toBe(false);
+    expect(svc.verifyEvidence({ ...document, signed_at: '2026-08-11T06:00:01.000Z' })).toBe(false);
+    expect(svc.verifyEvidence({ ...document, title: 'Changed title' })).toBe(false);
+    expect(svc.verifyEvidence({ ...document, signer_name: 'Changed name' })).toBe(false);
+    expect(svc.verifyEvidence({ ...document, mx_template_version: 'tampered' })).toBe(false);
+    expect(svc.verifyEvidence({
+      ...document,
+      communication_choices: JSON.stringify({
+        email: true, sms: false, whatsapp: false, confirmed: true,
+        privacy_notice_version: NOTICE_VERSION, privacy_notice_hash: NOTICE_HASH,
+      }),
+    })).toBe(false);
   });
 });
 
@@ -351,10 +739,84 @@ describe('document-template version integrity', () => {
       .toBe(false);
   });
 
+  it.each(['expired', 'revoked'])(
+    'allows active-template deactivation after its registered source becomes %s',
+    async (sourceStatus) => {
+      authorizeMx();
+      const active = {
+        id: 7, organization_id: 42, template_type: 'activation_contract',
+        name: 'Contrato v1', body_md: 'Reviewed body', is_active: 1,
+        contract_template_mx_id: MX_SOURCE_ID,
+      };
+      const conn = connection(async (sql) => {
+        if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+        if (/SELECT \* FROM document_templates/.test(sql) && /FOR UPDATE/.test(sql)) {
+          return [[active]];
+        }
+        if (/FROM contract_templates_mx/.test(sql)) {
+          return [[{
+            id: MX_SOURCE_ID, organization_id: 42, template_name: 'Registered v1',
+            ift_registration_number: 'IFT-2026-001', registered_at: '2026-01-15',
+            version: '1.0', template_body: 'Reviewed body', status: sourceStatus,
+            deleted_at: null,
+          }]];
+        }
+        if (/UPDATE document_templates/.test(sql)) return [{ affectedRows: 1 }];
+        if (/SELECT \* FROM document_templates WHERE id/.test(sql)) {
+          return [[{ ...active, is_active: 0 }]];
+        }
+        return [[]];
+      });
+      db.getConnection.mockResolvedValue(conn);
+
+      const res = await request(app)
+        .put('/api/v1/document-templates/7')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ is_active: false });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.is_active).toBe(0);
+      expect(conn.commit).toHaveBeenCalled();
+    },
+  );
+
+  it('does not use deactivation to rewrite active legal content after source revocation', async () => {
+    authorizeMx();
+    const conn = connection(async (sql) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/SELECT \* FROM document_templates/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 7, organization_id: 42, template_type: 'activation_contract',
+          name: 'Contrato v1', body_md: 'Reviewed body', is_active: 1,
+          contract_template_mx_id: MX_SOURCE_ID,
+        }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .put('/api/v1/document-templates/7')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ is_active: false, body_md: 'Rewritten while deactivating' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/deactivate.*before changing/i);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE document_templates/.test(sql)))
+      .toBe(false);
+  });
+
   it('serializes template creation on the organization row', async () => {
     authorizeMx();
     const conn = connection(async (sql) => {
       if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/FROM contract_templates_mx/.test(sql)) {
+        return [[{
+          id: MX_SOURCE_ID, organization_id: 42, template_name: 'Registered v2',
+          ift_registration_number: 'IFT-2026-001', registered_at: '2026-01-15',
+          version: '2.0', template_body: 'New reviewed body', status: 'registered',
+        }]];
+      }
       if (/INSERT INTO document_templates/.test(sql)) return [{ insertId: 8 }];
       if (/SELECT \* FROM document_templates WHERE id/.test(sql)) {
         return [[{ id: 8, organization_id: 42, is_active: 1 }]];
@@ -368,13 +830,43 @@ describe('document-template version integrity', () => {
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({
         name: 'Contrato v2', template_type: 'activation_contract',
-        body_md: 'New reviewed body', is_active: true,
+        body_md: 'New reviewed body', contract_template_mx_id: MX_SOURCE_ID, is_active: true,
       });
 
     expect(res.status).toBe(201);
     const orgLock = conn.query.mock.calls.find(([sql]) => /SELECT id FROM organizations/.test(sql));
     expect(orgLock[0]).toMatch(/FOR UPDATE/);
     expect(conn.commit).toHaveBeenCalled();
+  });
+
+  it('rejects activation when the operational text differs from the registered MX source', async () => {
+    authorizeMx();
+    const conn = connection(async (sql) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/FROM contract_templates_mx/.test(sql)) {
+        return [[{
+          id: MX_SOURCE_ID, organization_id: 42, template_name: 'Registered source',
+          ift_registration_number: 'IFT-2026-001', registered_at: '2026-01-15',
+          version: '1.0', template_body: 'Official exact text', status: 'registered',
+        }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        name: 'Changed copy', template_type: 'activation_contract',
+        body_md: 'Official exact text with an edit',
+        contract_template_mx_id: MX_SOURCE_ID, is_active: true,
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/exactly match/i);
+    expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO document_templates/.test(sql))).toBe(false);
+    expect(conn.rollback).toHaveBeenCalled();
   });
 
   it('generic generation requests every missing exact template ID instead of skipping a whole type', async () => {
@@ -386,11 +878,13 @@ describe('document-template version integrity', () => {
       if (/SELECT \* FROM service_orders/.test(sql)) {
         return [[{
           id: 16, organization_id: 42, client_id: 9, contract_id: 33,
+          order_type: 'new_install', status: 'in_process',
         }]];
       }
       if (/SELECT id, status FROM work_orders/.test(sql)) {
         return [[{ id: 13, status: 'assigned' }]];
       }
+      if (/SELECT locale FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/SELECT dt\.id FROM document_templates/.test(sql)) return [[{ id: 4 }]];
       return [[]];
     });
@@ -410,6 +904,9 @@ describe('document-template version integrity', () => {
     const missing = conn.query.mock.calls.find(([sql]) => /SELECT dt\.id FROM document_templates/.test(sql));
     expect(missing[0]).toMatch(/sd\.template_id = dt\.id/);
     expect(missing[0]).not.toMatch(/DISTINCT template_type/);
+    const workOrderLookup = conn.query.mock.calls.find(([sql]) => /SELECT id, status FROM work_orders/.test(sql));
+    expect(workOrderLookup[0]).toMatch(/organization_id <=> \?/);
+    expect(workOrderLookup[0]).toMatch(/client_id = \? AND contract_id = \?/);
     expect(conn.commit).toHaveBeenCalled();
   });
 });
@@ -431,6 +928,42 @@ describe('legal gates on work-order transitions', () => {
 
   function wire({ before, templates = [], documents = [], locale = 'MX' }) {
     const conn = mockTxConnection(db);
+    const linkedTemplates = templates.map(registeredTemplate);
+    const linkedDocuments = documents.map((document, index) => {
+      const template = linkedTemplates.find(row => Number(row.id) === Number(document.template_id));
+      const renderedBody = document.rendered_body || `Signed fixture ${index + 1}`;
+      const linked = {
+        id: document.id ?? 100 + index,
+        organization_id: document.organization_id ?? before.organization_id,
+        client_id: document.client_id ?? before.client_id,
+        contract_id: document.contract_id ?? before.contract_id,
+        service_order_id: document.service_order_id ?? before.service_order_id,
+        work_order_id: document.work_order_id ?? before.id,
+        title: document.title || template?.name || 'Service installation acknowledgment',
+        rendered_body: renderedBody,
+        content_sha256: document.content_sha256
+          || crypto.createHash('sha256').update(renderedBody).digest('hex'),
+        signer_name: document.signer_name || 'María',
+        signature_image: document.signature_image || 'data:image/png;base64,aGVsbG8=',
+        signed_at: document.signed_at || '2026-08-11T06:00:00.000Z',
+        signed_ip: document.signed_ip || '127.0.0.1',
+        captured_by: document.captured_by || 1,
+        ...(document.template_type === 'activation_contract' ? {
+          contract_template_mx_id: MX_SOURCE_ID,
+          mx_registration_number: 'IFT-2026-001',
+          mx_registered_at: '2026-01-15',
+          mx_template_version: '1.0',
+          mx_source_sha256: crypto.createHash('sha256').update(template?.body_md || '').digest('hex'),
+        } : {}),
+        ...document,
+      };
+      if (linked.status === 'signed'
+          && (linked.template_type === 'service_acknowledgment'
+            || linked.template_type === 'activation_contract')) {
+        linked.evidence_sha256 = document.evidence_sha256 || svc.evidenceDigest(linked);
+      }
+      return linked;
+    });
     db.query.mockImplementation(async (sql, params) => {
       if (isAuthLookup(sql)) return ADMIN_ROW;
       if (/SELECT \* FROM work_orders\s+WHERE id = \? AND organization_id = \?/.test(sql)) return [[{ ...before }]];
@@ -460,14 +993,15 @@ describe('legal gates on work-order transitions', () => {
           organization_id: before.organization_id,
           client_id: before.client_id,
           contract_id: before.contract_id,
+          contract_template_mx_id: locale === 'MX' ? MX_SOURCE_ID : null,
           locale,
         }]];
       }
       if (/FROM document_templates/.test(sql)) {
-        return [templates.filter(template => template.template_type === params[1])];
+        return [linkedTemplates.filter(template => template.template_type === params[1])];
       }
       if (/FROM signed_documents/.test(sql)) {
-        return [documents.filter(document => (
+        return [linkedDocuments.filter(document => (
           document.template_type === params[4]
           && (document.service_order_id ?? before.service_order_id) === params[0]
           && (document.organization_id ?? before.organization_id) === params[1]
@@ -651,12 +1185,15 @@ describe('legal gates on work-order transitions', () => {
     expect(res.status).toBe(200);
   });
 
-  it('never consults or blocks on historical MX documents after an organization switches to global', async () => {
+  it('ignores historical MX documents after a locale switch but requires the global acknowledgment', async () => {
     wire({
       before: { ...INSTALL_WO, status: 'in_progress' },
       locale: 'global',
       templates: [{ id: 2, template_type: 'activation_contract', name: 'Old Mexican contract' }],
-      documents: [{ template_id: 2, template_type: 'activation_contract', status: 'cancelled' }],
+      documents: [
+        { template_id: 2, template_type: 'activation_contract', status: 'cancelled' },
+        { template_id: null, template_type: 'service_acknowledgment', status: 'signed' },
+      ],
     });
     const res = await request(app)
       .patch('/api/v1/work-orders/13')
@@ -664,7 +1201,7 @@ describe('legal gates on work-order transitions', () => {
       .send({ status: 'completed', acceptance_signal_dbm: -58 });
 
     expect(res.status).toBe(200);
-    expect(db.query.mock.calls.some(([sql]) => /FROM signed_documents/.test(sql))).toBe(false);
+    expect(db.query.mock.calls.some(([sql]) => /FROM signed_documents/.test(sql))).toBe(true);
   });
 
   it('never gates a non-installation work order', async () => {

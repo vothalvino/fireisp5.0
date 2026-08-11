@@ -79,7 +79,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
-- Customer lifecycle management — lead capture and prospect pipeline, service order workflow (request → approval → provisioning → activation), and guided contract activation with an assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, and MX-only client signatures before permanent service; global organizations omit the Mexican legal-document steps
+- Customer lifecycle management — a guided lead → installation order → pending contract handoff, assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, explicit optional Email/SMS/WhatsApp choices, and customer signature before permanent service; MX organizations must link the exact externally registered contract source and its registration evidence, while global organizations sign a neutral service-installation acknowledgment
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - Customer self-service portal (§11) — dashboard with plan overview, live session status, daily usage graph; invoice PDF/CFDI download; online payment (card/OXXO/SPEI/PayPal via checkout session); payment history; self-service requests (plan upgrade with proration, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule) with admin approval workflow; knowledge-base / FAQ with rating; embedded speed test (queues `subscriber_speed_test_jobs`, results view); AI-powered chatbot with automatic ticket-creation fallback; callback request; Web Push notification subscriptions (outage/billing/ticket events); PWA with offline service worker and web app manifest
@@ -110,7 +110,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 341 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–450)
+│   └── migrations/          # Individual numbered migration files (001–451)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -426,7 +426,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 262 | `generated_reports` | Report generation history (§15.5) — immutable log of each generated report with file_path, file_size, status, generation_time_ms; FK to scheduled_reports (nullable) |
 | 263 | `dashboard_widgets` | Analytics dashboard widget layout (§15.5) — widget_type ENUM (revenue_chart/subscriber_growth/aging_summary/capacity_forecast/top_consumers/uptime_summary/bandwidth_utilization/custom_metric), per-user position/size grid, config JSON, is_visible |
 | 264 | `custom_reports` | User-built custom reports (§15.5) — name, query_type ENUM (sql/visual), sql_query TEXT (SELECT-only, validated), visual_config JSON, is_public, last_run_at; public reports visible to all org members |
-| 265 | `subscriber_consents` | §16.2 LFPDPPP consent tracking (Aviso de Privacidad) — consent version, purpose, granted/withdrawn timestamps, IP address, and legal basis per subscriber per org |
+| 265 | `subscriber_consents` | Versioned privacy/communication consent evidence — purpose, outbound marketing channel, granted/withdrawn timestamps, notice hash, IP, installation order/work order/signed-document provenance, and capturing staff member; MX uses its Aviso de Privacidad while global uses neutral privacy wording |
 | 266 | `dsar_requests` | §16.2 DSAR/ARCO request workflow with 30-day deadline — request type (access/rectification/cancellation/opposition), status lifecycle, legal hold flag, fulfillment notes, and assigned reviewer |
 | 267 | `identity_verification_records` | §16.2 INE/IFE/CURP identity verification with checksum — document type, document number, CURP, verification method, verification date, verifier user, and outcome status |
 | 268 | `gov_data_requests` | §16.3 Tamper-proof log of government data requests (lawful interception) — authority name, legal basis, request date, data scope, response date, SHA-256 row_hash integrity chain |

@@ -47,17 +47,19 @@ function interpolate(template, data, { escapeHtml = false } = {}) {
  * Build the recipient list for a campaign based on its filters.
  *
  * Queries the clients table for org-scoped clients that match filter_status,
- * filter_plan_id, and filter_tag (all optional). Joins against
- * client_dnd_preferences to exclude opted-out clients for the campaign's
- * channel (or the 'all' channel).
+ * filter_plan_id, and filter_tag (all optional). Requires affirmative, active,
+ * channel-specific marketing consent and then
+ * applies client_dnd_preferences as an additional veto.  A missing DND row is
+ * never interpreted as permission to send.
  *
  * @param {object} campaign - Full communication_campaigns row
+ * @param {Function} [run] - Query runner; pass a transaction-bound execute function during dispatch
  * @returns {Promise<Array<{client_id: number, recipient: string, channel: string}>>}
  */
-async function buildRecipientList(campaign) {
+async function buildRecipientList(campaign, run = db.query.bind(db)) {
   const { organization_id, channel, filter_status, filter_plan_id, filter_tag } = campaign;
 
-  const conditions = ['c.organization_id = ?'];
+  const conditions = ['c.organization_id <=> ?', 'c.deleted_at IS NULL'];
   const params = [organization_id];
 
   if (filter_status) {
@@ -81,11 +83,27 @@ async function buildRecipientList(campaign) {
     params.push(filter_tag);
   }
 
-  // Exclude clients who have opted out for this channel or 'all'
+  // Positive consent is the entry condition. Legacy broad marketing rows with
+  // no communication_channel deliberately do not count: they cannot prove
+  // which destination the customer approved.
+  conditions.push(`
+    EXISTS (
+      SELECT 1 FROM subscriber_consents consent
+      WHERE consent.client_id = c.id
+        AND consent.organization_id <=> c.organization_id
+        AND consent.purpose = 'marketing'
+        AND consent.communication_channel = ?
+        AND consent.withdrawn_at IS NULL
+    )
+  `);
+  params.push(channel);
+
+  // DND is a second, mutable safety veto even when consent exists.
   conditions.push(`
     NOT EXISTS (
       SELECT 1 FROM client_dnd_preferences dnd
       WHERE dnd.client_id = c.id
+        AND dnd.organization_id <=> c.organization_id
         AND dnd.opt_out = 1
         AND dnd.channel IN ('all', ?)
     )
@@ -104,7 +122,7 @@ async function buildRecipientList(campaign) {
       AND ${recipientField} != ''
   `;
 
-  const [rows] = await db.query(sql, params);
+  const [rows] = await run(sql, params);
 
   return rows.map(row => ({
     client_id: row.client_id,
@@ -122,65 +140,81 @@ async function buildRecipientList(campaign) {
  * @returns {Promise<{queued: number}>}
  */
 async function dispatchCampaign(campaignId, organizationId) {
-  const [campaignRows] = await db.query(
-    'SELECT * FROM communication_campaigns WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
-    [campaignId, organizationId],
-  );
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  const campaign = campaignRows[0];
-  if (!campaign) {
-    throw new Error(`Campaign ${campaignId} not found`);
-  }
-
-  if (!['draft', 'failed', 'cancelled'].includes(campaign.status)) {
-    throw new Error(`Campaign ${campaignId} cannot be dispatched from status '${campaign.status}'`);
-  }
-
-  const recipients = await buildRecipientList(campaign);
-
-  if (recipients.length === 0) {
-    await db.query(
-      `UPDATE communication_campaigns
-          SET status = 'sent', recipient_count = 0, started_at = NOW(), completed_at = NOW()
-        WHERE id = ?`,
-      [campaignId],
+    // Serialize dispatches for one campaign. A competing request waits for
+    // this lock, then observes the committed non-dispatchable status instead
+    // of independently inserting the same recipient snapshot.
+    const [campaignRows] = await conn.execute(
+      `SELECT * FROM communication_campaigns
+        WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL
+        FOR UPDATE`,
+      [campaignId, organizationId],
     );
-    return { queued: 0 };
+
+    const campaign = campaignRows[0];
+    if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
+    if (!['draft', 'failed', 'cancelled'].includes(campaign.status)) {
+      throw new Error(`Campaign ${campaignId} cannot be dispatched from status '${campaign.status}'`);
+    }
+
+    // A cancelled/failed campaign can be dispatched again. Retire any rows
+    // left queued by its previous run before changing it back to sending, or
+    // those stale snapshots would become eligible alongside the new batch.
+    if (campaign.status !== 'draft') {
+      await conn.execute(
+        `UPDATE campaign_messages
+            SET status = 'failed', error_message = ?
+          WHERE campaign_id = ? AND organization_id <=> ? AND status = 'queued'`,
+        ['Superseded by campaign redispatch', campaignId, organizationId],
+      );
+    }
+
+    const recipients = await buildRecipientList(campaign, conn.execute.bind(conn));
+    const nextStatus = recipients.length === 0 ? 'sent' : 'sending';
+    const completedAt = recipients.length === 0 ? 'NOW()' : 'NULL';
+    const [transition] = await conn.execute(
+      `UPDATE communication_campaigns
+          SET status = ?, recipient_count = ?, started_at = NOW(), completed_at = ${completedAt}
+        WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL AND status = ?`,
+      [nextStatus, recipients.length, campaignId, organizationId, campaign.status],
+    );
+    if (transition.affectedRows !== 1) {
+      throw new Error(`Campaign ${campaignId} cannot be dispatched because its state changed`);
+    }
+
+    if (recipients.length > 0) {
+      const now = new Date();
+      const insertValues = recipients.map(r => [
+        organizationId,
+        campaignId,
+        r.client_id,
+        r.recipient,
+        r.channel,
+        'queued',
+        now,
+      ]);
+      // execute() cannot expand a 2-D array bound to one placeholder.
+      const { placeholders, values } = buildBulkValues(insertValues);
+      await conn.execute(
+        `INSERT INTO campaign_messages
+           (organization_id, campaign_id, client_id, recipient, channel, status, queued_at)
+         VALUES ${placeholders}`,
+        values,
+      );
+    }
+
+    await conn.commit();
+    logger.info({ campaignId, queued: recipients.length }, 'Campaign dispatched');
+    return { queued: recipients.length };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  // Bulk-insert campaign_messages as 'queued'
-  const now = new Date();
-  const insertValues = recipients.map(r => [
-    organizationId,
-    campaignId,
-    r.client_id,
-    r.recipient,
-    r.channel,
-    'queued',
-    now,
-  ]);
-
-  // db.query() runs prepared statements (mysql2 execute()), which cannot
-  // expand a single `?` bound to a 2-D array of rows the way pool.query()
-  // can — buildBulkValues() builds the equivalent explicit per-row
-  // placeholder groups instead. See src/utils/sqlBuild.js header comment.
-  const { placeholders, values } = buildBulkValues(insertValues);
-  await db.query(
-    `INSERT INTO campaign_messages
-       (organization_id, campaign_id, client_id, recipient, channel, status, queued_at)
-     VALUES ${placeholders}`,
-    values,
-  );
-
-  await db.query(
-    `UPDATE communication_campaigns
-        SET status = 'sending', recipient_count = ?, started_at = NOW()
-      WHERE id = ?`,
-    [recipients.length, campaignId],
-  );
-
-  logger.info({ campaignId, queued: recipients.length }, 'Campaign dispatched');
-  return { queued: recipients.length };
 }
 
 /**
@@ -194,13 +228,19 @@ async function dispatchCampaign(campaignId, organizationId) {
  *
  * @returns {Promise<{sent: number, failed: number, total: number}>}
  */
+const DELIVERY_CLAIM_MARKER = 'Delivery claimed; awaiting provider result';
+
 async function processQueue() {
   const [queued] = await db.query(`
-    SELECT cm.*, cc.template_id AS campaign_template_id, cc.channel AS campaign_channel,
+    SELECT cm.*, cc.template_id AS campaign_template_id,
            cc.organization_id AS campaign_org_id
     FROM campaign_messages cm
-    JOIN communication_campaigns cc ON cc.id = cm.campaign_id
+    JOIN communication_campaigns cc
+      ON cc.id = cm.campaign_id
+     AND cc.organization_id <=> cm.organization_id
     WHERE cm.status = 'queued'
+      AND cc.status = 'sending'
+      AND cc.deleted_at IS NULL
     ORDER BY cm.queued_at ASC
     LIMIT 100
   `);
@@ -209,122 +249,189 @@ async function processQueue() {
   let failed = 0;
 
   for (const msg of queued) {
-    try {
-      const organizationId = msg.campaign_org_id;
-      const channel = msg.campaign_channel || msg.channel;
+    const organizationId = msg.campaign_org_id;
+    // The queued row freezes both transport channel and destination. Campaign
+    // edits after dispatch must never redirect an already-queued message.
+    const channel = msg.channel;
 
-      // Load template content if available
+    try {
       let subject = 'Mensaje de su proveedor';
-      let body = msg.recipient; // fallback – overridden below
+      let body = '';
 
       if (msg.campaign_template_id) {
         const [templateRows] = await db.query(
-          'SELECT * FROM message_templates WHERE id = ?',
-          [msg.campaign_template_id],
+          `SELECT * FROM message_templates
+            WHERE id = ? AND deleted_at IS NULL AND is_active = 1
+              AND (organization_id <=> ? OR organization_id IS NULL)`,
+          [msg.campaign_template_id, organizationId],
         );
         const tpl = templateRows[0];
 
         if (tpl) {
-          // Load client data for variable substitution
           let clientData = {};
           if (msg.client_id) {
             const [clientRows] = await db.query(
-              'SELECT * FROM clients WHERE id = ?',
-              [msg.client_id],
+              `SELECT * FROM clients
+                WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL`,
+              [msg.client_id, organizationId],
             );
             if (clientRows[0]) clientData = clientRows[0];
           }
 
           const escapeHtml = channel === 'email';
           subject = interpolate(tpl.subject || subject, clientData, { escapeHtml });
-          body = interpolate(tpl.body_text || tpl.body_html || '', clientData, { escapeHtml });
+          body = interpolate(tpl.body_text || tpl.body_html || tpl.body || '', clientData, { escapeHtml });
         }
-      } else {
-        body = '';
-        subject = 'Mensaje de su proveedor';
       }
 
-      let result;
-      if (channel === 'email') {
-        result = await emailTransport.sendEmail({
+      // This compare-and-set is both the last-moment eligibility check and the
+      // delivery claim. Only one worker can change queued -> failed; failed is
+      // used as an honest, schema-compatible in-flight state and is promoted
+      // to sent only after the provider confirms acceptance.
+      const [claim] = await db.query(
+        `UPDATE campaign_messages cm
+          JOIN communication_campaigns cc
+            ON cc.id = cm.campaign_id
+           AND cc.organization_id <=> cm.organization_id
+          JOIN clients c
+            ON c.id = cm.client_id
+           AND c.organization_id <=> cc.organization_id
+           AND c.deleted_at IS NULL
+           SET cm.status = 'failed', cm.error_message = ?
+         WHERE cm.id = ? AND cm.status = 'queued'
+           AND cm.organization_id <=> ?
+           AND cm.channel = ? AND cm.recipient = ?
+           AND cc.status = 'sending' AND cc.deleted_at IS NULL
+           AND (
+             (cm.channel = 'email' AND c.email = cm.recipient)
+             OR (cm.channel IN ('sms', 'whatsapp') AND c.phone = cm.recipient)
+           )
+           AND EXISTS (
+             SELECT 1 FROM subscriber_consents consent
+              WHERE consent.organization_id <=> cc.organization_id
+                AND consent.client_id = c.id
+                AND consent.purpose = 'marketing'
+                AND consent.communication_channel = cm.channel
+                AND consent.withdrawn_at IS NULL
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM client_dnd_preferences dnd
+              WHERE dnd.organization_id <=> cc.organization_id
+                AND dnd.client_id = c.id
+                AND dnd.opt_out = 1
+                AND dnd.channel IN ('all', cm.channel)
+           )`,
+        [DELIVERY_CLAIM_MARKER, msg.id, organizationId, channel, msg.recipient],
+      );
+
+      if (claim.affectedRows !== 1) {
+        // If the row is still queued, the live campaign/client/contact/consent
+        // guard rejected it. If another worker already claimed it, this update
+        // affects zero rows and this worker quietly leaves it alone.
+        const [skip] = await db.query(
+          `UPDATE campaign_messages
+              SET status = 'failed', error_message = ?
+            WHERE id = ? AND organization_id <=> ? AND status = 'queued'`,
+          [`Recipient or ${channel} permission changed; message skipped`, msg.id, organizationId],
+        );
+        if (skip.affectedRows === 1) {
+          await db.query(
+            `UPDATE communication_campaigns
+                SET failed_count = failed_count + 1
+              WHERE id = ? AND organization_id <=> ?`,
+            [msg.campaign_id, organizationId],
+          );
+          failed++;
+        }
+        continue;
+      }
+
+      // No database or rendering work belongs between the guarded claim and
+      // transport invocation: this is the narrowest practical revocation and
+      // cancellation race window without holding a DB lock across network I/O.
+      const result = channel === 'email'
+        ? await emailTransport.sendEmail({
           organizationId,
           to: msg.recipient,
           subject,
           html: body || undefined,
           text: body || undefined,
-        });
-      } else {
-        result = await smsTransport.sendSms({
+        })
+        : await smsTransport.sendSms({
           organizationId,
           clientId: msg.client_id || null,
           to: msg.recipient,
           body,
           channel,
         });
-      }
 
       if (result.success) {
         await db.query(
           `UPDATE campaign_messages
-              SET status = 'sent', sent_at = NOW(), provider_message_id = ?
-            WHERE id = ?`,
-          [result.messageId || null, msg.id],
+              SET status = 'sent', sent_at = NOW(), provider_message_id = ?, error_message = NULL
+            WHERE id = ? AND organization_id <=> ?
+              AND status = 'failed' AND error_message = ?`,
+          [result.messageId || null, msg.id, organizationId, DELIVERY_CLAIM_MARKER],
         );
-
         await db.query(
           `UPDATE communication_campaigns
               SET sent_count = sent_count + 1
-            WHERE id = ?`,
-          [msg.campaign_id],
+            WHERE id = ? AND organization_id <=> ?`,
+          [msg.campaign_id, organizationId],
         );
         sent++;
       } else {
         await db.query(
           `UPDATE campaign_messages
               SET status = 'failed', error_message = ?
-            WHERE id = ?`,
-          [result.error || 'Unknown error', msg.id],
+            WHERE id = ? AND organization_id <=> ?
+              AND status = 'failed' AND error_message = ?`,
+          [result.error || 'Unknown error', msg.id, organizationId, DELIVERY_CLAIM_MARKER],
         );
-
         await db.query(
           `UPDATE communication_campaigns
               SET failed_count = failed_count + 1
-            WHERE id = ?`,
-          [msg.campaign_id],
+            WHERE id = ? AND organization_id <=> ?`,
+          [msg.campaign_id, organizationId],
         );
         failed++;
       }
     } catch (err) {
       logger.warn({ err, msgId: msg.id }, 'Campaign message send failed');
-
-      await db.query(
+      const [failureUpdate] = await db.query(
         `UPDATE campaign_messages
             SET status = 'failed', error_message = ?
-          WHERE id = ?`,
-        [err.message || String(err), msg.id],
-      ).catch(() => {});
-
-      await db.query(
-        `UPDATE communication_campaigns
-            SET failed_count = failed_count + 1
-          WHERE id = ?`,
-        [msg.campaign_id],
-      ).catch(() => {});
-      failed++;
+          WHERE id = ? AND organization_id <=> ?
+            AND (status = 'queued' OR (status = 'failed' AND error_message = ?))`,
+        [err.message || String(err), msg.id, organizationId, DELIVERY_CLAIM_MARKER],
+      ).catch(() => [{ affectedRows: 0 }]);
+      if (failureUpdate.affectedRows === 1) {
+        await db.query(
+          `UPDATE communication_campaigns
+              SET failed_count = failed_count + 1
+            WHERE id = ? AND organization_id <=> ?`,
+          [msg.campaign_id, organizationId],
+        ).catch(() => {});
+        failed++;
+      }
     }
   }
 
-  // Mark campaigns as 'sent' when all messages are processed
   if (queued.length > 0) {
-    await db.query(`
-      UPDATE communication_campaigns cc
-      SET cc.status = 'sent', cc.completed_at = NOW()
-      WHERE cc.status = 'sending'
-        AND NOT EXISTS (
-          SELECT 1 FROM campaign_messages cm
-          WHERE cm.campaign_id = cc.id AND cm.status = 'queued'
-        )
-    `);
+    await db.query(
+      `UPDATE communication_campaigns cc
+          SET cc.status = 'sent', cc.completed_at = NOW()
+        WHERE cc.status = 'sending' AND cc.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM campaign_messages cm
+             WHERE cm.campaign_id = cc.id
+               AND (
+                 cm.status = 'queued'
+                 OR (cm.status = 'failed' AND cm.error_message = ?)
+               )
+          )`,
+      [DELIVERY_CLAIM_MARKER],
+    );
   }
 
   return { sent, failed, total: queued.length };

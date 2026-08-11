@@ -17,6 +17,9 @@ const createConsent = {
     type: 'string', required: true,
     enum: ['web', 'app', 'paper', 'phone', 'email'],
   },
+  communication_channel: {
+    type: 'string', enum: ['email', 'sms', 'whatsapp'],
+  },
   document_hash: { type: 'string', max: 64 },
   notes: { type: 'string', max: 2000 },
 };

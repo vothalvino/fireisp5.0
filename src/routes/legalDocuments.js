@@ -20,6 +20,8 @@ const {
   createDocumentTemplate, updateDocumentTemplate, signDocument, generateDocuments,
 } = require('../middleware/schemas/legalDocuments');
 const legalDocumentService = require('../services/legalDocumentService');
+const privacyNoticeService = require('../services/privacyNoticeService');
+const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
 const auditLog = require('../services/auditLog');
 const Organization = require('../models/Organization');
 const { ValidationError, NotFoundError } = require('../utils/errors');
@@ -83,11 +85,20 @@ templatesRouter.post('/', requirePermission('document_templates.create'), valida
   try {
     await conn.beginTransaction();
     await lockTemplateOrganization(conn, req.orgId);
+    await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
+      orgId: req.orgId,
+      templateType: req.body.template_type,
+      bodyMd: req.body.body_md,
+      isActive: Boolean(req.body.is_active),
+      contractTemplateMxId: req.body.contract_template_mx_id ?? null,
+      lock: true,
+    });
     const [ins] = await conn.query(
-      `INSERT INTO document_templates (organization_id, template_type, name, body_md, is_active, created_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO document_templates
+         (organization_id, template_type, name, body_md, contract_template_mx_id, is_active, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [req.orgId ?? null, req.body.template_type, req.body.name, req.body.body_md,
-        req.body.is_active ? 1 : 0, req.user?.id ?? null],
+        req.body.contract_template_mx_id ?? null, req.body.is_active ? 1 : 0, req.user?.id ?? null],
     );
     const [rows] = await conn.query('SELECT * FROM document_templates WHERE id = ?', [ins.insertId]);
     await conn.commit();
@@ -109,7 +120,8 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
   try {
     await conn.beginTransaction();
     await lockTemplateOrganization(conn, req.orgId);
-    const fields = ['name', 'template_type', 'body_md', 'is_active'].filter(f => f in req.body);
+    const fields = ['name', 'template_type', 'body_md', 'contract_template_mx_id', 'is_active']
+      .filter(f => f in req.body);
     if (!fields.length) throw new ValidationError('No fields to update');
 
     const templateParams = [req.params.id];
@@ -123,7 +135,7 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
     const template = templates[0];
     if (!template) throw new NotFoundError('Template');
 
-    const materialFields = ['name', 'template_type', 'body_md'];
+    const materialFields = ['name', 'template_type', 'body_md', 'contract_template_mx_id'];
     const changedMaterial = materialFields.filter(field => (
       Object.prototype.hasOwnProperty.call(req.body, field)
       && String(req.body[field]) !== String(template[field])
@@ -147,6 +159,20 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
         );
       }
     }
+
+    const nextTemplate = { ...template, ...req.body };
+    const allowTerminalSourceForDeactivation = Number(template.is_active) === 1
+      && Number(nextTemplate.is_active) === 0
+      && changedMaterial.length === 0;
+    await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
+      orgId: req.orgId,
+      templateType: nextTemplate.template_type,
+      bodyMd: nextTemplate.body_md,
+      isActive: Boolean(nextTemplate.is_active),
+      contractTemplateMxId: nextTemplate.contract_template_mx_id,
+      lock: true,
+      allowTerminalSourceForDeactivation,
+    });
 
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => (f === 'is_active' ? (req.body[f] ? 1 : 0) : req.body[f]));
@@ -225,7 +251,41 @@ documentsRouter.get('/:id', requirePermission('signed_documents.view'), async (r
       params,
     );
     if (!rows.length) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });
-    res.json({ data: rows[0] });
+    const document = rows[0];
+    document.evidence_valid = legalDocumentService.verifyEvidence(document);
+    if (['activation_contract', legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE]
+      .includes(document.template_type)) {
+      const [[client], existingChoices, notice] = await Promise.all([
+        db.query(
+          `SELECT email, phone FROM clients
+            WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL LIMIT 1`,
+          [document.client_id, document.organization_id],
+        ).then(([clientRows]) => clientRows),
+        db.query(
+          `SELECT id FROM signed_documents
+            WHERE service_order_id <=> ? AND client_id = ?
+              AND organization_id <=> ?
+              AND id <> ? AND status = 'signed'
+              AND communication_choices IS NOT NULL AND deleted_at IS NULL
+            LIMIT 1`,
+          [document.service_order_id, document.client_id, document.organization_id, document.id],
+        ).then(([choiceRows]) => choiceRows),
+        privacyNoticeService.getNotice(document.organization_id),
+      ]);
+      document.communication_contacts = {
+        email: Boolean(client?.email),
+        phone: Boolean(client?.phone),
+      };
+      document.privacy_notice = {
+        version: notice.version,
+        content: notice.content,
+        hash: notice.hash,
+      };
+      document.communication_choices_recorded = Boolean(
+        document.communication_choices || existingChoices.length,
+      );
+    }
+    res.json({ data: document });
   } catch (err) { next(err); }
 });
 
@@ -237,11 +297,19 @@ documentsRouter.post('/:id/sign', requirePermission('signed_documents.sign'), va
       signatureImage: req.body.signature_image,
       signedIp: req.ip || null,
       performedBy: req.user?.id ?? null,
+      communicationOptIns: req.body.communication_opt_ins,
+      communicationChoicesConfirmed: req.body.communication_choices_confirmed,
+      privacyNoticeVersion: req.body.privacy_notice_version,
+      privacyNoticeHash: req.body.privacy_notice_hash,
     });
     await auditLog.log({
       userId: req.user?.id, organizationId: req.orgId, action: 'sign',
       tableName: 'signed_documents', recordId: doc.id,
-      newValues: { signer_name: doc.signer_name, content_sha256: doc.content_sha256 }, // never the signature image
+      newValues: {
+        signer_name: doc.signer_name,
+        content_sha256: doc.content_sha256,
+        evidence_sha256: doc.evidence_sha256,
+      }, // never the signature image
     }).catch(() => {});
     res.json({ data: doc });
   } catch (err) { next(err); }
@@ -266,7 +334,7 @@ documentsRouter.post('/:id/cancel', requirePermission('signed_documents.create')
 // Generate on demand for an order that predates the templates (or was started
 // before a template was activated). Skips types that already have a live
 // (pending or signed) instance for the order so re-clicks never duplicate.
-documentsRouter.post('/generate', requireMxOrg, requirePermission('signed_documents.create'), validate(generateDocuments), async (req, res, next) => {
+documentsRouter.post('/generate', requirePermission('signed_documents.create'), validate(generateDocuments), async (req, res, next) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -281,15 +349,22 @@ documentsRouter.post('/generate', requireMxOrg, requirePermission('signed_docume
     const order = soRows[0];
     if (!order) throw new NotFoundError('Service order');
     if (!order.client_id) throw new ValidationError('Service order has no client yet — start it first');
+    if (order.order_type !== 'new_install' || order.status !== 'in_process' || !order.contract_id) {
+      throw new ValidationError('Signing documents can only be generated for a started new-install order with a linked contract');
+    }
 
     const [woRows] = await conn.query(
       `SELECT id, status FROM work_orders
-        WHERE service_order_id = ? AND work_type = 'installation'
+        WHERE service_order_id = ? AND organization_id <=> ?
+          AND client_id = ? AND contract_id = ? AND work_type = 'installation'
           AND deleted_at IS NULL
         ORDER BY id DESC LIMIT 1`,
-      [order.id],
+      [order.id, order.organization_id, order.client_id, order.contract_id],
     );
     const workOrder = woRows[0] || null;
+    if (!workOrder) {
+      throw new ValidationError('The started installation has no linked installation work order');
+    }
     const canGenerateArrivalAuthorization = Boolean(
       workOrder && ['pending', 'assigned'].includes(workOrder.status),
     );
@@ -297,27 +372,57 @@ documentsRouter.post('/generate', requireMxOrg, requirePermission('signed_docume
     // second reviewed activation/arrival template after an order was created;
     // the client needs an instance of that exact version. Arrival paperwork
     // is meaningful only before the installation visit starts.
-    const [missingTemplates] = await conn.query(
-      `SELECT dt.id FROM document_templates dt
-        WHERE dt.organization_id = ? AND dt.is_active = 1
-          AND dt.deleted_at IS NULL
-          AND (dt.template_type <> 'installation_authorization' OR ? = 1)
-          AND NOT EXISTS (
-            SELECT 1 FROM signed_documents sd
-             WHERE sd.service_order_id = ? AND sd.organization_id = dt.organization_id
-               AND sd.client_id <=> ? AND sd.contract_id <=> ?
-               AND sd.template_id = dt.id AND sd.template_type = dt.template_type
-               AND sd.status IN ('pending','signed') AND sd.deleted_at IS NULL
-          )
-        ORDER BY dt.id`,
-      [
-        order.organization_id ?? req.orgId,
-        canGenerateArrivalAuthorization ? 1 : 0,
-        order.id,
-        order.client_id,
-        order.contract_id,
-      ],
+    const effectiveOrgId = order.organization_id ?? req.orgId;
+    if (effectiveOrgId === null || effectiveOrgId === undefined) {
+      throw new ValidationError('An organization is required to generate signing documents');
+    }
+    const [localeRows] = await conn.query(
+      'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+      [effectiveOrgId],
     );
+    const locale = localeRows[0]?.locale || 'global';
+    let missingTemplates;
+    if (locale === 'MX') {
+      [missingTemplates] = await conn.query(
+        `SELECT dt.id FROM document_templates dt
+          WHERE dt.organization_id = ? AND dt.is_active = 1
+            AND dt.deleted_at IS NULL
+            AND (dt.template_type <> 'installation_authorization' OR ? = 1)
+            AND NOT EXISTS (
+              SELECT 1 FROM signed_documents sd
+               WHERE sd.service_order_id = ? AND sd.organization_id = dt.organization_id
+                 AND sd.client_id <=> ? AND sd.contract_id <=> ?
+                 AND sd.template_id = dt.id AND sd.template_type = dt.template_type
+                 AND sd.status IN ('pending','signed') AND sd.deleted_at IS NULL
+            )
+          ORDER BY dt.id`,
+        [
+          effectiveOrgId,
+          canGenerateArrivalAuthorization ? 1 : 0,
+          order.id,
+          order.client_id,
+          order.contract_id,
+        ],
+      );
+    } else {
+      const [existing] = await conn.query(
+        `SELECT id FROM signed_documents
+          WHERE service_order_id = ? AND organization_id = ?
+            AND client_id <=> ? AND contract_id <=> ?
+            AND template_type = ? AND status IN ('pending','signed')
+            AND deleted_at IS NULL LIMIT 1`,
+        [
+          order.id,
+          effectiveOrgId,
+          order.client_id,
+          order.contract_id,
+          legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE,
+        ],
+      );
+      missingTemplates = existing.length
+        ? []
+        : [{ id: legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID }];
+    }
 
     const created = await legalDocumentService.generateForOrder(conn.query.bind(conn), {
       orgId: order.organization_id ?? req.orgId ?? null,

@@ -20,7 +20,9 @@ const db = require('../config/database');
 const Contract = require('../models/Contract');
 const User = require('../models/User');
 const lifecycleService = require('./lifecycleService');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const legalDocumentService = require('./legalDocumentService');
+const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateService');
+const { ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'contractActivation' });
 
 const WORK_ORDER_ASSIGN_PERMISSION = 'work_orders.update';
@@ -109,34 +111,44 @@ async function getDocuments(orderId, contractId, run = db.query.bind(db)) {
 
 async function getRequiredActivationTemplates(orgId, run = db.query.bind(db)) {
   const [rows] = await run(
-    `SELECT id, name
-       FROM document_templates
-      WHERE organization_id = ? AND template_type = 'activation_contract'
-        AND is_active = 1 AND deleted_at IS NULL
-      ORDER BY id`,
+    `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+       FROM document_templates dt
+       LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+      WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
+        AND dt.is_active = 1 AND dt.deleted_at IS NULL
+      ORDER BY dt.id`,
     [orgId],
   );
+  if (rows.length) mxRegisteredTemplateService.assertOneRegisteredSource(rows, orgId);
   return rows;
 }
 
 async function getActivationTemplateInstanceState(
-  orderId, contractId, orgId, clientId, run = db.query.bind(db),
+  orderId, contractId, orgId, clientId,
+  templateType = 'activation_contract', run = db.query.bind(db), requiredMxSource = null,
 ) {
   if (!orderId) return { liveTemplateIds: new Set(), signedTemplateIds: new Set() };
   const [rows] = await run(
-    `SELECT DISTINCT template_id, status
+    `SELECT *
       FROM signed_documents
       WHERE service_order_id = ? AND organization_id = ?
         AND client_id <=> ? AND contract_id = ?
-        AND template_type = 'activation_contract'
+        AND template_type = ?
         AND status IN ('pending','signed')
         AND deleted_at IS NULL`,
-    [orderId, orgId, clientId, contractId],
+    [orderId, orgId, clientId, contractId, templateType],
   );
+  const validRows = requiredMxSource
+    ? rows.filter(row => mxRegisteredTemplateService.snapshotMatchesRegisteredSource(
+      row,
+      requiredMxSource,
+    ))
+    : rows;
   return {
-    liveTemplateIds: new Set(rows.map(row => Number(row.template_id))),
-    signedTemplateIds: new Set(rows
-      .filter(row => row.status === 'signed')
+    liveTemplateIds: new Set(validRows.map(row => Number(row.template_id))),
+    signedTemplateIds: new Set(validRows
+      .filter(row => row.status === 'signed'
+        && legalDocumentService.signatureEvidenceIsValid(row))
       .map(row => Number(row.template_id))),
   };
 }
@@ -214,14 +226,38 @@ async function backfillRequiredDocuments(contract, order, {
       'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
       [effectiveOrgId],
     );
-    if (locales[0]?.locale !== 'MX') {
-      await conn.commit();
-      return;
-    }
+    const locale = locales[0]?.locale || 'global';
 
     const workOrder = await findInstallWorkOrder(
       order.id, effectiveOrgId, conn.query.bind(conn), contract.id,
     );
+    if (locale !== 'MX') {
+      const [existing] = await conn.query(
+        `SELECT id FROM signed_documents
+          WHERE service_order_id = ? AND organization_id = ?
+            AND client_id <=> ? AND contract_id = ?
+            AND template_type = ? AND status IN ('pending','signed')
+            AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
+        [
+          order.id, effectiveOrgId, order.client_id, contract.id,
+          legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE,
+        ],
+      );
+      if (!existing[0]) {
+        await legalDocumentService.generateForOrder(conn.query.bind(conn), {
+          orgId: effectiveOrgId,
+          clientId: order.client_id,
+          contractId: contract.id,
+          orderId: order.id,
+          workOrderId: workOrder?.id || null,
+          createdBy: userId,
+          onlyTemplateIds: new Set([legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID]),
+        });
+      }
+      await conn.commit();
+      return;
+    }
+
     const canGenerateArrivalAuthorization = Boolean(
       workOrder && ['pending', 'assigned'].includes(workOrder.status),
     );
@@ -250,7 +286,6 @@ async function backfillRequiredDocuments(contract, order, {
       ],
     );
     if (missingTemplates.length) {
-      const legalDocumentService = require('./legalDocumentService');
       await legalDocumentService.generateForOrder(conn.query.bind(conn), {
         orgId: effectiveOrgId,
         clientId: order.client_id,
@@ -339,17 +374,27 @@ async function getActivationState(contractId, {
   );
   const activeRadiusRows = radiusRows.filter(radius => radius.status === 'active');
   const locale = await organizationLocale(effectiveOrgId);
-  // Legal-document metadata is both jurisdictional and permission-sensitive:
-  // global organizations never touch the Mexican document tables, and an MX
-  // caller without signed_documents.view receives no titles/signer names.
-  // Readiness is computed through a minimal template-ID-only query so hiding
-  // metadata does not accidentally hide a required signature blocker.
+  // Legal-document metadata is permission-sensitive. MX requires the ISP's
+  // active reviewed contract templates; global requires one bundled neutral
+  // service acknowledgment and never borrows Mexican legal wording.
+  // Readiness uses the complete stored evidence envelope so hiding metadata
+  // from the response does not accidentally bypass signature verification.
+  const requiredDocumentType = locale === 'MX'
+    ? 'activation_contract'
+    : legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE;
   const requiredTemplates = locale === 'MX'
     ? await getRequiredActivationTemplates(effectiveOrgId)
-    : [];
-  const templateInstances = locale === 'MX' && requiredTemplates.length
+    : [{
+      id: legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID,
+      name: legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TITLE,
+    }];
+  const requiredMxSource = locale === 'MX' && requiredTemplates.length
+    ? mxRegisteredTemplateService.assertOneRegisteredSource(requiredTemplates, effectiveOrgId)
+    : null;
+  const templateInstances = requiredTemplates.length
     ? await getActivationTemplateInstanceState(
-      order?.id, contract.id, effectiveOrgId, contract.client_id,
+      order?.id, contract.id, effectiveOrgId, contract.client_id, requiredDocumentType,
+      db.query.bind(db), requiredMxSource,
     )
     : { liveTemplateIds: new Set(), signedTemplateIds: new Set() };
   const arrivalGateOpen = Boolean(
@@ -360,7 +405,7 @@ async function getActivationState(contractId, {
       order?.id, effectiveOrgId, contract.id, contract.client_id,
     )
     : { unsigned: false, missingLiveInstance: false };
-  const documents = locale === 'MX' && includeDocuments
+  const documents = includeDocuments
     ? await getDocuments(order?.id, contract.id)
     : [];
 
@@ -392,6 +437,10 @@ async function getActivationState(contractId, {
   }
   if (locale === 'MX' && requiredTemplates.length === 0) {
     blockers.push('activation_template_missing');
+  }
+  if (requiredMxSource
+      && Number(contract.contract_template_mx_id) !== requiredMxSource.contractTemplateMxId) {
+    blockers.push('registered_template_mismatch');
   }
 
   return {
@@ -435,7 +484,11 @@ async function getActivationState(contractId, {
 async function prepareActivation(contractId, {
   orgId = null, userId = null, assignedTo = null, includeDocuments = false,
   includeServiceOrder = true, includeWorkOrder = true, includeSpeedTest = true,
+  canStartInstallation = false,
 } = {}) {
+  if (canStartInstallation !== true) {
+    throw new ForbiddenError('Preparing a new installation requires installations.start');
+  }
   const contract = await Contract.findById(contractId, orgId);
   if (!contract) throw new NotFoundError('Contract');
   if (contract.status !== 'pending') {
@@ -456,6 +509,15 @@ async function prepareActivation(contractId, {
     if (requiredTemplates.length === 0) {
       throw new ValidationError(
         'Configure and activate at least one reviewed MX activation-contract template before preparing service',
+      );
+    }
+    const registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
+      requiredTemplates,
+      effectiveOrgId,
+    );
+    if (Number(contract.contract_template_mx_id) !== registeredSource.contractTemplateMxId) {
+      throw new ValidationError(
+        'Select the registered MX contract template used by the active activation document before preparing service',
       );
     }
   }
@@ -612,7 +674,11 @@ async function prepareActivation(contractId, {
 
   if (order.status === 'new') {
     try {
-      await lifecycleService.startOrder(order.id, { orgId: effectiveOrgId, userId });
+      await lifecycleService.startOrder(order.id, {
+        orgId: effectiveOrgId,
+        userId,
+        canStartInstallation,
+      });
     } catch (err) {
       // A concurrent idempotent prepare may have started the shared order
       // after our commit. Only absorb that exact success race; every genuine
@@ -625,7 +691,7 @@ async function prepareActivation(contractId, {
   // startOrder generated the templates active at start time. Re-running
   // prepare also materialises any template enabled since then, by exact
   // template ID, so `signature_missing` always has a document the client can
-  // actually open and sign. The helper is a strict no-op for global orgs.
+  // actually open and sign. Global gets its bundled neutral acknowledgment.
   const currentOrder = await findActivationOrder(contract.id, effectiveOrgId);
   await backfillRequiredDocuments(contract, currentOrder, {
     orgId: effectiveOrgId,

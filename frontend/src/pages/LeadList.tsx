@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { Pagination } from '@/components/Pagination';
@@ -120,6 +121,13 @@ async function fetchPlansLookup(): Promise<PlanOption[]> {
   });
   if (res.error) return [];
   return (res.data as unknown as { data: PlanOption[] }).data ?? [];
+}
+
+function leadInstallationAddress(lead: Lead): string {
+  return [lead.address, lead.city, lead.state, lead.zip_code]
+    .map(value => (value ?? '').trim())
+    .filter(Boolean)
+    .join(', ');
 }
 
 // ---------------------------------------------------------------------------
@@ -458,19 +466,229 @@ function LeadFormModal({
   );
 }
 
+interface InstallationStartResult {
+  contract?: { id: number };
+  contract_id?: number | null;
+}
+
+function StartInstallationModal({
+  lead,
+  onClose,
+  onStarted,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onStarted: (contractId: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [planId, setPlanId] = useState<number | ''>(lead.desired_plan_id ?? '');
+  const [address, setAddress] = useState(() => leadInstallationAddress(lead));
+  const [createdOrderId, setCreatedOrderId] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const { data: plans = [], isLoading: plansLoading } = useQuery({
+    queryKey: ['plans-lookup'],
+    queryFn: fetchPlansLookup,
+    staleTime: 60_000,
+  });
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (planId === '') {
+      setError(t('leads.installation.planRequired', 'Choose a plan before starting the installation.'));
+      return;
+    }
+
+    setPending(true);
+    setError('');
+    try {
+      let orderId = createdOrderId;
+      if (orderId === null) {
+        const createResult = await (api.POST as unknown as (
+          path: string,
+          options: unknown,
+        ) => Promise<{ data?: unknown; error?: unknown }>)('/service-orders', {
+          body: {
+            lead_id: lead.id,
+            plan_id: Number(planId),
+            order_type: 'new_install',
+            ...(address.trim() ? { address: address.trim() } : {}),
+          } as never,
+        });
+        if (createResult.error) {
+          throw new Error(extractApiError(
+            createResult.error,
+            t('leads.installation.createFailed', 'Failed to create the installation order.'),
+          ));
+        }
+        orderId = (createResult.data as unknown as { data?: { id?: number } })?.data?.id ?? null;
+        if (orderId === null) {
+          throw new Error(t('leads.installation.createFailed', 'Failed to create the installation order.'));
+        }
+        // Keep the successfully-created order in component state. If Start
+        // fails, the next submit retries this order instead of creating a
+        // duplicate installation request.
+        setCreatedOrderId(orderId);
+      } else {
+        // The previous Start response may have been lost after the server
+        // committed. Recover the durable order before retrying so a harmless
+        // network timeout never strands the operator or creates another order.
+        const savedResult = await (api.GET as unknown as (
+          path: string,
+          options: unknown,
+        ) => Promise<{ data?: unknown; error?: unknown }>)('/service-orders/{id}', {
+          params: { path: { id: orderId } },
+        });
+        if (savedResult.error) {
+          throw new Error(extractApiError(
+            savedResult.error,
+            t('leads.installation.recoveryFailed', 'The saved installation order could not be checked.'),
+          ));
+        }
+        const savedOrder = (savedResult.data as { data?: {
+          status?: string;
+          contract_id?: number | null;
+        } } | undefined)?.data;
+        if (savedOrder?.contract_id && savedOrder.status !== 'new') {
+          onStarted(savedOrder.contract_id);
+          return;
+        }
+        if (savedOrder?.status && savedOrder.status !== 'new') {
+          throw new Error(t(
+            'leads.installation.contractMissing',
+            'The installation started, but its pending contract could not be found. Open the saved service order to continue.',
+          ));
+        }
+      }
+
+      const startResult = await (api.POST as unknown as (
+        path: string,
+        options: unknown,
+      ) => Promise<{ data?: unknown; error?: unknown }>)('/service-orders/{id}/start', {
+        params: { path: { id: orderId } },
+        body: {} as never,
+      });
+      if (startResult.error) {
+        throw new Error(extractApiError(
+          startResult.error,
+          t('leads.installation.startFailed', 'The order was created, but the installation could not be started.'),
+        ));
+      }
+
+      const started = (startResult.data as unknown as { data?: InstallationStartResult })?.data;
+      const contractId = started?.contract?.id ?? started?.contract_id ?? null;
+      if (contractId === null) {
+        throw new Error(t(
+          'leads.installation.contractMissing',
+          'The installation started, but the pending contract was not returned. Open the service order to continue.',
+        ));
+      }
+      onStarted(contractId);
+    } catch (err) {
+      setError(err instanceof Error
+        ? err.message
+        : t('leads.installation.startFailed', 'The installation could not be started.'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const title = t('leads.installation.title', 'Start installation');
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={title}>
+      <div style={{ ...modalBox, width: 500, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 0.25rem' }}>{title}</h3>
+        <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          {t(
+            lead.converted_client_id
+              ? 'leads.installation.descriptionConverted'
+              : 'leads.installation.description',
+            lead.converted_client_id
+              ? 'Create the installation order and prepare a pending contract for this existing client.'
+              : 'Create the installation order, convert this lead to a client, and prepare a pending contract for approval.',
+          )}
+        </p>
+        <div style={{ marginBottom: '1rem', fontWeight: 600 }}>{lead.name}</div>
+        {error && <div style={errorBox}>{error}</div>}
+        {createdOrderId !== null && error && (
+          <p style={{ margin: '0 0 0.75rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+            {t(
+              'leads.installation.retryExisting',
+              {
+                id: createdOrderId,
+                defaultValue: 'Service order #{{id}} was saved. Retry will start the same order.',
+              },
+            )}
+          </p>
+        )}
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle} htmlFor="lead-installation-plan">
+            {t('leads.installation.plan', 'Service plan')} *
+          </label>
+          <select
+            id="lead-installation-plan"
+            style={inputStyle}
+            value={planId}
+            onChange={event => setPlanId(event.target.value ? Number(event.target.value) : '')}
+            disabled={pending || createdOrderId !== null}
+            required
+          >
+            <option value="">
+              {plansLoading
+                ? t('common.loading', 'Loading…')
+                : t('leads.installation.choosePlan', 'Choose a plan')}
+            </option>
+            {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+          </select>
+
+          <label style={labelStyle} htmlFor="lead-installation-address">
+            {t('leads.installation.address', 'Installation address')}
+          </label>
+          <textarea
+            id="lead-installation-address"
+            style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+            value={address}
+            onChange={event => setAddress(event.target.value)}
+            disabled={pending || createdOrderId !== null}
+          />
+
+          <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={cancelBtn} disabled={pending}>
+              {t('common.cancel', 'Cancel')}
+            </button>
+            <button type="submit" style={submitBtn} disabled={pending || planId === ''}>
+              {pending
+                ? t('leads.installation.starting', 'Starting…')
+                : createdOrderId !== null
+                  ? t('leads.installation.retry', 'Retry installation')
+                  : t('leads.installation.confirm', 'Create order and continue')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function LeadList() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [feasibilityLead, setFeasibilityLead] = useState<Lead | null>(null);
+  const [installationLead, setInstallationLead] = useState<Lead | null>(null);
+  const [actionError, setActionError] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   const canCreate = can(user, 'leads.create');
   const canUpdate = can(user, 'leads.update');
   const canConvert = can(user, 'clients.create');
+  const canPrepareInstallation = can(user, 'service_orders.create')
+    && can(user, 'service_orders.update')
+    && can(user, 'installations.start');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['leads', page, pageSize],
@@ -480,14 +698,29 @@ export function LeadList() {
 
   const convertMutation = useMutation({
     mutationFn: async (id: number) => {
-      const { error: e } = await api.POST('/leads/{id}/convert', { params: { path: { id } }, body: {} as never });
+      const { data: converted, error: e } = await api.POST('/leads/{id}/convert', { params: { path: { id } }, body: {} as never });
       if (e) throw new Error(extractApiError(e, 'Failed to convert lead'));
+      return (converted as unknown as { data?: { client?: { id?: number } } })?.data?.client?.id;
     },
     onSuccess: () => {
+      setActionError('');
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['clients'] });
     },
+    onError: (err: unknown) => setActionError(
+      err instanceof Error ? err.message : t('leads.convertFailed', 'Failed to convert lead'),
+    ),
   });
+
+  function installationStarted(contractId: number) {
+    setInstallationLead(null);
+    setActionError('');
+    qc.invalidateQueries({ queryKey: ['leads'] });
+    qc.invalidateQueries({ queryKey: ['clients'] });
+    qc.invalidateQueries({ queryKey: ['service-orders'] });
+    qc.invalidateQueries({ queryKey: ['contracts'] });
+    navigate(`/contracts/${contractId}`);
+  }
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['leads'] });
@@ -520,6 +753,7 @@ export function LeadList() {
         </div>
       )}
 
+      {actionError && <div style={errorBox}>{actionError}</div>}
       {isLoading && <p>Loading…</p>}
       {error && <div style={errorBox}>{(error as Error).message}</div>}
 
@@ -554,13 +788,26 @@ export function LeadList() {
                     <button type="button" style={{ ...cancelBtn, padding: '4px 10px', marginRight: 6 }}
                       onClick={() => setEditLead(l)}>Edit</button>
                   )}
+                  {canPrepareInstallation && (
+                    <button
+                      type="button"
+                      style={{ ...submitBtn, padding: '4px 10px', marginRight: 6 }}
+                      onClick={() => { setActionError(''); setInstallationLead(l); }}
+                    >
+                      {t('leads.installation.button', 'Start installation')}
+                    </button>
+                  )}
                   {canConvert && !l.converted_client_id && (
-                    <button type="button" style={{ ...submitBtn, padding: '4px 10px' }}
+                    <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }}
                       disabled={convertMutation.isPending}
-                      onClick={() => convertMutation.mutate(l.id)}>Convert</button>
+                      onClick={() => { setActionError(''); convertMutation.mutate(l.id); }}>
+                      {t('leads.convert', 'Convert')}
+                    </button>
                   )}
                   {l.converted_client_id && (
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Client #{l.converted_client_id}</span>
+                    <Link to={`/clients/${l.converted_client_id}`} style={{ fontSize: '0.8rem' }}>
+                      {t('leads.clientLink', { id: l.converted_client_id, defaultValue: 'Client #{{id}}' })}
+                    </Link>
                   )}
                 </td>
               </tr>
@@ -588,6 +835,13 @@ export function LeadList() {
       )}
       {editLead && (
         <LeadFormModal mode="edit" initial={editLead} onClose={() => setEditLead(null)} onSaved={refresh} />
+      )}
+      {installationLead && (
+        <StartInstallationModal
+          lead={installationLead}
+          onClose={() => setInstallationLead(null)}
+          onStarted={installationStarted}
+        />
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { MxRegisteredContractSourceField } from '@/components/MxRegisteredContractSourceField';
 import {
   overlay, modalBox, errorBox, labelStyle, inputStyle, submitBtn, cancelBtn,
   extractApiError,
@@ -26,6 +27,7 @@ interface CreateContractBody {
   ip_address?: string;
   price_override?: number;
   facturar?: boolean;
+  contract_template_mx_id?: number;
 }
 
 async function fetchPlans(): Promise<Plan[]> {
@@ -54,6 +56,7 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
   const [form, setForm] = useState({
     plan_id: '', connection_type: 'pppoe', start_date: TODAY,
     billing_day: '1', ip_address: '', price_override: '', facturar: false,
+    contract_template_mx_id: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +84,15 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
       };
       // `facturar` controls an MX/CFDI flow. Global organizations should not
       // see it and should not send the jurisdiction-specific field at all.
-      if (isMxOrg) body.facturar = form.facturar;
+      if (isMxOrg) {
+        body.facturar = form.facturar;
+        // The server derives the one active registered source when this user
+        // cannot inspect legal configuration. Preserve an explicit verified
+        // choice when the optional picker is available.
+        if (form.contract_template_mx_id) {
+          body.contract_template_mx_id = Number(form.contract_template_mx_id);
+        }
+      }
       const contractId = await createContract(body);
       onCreated(contractId);
       onClose();
@@ -140,6 +151,16 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
             onChange={e => setField('price_override', e.target.value)} placeholder="e.g. 350.00" />
 
           {isMxOrg && (
+            <MxRegisteredContractSourceField
+              value={form.contract_template_mx_id}
+              onChange={value => setField('contract_template_mx_id', value)}
+              required={false}
+              labelStyle={labelStyle}
+              selectStyle={inputStyle}
+            />
+          )}
+
+          {isMxOrg && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.facturar} onChange={e => setField('facturar', e.target.checked)} />
               Generate CFDI invoice automatically
@@ -148,7 +169,11 @@ export function NewContractModal({ lockedClientId, lockedClientName, onClose, on
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1.25rem' }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
-            <button type="submit" style={submitBtn} disabled={submitting}>
+            <button
+              type="submit"
+              style={submitBtn}
+              disabled={submitting}
+            >
               {submitting ? 'Creating…' : 'Create Contract'}
             </button>
           </div>

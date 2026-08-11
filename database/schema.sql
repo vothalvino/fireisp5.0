@@ -12298,6 +12298,18 @@ CREATE TABLE IF NOT EXISTS subscriber_consents (
     withdrawn_at    TIMESTAMP       NULL,
     ip_address      VARCHAR(45)     NULL,
     channel         ENUM('web','app','paper','phone','email') NOT NULL DEFAULT 'web',
+    communication_channel ENUM('email','sms','whatsapp') NULL
+                         COMMENT 'Optional delivery channel covered by this consent; channel records the capture medium',
+    source_context  VARCHAR(40)     NULL
+                         COMMENT 'Workflow that captured the choice, for example installation or portal',
+    service_order_id BIGINT UNSIGNED NULL
+                         COMMENT 'Service order during which the consent choice was captured',
+    work_order_id   BIGINT UNSIGNED NULL
+                         COMMENT 'Field work order during which the consent choice was captured',
+    signed_document_id BIGINT UNSIGNED NULL
+                         COMMENT 'Signed acknowledgment that presented this communication choice',
+    captured_by     BIGINT UNSIGNED NULL
+                         COMMENT 'Staff user who recorded the subscriber choice; NULL for self-service/system capture',
     document_hash   VARCHAR(64)     NULL COMMENT 'SHA-256 of the privacy notice version',
     notes           TEXT            NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -12306,10 +12318,22 @@ CREATE TABLE IF NOT EXISTS subscriber_consents (
     KEY idx_subscriber_consents_client  (client_id),
     KEY idx_subscriber_consents_purpose (purpose),
     KEY idx_subscriber_consents_given_at (given_at),
+    KEY idx_subscriber_consents_active_channel
+        (client_id, purpose, communication_channel, withdrawn_at),
+    KEY idx_subscriber_consents_service_order (service_order_id),
+    KEY idx_subscriber_consents_work_order (work_order_id),
+    KEY idx_subscriber_consents_signed_document (signed_document_id),
+    KEY idx_subscriber_consents_captured_by (captured_by),
     CONSTRAINT fk_sub_consents_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_sub_consents_client FOREIGN KEY (client_id)
-        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES clients (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_sub_consents_service_order FOREIGN KEY (service_order_id)
+        REFERENCES service_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sub_consents_work_order FOREIGN KEY (work_order_id)
+        REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_sub_consents_captured_by FOREIGN KEY (captured_by)
+        REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Aviso de Privacidad consent tracking per subscriber (§16.2)';
 
@@ -14203,12 +14227,14 @@ CREATE TABLE IF NOT EXISTS document_templates (
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       organization_id BIGINT UNSIGNED NULL
                           COMMENT 'Tenant organization; NULL = single-tenant deployment',
-      template_type   ENUM('installation_authorization','activation_contract','equipment_comodato','custom')
+      template_type   ENUM('installation_authorization','activation_contract','service_acknowledgment','equipment_comodato','custom')
                           NOT NULL DEFAULT 'custom'
-                          COMMENT 'Flow hook: installation_authorization gates WO start, activation_contract gates WO completion',
+                          COMMENT 'Flow hook: installation_authorization gates WO start; activation_contract and service_acknowledgment are signed at handoff',
       name            VARCHAR(200)    NOT NULL,
       body_md         MEDIUMTEXT      NOT NULL
                           COMMENT 'Markdown with {{placeholders}} (client.*, contract.*, plan.*, order.*, org.*, date)',
+      contract_template_mx_id BIGINT UNSIGNED NULL
+                          COMMENT 'Exact organization-owned registered MX source; required before an activation_contract can be active',
       is_active       TINYINT(1)      NOT NULL DEFAULT 0
                           COMMENT 'Only active templates generate instances; ship OFF so the ISP must review its legal text first',
       created_by      BIGINT UNSIGNED NULL,
@@ -14218,11 +14244,16 @@ CREATE TABLE IF NOT EXISTS document_templates (
       PRIMARY KEY (id),
       KEY idx_document_templates_org (organization_id),
       KEY idx_document_templates_type (template_type),
+      KEY idx_document_templates_contract_template_mx (contract_template_mx_id),
       KEY idx_document_templates_deleted (deleted_at),
       CONSTRAINT fk_document_templates_org FOREIGN KEY (organization_id)
           REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT fk_document_templates_creator FOREIGN KEY (created_by)
-          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_document_templates_contract_template_mx FOREIGN KEY (contract_template_mx_id)
+          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+      CONSTRAINT chk_document_templates_mx_link_type
+          CHECK (contract_template_mx_id IS NULL OR template_type = 'activation_contract')
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -14240,7 +14271,7 @@ CREATE TABLE IF NOT EXISTS signed_documents (
       work_order_id    BIGINT UNSIGNED NULL,
       template_id      BIGINT UNSIGNED NULL
                            COMMENT 'Source template; SET NULL if the template is later deleted — the frozen body below is authoritative',
-      template_type    ENUM('installation_authorization','activation_contract','equipment_comodato','custom')
+      template_type    ENUM('installation_authorization','activation_contract','service_acknowledgment','equipment_comodato','custom')
                            NOT NULL DEFAULT 'custom',
       title            VARCHAR(200)    NOT NULL,
       rendered_body    MEDIUMTEXT      NOT NULL
@@ -14253,6 +14284,22 @@ CREATE TABLE IF NOT EXISTS signed_documents (
                            COMMENT 'PNG data-URL of the on-screen signature stroke',
       signed_at        DATETIME        NULL,
       signed_ip        VARCHAR(45)     NULL,
+      captured_by      BIGINT UNSIGNED NULL
+                           COMMENT 'Staff user who captured the client signature; NULL for self-service/system capture',
+      communication_choices JSON NULL
+                           COMMENT 'Exact optional email/SMS/WhatsApp choices captured with this customer signature',
+      evidence_sha256  CHAR(64)        NULL
+                           COMMENT 'SHA-256 of canonical document, signature, signer, actor, IP, and communication-choice evidence',
+      contract_template_mx_id BIGINT UNSIGNED NULL
+                           COMMENT 'Registered MX source snapshotted when this document was generated',
+      mx_registration_number VARCHAR(100) NULL
+                           COMMENT 'Official registration number frozen at generation',
+      mx_registered_at DATE NULL
+                           COMMENT 'Official registration date frozen at generation',
+      mx_template_version VARCHAR(20) NULL
+                           COMMENT 'Registered source version frozen at generation',
+      mx_source_sha256 CHAR(64) NULL
+                           COMMENT 'SHA-256 of the exact registered, pre-render source text',
       created_by       BIGINT UNSIGNED NULL,
       created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -14264,6 +14311,8 @@ CREATE TABLE IF NOT EXISTS signed_documents (
       KEY idx_signed_documents_so (service_order_id),
       KEY idx_signed_documents_wo (work_order_id),
       KEY idx_signed_documents_status (status),
+      KEY idx_signed_documents_captured_by (captured_by),
+      KEY idx_signed_documents_contract_template_mx (contract_template_mx_id),
       KEY idx_signed_documents_deleted (deleted_at),
       CONSTRAINT fk_signed_documents_org FOREIGN KEY (organization_id)
           REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
@@ -14277,6 +14326,26 @@ CREATE TABLE IF NOT EXISTS signed_documents (
           REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT fk_signed_documents_template FOREIGN KEY (template_id)
           REFERENCES document_templates (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_captured_by FOREIGN KEY (captured_by)
+          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT fk_signed_documents_contract_template_mx FOREIGN KEY (contract_template_mx_id)
+          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
       CONSTRAINT fk_signed_documents_creator FOREIGN KEY (created_by)
-          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+          REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT chk_signed_documents_mx_link_type
+          CHECK (contract_template_mx_id IS NULL OR template_type = 'activation_contract')
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- subscriber_consents is defined earlier than signed_documents. Add this
+-- forward-reference only after both tables exist (migration 451).
+ALTER TABLE subscriber_consents
+  ADD CONSTRAINT fk_sub_consents_signed_document
+    FOREIGN KEY (signed_document_id) REFERENCES signed_documents (id)
+    ON DELETE SET NULL ON UPDATE CASCADE;
+
+INSERT IGNORE INTO permissions (name, description, module) VALUES
+  ('installations.start', 'Convert a lead and create/provision a new installation contract', 'lifecycle');
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r
+JOIN permissions p ON p.name = 'installations.start'
+WHERE r.name IN ('admin', 'super_admin', 'support');

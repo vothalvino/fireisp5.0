@@ -15,8 +15,9 @@ const mockGql = vi.fn();
 vi.mock('@/api/graphql', () => ({ gql: (...a: unknown[]) => mockGql(...a) }));
 
 const mockApiGet = vi.fn();
+const mockApiPost = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: (...a: unknown[]) => mockApiGet(...a), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
+  api: { GET: (...a: unknown[]) => mockApiGet(...a), POST: (...a: unknown[]) => mockApiPost(...a), PUT: vi.fn(), DELETE: vi.fn() },
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
   authedFetch: vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)),
 }));
@@ -47,6 +48,7 @@ beforeEach(() => {
   mockPermissions = undefined;
   mockGql.mockResolvedValue({ contract: makeContract('pppoe') });
   mockApiGet.mockResolvedValue({ data: { data: [radiusAccount] }, error: undefined });
+  mockApiPost.mockResolvedValue({ data: { data: {} }, error: undefined });
   global.fetch = vi.fn();
 });
 
@@ -198,6 +200,26 @@ describe('ContractDetail — guided activation', () => {
     expect(screen.getAllByText(/Line OFF until permanent activation/).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
     expect(screen.getByText(/Record the technician speed-test result/)).toBeInTheDocument();
+  });
+
+  it('does not offer preparation to a contract editor without installations.start', async () => {
+    mockRole = 'custom';
+    mockPermissions = ['contracts.view', 'contracts.update'];
+    const state = pendingActivation({
+      service_order: null,
+      service_order_prepared: false,
+      work_order: null,
+      work_order_prepared: false,
+      blockers: ['service_order_missing', 'work_order_missing'],
+    });
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(state));
+    renderDetail();
+
+    expect(await screen.findByText(/requires both contracts.update and installations.start/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Prepare installation visit' })).not.toBeInTheDocument();
+    expect((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([url, init]) => String(url).endsWith('/activation/prepare') && init?.method === 'POST',
+    )).toBe(false);
   });
 
   it('lets a contract operator reassign an unfinished activation visit', async () => {
@@ -378,18 +400,137 @@ describe('ContractDetail — guided activation', () => {
     expect(await screen.findByText('#82')).toBeInTheDocument();
   });
 
-  it('does not render or request MX legal-document UI for a global organization', async () => {
+  it('renders the neutral service acknowledgment step for a global organization', async () => {
     const state = pendingActivation({
-      documents: [{ id: 41, template_type: 'activation_contract', title: 'MX activation contract', status: 'pending', signer_name: null, signed_at: null }],
+      documents: [{ id: 41, template_type: 'service_acknowledgment', title: 'Service installation acknowledgment', status: 'pending', signer_name: null, signed_at: null }],
       blockers: ['signature_missing'],
     });
     (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(state));
     renderDetail();
 
     await screen.findByRole('heading', { name: 'Activate contract' });
-    expect(screen.queryByTestId('mx-activation-documents')).not.toBeInTheDocument();
-    expect(screen.queryByText('MX activation contract')).not.toBeInTheDocument();
+    expect(screen.getByTestId('activation-documents')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Customer service acknowledgment/ })).toBeInTheDocument();
+    expect(screen.getByText('Service installation acknowledgment')).toBeInTheDocument();
+    expect(screen.getByText(/does not add jurisdiction-specific legal terms/i)).toBeInTheDocument();
     expect((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.every(([url]) => !String(url).includes('/signed-documents'))).toBe(true);
+  });
+
+  it('captures explicit communication choices with the global handoff signature', async () => {
+    const state = pendingActivation({
+      documents: [{ id: 41, template_type: 'service_acknowledgment', title: 'Service installation acknowledgment', status: 'pending', signer_name: null, signed_at: null }],
+      blockers: ['signature_missing'],
+    });
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(state));
+    mockApiGet.mockImplementation((path: unknown) => {
+      if (path === '/signed-documents/{id}') {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: 41,
+              template_type: 'service_acknowledgment',
+              title: 'Service installation acknowledgment',
+              status: 'pending',
+              signer_name: null,
+              signed_at: null,
+              rendered_body: 'I confirm the **service handoff**.',
+              communication_contacts: { email: true, phone: false },
+              privacy_notice: {
+                version: 'global-2026-08',
+                content: '# Customer privacy\nWe use contact details as described here.',
+                hash: 'a'.repeat(64),
+              },
+            },
+          },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Read & sign' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign document' });
+    expect(await within(dialog).findByText('Customer privacy')).toBeInTheDocument();
+    expect(within(dialog).getByText(/version global-2026-08/i)).toBeInTheDocument();
+
+    const email = within(dialog).getByRole('checkbox', { name: 'Email' });
+    const sms = within(dialog).getByRole('checkbox', { name: /SMS/ });
+    const whatsapp = within(dialog).getByRole('checkbox', { name: /WhatsApp/ });
+    const reviewed = within(dialog).getByRole('checkbox', { name: /customer reviewed the privacy notice/i });
+    expect(email).not.toBeChecked();
+    expect(sms).not.toBeChecked();
+    expect(whatsapp).not.toBeChecked();
+    expect(sms).toBeDisabled();
+    expect(whatsapp).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('Full name of signer'), { target: { value: 'Ada Customer' } });
+    const canvas = within(dialog).getByTestId('activation-signature-canvas') as HTMLCanvasElement;
+    Object.defineProperty(canvas, 'getContext', {
+      value: () => ({ beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), clearRect: vi.fn() }),
+    });
+    Object.defineProperty(canvas, 'setPointerCapture', { value: vi.fn() });
+    Object.defineProperty(canvas, 'toDataURL', { value: () => 'data:image/png;base64,c2ln' });
+    fireEvent.pointerDown(canvas, { clientX: 1, clientY: 1, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 1 });
+    fireEvent.click(email);
+
+    const signButton = within(dialog).getByRole('button', { name: 'Sign document' });
+    expect(signButton).toBeDisabled();
+    fireEvent.click(reviewed);
+    expect(signButton).not.toBeDisabled();
+    fireEvent.click(signButton);
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/signed-documents/{id}/sign',
+      expect.objectContaining({
+        params: { path: { id: 41 } },
+        body: {
+          signer_name: 'Ada Customer',
+          signature_image: 'data:image/png;base64,c2ln',
+          communication_opt_ins: { email: true, sms: false, whatsapp: false },
+          communication_choices_confirmed: true,
+          privacy_notice_version: 'global-2026-08',
+          privacy_notice_hash: 'a'.repeat(64),
+        },
+      }),
+    ));
+  });
+
+  it('preserves communication choices already captured by another handoff document', async () => {
+    const state = pendingActivation({
+      documents: [{ id: 42, template_type: 'service_acknowledgment', title: 'Second handoff acknowledgment', status: 'pending', signer_name: null, signed_at: null }],
+      blockers: ['signature_missing'],
+    });
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(state));
+    mockApiGet.mockImplementation((path: unknown) => {
+      if (path === '/signed-documents/{id}') {
+        return Promise.resolve({
+          data: {
+            data: {
+              id: 42,
+              template_type: 'service_acknowledgment',
+              title: 'Second handoff acknowledgment',
+              status: 'pending',
+              signer_name: null,
+              signed_at: null,
+              rendered_body: 'A second required handoff document.',
+              communication_choices_recorded: true,
+            },
+          },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Read & sign' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign document' });
+    expect(await within(dialog).findByTestId('communication-choices-recorded')).toHaveTextContent(/already captured with another handoff document/i);
+    expect(within(dialog).queryByText('Optional marketing communications')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
   it('requires the MX arrival authorization before starting temporary internet', async () => {
@@ -408,6 +549,7 @@ describe('ContractDetail — guided activation', () => {
     expect(screen.getByRole('button', { name: 'Start temporary internet' })).toBeDisabled();
     expect(screen.getByText(/before starting temporary internet/)).toBeInTheDocument();
     expect(screen.getByText('Activation contract')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Client contract signature/ })).toBeInTheDocument();
   });
 
   it('explains when an MX activation-contract template must be published first', async () => {
@@ -451,7 +593,7 @@ describe('ContractDetail — guided activation', () => {
     await screen.findByRole('heading', { name: 'Activate contract' });
     expect(screen.queryByText('Private activation terms')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Read & sign' })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('mx-activation-documents')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('activation-documents')).not.toBeInTheDocument();
   });
 
   it('shows non-sensitive preparation state when service and work-order details are redacted', async () => {
@@ -478,7 +620,7 @@ describe('ContractDetail — guided activation', () => {
   it('allows a contract operator to backfill late MX documents without exposing their metadata', async () => {
     mockLocale = 'MX';
     mockRole = 'custom';
-    mockPermissions = ['contracts.view', 'contracts.update'];
+    mockPermissions = ['contracts.view', 'contracts.update', 'installations.start'];
     const state = pendingActivation({
       documents: [],
       document_sync_required: true,
@@ -495,7 +637,7 @@ describe('ContractDetail — guided activation', () => {
       '/api/v1/contracts/5/activation/prepare',
       expect.objectContaining({ method: 'POST' }),
     ));
-    expect(screen.queryByTestId('mx-activation-documents')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('activation-documents')).not.toBeInTheDocument();
   });
 
   it('still enforces the MX arrival gate without exposing document metadata', async () => {
@@ -512,7 +654,7 @@ describe('ContractDetail — guided activation', () => {
     renderDetail();
 
     expect(await screen.findByRole('button', { name: 'Start temporary internet' })).toBeDisabled();
-    expect(screen.queryByTestId('mx-activation-documents')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('activation-documents')).not.toBeInTheDocument();
   });
 
   it('allows document viewing without offering signing unless signed_documents.sign is present', async () => {
@@ -927,8 +1069,7 @@ describe('ContractDetail — Devices tab equipment + creation', () => {
 
   it('creates a device pre-linked to the contract and its client from the New device modal', async () => {
     mockGetByPath();
-    const { api } = await import('@/api/client');
-    (api.POST as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: { id: 42 } }, error: undefined });
+    mockApiPost.mockResolvedValue({ data: { data: { id: 42 } }, error: undefined });
 
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
@@ -940,7 +1081,7 @@ describe('ContractDetail — Devices tab equipment + creation', () => {
     fireEvent.change(within(dialog).getByLabelText('MAC address'), { target: { value: 'AA:BB:CC:DD:EE:FF' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create device' }));
 
-    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/devices', expect.objectContaining({
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/devices', expect.objectContaining({
       body: expect.objectContaining({
         name: 'RGEW1300G — sala',
         type: 'indoor_cpe',
@@ -985,8 +1126,7 @@ describe('ContractDetail — Install equipment from inventory', () => {
 
   it('installs an in-stock serial against the contract through the inventory endpoint', async () => {
     mockInventoryPaths();
-    const { api } = await import('@/api/client');
-    (api.POST as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: {} }, error: undefined });
+    mockApiPost.mockResolvedValue({ data: { data: {} }, error: undefined });
 
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
@@ -1003,7 +1143,7 @@ describe('ContractDetail — Install equipment from inventory', () => {
     fireEvent.change(within(dialog).getByLabelText('Serial'), { target: { value: '91' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Install equipment' }));
 
-    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/cpe-management/devices/install', expect.objectContaining({
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/cpe-management/devices/install', expect.objectContaining({
       body: expect.objectContaining({ contract_id: 5, cpe_device_id: 91, ownership: 'rented' }),
     })));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Install equipment' })).not.toBeInTheDocument());
@@ -1011,8 +1151,7 @@ describe('ContractDetail — Install equipment from inventory', () => {
 
   it('typed-new-serial mode sends new_serial + inventory_item_id and honors sold ownership', async () => {
     mockInventoryPaths();
-    const { api } = await import('@/api/client');
-    (api.POST as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: {} }, error: undefined });
+    mockApiPost.mockResolvedValue({ data: { data: {} }, error: undefined });
 
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
@@ -1027,15 +1166,14 @@ describe('ContractDetail — Install equipment from inventory', () => {
     fireEvent.click(within(dialog).getByLabelText('Sold (raises an invoice)'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Install equipment' }));
 
-    await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/cpe-management/devices/install', expect.objectContaining({
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/cpe-management/devices/install', expect.objectContaining({
       body: expect.objectContaining({ contract_id: 5, new_serial: 'RGEW-NEW-42', inventory_item_id: 1, ownership: 'sold' }),
     })));
   });
 
   it('refuses to submit without a serial instead of posting a half-formed install', async () => {
     mockInventoryPaths();
-    const { api } = await import('@/api/client');
-    (api.POST as ReturnType<typeof vi.fn>).mockClear();
+    mockApiPost.mockClear();
 
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
@@ -1045,6 +1183,6 @@ describe('ContractDetail — Install equipment from inventory', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Install equipment' }));
     expect(await within(dialog).findByText('Select a serial.')).toBeInTheDocument();
-    expect(api.POST).not.toHaveBeenCalled();
+    expect(mockApiPost).not.toHaveBeenCalled();
   });
 });

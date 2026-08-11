@@ -658,6 +658,7 @@
     "preparing": "Preparando…",
     "prepareFailed": "No se pudo preparar la visita de instalación.",
     "waitingForPreparation": "Un responsable de contratos debe preparar la visita antes de comenzar las pruebas.",
+    "installationStartPermissionRequired": "Preparar, asignar o volver a comisionar esta instalación requiere los permisos contracts.update e installations.start. Solicita a un administrador acceso para iniciar instalaciones.",
     "visitPreparedRestricted": "La visita de instalación está preparada. Los detalles de las órdenes requieren el permiso de consulta correspondiente.",
     "commissioningDetailsRestricted": "La puesta en servicio está en curso; se requiere permiso de órdenes de trabajo para verla u operarla.",
     "openWorkOrders": "Abrir órdenes de trabajo →",
@@ -695,7 +696,13 @@
     "lineShutdownPendingAfterTest": "La medición está guardada y la nueva autenticación bloqueada; aún está pendiente cerrar la sesión activa.",
     "clientSignature": "Firma del cliente",
     "clientSignatureHelp": "El cliente lee y firma el contrato de activación congelado en el dispositivo del técnico antes de la entrega.",
+    "mxClientSignature": "Firma del contrato por el cliente",
+    "mxClientSignatureHelp": "El cliente revisa y firma el contrato mexicano de activación y sus términos legales congelados en el dispositivo del técnico antes de la entrega.",
+    "globalClientSignature": "Constancia de servicio del cliente",
+    "globalClientSignatureHelp": "El cliente revisa y firma la constancia neutral de instalación y entrega del servicio. No agrega términos legales de una jurisdicción específica.",
     "noDocuments": "Aún no hay documento de activación. Preparar la visita lo crea cuando existe una plantilla activa.",
+    "noMxDocuments": "Aún no hay un contrato de activación revisado. Preparar la visita lo crea después de publicar una plantilla mexicana activa.",
+    "noGlobalDocuments": "Aún no hay una constancia de servicio. Preparar la visita crea automáticamente la constancia genérica.",
     "pendingSignature": "Firma pendiente",
     "readAndSign": "Leer y firmar",
     "signPermissionRequired": "Se requiere permiso para firmar",
@@ -718,6 +725,8 @@
     "acceptanceRequired": "Ingresa al menos una lectura de aceptación o dispensa las lecturas.",
     "waiverNotesRequired": "Explica por qué se dispensaron las lecturas de aceptación.",
     "signBeforeHandoff": "El cliente debe firmar el contrato de activación antes de completar esta visita.",
+    "mxSignBeforeHandoff": "El cliente debe firmar el contrato mexicano de activación antes de completar esta visita.",
+    "globalSignBeforeHandoff": "El cliente debe firmar la constancia de instalación del servicio antes de completar esta visita.",
     "testBeforeHandoff": "Guarda la prueba de velocidad del técnico antes de completar la visita.",
     "completeVisit": "Completar visita de instalación",
     "completingVisit": "Completando visita…",
@@ -763,7 +772,9 @@
       "testWindowCleanupPending": "El acceso de prueba del técnico todavía se está apagando; reintenta en unos momentos.",
       "speedTestMissing": "Guarda el resultado de la prueba de velocidad del técnico.",
       "activationTemplateMissing": "Publica una plantilla de contrato de activación antes de activar este contrato mexicano.",
-      "signatureMissing": "Obtén la firma del cliente en el contrato de activación."
+      "signatureMissing": "Obtén la firma del cliente en el contrato de activación.",
+      "mxSignatureMissing": "Obtén la firma del cliente en el contrato mexicano de activación.",
+      "globalSignatureMissing": "Obtén la firma del cliente en la constancia de instalación del servicio."
     }
   },
   "invoiceList": {
@@ -1418,9 +1429,11 @@
     }
   },
   "clientDnd": {
-    "description": "Configura las preferencias de no-molestar por canal para este cliente. Los opt-outs se aplican a los envíos de marketing; los avisos transaccionales críticos no se ven afectados.",
+    "description": "Configura la supresión y las horas de silencio por canal. Estos ajustes nunca crean consentimiento de mercadotecnia; los envíos promocionales también requieren un consentimiento afirmativo por separado.",
     "optedOut": "Dado de baja",
     "subscribed": "Suscrito",
+    "notSuppressed": "Sin supresión",
+    "notRecorded": "Sin supresión registrada",
     "cols": {
       "channel": "Canal",
       "status": "Estado",
@@ -1435,7 +1448,7 @@
       "reason": "Motivo",
       "reasonPlaceholder": "Por qué se estableció el opt-out"
     },
-    "note": "Los opt-outs solo suprimen los envíos masivos / de marketing. Las facturas, pagos y avisos de suspensión siempre se entregan.",
+    "note": "Quitar una supresión no otorga consentimiento de mercadotecnia. Las facturas, pagos y avisos de suspensión son independientes de las comunicaciones promocionales opcionales.",
     "errors": {
       "loadFailed": "No se pudieron cargar las preferencias de comunicación.",
       "saveFailed": "No se pudo guardar la preferencia."
@@ -3425,8 +3438,12 @@
     },
     "documents": {
       "title": "Documentos legales",
+      "mxTitle": "Documentos legales",
+      "globalTitle": "Constancias de servicio",
       "pending": "Pendiente de firma",
       "openSign": "Leer y firmar",
+      "viewPermissionRequired": "Necesitas el permiso signed_documents.view para ver los documentos de esta instalación.",
+      "signPermissionRequired": "La firma requiere el permiso signed_documents.sign.",
       "signTitle": "Firmar documento",
       "signedBy": "Firmado por {{name}}",
       "alreadySigned": "Ya firmado por {{name}}.",
@@ -3434,6 +3451,8 @@
       "signHere": "Firma",
       "signerRequired": "Ingresa el nombre completo del firmante.",
       "signatureRequired": "Dibuja la firma primero.",
+      "clearSignature": "Borrar firma",
+      "loadFailed": "No se pudo cargar el documento. Vuelve a intentarlo o cierra esta ventana.",
       "signing": "Guardando…",
       "signButton": "Firmar documento"
     },
@@ -3760,6 +3779,8 @@
       "withdrawn": "Retirado",
       "active": "Activo",
       "channel": "Canal",
+      "captureMethod": "Método de captura",
+      "communicationChannel": "Canal promocional",
       "version": "Versión del aviso",
       "notes": "Notas",
       "create": "Registrar consentimiento",
@@ -3825,7 +3846,34 @@
       "noticeType": "Tipo de Aviso",
       "effectiveDate": "Fecha Efectiva",
       "status": "Estado",
-      "noticeDays": "Dias de Aviso"
+      "noticeDays": "Dias de Aviso",
+      "registry": {
+        "title": "Evidencia de plantilla de contrato registrada",
+        "explanation": "Borrador y enviada son estados internos de preparación. Registrada significa que un operador confirmó la evidencia del registro externo e ingresó el texto y los metadatos registrados exactos.",
+        "externalWarning": "FireISP no presenta, registra ni aprueba esta plantilla ante una autoridad. Registra este estado solo después de recibir confirmación externa. Ingresa el texto registrado exacto; esta pantalla de registro no brinda asesoría legal.",
+        "create": "Agregar evidencia de plantilla",
+        "edit": "Editar evidencia de plantilla",
+        "name": "Nombre de la plantilla",
+        "exactText": "Texto exacto de la plantilla",
+        "version": "Versión",
+        "registrationNumber": "Número de registro",
+        "registrationDate": "Fecha de registro",
+        "status": "Estado de la evidencia",
+        "confirmExternalRegistration": "Confirmo que el registro ocurrió fuera de FireISP y que el número, la fecha, la versión y el texto exacto coinciden con la evidencia externa.",
+        "frozenEvidence": "La evidencia fuente registrada, vencida o revocada es de solo lectura. Un registro vigente solo puede marcarse como vencido o revocado; crea una nueva versión para usar otro texto o metadatos.",
+        "requiredFields": "El nombre, la versión y el texto exacto de la plantilla son obligatorios.",
+        "registrationRequired": "La confirmación del operador, el número y la fecha de registro son obligatorios antes de marcar esta evidencia como registrada.",
+        "loadError": "No se pudo cargar la evidencia de plantillas registradas.",
+        "saveError": "No se pudo guardar la evidencia de la plantilla registrada.",
+        "saved": "Evidencia de plantilla registrada guardada.",
+        "statuses": {
+          "draft": "Borrador",
+          "submitted": "Enviada externamente",
+          "registered": "Registrada · confirmada por operador",
+          "expired": "Vencida",
+          "revoked": "Revocada"
+        }
+      }
     },
     "residency": {
       "primaryCountry": "Pais de Almacenamiento Principal",
@@ -4713,7 +4761,28 @@
     "latitude": "Latitud",
     "longitude": "Longitud",
     "geocodeFromAddress": "Geocodificar desde la dirección",
-    "geocoding": "Geocodificando…"
+    "geocoding": "Geocodificando…",
+    "convert": "Solo convertir",
+    "convertFailed": "No se pudo convertir el prospecto.",
+    "clientLink": "Cliente #{{id}}",
+    "installation": {
+      "button": "Iniciar instalación",
+      "title": "Iniciar instalación",
+      "description": "Crea la orden de instalación, convierte este prospecto en cliente y prepara un contrato pendiente para revisión.",
+      "descriptionConverted": "Crea la orden de instalación y prepara un contrato pendiente para este cliente existente.",
+      "plan": "Plan de servicio",
+      "planRequired": "Selecciona un plan antes de iniciar la instalación.",
+      "choosePlan": "Seleccionar un plan",
+      "address": "Dirección de instalación",
+      "createFailed": "No se pudo crear la orden de instalación.",
+      "startFailed": "La orden se creó, pero no se pudo iniciar la instalación.",
+      "contractMissing": "La instalación inició, pero no se encontró el contrato pendiente. Abre la orden guardada para continuar.",
+      "recoveryFailed": "No se pudo consultar la orden de instalación guardada.",
+      "retryExisting": "La orden de servicio #{{id}} quedó guardada. El reintento iniciará la misma orden.",
+      "starting": "Iniciando…",
+      "retry": "Reintentar instalación",
+      "confirm": "Crear orden y continuar"
+    }
   },
   "vendors": {
     "title": "Proveedores",
@@ -5121,6 +5190,39 @@
     "agentPending": "El agente de despliegue aún no se ha registrado. Se instala automáticamente con redeploy y se registra en unos 30 segundos; si esto persiste, ejecuta: journalctl -u fireisp-deploy-agent -n 30",
     "agentPendingWhy": "El agente se ejecuta en el servidor, fuera de Docker. FireISP nunca recibe permiso para reiniciar la pila: solo puede registrar tu solicitud, y por eso una intrusión aquí no permite tomar el control de la máquina."
   },
+  "communicationOptIn": {
+    "title": "Comunicaciones opcionales de mercadotecnia",
+    "optionalHelp": "Selecciona únicamente los canales en los que el cliente acepta recibir mensajes opcionales de mercadotecnia. Todas las opciones comienzan desmarcadas.",
+    "channels": {
+      "email": "Correo electrónico",
+      "sms": "SMS",
+      "whatsapp": "WhatsApp"
+    },
+    "emailUnavailable": "Este cliente no tiene un correo electrónico disponible.",
+    "phoneUnavailable": "Este cliente no tiene un número telefónico disponible.",
+    "essentialSeparate": "Los mensajes indispensables de servicio, facturación, seguridad y fallas se gestionan por separado. Rechazar mercadotecnia no afecta la instalación ni el servicio.",
+    "privacyNotice": "Aviso de privacidad · versión {{version}}",
+    "privacyUnavailable": "No se pudo cargar el aviso de privacidad vigente. No recabes la firma hasta que esté disponible.",
+    "reviewedConfirmation": "El cliente revisó el aviso de privacidad y confirmó estas opciones de comunicación.",
+    "reviewRequired": "Confirma que el cliente revisó el aviso de privacidad y sus opciones de comunicación.",
+    "alreadyRecorded": "Las opciones de comunicación ya se registraron con otro documento de entrega. Firmar este documento no las modificará."
+  },
+  "mxContractSource": {
+    "label": "Fuente registrada del contrato MX",
+    "select": "Selecciona la fuente usada por el documento de activación vigente",
+    "required": "Selecciona la fuente registrada del contrato MX que usa el documento de activación vigente.",
+    "permissionRequired": "Necesitas los permisos document_templates.view y contract_templates_mx.view para verificar la fuente de este contrato MX. Solicita acceso a un administrador o pídele que cree el contrato.",
+    "serverDerivedHint": "Al crear el contrato, el servidor aplicará la fuente exacta que usa el documento de activación MX vigente.",
+    "loadError": "No se pudo cargar la fuente registrada del contrato MX vigente. Revisa tu conexión y tus permisos.",
+    "noActiveDocument": "No hay un documento de activación MX activo, por lo que este contrato todavía no puede pasar a instalación.",
+    "unlinkedDocument": "Un documento de activación MX activo no está vinculado a evidencia de una fuente registrada. Corrige las Plantillas de Documentos Legales antes de crear el contrato.",
+    "ambiguousDocument": "Los documentos de activación MX activos apuntan a fuentes registradas distintas. Configúralos con una sola fuente antes de crear el contrato.",
+    "sourceNotUsable": "La fuente vinculada al documento de activación vigente no está completa y registrada actualmente. Primero selecciona o registra una fuente válida.",
+    "evidence": "Registro {{number}} · versión {{version}} · registrado el {{date}}",
+    "configureHint": "Configura la fuente registrada y después vincula esa misma fuente a todos los documentos de activación activos.",
+    "registryLink": "Abrir registro MX",
+    "documentsLink": "Abrir Plantillas de Documentos Legales"
+  },
   "documentTemplates": {
     "title": "Plantillas de Documentos Legales",
     "intro": "Los textos legales que el flujo genera y el cliente firma en sitio: la autorización de instalación (se firma al llegar), el contrato de adhesión (se firma al terminar la instalación) y un anexo de comodato opcional. Pega tu texto registrado ante PROFECO — una plantilla solo genera documentos cuando la activas.",
@@ -5139,6 +5241,25 @@
     "bodyRequired": "El texto del documento es obligatorio.",
     "loadError": "No se pudieron cargar las plantillas.",
     "empty": "Aún no hay plantillas — crea una y pega tu texto legal.",
+    "registeredSource": "Fuente del contrato MX registrado",
+    "selectRegisteredSource": "Selecciona evidencia de plantilla registrada",
+    "registeredEvidence": "Evidencia de plantilla registrada",
+    "registrationNumber": "Número de registro",
+    "registrationDate": "Fecha de registro",
+    "registrationVersion": "Versión",
+    "registrationStatus": "Estado",
+    "registeredSourceRequired": "Selecciona una fuente de contrato MX registrada y completa antes de guardar este contrato de activación.",
+    "registeredSourceIncomplete": "Esta fuente no está completa y registrada, por lo que no puede activar un contrato de instalación.",
+    "registeredSourcePermission": "Necesitas permiso para consultar las fuentes de contratos MX registrados antes de configurar un contrato de activación.",
+    "registeredSourceLoadError": "No se pudieron cargar las fuentes de contratos MX registrados.",
+    "noRegisteredSources": "No hay evidencia completa de una plantilla registrada. Registra y completa la fuente antes de activar este contrato.",
+    "registrationStatuses": {
+      "draft": "Borrador",
+      "submitted": "Enviada",
+      "registered": "Registrada",
+      "expired": "Vencida",
+      "revoked": "Revocada"
+    },
     "types": {
       "installation_authorization": "Autorización de instalación (al llegar)",
       "activation_contract": "Contrato de adhesión (activación)",

@@ -248,6 +248,9 @@ describe('Service order routes (§1.2)', () => {
   });
 
   test('POST /service-orders/:id/start transitions the order and surfaces the auto-created contract', async () => {
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'new', organization_id: 42,
+    });
     lifecycleService.startOrder.mockResolvedValue({
       order: { id: 10, status: 'in_process', contract_id: 77 },
       contract: { id: 77, status: 'pending' },
@@ -261,7 +264,36 @@ describe('Service order routes (§1.2)', () => {
     expect(res.body.data.status).toBe('in_process');
     expect(res.body.data.contract).toEqual({ id: 77, status: 'pending' });
     expect(res.body.data.provisioning).toEqual({ pppoe: { username: 'client01', password: 'secret' } });
-    expect(lifecycleService.startOrder).toHaveBeenCalledWith('10', expect.objectContaining({ orgId: 42 }));
+    expect(lifecycleService.startOrder).toHaveBeenCalledWith('10', expect.objectContaining({
+      orgId: 42,
+      canStartInstallation: true,
+    }));
+  });
+
+  test('service_orders.update alone cannot trigger client and contract creation', async () => {
+    const tech = technicianToken();
+    db.query.mockImplementation(async (sql) => {
+      if (/`users`/.test(String(sql))) {
+        return [[{
+          id: 2, email: 'tech@example.com', role: 'technician', status: 'active',
+          organization_id: 42,
+        }]];
+      }
+      return [[]];
+    });
+    jest.spyOn(User, 'getPermissions').mockResolvedValue(['service_orders.update']);
+    jest.spyOn(ServiceOrder, 'findByIdOrFail').mockResolvedValue({
+      id: 10, order_type: 'new_install', status: 'new', organization_id: 42,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/service-orders/10/start')
+      .set('Authorization', `Bearer ${tech}`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/installations\.start/i);
+    expect(lifecycleService.startOrder).not.toHaveBeenCalled();
   });
 
   test('POST /service-orders/:id/complete requires billing', async () => {

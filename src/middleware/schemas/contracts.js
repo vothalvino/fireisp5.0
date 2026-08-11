@@ -5,6 +5,7 @@
 const createContract = {
   client_id: { type: 'number', required: true, min: 1 },
   plan_id: { type: 'number', required: true, min: 1 },
+  contract_template_mx_id: { type: 'number', min: 1 },
   connection_type: { type: 'string', enum: ['pppoe', 'pppoe_dual', 'static', 'dual'] },
   start_date: { type: 'string', required: true },
   billing_day: { type: 'number', min: 1, max: 28 },
@@ -24,6 +25,7 @@ const createContract = {
 const updateContract = {
   client_id: { type: 'number', min: 1 },
   plan_id: { type: 'number', min: 1 },
+  contract_template_mx_id: { type: 'number', min: 1 },
   connection_type: { type: 'string', enum: ['pppoe', 'pppoe_dual', 'static', 'dual'] },
   start_date: { type: 'string' },
   end_date: { type: 'string' },
