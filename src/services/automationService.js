@@ -258,14 +258,25 @@ async function applyBatchOperation(organizationId, operation, target, params) {
 
     case 'unsuspend': {
       const [rows] = await db.query(
-        'SELECT id FROM contracts WHERE id = ? AND organization_id = ?',
+        `SELECT id, status, first_activated_at FROM contracts
+          WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
         [contractId, organizationId],
       );
       if (!rows.length) {
         throw new Error(`Contract ${contractId} not found in organization`);
       }
+      if (rows[0].status !== 'suspended' || !rows[0].first_activated_at) {
+        throw new Error(
+          `Contract ${contractId} must be suspended and previously activated before batch unsuspend`,
+        );
+      }
       const suspSvc = getSuspensionService();
-      await suspSvc.reconnectContract(contractId, params.user_id || null, params.invoice_id || null);
+      await suspSvc.reconnectContract(
+        contractId,
+        params.user_id || null,
+        params.invoice_id || null,
+        { orgId: organizationId },
+      );
       logger.info({ organizationId, contractId, operation }, 'Batch unsuspend applied');
       return;
     }
@@ -397,9 +408,19 @@ async function executeProvisioningStage(stageName, ctx) {
       };
     case 'activate_contract':
       if (ctx.contract_id) {
-        await db.query("UPDATE contracts SET status = 'active' WHERE id = ? AND status = 'pending'", [ctx.contract_id]);
+        // First activation is an evidence-bearing customer lifecycle action,
+        // not a provisioning-pipeline toggle. The old raw UPDATE bypassed the
+        // installation work order, measured technician speed test, bounded
+        // line shutdown, MX client signature, acceptance, billing, RADIUS
+        // restoration, and audit trail. Stop this pipeline honestly and send
+        // the operator to the contract's guided activation flow.
+        const err = new Error(
+          `Contract ${ctx.contract_id} was not activated: complete the guided activation flow on the contract page`,
+        );
+        err.code = 'CONTRACT_ACTIVATION_FLOW_REQUIRED';
+        throw err;
       }
-      return { contract_id: ctx.contract_id, activated: true };
+      return { contract_id: null, activated: false, note: 'No contract was supplied for activation' };
     case 'send_notification':
       logger.info(ctx, 'Provisioning: send_notification (notification service)');
       return { note: 'Notification dispatched via notificationService' };
@@ -551,6 +572,7 @@ module.exports = {
   evaluateAutomationRules,
   evaluateCondition,
   dispatchAction,
+  applyBatchOperation,
   createBatchJob,
   runProvisioningPipeline,
   evaluateRemediationRules,

@@ -79,11 +79,11 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
-- Customer lifecycle management — lead capture and prospect pipeline, service order workflow (request → approval → provisioning → activation) with onboarding checklists, automated welcome email/SMS on activation, win-back campaigns for cancelled customers, and churn analytics with predictive at-risk alerts
+- Customer lifecycle management — lead capture and prospect pipeline, service order workflow (request → approval → provisioning → activation), and guided contract activation with an assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, and MX-only client signatures before permanent service; global organizations omit the Mexican legal-document steps
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - Customer self-service portal (§11) — dashboard with plan overview, live session status, daily usage graph; invoice PDF/CFDI download; online payment (card/OXXO/SPEI/PayPal via checkout session); payment history; self-service requests (plan upgrade with proration, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule) with admin approval workflow; knowledge-base / FAQ with rating; embedded speed test (queues `subscriber_speed_test_jobs`, results view); AI-powered chatbot with automatic ticket-creation fallback; callback request; Web Push notification subscriptions (outage/billing/ticket events); PWA with offline service worker and web app manifest
-- RESTful API with 763 REST API endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
+- RESTful API with 960 REST API endpoints, interactive Swagger UI documentation (`/api/docs`), and static OpenAPI spec (`docs/openapi.json`)
 - GraphQL gateway (`/api/v1/graphql`) powered by graphql-yoga v5 — single-request multi-entity fetches, real-time subscriptions via SSE (PubSub), and a live ClientDetail query replacing multiple REST round-trips
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
@@ -110,7 +110,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 341 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–449)
+│   └── migrations/          # Individual numbered migration files (001–450)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -1343,7 +1343,3 @@ Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-
-
-

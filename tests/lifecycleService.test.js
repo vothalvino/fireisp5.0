@@ -21,6 +21,10 @@ const ServiceOrder = require('../src/models/ServiceOrder');
 const provisioningService = require('../src/services/subscriberProvisioningService');
 const billingService = require('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
+const radiusService = require('../src/services/radiusService');
+const routerProvisioningService = require('../src/services/routerProvisioningService');
+const testWindowService = require('../src/services/testWindowService');
+const Nas = require('../src/models/Nas');
 const lifecycleService = require('../src/services/lifecycleService');
 
 jest.mock('../src/services/subscriberProvisioningService', () => ({
@@ -29,6 +33,14 @@ jest.mock('../src/services/subscriberProvisioningService', () => ({
 
 jest.mock('../src/services/billingService', () => ({
   createOneOffInvoice: jest.fn(),
+}));
+
+jest.mock('../src/services/routerProvisioningService', () => ({
+  pushSubscriber: jest.fn(),
+}));
+
+jest.mock('../src/services/radiusService', () => ({
+  syncFreeradiusContract: jest.fn().mockResolvedValue({ found: true }),
 }));
 
 // cancelOrder lazy-requires this (only when it deprovisions a contract) —
@@ -302,6 +314,30 @@ describe('startOrder', () => {
     expect(db.getConnection).not.toHaveBeenCalled();
   });
 
+  test('MX new_install fails transactionally before dispatch writes when no activation template is active', async () => {
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null,
+      contract_id: null, order_type: 'new_install', organization_id: 1,
+    });
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50, name: 'Acme' });
+    conn.query
+      .mockResolvedValueOnce([[
+        {
+          id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null,
+          contract_id: null, order_type: 'new_install', organization_id: 1,
+        },
+      ]])
+      .mockResolvedValueOnce([[{ locale: 'MX', has_activation_template: 0 }]]);
+
+    await expect(lifecycleService.startOrder(1, { orgId: 1, userId: 9 }))
+      .rejects.toThrow(/activation-contract template before dispatching/i);
+
+    expect(conn.query).toHaveBeenCalledTimes(2);
+    expect(conn.query.mock.calls[1][0]).toMatch(/organizations o[\s\S]*FOR UPDATE/);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(provisioningService.provisionNewContract).not.toHaveBeenCalled();
+  });
+
   test('new_install with an existing client_id auto-creates and provisions the contract on an org-scoped plan check', async () => {
     jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
       id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install',
@@ -310,6 +346,7 @@ describe('startOrder', () => {
 
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install' }]]) // FOR UPDATE lock
+      .mockResolvedValueOnce([[{ locale: 'global', has_activation_template: 0 }]]) // transactional jurisdiction precondition
       .mockResolvedValueOnce([[{ id: 2 }]]) // plan is live + org-scoped
       .mockResolvedValueOnce([{ insertId: 900 }]) // INSERT contracts
       .mockResolvedValueOnce([[{ name: 'Acme' }]]) // seed lookup
@@ -337,8 +374,8 @@ describe('startOrder', () => {
       conn, expect.objectContaining({ id: 900, client_id: 50, plan_id: 2, status: 'pending' }), expect.any(Object),
     );
     // Plan check is org-scoped (allows this org's plans OR global plans).
-    expect(conn.query.mock.calls[1][0]).toMatch(/organization_id = \? OR organization_id IS NULL/);
-    expect(conn.query.mock.calls[1][1]).toEqual([2, 1]);
+    expect(conn.query.mock.calls[2][0]).toMatch(/organization_id = \? OR organization_id IS NULL/);
+    expect(conn.query.mock.calls[2][1]).toEqual([2, 1]);
     expect(result.contract).toEqual({ id: 900, status: 'pending' });
     expect(result.provisioning).toEqual({ pppoe: { username: 'acme01', password: 'x' } });
     expect(result.order.status).toBe('in_process');
@@ -370,6 +407,7 @@ describe('startOrder', () => {
     const mainConn = makeConn();
     mainConn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', plan_id: 2, client_id: null, lead_id: 5, contract_id: null, order_type: 'new_install' }]]) // lock (client_id NOT yet persisted — see below)
+      .mockResolvedValueOnce([[{ locale: 'global', has_activation_template: 0 }]])
       .mockResolvedValueOnce([[{ id: 2 }]]) // plan is live
       .mockResolvedValueOnce([{ insertId: 900 }]) // INSERT contracts
       .mockResolvedValueOnce([[{ name: 'New Co' }]]) // seed lookup
@@ -392,7 +430,7 @@ describe('startOrder', () => {
     // new contract_id, since the row locked in the main transaction still
     // shows client_id: null (it was set on a separate connection/moment by
     // convertLead's own transaction).
-    const updateCall = mainConn.query.mock.calls[5];
+    const updateCall = mainConn.query.mock.calls[6];
     expect(updateCall[0]).toMatch(/client_id = \?/);
     expect(updateCall[1]).toEqual(expect.arrayContaining([60, 900]));
     expect(result.contract.id).toBe(900);
@@ -415,6 +453,9 @@ describe('startOrder', () => {
       if (/SELECT id, assigned_to FROM work_orders/.test(t)) return [[]];
       if (/INSERT INTO work_orders/.test(t)) return [{ insertId: 70 }];
       if (/SELECT \* FROM work_orders WHERE id = \?/.test(t)) return [[{ id: 70, organization_id: 1, assigned_to: null }]];
+      if (/has_activation_template/.test(t)) {
+        return [[{ locale: 'MX', has_activation_template: 1 }]];
+      }
       if (/SELECT locale FROM organizations/.test(t)) return [[{ locale: 'MX' }]];
       if (/FROM document_templates/.test(t)) return [[{ id: 4, template_type: 'installation_authorization', name: 'Autorización', body_md: 'Cliente {{client.name}}' }]];
       if (/FROM clients WHERE/.test(t)) return [[{ id: 50, name: 'Acme' }]];
@@ -461,6 +502,7 @@ describe('startOrder', () => {
 
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install' }]])
+      .mockResolvedValueOnce([[{ locale: 'global', has_activation_template: 0 }]])
       .mockResolvedValueOnce([[]]); // plan not found for this org
 
     await expect(lifecycleService.startOrder(1, { orgId: 1 })).rejects.toMatchObject({ statusCode: 422, code: 'PLAN_ARCHIVED' });
@@ -476,6 +518,7 @@ describe('startOrder', () => {
 
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', plan_id: 2, client_id: 50, lead_id: null, contract_id: null, order_type: 'new_install' }]])
+      .mockResolvedValueOnce([[{ locale: 'global', has_activation_template: 0 }]])
       .mockResolvedValueOnce([[{ id: 2 }]])
       .mockResolvedValueOnce([{ insertId: 900 }])
       .mockResolvedValueOnce([[{ name: 'Acme' }]]);
@@ -505,6 +548,18 @@ describe('startOrder', () => {
 
 describe('completeOrder', () => {
   let conn;
+  const startedAt = new Date('2026-08-10T10:00:00Z');
+  const newInstallOrder = (overrides = {}) => ({
+    id: 1,
+    status: 'in_process',
+    order_type: 'new_install',
+    organization_id: 1,
+    client_id: 50,
+    contract_id: 900,
+    plan_id: null,
+    started_at: startedAt,
+    ...overrides,
+  });
   beforeEach(() => {
     jest.restoreAllMocks();
     conn = makeConn();
@@ -530,6 +585,40 @@ describe('completeOrder', () => {
     expect(db.getConnection).not.toHaveBeenCalled(); // never opened — the linked contract was never touched
   });
 
+  test('create_invoice refuses a caller lacking invoices.create before opening a transaction', async () => {
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'upgrade', client_id: 50,
+      contract_id: null, plan_id: null,
+    });
+
+    await expect(lifecycleService.completeOrder(1, {
+      orgId: 1,
+      billing: 'create_invoice',
+      installationFee: 500,
+      canCreateInvoice: false,
+    })).rejects.toThrow(/invoices\.create/i);
+
+    expect(db.getConnection).not.toHaveBeenCalled();
+    expect(billingService.createOneOffInvoice).not.toHaveBeenCalled();
+  });
+
+  test('locked new_install type cannot race an ordinary-order authorization pre-read', async () => {
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'upgrade', client_id: 50,
+      contract_id: 900, plan_id: null,
+    });
+    conn.query.mockResolvedValueOnce([[newInstallOrder()]]);
+
+    await expect(lifecycleService.completeOrder(1, {
+      orgId: 1,
+      billing: 'already_paid',
+      canActivateContract: false,
+    })).rejects.toThrow(/contracts\.update/i);
+
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /FROM contracts/.test(sql))).toBe(false);
+  });
+
   test('create_invoice requires a client on the order', async () => {
     jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({ id: 1, status: 'in_process', client_id: null, contract_id: null });
     await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'create_invoice', installationFee: 500 }))
@@ -545,21 +634,33 @@ describe('completeOrder', () => {
   });
 
   test('already_paid activates the pending contract, skips invoicing, transitions to done, and emits AFTER commit', async () => {
-    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({ id: 1, status: 'in_process', client_id: 50, contract_id: 900, plan_id: null });
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+      contract_id: 900, plan_id: null, organization_id: 1, started_at: startedAt,
+    });
     jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50, email: 'c@d.com' });
 
     conn.query
-      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]]) // FOR UPDATE lock
+      .mockResolvedValueOnce([[{
+        id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+        contract_id: 900, plan_id: null, organization_id: 1, started_at: startedAt,
+      }]]) // FOR UPDATE lock
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]]) // contract lock
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_rx_dbm: -18, acceptance_waived: 0 }]]) // completed install WO + evidence
+      .mockResolvedValueOnce([[{ id: 80 }]]) // technician speed test after order start
+      .mockResolvedValueOnce([[{ locale: 'global' }]]) // no MX legal requirements
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts -> active (+ clears test window, migration 448)
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> active (formal activation turns the line on)
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // guarded UPDATE service_orders -> done
 
-    db.query.mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]); // final re-fetch (pool, post-commit)
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]) // final re-fetch (pool, post-commit)
+      .mockResolvedValueOnce([[]]); // no direct-API NAS push needed
 
     const result = await lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' });
 
-    expect(conn.query.mock.calls[1][0]).toMatch(/UPDATE contracts SET status = 'active'/);
-    expect(conn.query.mock.calls[1][1]).toEqual([900]);
+    const activation = conn.query.mock.calls.find(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql));
+    expect(activation[1]).toEqual([900]);
     expect(billingService.createOneOffInvoice).not.toHaveBeenCalled();
     expect(result.invoice).toBeNull();
     expect(result.order.status).toBe('done');
@@ -570,15 +671,26 @@ describe('completeOrder', () => {
   });
 
   test('create_invoice raises a one-off invoice on the SAME connection (currency from the order plan) and transitions to done', async () => {
-    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({ id: 1, status: 'in_process', client_id: 50, contract_id: 900, plan_id: 2 });
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+      contract_id: 900, plan_id: 2, organization_id: 1, started_at: startedAt,
+    });
     jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
 
     db.query
       .mockResolvedValueOnce([[{ currency: 'MXN' }]]) // plan currency lookup (pre-check phase, pool)
-      .mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]); // final re-fetch
+      .mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]) // final re-fetch
+      .mockResolvedValueOnce([[]]); // no direct-API NAS push needed
 
     conn.query
-      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]]) // lock
+      .mockResolvedValueOnce([[{
+        id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+        contract_id: 900, plan_id: 2, organization_id: 1, started_at: startedAt,
+      }]]) // lock
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: 2, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_waived: 1 }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'global' }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> active (migration 448)
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE service_orders
@@ -613,13 +725,15 @@ describe('completeOrder', () => {
     }));
   });
 
-  test('does not fail when the linked contract is not pending — the guarded UPDATE simply matches 0 rows', async () => {
-    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({ id: 1, status: 'in_process', client_id: 50, contract_id: 900, plan_id: null });
+  test('a non-install order completes without activating its linked pending contract', async () => {
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'upgrade', client_id: 50,
+      contract_id: 900, plan_id: null,
+    });
     jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
 
     conn.query
-      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]])
-      .mockResolvedValueOnce([{ affectedRows: 0 }]) // contract wasn't pending — no-op, not an error
+      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', order_type: 'upgrade', client_id: 50, contract_id: 900 }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     db.query.mockResolvedValueOnce([[{ id: 1, status: 'done', client_id: 50 }]]);
@@ -628,10 +742,14 @@ describe('completeOrder', () => {
 
     expect(conn.commit).toHaveBeenCalled();
     expect(result.order.status).toBe('done');
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
   });
 
   test('a contract-trigger rejection (SIGNAL 45000) propagates the raw error (errno intact) and rolls back — order NOT transitioned', async () => {
-    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({ id: 1, status: 'in_process', client_id: 50, contract_id: 900, plan_id: null });
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue({
+      id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+      contract_id: 900, plan_id: null, organization_id: 1, started_at: startedAt,
+    });
     jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
 
     const triggerErr = new Error('PPPoE/PPPoE-dual contracts require at least one RADIUS account before activation');
@@ -639,7 +757,14 @@ describe('completeOrder', () => {
     triggerErr.errno = 1644;
 
     conn.query
-      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', client_id: 50, contract_id: 900 }]])
+      .mockResolvedValueOnce([[{
+        id: 1, status: 'in_process', order_type: 'new_install', client_id: 50,
+        contract_id: 900, organization_id: 1, started_at: startedAt,
+      }]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_waived: 1 }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'global' }]])
       .mockRejectedValueOnce(triggerErr); // UPDATE contracts fails the trigger
 
     await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
@@ -647,6 +772,217 @@ describe('completeOrder', () => {
 
     expect(conn.rollback).toHaveBeenCalled();
     expect(conn.commit).not.toHaveBeenCalled();
+  });
+
+  test('new_install blocks while the bounded technician test window is still open', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{
+        id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null,
+        test_window_expires_at: '2026-08-10 11:00:00',
+      }]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/End the technician test window/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
+  });
+
+  test('new_install blocks while external test-window cleanup is pending', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null,
+          test_window_expires_at: null, test_window_cleanup_pending: 1,
+        },
+      ]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/network cleanup must finish/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) =>
+      /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
+  });
+
+  test.each([
+    ['client', { client_id: 51, plan_id: null }],
+    ['plan', { client_id: 50, plan_id: 99 }],
+  ])('new_install refuses activation when the locked contract %s differs from the order', async (_field, contractIdentity) => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1,
+          ...contractIdentity, test_window_expires_at: null,
+        },
+      ]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/client\/plan no longer matches/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /FROM work_orders/.test(sql))).toBe(false);
+  });
+
+  test('new_install requires a completed installation work order with acceptance evidence', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_waived: 0 }]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/acceptance reading or explicit waiver/i);
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  test('new_install cannot reuse an older completed visit when the newest replacement is still assigned', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null,
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+        },
+      ]])
+      // The query is newest-first and deliberately does not pre-filter status.
+      .mockResolvedValueOnce([[{ id: 71, status: 'assigned', acceptance_waived: 0 }]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/newest linked installation work order/i);
+    const workOrderQuery = conn.query.mock.calls.find(([sql]) => /FROM work_orders/.test(sql));
+    expect(workOrderQuery[0]).not.toMatch(/status = 'completed'/);
+    expect(conn.query.mock.calls.some(([sql]) => /FROM speed_tests/.test(sql))).toBe(false);
+  });
+
+  test('new_install requires a technician speed test bound to the exact installation work order', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_link_mbps: 100, acceptance_waived: 0 }]])
+      .mockResolvedValueOnce([[]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/speed test bound to this installation work order/i);
+    const speedQuery = conn.query.mock.calls.find(([sql]) => /FROM speed_tests/.test(sql));
+    expect(speedQuery[0]).toMatch(/test_source = 'technician'/);
+    expect(speedQuery[0]).toMatch(/work_order_id = \?/);
+    expect(speedQuery[1]).toEqual([900, 70, startedAt]);
+  });
+
+  test('MX new_install blocks when any currently-active activation template lacks a signed instance', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_rx_dbm: -17, acceptance_waived: 0 }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[{ id: 4, name: 'Contrato PROFECO vigente' }, { id: 5, name: 'Anexo vigente' }]])
+      .mockResolvedValueOnce([[{ template_id: 4 }]]); // template 5 missing/cancelled/not generated
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/Anexo vigente/);
+    expect(conn.query.mock.calls[4][0]).toMatch(/organizations[\s\S]*FOR UPDATE/);
+    expect(conn.query.mock.calls[5][0]).toMatch(/document_templates[\s\S]*FOR UPDATE/);
+    expect(conn.query.mock.calls[6][0]).toMatch(/signed_documents[\s\S]*FOR UPDATE/);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
+  });
+
+  test('MX new_install blocks when no reviewed activation-contract template is active', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, client_id: 50,
+          plan_id: null, test_window_expires_at: null, test_window_cleanup_pending: 0,
+        },
+      ]])
+      .mockResolvedValueOnce([[{
+        id: 70, status: 'completed', acceptance_rx_dbm: -17, acceptance_waived: 0,
+      }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/at least one reviewed MX activation-contract template/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) =>
+      /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
+  });
+
+  test('new_install requires the guarded pending -> active update to affect exactly one row', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_waived: 1 }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'global' }]])
+      .mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/modified concurrently/i);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE service_orders SET status = 'done'/.test(sql))).toBe(false);
+  });
+
+  test('restores a RouterOS direct-API subscriber only after permanent activation commits', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    jest.spyOn(Nas, 'findByIdOrFail').mockResolvedValue({ id: 12, nas_type: 'mikrotik_api' });
+    routerProvisioningService.pushSubscriber.mockResolvedValue({ created: true });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[{ id: 900, status: 'pending', organization_id: 1, client_id: 50, plan_id: null, test_window_expires_at: null }]])
+      .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_waived: 1 }]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'global' }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    db.query
+      .mockResolvedValueOnce([[{ ...order, status: 'done' }]])
+      .mockResolvedValueOnce([[{
+        id: 91, contract_id: 900, nas_id: 12,
+        username: 'client01', password: 'secret', profile: '50M',
+      }]]);
+
+    const result = await lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' });
+
+    expect(routerProvisioningService.pushSubscriber).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 12 }),
+      expect.objectContaining({
+        username: 'client01', password: 'secret', profile: '50M',
+        comment: 'FireISP permanent activation contract#900',
+      }),
+    );
+    expect(conn.commit.mock.invocationCallOrder[0])
+      .toBeLessThan(routerProvisioningService.pushSubscriber.mock.invocationCallOrder[0]);
+    expect(result.activation).toEqual({ contract_id: 900, nas_pushed: true });
   });
 
   test('concurrency guard: a lost race on the final UPDATE raises ValidationError and rolls back', async () => {
@@ -678,6 +1014,19 @@ describe('cancelOrder', () => {
     expect(conn.rollback).toHaveBeenCalled();
   });
 
+  test('transaction-locked new_install type requires explicit contract-cancel authority', async () => {
+    conn.query.mockResolvedValueOnce([[
+      { id: 1, order_type: 'new_install', status: 'in_process', contract_id: 900 },
+    ]]);
+
+    await expect(lifecycleService.cancelOrder(1, {
+      orgId: 1, canCancelContract: false,
+    })).rejects.toThrow(/contracts\.update/i);
+
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.query).toHaveBeenCalledTimes(1);
+  });
+
   test('cancels a new order with no linked contract, and its auto-created install WO with it', async () => {
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', contract_id: null }]])
@@ -697,10 +1046,21 @@ describe('cancelOrder', () => {
     expect(woCancel[0]).toMatch(/NOT IN \('completed', 'cancelled'\)/);
   });
 
-  test('cancels a still-pending auto-created contract and deactivates its RADIUS account', async () => {
+  test('cancels a no-marker legacy PPPoE contract with durable NAS/session cleanup', async () => {
+    const radius = {
+      id: 91, contract_id: 900, username: 'client01', nas_id: 12,
+    };
+    const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup')
+      .mockResolvedValue({ nas_disabled: true, disconnect_confirmed: true });
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]]) // lock order
-      .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]]) // lock contract
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, connection_type: 'pppoe',
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+        },
+      ]]) // lock contract
+      .mockResolvedValueOnce([[radius]]) // lock RADIUS cleanup target
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE contracts -> cancelled
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE radius -> inactive
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded UPDATE service_orders
@@ -709,11 +1069,56 @@ describe('cancelOrder', () => {
 
     const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
 
-    expect(conn.query.mock.calls[2][0]).toMatch(/UPDATE contracts SET status = 'cancelled'/);
-    expect(conn.query.mock.calls[3][0]).toMatch(/UPDATE radius SET status = 'inactive'/);
-    expect(conn.query.mock.calls[3][1]).toEqual([900]);
+    expect(conn.query.mock.calls[3][0]).toMatch(
+      /SET status = 'cancelled', test_window_cleanup_pending = 1/,
+    );
+    expect(conn.query.mock.calls[3][0]).not.toMatch(/DATE_SUB|COALESCE/);
+    expect(conn.query.mock.calls[4][0]).toMatch(/UPDATE radius SET status = 'inactive'/);
+    expect(conn.query.mock.calls[4][1]).toEqual([900]);
+    expect(finalize).toHaveBeenCalledWith(900, {
+      orgId: 1, radius: [radius], reason: 'service_order_cancel',
+    });
+    expect(conn.commit.mock.invocationCallOrder[0]).toBeLessThan(finalize.mock.invocationCallOrder[0]);
     expect(result.contractCancelled).toBe(true);
-    expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(900);
+  });
+
+  test('cancelling an order with an open test window persists cleanup and deletes NAS access after commit', async () => {
+    const radius = {
+      id: 91, contract_id: 900, username: 'client01', nas_id: 12,
+    };
+    const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup')
+      .mockResolvedValue({ nas_disabled: true });
+    conn.query
+      .mockResolvedValueOnce([[{
+        id: 1, status: 'in_process', contract_id: 900, organization_id: 1,
+      }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1,
+          test_window_expires_at: new Date('2099-01-01T00:00:00Z'),
+          test_window_cleanup_pending: 0,
+        },
+      ]])
+      .mockResolvedValueOnce([[radius]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled', contract_id: 900 }]]);
+
+    const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
+
+    const contractUpdate = conn.query.mock.calls.find(([sql]) =>
+      /SET status = 'cancelled', test_window_cleanup_pending = 1/.test(sql));
+    expect(contractUpdate).toBeDefined();
+    expect(radiusService.syncFreeradiusContract).toHaveBeenCalledWith(900, {
+      organizationId: 1, enabled: false, runner: conn,
+    });
+    expect(finalize).toHaveBeenCalledWith(900, {
+      orgId: 1, radius: [radius], reason: 'service_order_cancel',
+    });
+    expect(conn.commit.mock.invocationCallOrder[0]).toBeLessThan(finalize.mock.invocationCallOrder[0]);
+    expect(result.contractCancelled).toBe(true);
   });
 
   test('leaves an ACTIVE (manually-linked) contract completely untouched', async () => {
@@ -744,6 +1149,7 @@ describe('cancelOrder', () => {
     conn.query
       .mockResolvedValueOnce([[{ id: 1, status: 'new', contract_id: 900 }]])
       .mockResolvedValueOnce([[{ id: 900, status: 'pending' }]])
+      .mockResolvedValueOnce([[{ id: 91, contract_id: 900, username: 'client01', nas_id: null }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       .mockResolvedValueOnce([{ affectedRows: 1 }])

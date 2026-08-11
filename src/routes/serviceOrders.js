@@ -16,7 +16,7 @@ const Contract = require('../models/Contract');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const {
   createServiceOrder, updateServiceOrder, patchServiceOrder, completeServiceOrder,
@@ -26,7 +26,7 @@ const lifecycleService = require('../services/lifecycleService');
 const { assertPlanSelectable } = require('../services/planAvailability');
 const auditLog = require('../services/auditLog');
 const db = require('../config/database');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 
 const router = Router();
 
@@ -214,12 +214,36 @@ router.post('/:id/start', requirePermission('service_orders.update'), async (req
 router.post('/:id/complete', requirePermission('service_orders.update'), validate(completeServiceOrder), async (req, res, next) => {
   try {
     const { billing, installation_fee: installationFee, description } = req.body;
-    const { order, invoice } = await lifecycleService.completeOrder(req.params.id, {
+    // Ordinary operational orders remain completable with
+    // service_orders.update. A new_install is different: completing it is the
+    // permanent contract-activation action, so require contracts.update too.
+    // Pass the resolved capability through to completeOrder, which re-checks
+    // it against the transaction-locked order and closes an order_type race.
+    const candidate = await ServiceOrder.findByIdOrFail(req.params.id, req.orgId);
+    let canActivateContract = false;
+    if (candidate.order_type === 'new_install') {
+      canActivateContract = await userHasPermission(req, 'contracts.update');
+      if (!canActivateContract) {
+        throw new ForbiddenError('Completing a new installation requires contracts.update');
+      }
+    }
+
+    let canCreateInvoice = true;
+    if (billing === 'create_invoice') {
+      canCreateInvoice = await userHasPermission(req, 'invoices.create');
+      if (!canCreateInvoice) {
+        throw new ForbiddenError('Creating an installation invoice requires invoices.create');
+      }
+    }
+
+    const { order, invoice, activation } = await lifecycleService.completeOrder(req.params.id, {
       orgId: req.orgId,
       userId: req.user?.id,
       billing,
       installationFee,
       description,
+      canActivateContract,
+      canCreateInvoice,
     });
     await auditLog.log({
       userId: req.user?.id,
@@ -227,9 +251,20 @@ router.post('/:id/complete', requirePermission('service_orders.update'), validat
       action: 'transition:done',
       tableName: ServiceOrder.tableName,
       recordId: parseInt(req.params.id, 10),
-      newValues: { status: 'done', billing, invoice_id: invoice?.id || null },
+      newValues: {
+        status: 'done',
+        billing,
+        invoice_id: invoice?.id || null,
+        activation: activation || null,
+      },
     }).catch(() => {});
-    res.json({ data: { ...order, invoice: invoice || undefined } });
+    res.json({
+      data: {
+        ...order,
+        invoice: invoice || undefined,
+        activation: activation || undefined,
+      },
+    });
   } catch (err) { next(err); }
 });
 
@@ -238,9 +273,18 @@ router.post('/:id/complete', requirePermission('service_orders.update'), validat
 // contract in any other status untouched.
 router.post('/:id/cancel', requirePermission('service_orders.update'), async (req, res, next) => {
   try {
+    const candidate = await ServiceOrder.findByIdOrFail(req.params.id, req.orgId);
+    let canCancelContract = false;
+    if (candidate.order_type === 'new_install') {
+      canCancelContract = await userHasPermission(req, 'contracts.update');
+      if (!canCancelContract) {
+        throw new ForbiddenError('Cancelling a new installation requires contracts.update');
+      }
+    }
     const { order, contractCancelled } = await lifecycleService.cancelOrder(req.params.id, {
       orgId: req.orgId,
       userId: req.user?.id,
+      canCancelContract,
     });
     await auditLog.log({
       userId: req.user?.id,

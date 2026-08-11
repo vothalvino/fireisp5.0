@@ -17,15 +17,17 @@ vi.mock('@/api/graphql', () => ({
 }));
 
 const mockApiGet = vi.fn();
+const mockApiPost = vi.fn();
 vi.mock('@/api/client', () => ({
-  api: { GET: (...a: unknown[]) => mockApiGet(...a), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
+  api: { GET: (...a: unknown[]) => mockApiGet(...a), POST: (...a: unknown[]) => mockApiPost(...a), PUT: vi.fn(), DELETE: vi.fn() },
   authedFetch: vi.fn(),
   tokenStore: { getAccess: () => 'tok', setAccess: vi.fn(), getRefresh: () => null, setRefresh: vi.fn(), clear: vi.fn() },
 }));
 
 let mockRole = 'admin';
+let mockOrganizationLocale: 'global' | 'MX' = 'MX';
 vi.mock('@/auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, role: mockRole } }),
+  useAuth: () => ({ user: { id: 1, role: mockRole, organization_locale: mockOrganizationLocale } }),
 }));
 
 const client = {
@@ -40,6 +42,7 @@ const client = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRole = 'admin';
+  mockOrganizationLocale = 'MX';
   mockGql.mockResolvedValue({ client });
   mockApiGet.mockResolvedValue({ data: { data: [] }, error: undefined });
 });
@@ -51,6 +54,7 @@ function renderDetail() {
       <MemoryRouter initialEntries={['/clients/5']}>
         <Routes>
           <Route path="/clients/:id" element={<ClientDetail />} />
+          <Route path="/contracts/:id" element={<div>Contract activation destination</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -68,6 +72,13 @@ describe('ClientDetail page', () => {
     await waitFor(() => expect(screen.getByText('✏️ Edit')).toBeInTheDocument());
     expect(screen.getByText('🧾 MX Profile')).toBeInTheDocument();
     expect(screen.getByText('🔑 Portal Password')).toBeInTheDocument();
+  });
+
+  it('does not expose the MX fiscal profile in a global organization', async () => {
+    mockOrganizationLocale = 'global';
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('✏️ Edit')).toBeInTheDocument());
+    expect(screen.queryByText('🧾 MX Profile')).not.toBeInTheDocument();
   });
 
   it('hides write actions for readonly role', async () => {
@@ -104,6 +115,26 @@ describe('ClientDetail page', () => {
 
     // Active tab (default: Contracts) shows its label next to the icon.
     expect(screen.getByRole('button', { name: 'Contracts' })).toHaveTextContent('Contracts');
+  });
+
+  it('navigates directly to the new pending contract activation page after creation', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 8, name: 'Fiber 200' }] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPost.mockResolvedValue({ data: { data: { id: 77, status: 'pending' } }, error: undefined });
+    renderDetail();
+
+    fireEvent.click(await screen.findByText('+ New Contract'));
+    const option = await screen.findByRole('option', { name: 'Fiber 200' });
+    fireEvent.change(option.closest('select')!, { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Contract' }));
+
+    expect(await screen.findByText('Contract activation destination')).toBeInTheDocument();
+    expect(mockApiPost).toHaveBeenCalledWith(
+      '/contracts',
+      expect.objectContaining({ body: expect.objectContaining({ client_id: 5, plan_id: 8 }) }),
+    );
   });
 
   it('Credit Notes tab lists the client credit notes and opens the pinned create modal', async () => {

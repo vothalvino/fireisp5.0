@@ -126,6 +126,29 @@ describe('writes are strictly scoped', () => {
   });
 });
 
+describe('bound commissioning evidence is immutable through generic CRUD', () => {
+  it.each([
+    ['update', () => request(app).put('/api/v1/speed-tests/10').send({ download_mbps: 1 })],
+    ['delete', () => request(app).delete('/api/v1/speed-tests/10')],
+    ['restore', () => request(app).post('/api/v1/speed-tests/10/restore')],
+  ])('rejects generic %s of a work-order-bound row', async (_action, buildRequest) => {
+    wireDb({ rows: [{ ...MINE, work_order_id: 13 }] });
+    const res = await auth(buildRequest());
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/commissioning evidence is immutable/);
+    const writes = db.query.mock.calls.filter(([sql]) =>
+      /^(UPDATE|DELETE FROM) `?speed_tests`?/i.test(sql));
+    expect(writes).toHaveLength(0);
+  });
+
+  it('keeps generic unbound rows editable', async () => {
+    wireDb({ rows: [{ ...MINE, work_order_id: null }] });
+    const res = await auth(request(app).put('/api/v1/speed-tests/10')).send({ notes: 'ordinary SLA edit' });
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('the WRITE predicate itself, not just the route guards', () => {
   it('hasOrgScope must stay true', () => {
     // The route guards (reject-reassignment, adopt) all still pass with
@@ -180,6 +203,19 @@ describe('POST /speed-tests works at all', () => {
     expect(res.status).toBe(201);
   });
 
+  it('cannot forge commissioning evidence by supplying a work_order_id', async () => {
+    wireDb();
+    const res = await auth(request(app).post('/api/v1/speed-tests')).send({
+      download_mbps: 95.5,
+      upload_mbps: 20.1,
+      test_source: 'technician',
+      work_order_id: 13,
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/trusted commissioning evidence/);
+    expect(db.query.mock.calls.some(([s]) => /^INSERT INTO `?speed_tests`?/i.test(s))).toBe(false);
+  });
+
   it('STAMPS the acting org on the INSERT', async () => {
     // A 201 is not enough, and asserting only that shipped a live bug in #600.
     // crudController sets req.body.organization_id, but BaseModel.create
@@ -206,6 +242,60 @@ describe('POST /speed-tests works at all', () => {
       schema.indexOf('CREATE TABLE IF NOT EXISTS speed_tests') + 3000,
     );
     expect(table).toMatch(/tested_at\s+TIMESTAMP\s+NOT NULL DEFAULT CURRENT_TIMESTAMP/);
+  });
+
+  it('adds the commissioning work-order FK only after work_orders exists in a fresh bootstrap', () => {
+    const schema = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../database/schema.sql'), 'utf8',
+    );
+    const workOrdersCreate = schema.indexOf('CREATE TABLE IF NOT EXISTS work_orders');
+    const commissioningFk = schema.indexOf('ADD CONSTRAINT fk_speed_tests_work_order');
+    expect(workOrdersCreate).toBeGreaterThan(-1);
+    expect(commissioningFk).toBeGreaterThan(workOrdersCreate);
+  });
+
+  it('does not grandfather cancelled contracts without proof of prior activation', () => {
+    const migration = require('node:fs').readFileSync(
+      require('node:path').join(
+        __dirname, '../database/migrations/450_commissioning_evidence_and_test_cleanup.sql',
+      ),
+      'utf8',
+    );
+    const backfill = migration.match(
+      /UPDATE contracts\s+SET first_activated_at[\s\S]*?AND status IN \([^;]+\);/,
+    )?.[0];
+    expect(backfill).toBeDefined();
+    expect(backfill).toMatch(/'active'.*'suspended'.*'expired'.*'terminated'/s);
+    expect(backfill).not.toMatch(/'cancelled'/);
+  });
+
+  it('migration 450 fail-closes only pending PPPoE rows with materialized auth state', () => {
+    const migration = require('node:fs').readFileSync(
+      require('node:path').join(
+        __dirname, '../database/migrations/450_commissioning_evidence_and_test_cleanup.sql',
+      ),
+      'utf8',
+    );
+    const marker = migration.match(
+      /UPDATE contracts c\s+SET c\.test_window_cleanup_pending = 1[\s\S]*?\n\s*\);/,
+    )?.[0];
+    expect(marker).toBeDefined();
+    expect(marker).toMatch(/c\.status = 'pending'/);
+    expect(marker).toMatch(/c\.connection_type IN \('pppoe', 'pppoe_dual'\)/);
+    expect(marker).toMatch(/AND EXISTS \([\s\S]*FROM radius r/);
+    expect(marker).toMatch(/r\.status <> 'inactive'/);
+    expect(marker).toMatch(/r\.nas_id IS NOT NULL/);
+    expect(marker).toMatch(/FROM radcheck rc/);
+    expect(marker).not.toMatch(/test_window_expires_at\s*=/);
+
+    const markerAt = migration.indexOf(marker);
+    const radcheckDeleteAt = migration.indexOf('DELETE rc FROM radcheck rc');
+    const radiusOffAt = migration.indexOf('UPDATE radius r', markerAt);
+    expect(radcheckDeleteAt).toBeGreaterThan(markerAt);
+    expect(radiusOffAt).toBeGreaterThan(radcheckDeleteAt);
+    expect(migration.slice(radcheckDeleteAt, radiusOffAt)).toMatch(/DELETE rr FROM radreply rr/);
+    expect(migration.slice(radcheckDeleteAt, radiusOffAt)).toMatch(/DELETE rug FROM radusergroup rug/);
+    expect(migration.slice(radiusOffAt, radiusOffAt + 400)).toMatch(/SET r\.status = 'inactive'/);
   });
 
   it('an explicit tested_at is validated instead of silently ignored', async () => {

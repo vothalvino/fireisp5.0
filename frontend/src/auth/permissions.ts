@@ -30,6 +30,11 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   ],
   technician: [
     'devices.create', 'devices.update', 'devices.delete', 'service_orders.update',
+    // Compatibility fallback for older cached auth responses. Modern
+    // sessions use the server-resolved permissions[] list, where these are
+    // already granted to the technician role by migrations 298, 377, and 447.
+    'work_orders.update', 'speed_tests.create',
+    'signed_documents.view', 'signed_documents.sign',
     'nas.health',
     'interactions.view', 'follow_ups.view', 'follow_ups.update', 'escalations.view',
     'campaigns.view', 'dnd.view',

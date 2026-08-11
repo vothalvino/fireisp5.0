@@ -158,6 +158,7 @@ describe('Topology invalidation hooks', () => {
     const res = {
       json:   jest.fn().mockReturnThis(),
       status: jest.fn().mockReturnThis(),
+      send:   jest.fn().mockReturnThis(),
     };
     const next = jest.fn();
     return { req, res, next };
@@ -301,7 +302,9 @@ describe('Topology invalidation hooks', () => {
       const router = require('../src/routes/contracts');
       const layer  = router.stack.find(l => l.route?.path === '/:id' && l.route.methods.put);
 
-      const { req, res, next } = makeReqRes({ id: '5' }, { status: 'active' });
+      // Exercise an ordinary edit. Lifecycle status transitions now have
+      // dedicated guarded routes and intentionally bypass Contract.update.
+      const { req, res, next } = makeReqRes({ id: '5' }, { notes: 'updated' });
       const handlers = layer.route.stack.map(l => l.handle);
       await handlers[handlers.length - 1](req, res, next);
 
@@ -313,7 +316,13 @@ describe('Topology invalidation hooks', () => {
         tableName:      'contracts',
         hasOrgScope:    true,
         softDelete:     true,
-        findByIdOrFail: jest.fn().mockResolvedValue({ id: 5 }),
+        findByIdOrFail: jest.fn().mockResolvedValue({
+          id: 5,
+          status: 'terminated',
+          connection_type: 'static',
+          test_window_expires_at: null,
+          test_window_cleanup_pending: 0,
+        }),
         delete:         jest.fn().mockResolvedValue(true),
         update:         jest.fn(),
         restore:        jest.fn(),

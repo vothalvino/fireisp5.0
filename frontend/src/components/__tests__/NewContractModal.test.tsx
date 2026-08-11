@@ -10,6 +10,11 @@ vi.mock('@/api/client', () => ({
 import { api } from '@/api/client';
 import { NewContractModal } from '../NewContractModal';
 
+let mockLocale: 'global' | 'MX' = 'global';
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'admin', organization_locale: mockLocale } }),
+}));
+
 function renderModal() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onCreated = vi.fn();
@@ -23,6 +28,7 @@ function renderModal() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockLocale = 'global';
   (api.GET as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: [{ id: 3, name: 'Gold 100Mbps' }] }, error: undefined });
   (api.POST as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { data: { id: 1 } }, error: undefined });
 });
@@ -41,5 +47,22 @@ describe('NewContractModal', () => {
       expect.objectContaining({ body: expect.objectContaining({ client_id: 9, plan_id: 3, connection_type: 'pppoe' }) }),
     ));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(onCreated).toHaveBeenCalledWith(1);
+    const body = (api.POST as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body;
+    expect(body).not.toHaveProperty('facturar');
+  });
+
+  it('shows and submits the CFDI option only for an MX organization', async () => {
+    mockLocale = 'MX';
+    renderModal();
+    const planOpt = await screen.findByRole('option', { name: 'Gold 100Mbps' }) as HTMLOptionElement;
+    fireEvent.change(planOpt.closest('select')!, { target: { value: '3' } });
+    fireEvent.click(screen.getByLabelText('Generate CFDI invoice automatically'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Contract' }));
+
+    await waitFor(() => expect(api.POST).toHaveBeenCalledWith(
+      '/contracts',
+      expect.objectContaining({ body: expect.objectContaining({ facturar: true }) }),
+    ));
   });
 });

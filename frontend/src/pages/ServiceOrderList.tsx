@@ -328,9 +328,10 @@ function OrderFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
 // ---------------------------------------------------------------------------
 
 function CompleteOrderModal({
-  order, onClose, onCompleted,
+  order, canCreateInvoice, onClose, onCompleted,
 }: {
   order: ServiceOrder;
+  canCreateInvoice: boolean;
   onClose: () => void;
   onCompleted: (invoice: InvoiceSummary | null) => void;
 }) {
@@ -355,10 +356,10 @@ function CompleteOrderModal({
       if (res.error) return null;
       return ((res.data as { data: { rfc?: string; regimen_fiscal?: string; codigo_postal_fiscal?: string } | null })?.data) ?? null;
     },
-    enabled: isMxOrg && order.client_id !== null,
+    enabled: canCreateInvoice && isMxOrg && order.client_id !== null,
     retry: false,
   });
-  const fiscalIncomplete = isMxOrg && order.client_id !== null && !fiscalQ.isLoading
+  const fiscalIncomplete = canCreateInvoice && isMxOrg && order.client_id !== null && !fiscalQ.isLoading
     && !(fiscalQ.data?.rfc && fiscalQ.data?.regimen_fiscal && fiscalQ.data?.codigo_postal_fiscal);
 
   const feeNum = Number(fee);
@@ -402,11 +403,13 @@ function CompleteOrderModal({
             onChange={() => setBilling('already_paid')} />
           {t('serviceOrders.billingAlreadyPaid', 'Installation already paid')}
         </label>
-        <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-          <input type="radio" name="so-billing" checked={billing === 'create_invoice'}
-            onChange={() => setBilling('create_invoice')} />
-          {t('serviceOrders.billingCreateInvoice', 'Create installation invoice')}
-        </label>
+        {canCreateInvoice && (
+          <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="radio" name="so-billing" checked={billing === 'create_invoice'}
+              onChange={() => setBilling('create_invoice')} />
+            {t('serviceOrders.billingCreateInvoice', 'Create installation invoice')}
+          </label>
+        )}
 
         {billing === 'create_invoice' && (
           <>
@@ -922,6 +925,8 @@ export function ServiceOrderList() {
 
   const canCreate = can(user, 'service_orders.create');
   const canUpdate = can(user, 'service_orders.update');
+  const canUpdateContracts = can(user, 'contracts.update');
+  const canCreateInvoices = can(user, 'invoices.create');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['service-orders', page, pageSize],
@@ -1048,11 +1053,19 @@ export function ServiceOrderList() {
                         disabled={start.isPending}
                         onClick={() => start.mutate(o.id)}>{t('serviceOrders.start', 'Start')}</button>
                     )}
-                    {canUpdate && o.status === 'in_process' && (
+                    {canUpdate && o.status === 'in_process' && o.order_type !== 'new_install' && (
                       <button type="button" style={{ ...submitBtn, padding: '4px 10px', marginRight: 6 }}
                         onClick={() => setCompleteFor(o)}>{t('serviceOrders.complete', 'Complete')}</button>
                     )}
-                    {canUpdate && !terminal && (
+                    {o.status === 'in_process' && o.order_type === 'new_install' && o.contract_id && (
+                      <Link
+                        to={`/contracts/${o.contract_id}`}
+                        style={{ ...submitBtn, display: 'inline-block', padding: '4px 10px', marginRight: 6, textDecoration: 'none' }}
+                      >
+                        {t('contractActivation.title', 'Activate contract')}
+                      </Link>
+                    )}
+                    {canUpdate && !terminal && (o.order_type !== 'new_install' || canUpdateContracts) && (
                       <button type="button" style={{ ...cancelBtn, padding: '4px 10px' }}
                         disabled={cancel.isPending}
                         onClick={() => {
@@ -1116,6 +1129,7 @@ export function ServiceOrderList() {
       {completeFor && (
         <CompleteOrderModal
           order={completeFor}
+          canCreateInvoice={canCreateInvoices}
           onClose={() => setCompleteFor(null)}
           onCompleted={(invoice) => { refresh(); if (invoice) setInvoiceResult(invoice); }}
         />

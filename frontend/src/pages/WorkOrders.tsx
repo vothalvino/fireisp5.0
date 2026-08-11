@@ -603,10 +603,21 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
         '/contracts/{id}', { params: { path: { id: contractId } } },
       );
       if (res.error) throw new Error('unavailable');
-      return (res.data as { data: { status: string; test_window_expires_at: string | null } }).data;
+      return (res.data as { data: {
+        status: string;
+        connection_type?: string | null;
+        test_window_expires_at: string | null;
+        test_window_cleanup_pending?: boolean | number;
+      } }).data;
     },
     retry: false,
-    refetchInterval: (q) => ((q.state.data as { test_window_expires_at: string | null } | undefined)?.test_window_expires_at ? 60_000 : false),
+    refetchInterval: (q) => {
+      const current = q.state.data as {
+        test_window_expires_at: string | null;
+        test_window_cleanup_pending?: boolean | number;
+      } | undefined;
+      return current?.test_window_expires_at || current?.test_window_cleanup_pending ? 60_000 : false;
+    },
   });
 
   const act = useMutation({
@@ -622,12 +633,20 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
   const c = contractQ.data;
   if (!c || c.status !== 'pending') return null; // activation owns the line from there
 
-  const windowOpen = Boolean(c.test_window_expires_at);
+  const expiryMs = c.test_window_expires_at ? new Date(c.test_window_expires_at).getTime() : 0;
+  const cleanupPending = Boolean(Number(c.test_window_cleanup_pending ?? 0));
+  const systemControlled = c.connection_type == null
+    || c.connection_type === 'pppoe'
+    || c.connection_type === 'pppoe_dual';
+  const windowOpen = Boolean(expiryMs > Date.now() && !cleanupPending);
+  const shutdownPending = cleanupPending || Boolean(c.test_window_expires_at && !windowOpen);
   return (
     <div style={{ padding: '0.5rem 1rem 0.25rem' }}>
       <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.testWindow.title')}</strong>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: '0.82rem', flexWrap: 'wrap' }}>
-        {windowOpen ? (
+        {!systemControlled ? (
+          <span style={{ color: 'var(--text-secondary)' }}>{t('workOrders.testWindow.manualLine')}</span>
+        ) : windowOpen ? (
           <>
             <span style={{ color: 'var(--accent, #16a34a)' }}>
               🟢 {t('workOrders.testWindow.openUntil', { time: (c.test_window_expires_at ?? '').slice(11, 16) })}
@@ -635,6 +654,14 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
             <button style={{ ...styles.btnSecondary, padding: '3px 12px', fontSize: '0.78rem' }}
               disabled={act.isPending} onClick={() => act.mutate('end')}>
               {t('workOrders.testWindow.end')}
+            </button>
+          </>
+        ) : shutdownPending ? (
+          <>
+            <span style={{ color: '#b45309' }}>{t('workOrders.testWindow.cleanupPending')}</span>
+            <button style={{ ...styles.btnSecondary, padding: '3px 12px', fontSize: '0.78rem' }}
+              disabled={act.isPending} onClick={() => act.mutate('end')}>
+              {t('workOrders.testWindow.retryShutdown')}
             </button>
           </>
         ) : (
@@ -651,6 +678,9 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
       <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
         {t('workOrders.testWindow.hint')}
       </p>
+      <a href={`/contracts/${contractId}`} style={{ display: 'inline-block', marginTop: 4, fontSize: '0.78rem', color: 'var(--link)' }}>
+        {t('workOrders.testWindow.openCommissioning')}
+      </a>
     </div>
   );
 }

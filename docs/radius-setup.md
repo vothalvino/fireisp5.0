@@ -135,11 +135,29 @@ Create `/etc/freeradius/3.0/mods-config/sql/main/mysql/queries.conf` or modify t
 
 ```sql
 authorize_check_query = " \
-    SELECT username, password AS 'Cleartext-Password' \
-    FROM radius \
-    WHERE username = '%{SQL-User-Name}' \
-      AND status = 'active' \
-    LIMIT 1"
+    SELECT r.username, 'Cleartext-Password' AS Attribute, \
+           r.password AS Value, ':=' AS op \
+    FROM radius r \
+    LEFT JOIN contracts c ON c.id = r.contract_id \
+    WHERE r.username = '%{SQL-User-Name}' \
+      AND r.status = 'active' \
+      AND (c.id IS NULL \
+           OR c.status = 'active' \
+           OR (c.status = 'pending' \
+               AND c.test_window_cleanup_pending = 0 \
+               AND c.test_window_expires_at > NOW())) \
+    UNION ALL \
+    SELECT r.username, 'Expiration' AS Attribute, \
+           CONCAT(DAY(c.test_window_expires_at), ' ', \
+                  ELT(MONTH(c.test_window_expires_at), 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'), ' ', \
+                  DATE_FORMAT(c.test_window_expires_at, '%Y %H:%i:%s')) AS Value, ':=' AS op \
+    FROM radius r \
+    JOIN contracts c ON c.id = r.contract_id \
+    WHERE r.username = '%{SQL-User-Name}' \
+      AND r.status = 'active' \
+      AND c.status = 'pending' \
+      AND c.test_window_cleanup_pending = 0 \
+      AND c.test_window_expires_at > NOW()"
 
 authorize_reply_query = " \
     SELECT \
@@ -159,7 +177,17 @@ authorize_reply_query = " \
     FROM radius \
     WHERE username = '%{SQL-User-Name}' \
       AND download_speed IS NOT NULL \
-      AND upload_speed IS NOT NULL"
+      AND upload_speed IS NOT NULL \
+    UNION ALL \
+    SELECT 'Session-Timeout', \
+           CAST(GREATEST(TIMESTAMPDIFF(SECOND, NOW(), c.test_window_expires_at), 1) AS CHAR), ':=' \
+    FROM radius r \
+    JOIN contracts c ON c.id = r.contract_id \
+    WHERE r.username = '%{SQL-User-Name}' \
+      AND r.status = 'active' \
+      AND c.status = 'pending' \
+      AND c.test_window_cleanup_pending = 0 \
+      AND c.test_window_expires_at > NOW()"
 ```
 
 > **Note:** For non-MikroTik NAS devices, replace `Mikrotik-Rate-Limit` with the appropriate vendor-specific attribute (e.g., `WISPr-Bandwidth-Max-Down` / `WISPr-Bandwidth-Max-Up`).

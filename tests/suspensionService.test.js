@@ -28,6 +28,8 @@ describe('suspensionService', () => {
     db.getConnection.mockResolvedValue(mockConnection);
   });
 
+  afterEach(() => jest.restoreAllMocks());
+
   // =========================================================================
   // evaluateRules
   // =========================================================================
@@ -72,9 +74,7 @@ describe('suspensionService', () => {
     });
 
     test('queries with correct organization filter', async () => {
-      db.query
-        .mockResolvedValueOnce([[]])  // no rules
-        ;
+      db.query.mockResolvedValueOnce([[]]); // no rules
 
       await suspensionService.evaluateRules(99);
 
@@ -183,6 +183,52 @@ describe('suspensionService', () => {
 
       expect(mockConnection.commit).toHaveBeenCalled();
       expect(mockConnection.release).toHaveBeenCalled();
+    });
+
+    test('never-activated suspended service resets to pending/offline instead of activating', async () => {
+      const radiusService = require('../src/services/radiusService');
+      const testWindowService = require('../src/services/testWindowService');
+      jest.spyOn(radiusService, 'syncFreeradiusContract').mockResolvedValue(undefined);
+      const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow').mockResolvedValue({
+        contract_id: 10, closed: true, nas_disabled: true,
+      });
+      mockConnection.execute.mockImplementation(async (sql) => {
+        if (/SET status = \?/.test(sql) && /first_activated_at IS NOT NULL/.test(sql)) {
+          return [{ affectedRows: 0 }];
+        }
+        if (/SET status = 'pending'/.test(sql)) return [{ affectedRows: 1 }];
+        if (/SELECT suspended_at/.test(sql)) return [[]];
+        return [{ affectedRows: 1 }];
+      });
+
+      const result = await suspensionService.reconnectContract(10, 5, 50, { orgId: 42 });
+
+      expect(result).toEqual({ contract_id: 10, status: 'pending', activation_required: true });
+      const reset = mockConnection.execute.mock.calls.find(([sql]) => /SET status = 'pending'/.test(sql));
+      expect(reset[0]).toMatch(/first_activated_at IS NULL/);
+      expect(reset[0]).toMatch(/test_window_cleanup_pending = 1/);
+      expect(reset[0]).not.toMatch(/DATE_SUB|COALESCE/);
+      const radiusOff = mockConnection.execute.mock.calls.find(([sql]) => /radius SET status = 'inactive'/.test(sql));
+      expect(radiusOff).toBeDefined();
+      expect(cleanup).toHaveBeenCalledWith(10, {
+        orgId: 42, reason: 'first_activation_reset', requireMarker: true,
+      });
+      expect(db.query).not.toHaveBeenCalled(); // no reconnect CoA / walled-garden lookup
+    });
+
+    test('rejects reconnect from any state other than suspended (or proven active soft-suspend)', async () => {
+      mockConnection.execute
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([[
+          { status: 'pending', first_activated_at: null },
+        ]]);
+
+      await expect(suspensionService.reconnectContract(10, 5, 50, { orgId: 42 }))
+        .rejects.toThrow(/Only a suspended contract/i);
+      expect(mockConnection.rollback).toHaveBeenCalled();
     });
 
     test('lifts walled garden when an open walled_garden log exists', async () => {

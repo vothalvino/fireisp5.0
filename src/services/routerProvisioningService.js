@@ -129,15 +129,30 @@ async function testConnection(nas) {
  * @param {{ username: string, password: string, profile?: string, comment?: string }} sub
  * @returns {Promise<{ id: string, created: boolean, updated: boolean }>}
  */
-async function pushSubscriber(nas, { username, password, profile, comment }) {
+async function pushSubscriber(nas, {
+  username, password, profile, comment,
+}) {
   const conn = nasToConn(nas);
-  return ros.pppoeUpsert(conn, {
+  const params = {
     name: username,
     secretPassword: password,
     profile,
     comment,
     service: 'pppoe',
-  });
+  };
+  return ros.pppoeUpsert(conn, params);
+}
+
+/** Remove a local PPP secret, treating absence as the desired idempotent state. */
+async function removeSubscriber(nas, { username }) {
+  try {
+    return await ros.pppoeDelete(nasToConn(nas), { name: username });
+  } catch (err) {
+    if (/^PPPoE secret .* not found$/i.test(err.message || '')) {
+      return { deleted: false, alreadyAbsent: true, name: username };
+    }
+    throw err;
+  }
 }
 
 // =============================================================================
@@ -801,5 +816,6 @@ module.exports = {
   syncVoipAddressList,
   testConnection,
   pushSubscriber,
+  removeSubscriber,
   seedDevice,
 };

@@ -472,7 +472,11 @@ CREATE TABLE IF NOT EXISTS contracts (
     billing_day    TINYINT UNSIGNED NULL     COMMENT 'Day of month (1–28) on which invoices are generated; NULL = inherit from plan'
                        CHECK (billing_day BETWEEN 1 AND 28),
     test_window_expires_at DATETIME NULL
-                       COMMENT 'Technician test window bound: while set on a PENDING contract its RADIUS account is temporarily active; cleared on activation/window end; swept by test_window_expiry (migration 448)',
+                       COMMENT 'Technician test window bound: future while online; retained expired while external cleanup retries (migrations 448/450)',
+    test_window_cleanup_pending TINYINT(1) NOT NULL DEFAULT 0
+                       COMMENT '1 while temporary or legacy pending credentials still need external NAS/session cleanup; blocks activation and is retried by sweep (migration 450)',
+    test_window_cleanup_attempted_at DATETIME(6) NULL
+                       COMMENT 'Last external cleanup attempt; makes sweep batches fair and retryable (migration 450)',
     ip_address     VARCHAR(45)     NULL      COMMENT 'Static IPv4/IPv6 address assigned to this service; NULL = dynamic',
     billing_cycle  ENUM('monthly', 'quarterly', 'semi_annual', 'annual') NULL COMMENT 'Override cycle; NULL means use the plan billing cycle',
     price_override DECIMAL(10, 2)  NULL COMMENT 'Custom price; NULL means use plan price',
@@ -484,6 +488,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
                        COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
+    first_activated_at DATETIME NULL
+                       COMMENT 'First successful activation or grandfathered non-cancelled legacy service; NULL means no activation has been recorded (migration 450)',
     escalation_enabled TINYINT(1) NOT NULL DEFAULT 1
                        COMMENT 'Master switch for AI-diagnostic auto-escalation (creates a real technician ticket) on this contract; 0 = never auto-escalate regardless of fault (migration 387)',
     escalate_on_disconnect TINYINT(1) NOT NULL DEFAULT 0
@@ -508,6 +514,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_site_id (site_id),
     KEY idx_contracts_connection_type (connection_type),
     KEY idx_contracts_test_window (test_window_expires_at),
+    KEY idx_contracts_test_cleanup (test_window_cleanup_pending, test_window_cleanup_attempted_at, test_window_expires_at),
     KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
     KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
@@ -6916,6 +6923,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     organization_id  BIGINT UNSIGNED   NULL                      COMMENT 'Owning org, denormalised from client/contract/device; NULL = unattributed legacy row, adoptable on write (migration 438)',
     client_id        BIGINT UNSIGNED   NULL                      COMMENT 'Client who initiated or is associated with this test; NULL = probe-only',
     contract_id      BIGINT UNSIGNED   NULL                      COMMENT 'Contract (service) under test; NULL = not contract-specific',
+    work_order_id    BIGINT UNSIGNED   NULL                      COMMENT 'Installation work order that produced trusted commissioning evidence; NULL for generic/SLA tests (migration 450)',
     device_id        BIGINT UNSIGNED   NULL                      COMMENT 'CPE or probe device that ran the test; NULL = client browser test',
     test_source      ENUM('client_portal','technician','automated_probe','external')
                                         NOT NULL                  COMMENT 'How the test was initiated',
@@ -6935,6 +6943,7 @@ CREATE TABLE IF NOT EXISTS speed_tests (
     KEY idx_speed_tests_org (organization_id, tested_at),
     KEY idx_speed_tests_client_id (client_id),
     KEY idx_speed_tests_contract_id (contract_id),
+    KEY idx_speed_tests_work_order (work_order_id, tested_at),
     KEY idx_speed_tests_device_id (device_id),
     KEY idx_speed_tests_tested_at (tested_at),
     KEY idx_speed_tests_test_source (test_source),
@@ -7807,10 +7816,11 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
--- Triggers: contract status FSM (migrations 149, 195, 362)
+-- Triggers: contract status FSM (migrations 149, 195, 362, 450)
 -- Purpose: Enforces valid contract status transitions. Renew/reinstate from a
---          terminal state (expired/cancelled/terminated -> active) is allowed
---          as of migration 362.
+--          terminal state -> active is allowed as of migration 362. Migration
+--          450 also permits never-activated service to re-enter commissioning
+--          as pending; application code selects that path with first_activated_at.
 -- ---------------------------------------------------------------------------
 
 DELIMITER $$
@@ -7824,8 +7834,8 @@ BEGIN
         IF NOT (
                (OLD.status = 'pending'    AND NEW.status IN ('active', 'cancelled'))
             OR (OLD.status = 'active'     AND NEW.status IN ('expired', 'cancelled', 'suspended', 'terminated'))
-            OR (OLD.status = 'suspended'  AND NEW.status IN ('active', 'cancelled', 'terminated'))
-            OR (OLD.status IN ('expired', 'cancelled', 'terminated') AND NEW.status = 'active')
+            OR (OLD.status = 'suspended'  AND NEW.status IN ('pending', 'active', 'cancelled', 'terminated'))
+            OR (OLD.status IN ('expired', 'cancelled', 'terminated') AND NEW.status IN ('pending', 'active'))
         ) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Invalid contract status transition';
@@ -11700,6 +11710,12 @@ CREATE TABLE IF NOT EXISTS work_orders (
   CONSTRAINT fk_work_orders_service_order FOREIGN KEY (service_order_id)
     REFERENCES service_orders (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- speed_tests is defined earlier in the bootstrap file, before work_orders.
+-- Add this forward reference only after both tables exist (migration 450).
+ALTER TABLE speed_tests
+  ADD CONSTRAINT fk_speed_tests_work_order FOREIGN KEY (work_order_id)
+    REFERENCES work_orders (id) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ---------------------------------------------------------------------------
 -- Table: work_order_materials (migration 297 — §12)

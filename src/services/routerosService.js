@@ -576,7 +576,9 @@ async function findAddressListEntryId(client, list, address) {
  * @returns {Promise<{ id: string }>}
  */
 async function pppoeCreate(conn, params) {
-  const { name, secretPassword, profile, service, localAddress, remoteAddress, comment } = params;
+  const {
+    name, secretPassword, profile, service, localAddress, remoteAddress, comment,
+  } = params;
 
   if (!name) throw new Error('pppoeCreate: name is required');
   if (!secretPassword) throw new Error('pppoeCreate: secretPassword is required');
@@ -640,7 +642,6 @@ async function pppoeUpsert(conn, params) {
     if (localAddress) attrWords.push(`=local-address=${localAddress}`);
     if (remoteAddress) attrWords.push(`=remote-address=${remoteAddress}`);
     if (comment) attrWords.push(`=comment=${comment}`);
-
     const existingId = await findPppoeSecretId(client, name);
 
     if (existingId) {

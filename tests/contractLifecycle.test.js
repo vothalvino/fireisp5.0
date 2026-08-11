@@ -18,7 +18,18 @@ jest.mock('../src/services/suspensionService', () => ({
 
 jest.mock('../src/services/eventBus', () => ({ emit: jest.fn(), on: jest.fn(), removeListener: jest.fn() }));
 
-jest.mock('../src/services/subscriberProvisioningService', () => ({ provisionNewContract: jest.fn(), generatePassword: jest.fn(() => 'gen-pass') }));
+jest.mock('../src/services/subscriberProvisioningService', () => ({
+  provisionNewContract: jest.fn(),
+  generatePassword: jest.fn(() => 'gen-pass'),
+  isPppoe: jest.fn(type => ['pppoe', 'pppoe_dual'].includes(type)),
+}));
+jest.mock('../src/services/contractActivationService', () => ({
+  getActivationState: jest.fn(),
+  prepareActivation: jest.fn(),
+  activate: jest.fn(),
+  retryNetworkActivation: jest.fn(),
+  renewPreviouslyActivated: jest.fn(),
+}));
 
 // Inventory Phase 3 (migration 391) — terminate/cancel auto-create a pickup
 // work order for outstanding rented equipment. Whole-module-mocked so these
@@ -34,7 +45,11 @@ const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
 const suspensionService = require('../src/services/suspensionService');
+const testWindowService = require('../src/services/testWindowService');
+const routerProvisioningService = require('../src/services/routerProvisioningService');
+const Nas = require('../src/models/Nas');
 const inventorySerialService = require('../src/services/inventorySerialService');
+const contractActivationService = require('../src/services/contractActivationService');
 const app = require('../src/app');
 
 function adminToken() {
@@ -58,8 +73,23 @@ const token = adminToken();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Renewal now performs its transactional DB work behind a service boundary,
+  // so legacy route fixtures may leave unused one-shot results. Reset the
+  // queue explicitly to prevent those values becoming the next test's auth
+  // user lookup.
+  db.query.mockReset();
   mockUser();
+  contractActivationService.renewPreviouslyActivated.mockImplementation(async (id, options) => ({
+    contract: {
+      id: Number(id), organization_id: options.orgId, status: 'active',
+      ...(options.endDate !== undefined ? { end_date: options.endDate } : {}),
+      ...(options.planId !== undefined ? { plan_id: options.planId } : {}),
+    },
+    provisioning: null,
+    network_activation: null,
+  }));
 });
+afterEach(() => jest.restoreAllMocks());
 
 // =============================================================================
 // POST /contracts/:id/renew
@@ -69,7 +99,8 @@ describe('POST /contracts/:id/renew', () => {
     db.query
       .mockResolvedValueOnce([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 1 }]])
       // findByIdOrFail inside Contract.update and the query in the route
-      .mockResolvedValueOnce([[{ id: 5, status: 'suspended', organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 5, status: 'suspended', organization_id: 1,
+        first_activated_at: '2025-01-01 00:00:00' }]])
       // Contract.update SELECT after UPDATE
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       .mockResolvedValueOnce([[{ id: 5, status: 'active', organization_id: 1 }]]);
@@ -80,8 +111,12 @@ describe('POST /contracts/:id/renew', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    // suspended had a RADIUS disconnect → renew restores access via CoA reconnect
-    expect(suspensionService.reconnectContract).toHaveBeenCalled();
+    expect(contractActivationService.renewPreviouslyActivated).toHaveBeenCalledWith(5, {
+      orgId: 1, endDate: undefined, planId: undefined,
+    });
+    // Renewal restores access transactionally; the suspended-only reconnect
+    // helper must not be fired after the contract is already active.
+    expect(suspensionService.reconnectContract).not.toHaveBeenCalled();
   });
 
   // Renew must work from EVERY terminal state — the FSM trigger blocked
@@ -91,7 +126,8 @@ describe('POST /contracts/:id/renew', () => {
     async (status) => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, email: 'admin@example.com', role: 'admin', status: 'active', organization_id: 1 }]])
-        .mockResolvedValueOnce([[{ id: 7, status, organization_id: 1 }]])
+        .mockResolvedValueOnce([[{ id: 7, status, organization_id: 1,
+          first_activated_at: '2025-01-01 00:00:00' }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }])
         .mockResolvedValueOnce([[{ id: 7, status: 'active', organization_id: 1 }]]);
 
@@ -102,13 +138,10 @@ describe('POST /contracts/:id/renew', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('active');
-      // terminated had a RADIUS disconnect (from terminate) → renew reconnects;
-      // cancelled/expired never disconnected, so no reconnect is attempted.
-      if (status === 'terminated') {
-        expect(suspensionService.reconnectContract).toHaveBeenCalled();
-      } else {
-        expect(suspensionService.reconnectContract).not.toHaveBeenCalled();
-      }
+      expect(contractActivationService.renewPreviouslyActivated).toHaveBeenCalledWith(7, {
+        orgId: 1, endDate: undefined, planId: undefined,
+      });
+      expect(suspensionService.reconnectContract).not.toHaveBeenCalled();
     },
   );
 
@@ -118,9 +151,20 @@ describe('POST /contracts/:id/renew', () => {
       connection_type: 'pppoe',
       pppoe: { radius_id: 9, username: 'sub_ada', password: 'p@ss', ipv6_enabled: false },
     });
+    contractActivationService.renewPreviouslyActivated.mockResolvedValueOnce({
+      contract: { id: 7, status: 'active', connection_type: 'pppoe', organization_id: 1 },
+      provisioning: {
+        connection_type: 'pppoe',
+        pppoe: { radius_id: 9, username: 'sub_ada', password: 'p@ss', ipv6_enabled: false },
+      },
+      network_activation: {
+        contract_id: 7, radius_id: 9, nas_id: null, radius_synced: true, nas_pushed: false,
+      },
+    });
     db.query
       .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
-      .mockResolvedValueOnce([[{ id: 7, status: 'cancelled', connection_type: 'pppoe', client_id: 3, organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 7, status: 'cancelled', connection_type: 'pppoe',
+        client_id: 3, organization_id: 1, first_activated_at: '2025-01-01 00:00:00' }]])
       .mockResolvedValueOnce([[{ cnt: 0 }]])                       // radius count = 0
       .mockResolvedValueOnce([{ affectedRows: 1 }])               // Contract.update
       .mockResolvedValueOnce([[{ id: 7, status: 'active', connection_type: 'pppoe', organization_id: 1 }]]);
@@ -131,15 +175,26 @@ describe('POST /contracts/:id/renew', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    expect(provisioningService.provisionNewContract).toHaveBeenCalled();
+    expect(contractActivationService.renewPreviouslyActivated).toHaveBeenCalled();
     expect(res.body.provisioning.pppoe.username).toBe('sub_ada');  // fresh creds surfaced
+    expect(res.body.network_activation).toEqual(expect.objectContaining({
+      radius_id: 9, radius_synced: true,
+    }));
   });
 
   test('renew of a PPPoE contract that still has a radius account does NOT re-provision, but reactivates it', async () => {
     const provisioningService = require('../src/services/subscriberProvisioningService');
+    contractActivationService.renewPreviouslyActivated.mockResolvedValueOnce({
+      contract: { id: 8, status: 'active', connection_type: 'pppoe', organization_id: 1 },
+      provisioning: null,
+      network_activation: {
+        contract_id: 8, radius_id: 21, nas_id: 4, radius_synced: true, nas_pushed: true,
+      },
+    });
     db.query
       .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
-      .mockResolvedValueOnce([[{ id: 8, status: 'terminated', connection_type: 'pppoe', client_id: 3, organization_id: 1 }]])
+      .mockResolvedValueOnce([[{ id: 8, status: 'terminated', connection_type: 'pppoe',
+        client_id: 3, organization_id: 1, first_activated_at: '2025-01-01 00:00:00' }]])
       .mockResolvedValueOnce([[{ cnt: 1 }]])                       // radius account already exists
       .mockResolvedValueOnce([{ affectedRows: 1 }])                // Bug 2 companion fix: reactivate inactive radius row
       .mockResolvedValueOnce([{ affectedRows: 1 }])                // Contract.update UPDATE
@@ -153,17 +208,86 @@ describe('POST /contracts/:id/renew', () => {
     expect(res.status).toBe(200);
     expect(provisioningService.provisionNewContract).not.toHaveBeenCalled();
 
-    // Bug 2 companion fix: a renew is an explicit staff decision to reinstate
-    // service, so any existing radius account left 'inactive' by a prior
-    // terminate/cancel must be reactivated — otherwise the contract ends up
-    // 'active' but the subscriber still can't authenticate.
-    const reactivateCall = db.query.mock.calls.find(
-      c => typeof c[0] === 'string' && /UPDATE radius SET status/.test(c[0]),
-    );
-    expect(reactivateCall).toBeTruthy();
-    expect(reactivateCall[0]).toContain("'active'");
-    expect(reactivateCall[0]).toContain("status = 'inactive'");
-    expect(reactivateCall[1]).toEqual([8]);
+    expect(contractActivationService.renewPreviouslyActivated).toHaveBeenCalledWith(8, {
+      orgId: 1, endDate: undefined, planId: undefined,
+    });
+    expect(res.body.network_activation).toEqual(expect.objectContaining({
+      radius_id: 21, radius_synced: true, nas_pushed: true,
+    }));
+  });
+
+  test('a never-activated cancelled contract reopens pending instead of bypassing activation', async () => {
+    const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow').mockResolvedValue({
+      contract_id: 9, closed: true, nas_disabled: true,
+    });
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 9, status: 'cancelled', connection_type: 'static', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+        },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded terminal -> pending
+      .mockResolvedValueOnce([[
+        {
+          id: 9, status: 'pending', connection_type: 'static', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+        },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/9/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual(expect.objectContaining({
+      id: 9, status: 'pending', activation_required: true,
+    }));
+    expect(res.body.activation_required).toBe(true);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE radius/.test(String(sql)))).toBe(false);
+    const reset = db.query.mock.calls.find(([sql]) => /UPDATE contracts SET/.test(String(sql)));
+    expect(reset[0]).toMatch(/test_window_expires_at = NULL/);
+    expect(reset[0]).toMatch(/test_window_cleanup_pending = 0/);
+  });
+
+  test('a no-marker legacy PPPoE renewal performs shutdown before reopening pending', async () => {
+    const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow').mockResolvedValue({
+      contract_id: 10, closed: true, nas_disabled: true, disconnect_confirmed: true,
+    });
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 10, status: 'cancelled', connection_type: 'pppoe', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+        },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // radius inactive
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded terminal -> pending
+      .mockResolvedValueOnce([[
+        {
+          id: 10, status: 'pending', connection_type: 'pppoe', client_id: 3,
+          organization_id: 1, first_activated_at: null,
+        },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/10/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(cleanup).toHaveBeenCalledWith(10, {
+      orgId: 1, reason: 'first_activation_reset', requireMarker: false,
+    });
+    const radiusOff = db.query.mock.calls.find(([sql]) => /UPDATE radius SET status = 'inactive'/.test(sql));
+    const reset = db.query.mock.calls.find(([sql]) => /UPDATE contracts SET status = 'pending'/.test(sql));
+    expect(radiusOff).toBeDefined();
+    expect(reset[0]).not.toMatch(/test_window_cleanup_pending = 0|test_window_expires_at = NULL/);
   });
 
   test('returns 422 for an already active contract', async () => {
@@ -237,6 +361,37 @@ describe('POST /contracts/:id/regenerate-pppoe', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('NOT_PPPOE');
+  });
+
+  test('pending credential rotation never pushes an unbounded local RouterOS secret', async () => {
+    const provisioningService = require('../src/services/subscriberProvisioningService');
+    provisioningService.generatePassword.mockReturnValueOnce('pending-secret-123');
+    jest.spyOn(Nas, 'findByIdOrFail');
+    jest.spyOn(routerProvisioningService, 'pushSubscriber');
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 6, status: 'pending', connection_type: 'pppoe', organization_id: 1,
+        },
+      ]])
+      .mockResolvedValueOnce([[
+        { id: 100, username: 'pending-user', password: 'old', nas_id: 12 },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/6/regenerate-pppoe')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual(expect.objectContaining({
+      username: 'pending-user', password: 'pending-secret-123',
+    }));
+    expect(res.body.pushed).toBe(false);
+    expect(Nas.findByIdOrFail).not.toHaveBeenCalled();
+    expect(routerProvisioningService.pushSubscriber).not.toHaveBeenCalled();
   });
 
   test('returns 422 when the PPPoE contract has no radius account', async () => {

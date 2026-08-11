@@ -74,4 +74,19 @@ const patchWorkOrder = {
   ...ACCEPTANCE_FIELDS,
 };
 
-module.exports = { createWorkOrder, updateWorkOrder, patchWorkOrder };
+// Technician-entered commissioning measurement.  0 is not a speed result;
+// DECIMAL(10,3) rounds below 0.001 to zero, so 0.001 is the smallest accepted
+// positive value. Optional measurement ranges mirror speed_tests' columns.
+const completeTestWindow = {
+  download_mbps: { type: 'number', required: true, min: 0.001 },
+  upload_mbps: { type: 'number', required: true, min: 0.001 },
+  latency_ms: { type: 'number', required: false, min: 0 },
+  jitter_ms: { type: 'number', required: false, min: 0 },
+  packet_loss_pct: { type: 'number', required: false, min: 0, max: 100 },
+  server_location: { type: 'string', required: false, max: 150 },
+  notes: { type: 'string', required: false, max: 5000 },
+};
+
+module.exports = {
+  createWorkOrder, updateWorkOrder, patchWorkOrder, completeTestWindow,
+};

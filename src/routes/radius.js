@@ -219,7 +219,71 @@ router.post('/:id/push', requirePermission('radius.sync'), async (req, res, next
       return res.status(422).json({ error: { code: 'NO_NAS', message: 'Subscriber has no NAS assigned' } });
     }
 
+    let contract = null;
+    if (radius.contract_id !== null && radius.contract_id !== undefined) {
+      const [contractRows] = await db.query(
+        `SELECT c.status, c.connection_type, c.test_window_cleanup_pending,
+                (c.test_window_expires_at IS NOT NULL
+                 AND c.test_window_expires_at > NOW()) AS test_window_open
+           FROM contracts c
+          WHERE c.id = ? AND c.deleted_at IS NULL
+            AND (? IS NULL OR c.organization_id = ? OR c.organization_id IS NULL)`,
+        [radius.contract_id, req.orgId ?? null, req.orgId ?? null],
+      );
+      contract = contractRows[0];
+      if (!contract) {
+        return res.status(422).json({
+          error: { code: 'CONTRACT_NOT_PROVISIONABLE', message: 'Subscriber contract is unavailable' },
+        });
+      }
+    }
+
     const nas = await Nas.findByIdOrFail(radius.nas_id, req.orgId);
+
+    if (contract?.status === 'pending') {
+      const validWindow = Number(contract.test_window_open) === 1
+        && Number(contract.test_window_cleanup_pending) === 0
+        && radius.status === 'active'
+        && ['pppoe', 'pppoe_dual'].includes(contract.connection_type);
+      if (!validWindow) {
+        return res.status(422).json({
+          error: {
+            code: 'TEST_WINDOW_NOT_OPEN',
+            message: 'Pending subscribers may only authenticate during an open bounded test window',
+          },
+        });
+      }
+
+      // /ppp secret has no safe per-secret expiry. Pending commissioning uses
+      // standard RADIUS Expiration + Session-Timeout, and this endpoint ensures
+      // an old local secret cannot bypass those bounds.
+      try {
+        const removed = await routerProvisioningService.removeSubscriber(nas, {
+          username: radius.username,
+        });
+        return res.json({
+          data: {
+            mode: 'bounded_radius',
+            local_secret_disabled: true,
+            created: false,
+            updated: false,
+            ...removed,
+          },
+        });
+      } catch (e) {
+        if (e instanceof ValidationError || e.statusCode === 422) return next(e);
+        return res.status(502).json({ error: { code: 'ROUTER_UNREACHABLE', message: e.message } });
+      }
+    }
+
+    if ((contract && contract.status !== 'active') || radius.status !== 'active') {
+      return res.status(422).json({
+        error: {
+          code: 'CONTRACT_NOT_ACTIVE',
+          message: 'A local RouterOS subscriber secret may only be created for active service',
+        },
+      });
+    }
 
     const sub = {
       username: radius.username,
