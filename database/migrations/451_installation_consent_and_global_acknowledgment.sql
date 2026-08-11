@@ -200,7 +200,7 @@ BEGIN
     ALTER TABLE document_templates
       ADD CONSTRAINT fk_document_templates_contract_template_mx
         FOREIGN KEY (contract_template_mx_id) REFERENCES contract_templates_mx (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE;
+        ON DELETE RESTRICT ON UPDATE RESTRICT;
   END IF;
 
   IF NOT EXISTS (
@@ -327,7 +327,7 @@ BEGIN
     ALTER TABLE signed_documents
       ADD CONSTRAINT fk_signed_documents_contract_template_mx
         FOREIGN KEY (contract_template_mx_id) REFERENCES contract_templates_mx (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE;
+        ON DELETE RESTRICT ON UPDATE RESTRICT;
   END IF;
 
   IF NOT EXISTS (

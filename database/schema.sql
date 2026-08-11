@@ -14251,7 +14251,7 @@ CREATE TABLE IF NOT EXISTS document_templates (
       CONSTRAINT fk_document_templates_creator FOREIGN KEY (created_by)
           REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT fk_document_templates_contract_template_mx FOREIGN KEY (contract_template_mx_id)
-          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
       CONSTRAINT chk_document_templates_mx_link_type
           CHECK (contract_template_mx_id IS NULL OR template_type = 'activation_contract')
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -14329,7 +14329,7 @@ CREATE TABLE IF NOT EXISTS signed_documents (
       CONSTRAINT fk_signed_documents_captured_by FOREIGN KEY (captured_by)
           REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT fk_signed_documents_contract_template_mx FOREIGN KEY (contract_template_mx_id)
-          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+          REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
       CONSTRAINT fk_signed_documents_creator FOREIGN KEY (created_by)
           REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT chk_signed_documents_mx_link_type
