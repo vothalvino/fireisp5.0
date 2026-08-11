@@ -663,7 +663,12 @@ button:disabled {
   top: calc(100% + 8px);
   right: 0;
   width: min(360px, 90vw);
+  max-height: calc(100vh - 68px);
+  max-height: calc(100dvh - 68px);
+  display: flex;
+  flex-direction: column;
   background: var(--bg-card);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.45);
@@ -674,10 +679,24 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
   font-size: 0.85rem;
+}
+.notif-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notif-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .notif-mark-all {
   background: none;
@@ -687,12 +706,34 @@ button:disabled {
   cursor: pointer;
   padding: 0;
 }
+.notif-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.notif-close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
 .notif-list {
   list-style: none;
   margin: 0;
   padding: 4px;
+  min-height: 0;
   max-height: 340px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .notif-empty {
   padding: 16px;
@@ -941,6 +982,33 @@ button:disabled {
     font-weight: 700;
     font-size: 1rem;
     letter-spacing: 0.01em;
+  }
+
+  /* Keep notifications inside the dynamic mobile viewport with an obvious,
+     touch-sized dismissal action. */
+  .mobile-topbar .notif-panel {
+    position: fixed;
+    top: 48px;
+    right: 8px;
+    width: min(360px, calc(100vw - 16px));
+    max-height: calc(100vh - 56px);
+    max-height: calc(100dvh - 56px);
+  }
+
+  .notif-panel-head {
+    padding: 4px 8px 4px 12px;
+  }
+
+  .notif-mark-all {
+    min-height: 44px;
+    max-width: 112px;
+    line-height: 1.2;
+  }
+
+  .notif-close {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
   }
 
   /* Push main content below the fixed top bar */
