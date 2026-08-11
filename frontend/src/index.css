@@ -621,6 +621,41 @@ button:disabled {
   color-scheme: dark;
 }
 
+/* -- Blocking DR drill alert ------------------------------------------------- */
+.dr-drill-modal {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+.dr-drill-modal-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.dr-drill-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.dr-drill-modal-close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
 /* -- Notification bell -------------------------------------------------------- */
 .notif-bell-root {
   position: relative;

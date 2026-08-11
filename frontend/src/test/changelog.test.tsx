@@ -81,6 +81,11 @@ describe('ChangelogPanel', () => {
     expect(btn).toBeInTheDocument();
   });
 
+  it('does not mount the closed panel over the page', () => {
+    renderPanel();
+    expect(screen.queryByTestId('changelog-panel')).not.toBeInTheDocument();
+  });
+
   it('shows unread badge when entries are newer than seen id', async () => {
     localStorageMock.setItem('fireisp_changelog_seen', 'p3.1');
     renderPanel();
@@ -102,7 +107,9 @@ describe('ChangelogPanel', () => {
     renderPanel();
     const btn = screen.getByTestId('changelog-bell');
     fireEvent.click(btn);
-    expect(screen.getByTestId('changelog-panel')).toBeInTheDocument();
+    const panel = screen.getByRole('dialog', { name: /what's new/i });
+    expect(panel).toBeInTheDocument();
+    expect(panel.parentElement).toBe(document.body);
   });
 
   it('panel closes when X button is clicked', async () => {
@@ -110,9 +117,7 @@ describe('ChangelogPanel', () => {
     fireEvent.click(screen.getByTestId('changelog-bell'));
     await waitFor(() => expect(screen.getByTestId('changelog-close')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('changelog-close'));
-    // panel is still in DOM but translated off-screen; check transform style
-    const panel = screen.getByTestId('changelog-panel');
-    expect(panel.style.transform).toContain('translateX(100%)');
+    expect(screen.queryByTestId('changelog-panel')).not.toBeInTheDocument();
   });
 
   it('mark-all-read clears the badge', async () => {
@@ -129,8 +134,7 @@ describe('ChangelogPanel', () => {
     renderPanel();
     fireEvent.click(screen.getByTestId('changelog-bell'));
     fireEvent.keyDown(document, { key: 'Escape' });
-    const panel = screen.getByTestId('changelog-panel');
-    expect(panel.style.transform).toContain('translateX(100%)');
+    expect(screen.queryByTestId('changelog-panel')).not.toBeInTheDocument();
   });
 
   it('bell button has aria-label (accessibility)', () => {

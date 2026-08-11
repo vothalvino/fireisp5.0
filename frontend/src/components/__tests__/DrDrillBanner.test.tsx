@@ -255,6 +255,33 @@ describe('DrDrillBanner', () => {
     expect(sessionStorage.getItem('drDrillBannerDismissed')).toBe('1');
   });
 
+  it('offers an always-visible close action at the top of the modal', async () => {
+    mockUseAuth(adminUser);
+    mockApiGet.mockResolvedValueOnce({
+      data: {
+        data: {
+          last_run_at: null,
+          status: null,
+          days_since_drill: null,
+          overdue: true,
+          last_error: null,
+        },
+      },
+      error: undefined,
+    });
+
+    renderBanner();
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveClass('dr-drill-modal');
+    expect(dialog.querySelector('.dr-drill-modal-scroll')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('drDrillBannerDismissed')).toBe('1');
+  });
+
   it('does not show when already dismissed in this session', async () => {
     sessionStorage.setItem('drDrillBannerDismissed', '1');
     mockUseAuth(adminUser);
