@@ -658,6 +658,7 @@
     "preparing": "Preparing…",
     "prepareFailed": "Could not prepare the installation visit.",
     "waitingForPreparation": "A contract manager must prepare the installation visit before testing can begin.",
+    "installationStartPermissionRequired": "Preparing, assigning, or recommissioning this installation requires both contracts.update and installations.start. Ask an administrator to grant installation-start access.",
     "visitPreparedRestricted": "The installation visit is prepared. Service/work-order details require the corresponding view permission.",
     "commissioningDetailsRestricted": "Commissioning is in progress; work-order permission is required to view or operate it.",
     "openWorkOrders": "Open work orders →",
@@ -695,7 +696,13 @@
     "lineShutdownPendingAfterTest": "The measurement is saved and new authentication is blocked; live-session shutdown is still pending.",
     "clientSignature": "Client signature",
     "clientSignatureHelp": "The client reads and signs the frozen activation contract on the technician’s device before handoff.",
+    "mxClientSignature": "Client contract signature",
+    "mxClientSignatureHelp": "The client reviews and signs the frozen Mexican activation contract and its legal terms on the technician’s device before handoff.",
+    "globalClientSignature": "Customer service acknowledgment",
+    "globalClientSignatureHelp": "The customer reviews and signs the neutral service-installation acknowledgment before handoff. It does not add jurisdiction-specific legal terms.",
     "noDocuments": "No activation document is ready yet. Preparing the installation visit creates it when an active template is configured.",
+    "noMxDocuments": "No reviewed activation contract is ready yet. Preparing the visit creates it after an active Mexican template is published.",
+    "noGlobalDocuments": "No service acknowledgment is ready yet. Preparing the visit creates the generic acknowledgment automatically.",
     "pendingSignature": "Pending signature",
     "readAndSign": "Read & sign",
     "signPermissionRequired": "Signing permission required",
@@ -718,6 +725,8 @@
     "acceptanceRequired": "Enter at least one acceptance reading or waive readings.",
     "waiverNotesRequired": "Explain why the acceptance readings were waived.",
     "signBeforeHandoff": "The client must sign the activation contract before this installation visit can be completed.",
+    "mxSignBeforeHandoff": "The client must sign the Mexican activation contract before this installation visit can be completed.",
+    "globalSignBeforeHandoff": "The customer must sign the service-installation acknowledgment before this visit can be completed.",
     "testBeforeHandoff": "Record the technician speed test before completing the visit.",
     "completeVisit": "Complete installation visit",
     "completingVisit": "Completing visit…",
@@ -763,7 +772,9 @@
       "testWindowCleanupPending": "Technician test access is still being shut down; retry shortly.",
       "speedTestMissing": "Record the technician speed-test result.",
       "activationTemplateMissing": "Publish an activation-contract template before activating this Mexican contract.",
-      "signatureMissing": "Obtain the client’s activation-contract signature."
+      "signatureMissing": "Obtain the client’s activation-contract signature.",
+      "mxSignatureMissing": "Obtain the client’s signature on the Mexican activation contract.",
+      "globalSignatureMissing": "Obtain the customer’s signature on the service-installation acknowledgment."
     }
   },
   "invoiceList": {
@@ -1418,9 +1429,11 @@
     }
   },
   "clientDnd": {
-    "description": "Configure per-channel opt-out preferences and quiet-hour windows for this customer. Opt-outs are enforced for marketing / bulk sends; critical transactional notices are not affected.",
+    "description": "Configure per-channel suppression and quiet-hour windows for this customer. These settings never create marketing consent; promotional sends also require separate, affirmative consent.",
     "optedOut": "Opted out",
     "subscribed": "Subscribed",
+    "notSuppressed": "Not suppressed",
+    "notRecorded": "No suppression recorded",
     "cols": {
       "channel": "Channel",
       "status": "Status",
@@ -1435,7 +1448,7 @@
       "reason": "Reason",
       "reasonPlaceholder": "Why opt-out was set"
     },
-    "note": "Opt-outs suppress bulk / marketing sends only. Invoice, payment, and service suspension notices are always delivered regardless of DND settings.",
+    "note": "Removing a suppression does not grant marketing consent. Invoice, payment, and service suspension notices remain separate from optional promotional communications.",
     "errors": {
       "loadFailed": "Failed to load communication preferences.",
       "saveFailed": "Failed to save preference."
@@ -3425,8 +3438,12 @@
     },
     "documents": {
       "title": "Legal documents",
+      "mxTitle": "Legal documents",
+      "globalTitle": "Service acknowledgments",
       "pending": "Pending signature",
       "openSign": "Read & sign",
+      "viewPermissionRequired": "You need signed_documents.view to see the documents attached to this installation.",
+      "signPermissionRequired": "Signing requires signed_documents.sign.",
       "signTitle": "Sign document",
       "signedBy": "Signed by {{name}}",
       "alreadySigned": "Already signed by {{name}}.",
@@ -3434,6 +3451,8 @@
       "signHere": "Signature",
       "signerRequired": "Enter the signer’s full name.",
       "signatureRequired": "Draw the signature first.",
+      "clearSignature": "Clear signature",
+      "loadFailed": "The document could not be loaded. Retry or close this window.",
       "signing": "Saving…",
       "signButton": "Sign document"
     },
@@ -3760,6 +3779,8 @@
       "withdrawn": "Withdrawn",
       "active": "Active",
       "channel": "Channel",
+      "captureMethod": "Capture method",
+      "communicationChannel": "Promotional channel",
       "version": "Notice version",
       "notes": "Notes",
       "create": "Record consent",
@@ -3825,7 +3846,34 @@
       "noticeType": "Notice Type",
       "effectiveDate": "Effective Date",
       "status": "Status",
-      "noticeDays": "Notice Days"
+      "noticeDays": "Notice Days",
+      "registry": {
+        "title": "Registered contract template evidence",
+        "explanation": "Draft and submitted records are internal preparation states. Registered means an operator has confirmed external registration evidence and entered the exact registered text and metadata.",
+        "externalWarning": "FireISP does not submit, register, or approve this template with an authority. Record registration only after external confirmation. Enter the exact registered text; this recordkeeping screen does not provide legal advice.",
+        "create": "Add template evidence",
+        "edit": "Edit template evidence",
+        "name": "Template name",
+        "exactText": "Exact template text",
+        "version": "Version",
+        "registrationNumber": "Registration number",
+        "registrationDate": "Registration date",
+        "status": "Evidence status",
+        "confirmExternalRegistration": "I confirm that registration occurred outside FireISP and that the number, date, version, and exact text match the external evidence.",
+        "frozenEvidence": "Registered, expired, and revoked source evidence is read-only. A registered record may only be marked expired or revoked; create a new version for different text or metadata.",
+        "requiredFields": "Template name, version, and exact template text are required.",
+        "registrationRequired": "Operator confirmation, registration number, and registration date are required before marking this evidence registered.",
+        "loadError": "Registered template evidence could not be loaded.",
+        "saveError": "Registered template evidence could not be saved.",
+        "saved": "Registered template evidence saved.",
+        "statuses": {
+          "draft": "Draft",
+          "submitted": "Submitted externally",
+          "registered": "Registered · operator confirmed",
+          "expired": "Expired",
+          "revoked": "Revoked"
+        }
+      }
     },
     "residency": {
       "primaryCountry": "Primary Storage Country",
@@ -4713,7 +4761,28 @@
     "latitude": "Latitude",
     "longitude": "Longitude",
     "geocodeFromAddress": "Geocode from address",
-    "geocoding": "Geocoding…"
+    "geocoding": "Geocoding…",
+    "convert": "Convert only",
+    "convertFailed": "Failed to convert lead.",
+    "clientLink": "Client #{{id}}",
+    "installation": {
+      "button": "Start installation",
+      "title": "Start installation",
+      "description": "Create the installation order, convert this lead to a client, and prepare a pending contract for approval.",
+      "descriptionConverted": "Create the installation order and prepare a pending contract for this existing client.",
+      "plan": "Service plan",
+      "planRequired": "Choose a plan before starting the installation.",
+      "choosePlan": "Choose a plan",
+      "address": "Installation address",
+      "createFailed": "Failed to create the installation order.",
+      "startFailed": "The order was created, but the installation could not be started.",
+      "contractMissing": "The installation started, but its pending contract could not be found. Open the saved service order to continue.",
+      "recoveryFailed": "The saved installation order could not be checked.",
+      "retryExisting": "Service order #{{id}} was saved. Retry will start the same order.",
+      "starting": "Starting…",
+      "retry": "Retry installation",
+      "confirm": "Create order and continue"
+    }
   },
   "vendors": {
     "title": "Vendors",
@@ -5121,6 +5190,39 @@
     "agentPending": "The deploy agent has not reported in yet. It is installed automatically by redeploy and checks in within about 30 seconds — if this persists, run: journalctl -u fireisp-deploy-agent -n 30",
     "agentPendingWhy": "The agent runs on the host, outside Docker. FireISP itself is never given permission to restart the stack — it can only record that you asked, which is why a break-in here cannot take over the machine."
   },
+  "communicationOptIn": {
+    "title": "Optional marketing communications",
+    "optionalHelp": "Select only the channels where the customer chooses to receive optional marketing messages. Every choice starts unchecked.",
+    "channels": {
+      "email": "Email",
+      "sms": "SMS",
+      "whatsapp": "WhatsApp"
+    },
+    "emailUnavailable": "No email address is available for this customer.",
+    "phoneUnavailable": "No phone number is available for this customer.",
+    "essentialSeparate": "Essential service, billing, security, and outage messages are separate. Declining marketing does not affect installation or service.",
+    "privacyNotice": "Privacy notice · version {{version}}",
+    "privacyUnavailable": "The current privacy notice could not be loaded. Do not collect the signature until it is available.",
+    "reviewedConfirmation": "The customer reviewed the privacy notice and confirmed these communication choices.",
+    "reviewRequired": "Confirm that the customer reviewed the privacy notice and communication choices.",
+    "alreadyRecorded": "Communication choices were already captured with another handoff document. Signing this document will not change them."
+  },
+  "mxContractSource": {
+    "label": "Registered MX contract source",
+    "select": "Select the source used by the active activation document",
+    "required": "Select the registered MX contract source used by the active activation document.",
+    "permissionRequired": "You need both document_templates.view and contract_templates_mx.view to verify the source for this MX contract. Ask an administrator to grant access or create the contract.",
+    "serverDerivedHint": "The server will apply the exact source used by the active MX activation document when the contract is created.",
+    "loadError": "The active registered MX contract source could not be loaded. Check your connection and permissions.",
+    "noActiveDocument": "No active MX activation document is configured, so this contract cannot enter installation yet.",
+    "unlinkedDocument": "An active MX activation document is not linked to registered source evidence. Fix Legal Document Templates before creating the contract.",
+    "ambiguousDocument": "Active MX activation documents reference different registered sources. Make them all use one source before creating the contract.",
+    "sourceNotUsable": "The source linked to the active activation document is not complete and currently registered. Select or register a usable source first.",
+    "evidence": "Registration {{number}} · version {{version}} · registered {{date}}",
+    "configureHint": "Configure the registered source, then link that exact source to every active activation document.",
+    "registryLink": "Open MX registry",
+    "documentsLink": "Open Legal Document Templates"
+  },
   "documentTemplates": {
     "title": "Legal Document Templates",
     "intro": "The legal texts the flow generates and the client signs on-site: the installation authorization (signed on arrival), the activation contract (contrato de adhesión, signed when the install is done), and an optional equipment loan annex. Paste your PROFECO-registered text — a template only generates documents once you activate it.",
@@ -5139,6 +5241,25 @@
     "bodyRequired": "The document text is required.",
     "loadError": "Failed to load templates.",
     "empty": "No templates yet — create one and paste your legal text.",
+    "registeredSource": "Registered MX contract source",
+    "selectRegisteredSource": "Select registered template evidence",
+    "registeredEvidence": "Registered template evidence",
+    "registrationNumber": "Registration number",
+    "registrationDate": "Registration date",
+    "registrationVersion": "Version",
+    "registrationStatus": "Status",
+    "registeredSourceRequired": "Select a complete registered MX contract source before saving this activation contract.",
+    "registeredSourceIncomplete": "This source is not complete and registered, so it cannot activate an installation contract.",
+    "registeredSourcePermission": "You need permission to view registered MX contract sources before configuring an activation contract.",
+    "registeredSourceLoadError": "Failed to load registered MX contract sources.",
+    "noRegisteredSources": "No complete registered template evidence is available. Register and complete the source record before activating this contract.",
+    "registrationStatuses": {
+      "draft": "Draft",
+      "submitted": "Submitted",
+      "registered": "Registered",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
     "types": {
       "installation_authorization": "Installation authorization (on arrival)",
       "activation_contract": "Activation contract (contrato de adhesión)",

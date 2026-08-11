@@ -12,7 +12,7 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createConsent, createDsarRequest, resolveDsarRequest } = require('../middleware/schemas/regulatoryCompliance');
-const { NotFoundError } = require('../utils/errors');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 
 const router = Router();
 
@@ -71,7 +71,16 @@ router.get('/consent', requirePermission('subscriber_consents.view'), async (req
 
 router.post('/consent', requirePermission('subscriber_consents.create'), validate(createConsent), async (req, res, next) => {
   try {
-    const { client_id, consent_version, purpose, channel, document_hash, notes } = req.body;
+    const {
+      client_id, consent_version, purpose, channel, communication_channel,
+      document_hash, notes,
+    } = req.body;
+    if (purpose === 'marketing' && !communication_channel) {
+      throw new ValidationError('communication_channel is required for marketing consent');
+    }
+    if (purpose !== 'marketing' && communication_channel) {
+      throw new ValidationError('communication_channel is only valid for marketing consent');
+    }
 
     // client_id is caller-supplied: without this check a staff user could file
     // a consent row against ANOTHER org's client (cross-tenant write).
@@ -82,9 +91,16 @@ router.post('/consent', requirePermission('subscriber_consents.create'), validat
     if (clientRows.length === 0) throw new NotFoundError('Client not found');
 
     const [result] = await db.query(
-      `INSERT INTO subscriber_consents (organization_id, client_id, consent_version, purpose, channel, document_hash, notes, given_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [req.orgId, client_id, consent_version, purpose, channel, document_hash || null, notes || null],
+      `INSERT INTO subscriber_consents
+         (organization_id, client_id, consent_version, purpose, channel,
+          communication_channel, document_hash, notes, ip_address,
+          source_context, captured_by, given_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staff', ?, NOW())`,
+      [
+        req.orgId, client_id, consent_version, purpose, channel,
+        communication_channel || null, document_hash || null, notes || null,
+        req.ip || null, req.user?.id || null,
+      ],
     );
 
     res.status(201).json({ id: result.insertId });
@@ -94,17 +110,69 @@ router.post('/consent', requirePermission('subscriber_consents.create'), validat
 });
 
 router.put('/consent/:id/withdraw', requirePermission('subscriber_consents.manage'), async (req, res, next) => {
+  let conn;
   try {
     const { id } = req.params;
 
-    await db.query(
-      'UPDATE subscriber_consents SET withdrawn_at = NOW() WHERE id = ? AND organization_id = ?',
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // Resolve and lock the tenant-owned ledger entry first. Besides preventing
+    // cross-organization writes, this gives marketing withdrawal channel
+    // semantics: revoking one grant revokes every still-active grant for the
+    // same client/channel, so an older duplicate cannot keep bulk sends alive.
+    const [rows] = await conn.execute(
+      `SELECT id, client_id, purpose, communication_channel
+         FROM subscriber_consents
+        WHERE id = ? AND organization_id = ?
+        FOR UPDATE`,
       [id, req.orgId],
     );
+    const consent = rows[0];
+    if (!consent) throw new NotFoundError('Consent');
+
+    if (consent.purpose === 'marketing' && consent.communication_channel) {
+      await conn.execute(
+        `UPDATE subscriber_consents
+            SET withdrawn_at = NOW()
+          WHERE organization_id = ? AND client_id = ?
+            AND purpose = 'marketing' AND communication_channel = ?
+            AND withdrawn_at IS NULL`,
+        [req.orgId, consent.client_id, consent.communication_channel],
+      );
+
+      // Consent is the positive permission and DND is the mutable safety veto.
+      // Write both sides of a withdrawal atomically so no later queue worker
+      // can interpret a partially-applied revocation as eligible to send.
+      await conn.execute(
+        `INSERT INTO client_dnd_preferences
+           (organization_id, client_id, channel, opt_out, reason)
+         VALUES (?, ?, ?, 1, ?)
+         ON DUPLICATE KEY UPDATE
+           organization_id = VALUES(organization_id),
+           opt_out = 1,
+           reason = VALUES(reason)`,
+        [req.orgId, consent.client_id, consent.communication_channel, 'Marketing consent withdrawn'],
+      );
+    } else {
+      // Non-marketing consent keeps its existing per-ledger-entry withdrawal
+      // behavior and must not alter communication suppression preferences.
+      await conn.execute(
+        `UPDATE subscriber_consents
+            SET withdrawn_at = NOW()
+          WHERE id = ? AND organization_id = ? AND withdrawn_at IS NULL`,
+        [id, req.orgId],
+      );
+    }
+
+    await conn.commit();
 
     res.json({ success: true });
   } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
     next(err);
+  } finally {
+    if (conn) conn.release();
   }
 });
 

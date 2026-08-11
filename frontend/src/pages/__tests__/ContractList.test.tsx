@@ -27,8 +27,15 @@ vi.mock('@/api/client', () => ({
 }));
 
 let mockLocale: 'global' | 'MX' = 'global';
+let mockRole = 'admin';
+let mockPermissions: string[] | undefined;
 vi.mock('@/auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, role: 'admin', organization_locale: mockLocale } }),
+  useAuth: () => ({ user: {
+    id: 1,
+    role: mockRole,
+    permissions: mockPermissions,
+    organization_locale: mockLocale,
+  } }),
 }));
 
 const contract1 = {
@@ -61,6 +68,8 @@ describe('ContractList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLocale = 'global';
+    mockRole = 'admin';
+    mockPermissions = undefined;
     mockAuthedFetch.mockResolvedValue({ ok: true, json: async () => ({ data: {} }) });
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/contracts')
@@ -287,6 +296,119 @@ describe('ContractList page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
     expect(screen.queryByLabelText(/Generate CFDI invoice automatically/)).not.toBeInTheDocument();
+  });
+
+  it('creates an MX contract with the exact source shared by active activation documents', async () => {
+    mockLocale = 'MX';
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      if (path === '/document-templates') return Promise.resolve({
+        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 }] },
+        error: undefined,
+      });
+      if (path === '/consumer-protection/contract-templates-mx/77') return Promise.resolve({
+        data: { data: {
+          id: 77,
+          template_name: 'PROFECO Internet 2026',
+          ift_registration_number: 'IFT-77',
+          registered_at: '2026-07-01',
+          version: '2026.1',
+          template_body: 'Exact registered terms',
+          status: 'registered',
+        } },
+        error: undefined,
+      });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPost.mockResolvedValue({ data: { data: { id: 91 } }, error: undefined });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Contract' }));
+    fireEvent.change(screen.getByLabelText(/Client \*/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Plan \*/), { target: { value: '2' } });
+    const source = await screen.findByRole('option', { name: 'PROFECO Internet 2026' });
+    fireEvent.change(source.closest('select')!, { target: { value: '77' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Contract' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/contracts',
+      expect.objectContaining({ body: expect.objectContaining({ contract_template_mx_id: 77 }) }),
+    ));
+    expect(screen.queryByRole('option', { name: /Unrelated registered source/ })).not.toBeInTheDocument();
+  });
+
+  it('lets an MX contract creator omit the source when legal-template metadata is not viewable', async () => {
+    mockLocale = 'MX';
+    mockRole = 'custom';
+    mockPermissions = ['contracts.create'];
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPost.mockResolvedValue({ data: { data: { id: 92 } }, error: undefined });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Contract' }));
+    fireEvent.change(screen.getByLabelText(/Client \*/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Plan \*/), { target: { value: '2' } });
+    expect(screen.getByText(/server will apply the exact source/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Contract' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalled());
+    const body = mockApiPost.mock.calls[0][1].body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('contract_template_mx_id');
+    expect(mockApiGet).not.toHaveBeenCalledWith('/document-templates');
+  });
+
+  it('repairs a pending MX contract to the source used by the active activation document', async () => {
+    mockLocale = 'MX';
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'pending', contract_template_mx_id: 66 }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      if (path === '/document-templates') return Promise.resolve({
+        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 }] },
+        error: undefined,
+      });
+      if (path === '/consumer-protection/contract-templates-mx/77') return Promise.resolve({
+        data: { data: {
+          id: 77,
+          template_name: 'PROFECO Internet 2026',
+          ift_registration_number: 'IFT-77',
+          registered_at: '2026-07-01',
+          version: '2026.1',
+          template_body: 'Exact registered terms',
+          status: 'registered',
+        } },
+        error: undefined,
+      });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPut.mockResolvedValue({ data: { data: contract1 }, error: undefined });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Edit/i }));
+    const source = await screen.findByRole('option', { name: 'PROFECO Internet 2026' });
+    fireEvent.change(source.closest('select')!, { target: { value: '77' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith(
+      '/contracts/{id}',
+      expect.objectContaining({ body: expect.objectContaining({ contract_template_mx_id: 77 }) }),
+    ));
   });
 
   describe('Edit Contract modal — diagnostic threshold overrides (migration 388)', () => {

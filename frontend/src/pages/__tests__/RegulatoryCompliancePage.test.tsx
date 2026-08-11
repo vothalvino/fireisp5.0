@@ -199,3 +199,115 @@ describe('ConsentTab permission gating', () => {
     expect(screen.queryByText('regulatoryCompliance.consent.withdraw')).toBeNull();
   });
 });
+
+describe('Consumer Protection MX registered-template evidence', () => {
+  const REGISTERED_TEMPLATE = {
+    id: 17,
+    template_name: 'Contrato 2026',
+    template_body: 'Texto exacto registrado {{client.name}}',
+    version: '2026.1',
+    ift_registration_number: 'CRT-2026-17',
+    registered_at: '2026-07-15',
+    status: 'registered',
+  };
+
+  function openConsumerTab() {
+    render(<RegulatoryCompliancePage />);
+    fireEvent.click(screen.getByText('regulatoryCompliance.tabs.consumer'));
+  }
+
+  afterEach(() => {
+    mockUser.current = { organization_locale: 'MX', role: 'admin' };
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ data: [] }),
+    } as unknown as Response));
+  });
+
+  it('lists org-scoped evidence and creates an operator-confirmed registered source with exact text', async () => {
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-templates-mx') && !options?.method) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: [REGISTERED_TEMPLATE] }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true, json: () => Promise.resolve({ data: [] }),
+      } as unknown as Response);
+    });
+
+    openConsumerTab();
+    expect(await screen.findByText('Contrato 2026')).toBeDefined();
+    expect(screen.getByText('regulatoryCompliance.consumer.registry.externalWarning')).toBeDefined();
+    fireEvent.click(screen.getByText('regulatoryCompliance.consumer.registry.create'));
+
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.name'), { target: { value: 'Contrato 2027' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.version'), { target: { value: '2027.1' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.exactText'), { target: { value: 'Texto registrado exacto  2027\nSin normalizar.' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.registrationNumber'), { target: { value: 'CRT-2027-01' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.registrationDate'), { target: { value: '2027-01-12' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.status'), { target: { value: 'registered' } });
+    fireEvent.click(screen.getByText('common.save'));
+    expect(await screen.findByText('regulatoryCompliance.consumer.registry.registrationRequired')).toBeDefined();
+    expect(vi.mocked(fetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByText('common.save'));
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/consumer-protection/contract-templates-mx',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          template_name: 'Contrato 2027',
+          template_body: 'Texto registrado exacto  2027\nSin normalizar.',
+          version: '2027.1',
+          ift_registration_number: 'CRT-2027-01',
+          registered_at: '2027-01-12',
+          status: 'registered',
+        }),
+      }),
+    ));
+  });
+
+  it('keeps frozen registered evidence read-only and surfaces backend immutability errors', async () => {
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-templates-mx/17') && options?.method === 'PUT') {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          json: () => Promise.resolve({ error: { message: 'Registered MX contract text is permanently immutable; create a new version' } }),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/consumer-protection/contract-templates-mx')) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: [REGISTERED_TEMPLATE] }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+
+    openConsumerTab();
+    await screen.findByText('Contrato 2026');
+    fireEvent.click(screen.getByText('common.edit'));
+    expect(screen.getByLabelText('regulatoryCompliance.consumer.registry.exactText')).toHaveAttribute('readonly');
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.status'), { target: { value: 'expired' } });
+    fireEvent.click(screen.getByText('common.save'));
+
+    expect(await screen.findByText('Registered MX contract text is permanently immutable; create a new version')).toBeDefined();
+  });
+
+  it('shows a localized registry fetch error', async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input).endsWith('/consumer-protection/contract-templates-mx')) {
+        return Promise.resolve({
+          ok: false, status: 500, json: () => Promise.resolve({}),
+        } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+    openConsumerTab();
+    expect(await screen.findByText('regulatoryCompliance.consumer.registry.loadError')).toBeDefined();
+  });
+});

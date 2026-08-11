@@ -55,6 +55,7 @@ function mockConnection() {
       if (/INSERT INTO contracts/i.test(sql)) return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       if (/INSERT INTO radius/i.test(sql)) return Promise.resolve([{ insertId: 50, affectedRows: 1 }]);
       if (/FROM plans/i.test(sql)) return Promise.resolve([[{ id: 1 }]]); // plan is live (assertPlanSelectable)
+      if (/FROM organizations/i.test(sql)) return Promise.resolve([[{ locale: 'global' }]]);
       // nextInvoiceNumber()'s read-back after the atomic UPDATE.
       if (/LAST_INSERT_ID/i.test(sql)) return Promise.resolve([[{ id: 1 }]]);
       if (/^\s*SELECT/i.test(sql)) return Promise.resolve([[]]);
@@ -208,6 +209,7 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       const conn = {
         query: jest.fn()
           .mockResolvedValueOnce([[{ id: 1 }]])                      // assertPlanSelectable — plan is live
+          .mockResolvedValueOnce([[{ locale: 'global' }]])           // contract legal-source jurisdiction
           .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // INSERT contracts
           .mockResolvedValueOnce([[{ name: 'Acme' }]])               // SELECT client name
           .mockResolvedValueOnce([[]])                               // radius username uniqueness

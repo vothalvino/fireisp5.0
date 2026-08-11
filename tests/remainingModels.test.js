@@ -119,7 +119,10 @@ describe('ContractTemplateMx', () => {
   test('has correct metadata with soft-delete', () => {
     expectModel(ContractTemplateMx, {
       tableName: 'contract_templates_mx',
-      fillableIncludes: ['organization_id', 'name', 'template_body', 'version', 'status'],
+      fillableIncludes: [
+        'organization_id', 'template_name', 'ift_registration_number',
+        'registered_at', 'template_body', 'document_file_id', 'version', 'status',
+      ],
       hasOrgScope: true,
       softDelete: true,
     });

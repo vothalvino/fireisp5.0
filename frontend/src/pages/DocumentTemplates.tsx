@@ -8,11 +8,12 @@
 // page is explicit about what activation means, and templates ship inactive.
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 import { styles, modalStyles } from './crudStyles';
 
 interface DocumentTemplate {
@@ -20,8 +21,19 @@ interface DocumentTemplate {
   template_type: 'installation_authorization' | 'activation_contract' | 'equipment_comodato' | 'custom';
   name: string;
   body_md: string;
+  contract_template_mx_id: number | null;
   is_active: number;
   created_at: string;
+}
+
+interface RegisteredContractTemplateMx {
+  id: number;
+  template_name: string;
+  ift_registration_number: string | null;
+  registered_at: string | null;
+  version: string | null;
+  template_body: string | null;
+  status: 'draft' | 'submitted' | 'registered' | 'expired' | 'revoked';
 }
 
 const TYPES: DocumentTemplate['template_type'][] = [
@@ -36,19 +48,84 @@ async function fetchTemplates(): Promise<DocumentTemplate[]> {
   return (res.data as { data: DocumentTemplate[] }).data;
 }
 
+async function fetchRegisteredContractTemplates(): Promise<RegisteredContractTemplateMx[]> {
+  const res = await (api.GET as unknown as (p: string) => Promise<{ data?: unknown; error?: unknown }>)('/consumer-protection/contract-templates-mx');
+  if (res.error) throw new Error('Failed to load registered MX contract templates');
+  return (res.data as { data: RegisteredContractTemplateMx[] }).data;
+}
+
+function isCompleteRegisteredSource(source: RegisteredContractTemplateMx | undefined): source is RegisteredContractTemplateMx {
+  return Boolean(
+    source
+      && source.status === 'registered'
+      && source.template_name?.trim()
+      && source.ift_registration_number?.trim()
+      && source.registered_at
+      && source.version?.trim()
+      && source.template_body?.trim(),
+  );
+}
+
+function isTerminalRegisteredSource(source: RegisteredContractTemplateMx | undefined): boolean {
+  return source?.status === 'expired' || source?.status === 'revoked';
+}
+
 function TemplateModal({ initial, onClose, onSaved }: {
   initial: DocumentTemplate | null; onClose: () => void; onSaved: () => void;
 }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState<DocumentTemplate['template_type']>(initial?.template_type ?? 'installation_authorization');
   const [body, setBody] = useState(initial?.body_md ?? '');
+  const [registeredSourceId, setRegisteredSourceId] = useState<number | null>(initial?.contract_template_mx_id ?? null);
   const [active, setActive] = useState(Boolean(initial?.is_active));
   const [err, setErr] = useState('');
+  const isActivationContract = type === 'activation_contract';
+  const mayViewRegisteredSources = can(user, 'contract_templates_mx.view');
+  const sourcesQ = useQuery({
+    queryKey: ['contract-templates-mx', 'registered-source-picker'],
+    queryFn: fetchRegisteredContractTemplates,
+    enabled: isActivationContract && mayViewRegisteredSources,
+  });
+  const selectedSource = sourcesQ.data?.find(source => source.id === registeredSourceId);
+  const selectedSourceIsEligible = isCompleteRegisteredSource(selectedSource);
+  const isExactTerminalSourceDeactivation = Boolean(
+    initial
+      && initial.template_type === 'activation_contract'
+      && Boolean(initial.is_active)
+      && isActivationContract
+      && !active
+      && isTerminalRegisteredSource(selectedSource)
+      && registeredSourceId === initial.contract_template_mx_id
+      && name === initial.name
+      && body === initial.body_md,
+  );
+
+  // The registered row is the evidence source. Never let a second, subtly
+  // different copy be typed into document_templates: copy both fields exactly
+  // whenever the selected row arrives or changes.
+  useEffect(() => {
+    // A terminal source is no longer selectable legal content. Preserve the
+    // currently-active template byte-for-byte so the operator can perform the
+    // one safe action the API permits: an exact active -> inactive transition.
+    if (!isActivationContract || !isCompleteRegisteredSource(selectedSource)) return;
+    setName(selectedSource.template_name);
+    setBody(selectedSource.template_body ?? '');
+  }, [isActivationContract, selectedSource]);
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const payload = { name: name.trim(), template_type: type, body_md: body, is_active: active };
+      const payload = {
+        // For MX activation contracts, preserve the source name byte-for-byte
+        // just as we do its body. Other document types retain the existing
+        // whitespace-normalising behaviour.
+        name: isActivationContract ? name : name.trim(),
+        template_type: type,
+        body_md: body,
+        contract_template_mx_id: isActivationContract ? registeredSourceId : null,
+        is_active: active,
+      };
       const call = initial
         ? (api.PUT as unknown as (p: string, o: unknown) => Promise<{ error?: unknown }>)('/document-templates/{id}', { params: { path: { id: initial.id } }, body: payload })
         : (api.POST as unknown as (p: string, o: unknown) => Promise<{ error?: unknown }>)('/document-templates', { body: payload });
@@ -61,6 +138,10 @@ function TemplateModal({ initial, onClose, onSaved }: {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (isActivationContract && !selectedSourceIsEligible && !isExactTerminalSourceDeactivation) {
+      setErr(t('documentTemplates.registeredSourceRequired'));
+      return;
+    }
     if (!name.trim()) { setErr(t('documentTemplates.nameRequired')); return; }
     if (!body.trim()) { setErr(t('documentTemplates.bodyRequired')); return; }
     setErr('');
@@ -76,27 +157,92 @@ function TemplateModal({ initial, onClose, onSaved }: {
         <form style={modalStyles.form} onSubmit={submit}>
           <label style={modalStyles.label}>
             {t('documentTemplates.name')} *
-            <input style={modalStyles.input} value={name} onChange={e => setName(e.target.value)} maxLength={200} />
+            <input
+              style={modalStyles.input}
+              value={name}
+              onChange={e => setName(e.target.value)}
+              maxLength={200}
+              readOnly={isActivationContract}
+            />
           </label>
           <label style={modalStyles.label}>
             {t('documentTemplates.type')} *
-            <select style={modalStyles.input} value={type} onChange={e => setType(e.target.value as DocumentTemplate['template_type'])}>
+            <select
+              style={modalStyles.input}
+              value={type}
+              onChange={e => {
+                const nextType = e.target.value as DocumentTemplate['template_type'];
+                setType(nextType);
+                setActive(false);
+                if (nextType !== 'activation_contract') setRegisteredSourceId(null);
+              }}
+            >
               {TYPES.map(tp => <option key={tp} value={tp}>{t(`documentTemplates.types.${tp}`)}</option>)}
             </select>
           </label>
+          {isActivationContract && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={modalStyles.label} htmlFor="registered-contract-source">
+                {t('documentTemplates.registeredSource')} *
+                <select
+                  id="registered-contract-source"
+                  style={modalStyles.input}
+                  value={registeredSourceId ?? ''}
+                  onChange={e => {
+                    const nextId = Number(e.target.value) || null;
+                    setRegisteredSourceId(nextId);
+                    setActive(false);
+                    setErr('');
+                  }}
+                  disabled={!mayViewRegisteredSources || sourcesQ.isLoading || Boolean(sourcesQ.error)}
+                >
+                  <option value="">{sourcesQ.isLoading ? t('common.loading') : t('documentTemplates.selectRegisteredSource')}</option>
+                  {(sourcesQ.data ?? []).map(source => (
+                    <option key={source.id} value={source.id} disabled={!isCompleteRegisteredSource(source)}>
+                      {source.template_name} · {t(`documentTemplates.registrationStatuses.${source.status}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!mayViewRegisteredSources && <p style={styles.msgError}>{t('documentTemplates.registeredSourcePermission')}</p>}
+              {sourcesQ.error && <p style={styles.msgError}>{t('documentTemplates.registeredSourceLoadError')}</p>}
+              {!sourcesQ.isLoading && !sourcesQ.error && mayViewRegisteredSources
+                && !(sourcesQ.data ?? []).some(isCompleteRegisteredSource)
+                && <p style={styles.msg}>{t('documentTemplates.noRegisteredSources')}</p>}
+              {selectedSource && (
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem' }}>
+                  <strong>{t('documentTemplates.registeredEvidence')}</strong>
+                  <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 12px', margin: '10px 0 0' }}>
+                    <dt>{t('documentTemplates.registrationNumber')}</dt><dd style={{ margin: 0 }}>{selectedSource.ift_registration_number || '—'}</dd>
+                    <dt>{t('documentTemplates.registrationDate')}</dt><dd style={{ margin: 0 }}>{selectedSource.registered_at ? String(selectedSource.registered_at).slice(0, 10) : '—'}</dd>
+                    <dt>{t('documentTemplates.registrationVersion')}</dt><dd style={{ margin: 0 }}>{selectedSource.version || '—'}</dd>
+                    <dt>{t('documentTemplates.registrationStatus')}</dt><dd style={{ margin: 0 }}>{t(`documentTemplates.registrationStatuses.${selectedSource.status}`)}</dd>
+                  </dl>
+                  {!selectedSourceIsEligible && <p style={{ ...styles.msgError, marginBottom: 0 }}>{t('documentTemplates.registeredSourceIncomplete')}</p>}
+                </div>
+              )}
+            </div>
+          )}
           <label style={modalStyles.label}>
             {t('documentTemplates.body')} *
             <textarea
               style={{ ...modalStyles.input, minHeight: 260, fontFamily: 'monospace', fontSize: '0.82rem' }}
               value={body}
               onChange={e => setBody(e.target.value)}
+              readOnly={isActivationContract}
             />
           </label>
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
             {t('documentTemplates.placeholders')}: <code style={{ fontSize: '0.72rem' }}>{PLACEHOLDER_HELP}</code>
           </p>
           <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={e => setActive(e.target.checked)}
+              disabled={isActivationContract && !active && !selectedSourceIsEligible
+                && !isExactTerminalSourceDeactivation}
+            />
             {t('documentTemplates.activeToggle')}
           </label>
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>

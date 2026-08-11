@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { MxRegisteredContractSourceField } from '@/components/MxRegisteredContractSourceField';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { Pagination } from '@/components/Pagination';
 
@@ -33,6 +34,7 @@ interface Contract {
   price_override: string | null;
   status: string;
   facturar: boolean | number | null;
+  contract_template_mx_id: number | null;
   notes: string | null;
   escalation_enabled: boolean | number | null;
   escalate_on_disconnect: boolean | number | null;
@@ -91,6 +93,7 @@ interface CreateContractBody {
   ip_address?: string;
   status?: string;
   facturar?: boolean;
+  contract_template_mx_id?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +241,7 @@ async function createContract(body: CreateContractBody): Promise<number> {
 
 interface UpdateContractBody {
   plan_id?: number;
+  contract_template_mx_id?: number;
   connection_type?: string;
   start_date?: string;
   end_date?: string | null;
@@ -365,6 +369,7 @@ function NewContractModal({ plans, clients, isMxOrg, onClose, onCreated }: NewCo
     ip_address: '',
     price_override: '',
     facturar: false,
+    contract_template_mx_id: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -393,7 +398,12 @@ function NewContractModal({ plans, clients, isMxOrg, onClose, onCreated }: NewCo
       };
       // `facturar` is an MX fiscal option. Omitting it outside MX keeps the
       // global contract payload free from SAT/CFDI-only fields.
-      if (isMxOrg) body.facturar = form.facturar;
+      if (isMxOrg) {
+        body.facturar = form.facturar;
+        if (form.contract_template_mx_id) {
+          body.contract_template_mx_id = Number(form.contract_template_mx_id);
+        }
+      }
       const contractId = await createContract(body);
       onCreated(contractId);
       onClose();
@@ -524,6 +534,16 @@ function NewContractModal({ plans, clients, isMxOrg, onClose, onCreated }: NewCo
               placeholder="e.g. 350.00"
             />
           </label>
+
+          {isMxOrg && (
+            <MxRegisteredContractSourceField
+              value={form.contract_template_mx_id}
+              onChange={value => setField('contract_template_mx_id', value)}
+              required={false}
+              labelStyle={modalStyles.label}
+              selectStyle={modalStyles.select}
+            />
+          )}
 
           {/* CFDI belongs to the MX jurisdiction only. */}
           {isMxOrg && (
@@ -695,6 +715,8 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
     ip_address: contract.ip_address || '',
     price_override: contract.price_override != null ? String(contract.price_override) : '',
     facturar: !!contract.facturar,
+    contract_template_mx_id: contract.contract_template_mx_id == null
+      ? '' : String(contract.contract_template_mx_id),
     // Migration 387: default ON (matches the DB column default) unless the
     // contract explicitly has it off; escalate_on_disconnect defaults OFF.
     escalation_enabled: contract.escalation_enabled == null ? true : !!contract.escalation_enabled,
@@ -705,6 +727,7 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
     wireless_link_capacity_min_mbps: contract.wireless_link_capacity_min_mbps != null ? String(contract.wireless_link_capacity_min_mbps) : '',
   });
   const [error, setError] = useState('');
+  const [mxSourceAvailable, setMxSourceAvailable] = useState(false);
 
   function setField(name: string, value: unknown) {
     setForm(prev => ({ ...prev, [name]: value }));
@@ -733,7 +756,12 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
       };
       // Contract state is changed only by the dedicated lifecycle actions.
       // The generic Edit form must never be an activation/suspension bypass.
-      if (isMxOrg) body.facturar = form.facturar;
+      if (isMxOrg) {
+        body.facturar = form.facturar;
+        if (contract.status === 'pending') {
+          body.contract_template_mx_id = Number(form.contract_template_mx_id);
+        }
+      }
       if (form.start_date) body.start_date = form.start_date;
       if (form.billing_day) body.billing_day = Math.min(28, Math.max(1, Number(form.billing_day)));
       if (form.ip_address) body.ip_address = form.ip_address;
@@ -751,6 +779,11 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (isMxOrg && contract.status === 'pending'
+        && (!mxSourceAvailable || !form.contract_template_mx_id)) {
+      setError(t('mxContractSource.required'));
+      return;
+    }
     mutation.mutate();
   }
 
@@ -819,6 +852,17 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
             Price Override (leave blank for plan default)
             <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.price_override} onChange={e => setField('price_override', e.target.value)} />
           </label>
+
+          {isMxOrg && contract.status === 'pending' && (
+            <MxRegisteredContractSourceField
+              value={form.contract_template_mx_id}
+              onChange={value => setField('contract_template_mx_id', value)}
+              onAvailabilityChange={setMxSourceAvailable}
+              disabled={mutation.isPending}
+              labelStyle={modalStyles.label}
+              selectStyle={modalStyles.select}
+            />
+          )}
 
           {isMxOrg && (
             <label style={modalStyles.checkboxLabel}>
@@ -899,7 +943,12 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
 
           <div style={modalStyles.actions}>
             <button type="button" onClick={onClose} style={styles.btnSecondary} disabled={mutation.isPending}>Cancel</button>
-            <button type="submit" style={styles.btnPrimary} disabled={mutation.isPending}>
+            <button
+              type="submit"
+              style={styles.btnPrimary}
+              disabled={mutation.isPending || (isMxOrg && contract.status === 'pending'
+                && (!mxSourceAvailable || !form.contract_template_mx_id))}
+            >
               {mutation.isPending ? 'Saving…' : 'Save Changes'}
             </button>
           </div>

@@ -364,7 +364,7 @@ function generateSpec() {
         post: { tags: ['Service Orders'], summary: 'Create a ServiceOrder', operationId: 'createServiceOrder', security: [{ bearerAuth: [] }], requestBody: jsonBody('ServiceOrder'), responses: r201('ServiceOrder') },
       },
       '/service-orders/{id}/restore': { post: { tags: ['Service Orders'], summary: 'Restore a soft-deleted service order', operationId: 'restoreServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
-      '/service-orders/{id}/start': { post: { tags: ['Service Orders'], summary: 'Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active reviewed activation template)', operationId: 'startServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
+      '/service-orders/{id}/start': { post: { tags: ['Service Orders'], summary: 'Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active activation document linked to the exact registered source)', operationId: 'startServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: serviceOrderStartResponse() } },
       '/service-orders/{id}/complete': { post: { tags: ['Service Orders'], summary: 'Complete an order; new_install uses the canonical evidence/signature activation gate and may return a recoverable network_activation warning', operationId: 'completeServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('serviceOrders_completeServiceOrder'), responses: r200('ServiceOrder, optional invoice, and activation network outcome') } },
       '/service-orders/{id}/cancel': { post: { tags: ['Service Orders'], summary: 'Cancel a service order; cancelling a new_install and its pending contract also requires contracts.update', operationId: 'cancelServiceOrder', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('ServiceOrder') } },
       '/service-orders/{id}/tasks': {
@@ -421,7 +421,7 @@ function generateSpec() {
       '/contracts/{id}/activation/prepare': {
         post: {
           tags: ['Contracts'],
-          summary: 'Prepare a pending contract for activation by creating or reusing its installation service order, technician visit, and MX-only signing documents',
+          summary: 'Prepare a pending contract, installation visit, and locale-aware customer signing document',
           operationId: 'prepareContractActivation',
           security: [{ bearerAuth: [] }],
           parameters: [idParam()],
@@ -456,7 +456,7 @@ function generateSpec() {
       '/contracts/{id}/activate': {
         post: {
           tags: ['Contracts'],
-          summary: 'Permanently activate a tested pending contract after the installation visit and any required MX activation contract are complete',
+          summary: 'Permanently activate after testing, handoff evidence, and the required MX contract or global acknowledgment are complete',
           operationId: 'activateContract',
           security: [{ bearerAuth: [] }],
           parameters: [idParam()],
@@ -1063,9 +1063,9 @@ function generateSpec() {
       },
       '/signed-documents': { get: { tags: ['Settings'], summary: 'List generated legal-document instances (filter by client_id/contract_id/service_order_id/work_order_id/status)', operationId: 'listSignedDocuments', security: [{ bearerAuth: [] }], responses: r200('SignedDocument[] (bodies omitted)') } },
       '/signed-documents/{id}': { get: { tags: ['Settings'], summary: 'Read one legal-document instance including its frozen body and signature', operationId: 'getSignedDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SignedDocument') } },
-      '/signed-documents/{id}/sign': { post: { tags: ['Settings'], summary: 'Capture the client signature on a pending document (signer name + canvas image; hash-verified)', operationId: 'signDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('legalDocuments_signDocument'), responses: r200('SignedDocument') } },
+      '/signed-documents/{id}/sign': { post: { tags: ['Settings'], summary: 'Atomically capture the customer signature and, for handoff documents, explicit optional communication choices', operationId: 'signDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('legalDocuments_signDocument'), responses: r200('SignedDocument') } },
       '/signed-documents/{id}/cancel': { post: { tags: ['Settings'], summary: 'Cancel a stale pending document instance', operationId: 'cancelSignedDocument', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SignedDocument') } },
-      '/signed-documents/generate': { post: { tags: ['Settings'], summary: 'Generate pending instances for a service order from the active templates (skips types already covered)', operationId: 'generateSignedDocuments', security: [{ bearerAuth: [] }], requestBody: jsonBody('legalDocuments_generateDocuments'), responses: r201('Generation result') } },
+      '/signed-documents/generate': { post: { tags: ['Settings'], summary: 'Generate missing MX reviewed-template instances or the global neutral acknowledgment for a service order', operationId: 'generateSignedDocuments', security: [{ bearerAuth: [] }], requestBody: jsonBody('legalDocuments_generateDocuments'), responses: r201('Generation result') } },
 
       // ---- Audit Logs ----
       '/audit-logs': { get: { tags: ['Audit Logs'], summary: 'List audit log entries', operationId: 'listAuditLogs', security: [{ bearerAuth: [] }], responses: r200('AuditLog[]') } },
@@ -3121,6 +3121,37 @@ function activationBillingBody() {
     },
   }, 'Billing disposition; create_invoice additionally requires installation_fee and invoices.create');
 }
+function serviceOrderStartResponse() {
+  return {
+    200: {
+      description: 'Started service order with the linked/created contract, provisioning result, and installation work order',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: ['id', 'status'],
+                additionalProperties: true,
+                properties: {
+                  id: { type: 'integer' },
+                  status: { type: 'string', enum: ['in_process'] },
+                  client_id: { type: ['integer', 'null'] },
+                  contract_id: { type: ['integer', 'null'] },
+                  contract: { type: 'object', additionalProperties: true },
+                  provisioning: { type: 'object', additionalProperties: true },
+                  work_order: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
 function activationStateSchema() {
   return {
     type: 'object',
@@ -3370,13 +3401,21 @@ function convertSchemaToOpenApi(schema) {
       case 'number': prop.type = 'number'; break;
       case 'email': prop.type = 'string'; prop.format = 'email'; break;
       case 'boolean': prop.type = 'boolean'; break;
+      case 'object': {
+        prop.type = 'object';
+        if (rules.properties) prop.properties = rules.properties;
+        if (rules.requiredProperties) prop.required = rules.requiredProperties;
+        break;
+      }
       default: prop.type = 'string';
     }
 
     if (rules.min !== undefined) prop.minimum = rules.min;
     if (rules.max !== undefined) prop.maximum = rules.max;
     if (rules.enum) prop.enum = rules.enum;
-    if (rules.pattern) prop.pattern = rules.pattern;
+    if (rules.pattern) {
+      prop.pattern = rules.pattern instanceof RegExp ? rules.pattern.source : rules.pattern;
+    }
     if (rules.format) prop.format = rules.format;
     if (rules.required) required.push(field);
 

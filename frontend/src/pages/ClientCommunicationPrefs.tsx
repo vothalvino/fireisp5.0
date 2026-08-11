@@ -122,8 +122,8 @@ function DndChannelRow({
               {t('clientDnd.optedOut')}
             </span>
           ) : (
-            <span style={{ background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600 }}>
-              {t('clientDnd.subscribed')}
+            <span style={{ background: '#f3f4f6', color: '#4b5563', padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600 }}>
+              {pref ? t('clientDnd.notSuppressed') : t('clientDnd.notRecorded')}
             </span>
           )}
         </td>

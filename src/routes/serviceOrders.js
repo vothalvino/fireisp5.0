@@ -189,9 +189,18 @@ router.post('/:id/restore', requirePermission('service_orders.update'), ctrl.res
 // new_install orders (and auto-converts an unconverted lead, if needed).
 router.post('/:id/start', requirePermission('service_orders.update'), async (req, res, next) => {
   try {
+    const candidate = await ServiceOrder.findByIdOrFail(req.params.id, req.orgId);
+    let canStartInstallation = true;
+    if (candidate.order_type === 'new_install') {
+      canStartInstallation = await userHasPermission(req, 'installations.start');
+      if (!canStartInstallation) {
+        throw new ForbiddenError('Starting a new installation requires installations.start');
+      }
+    }
     const { order, contract, provisioning, workOrder } = await lifecycleService.startOrder(req.params.id, {
       orgId: req.orgId,
       userId: req.user?.id,
+      canStartInstallation,
     });
     await auditLog.log({
       userId: req.user?.id,

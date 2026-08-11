@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), queryReplica: jest.fn(), getConnection: jest.fn(),
 }));
@@ -12,6 +14,10 @@ jest.mock('../src/services/lifecycleService', () => ({
 }));
 jest.mock('../src/services/legalDocumentService', () => ({
   generateForOrder: jest.fn(),
+  signatureEvidenceIsValid: jest.fn(document => document.evidence_valid !== false),
+  GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID: 0,
+  GLOBAL_ACKNOWLEDGMENT_TYPE: 'service_acknowledgment',
+  GLOBAL_ACKNOWLEDGMENT_TITLE: 'Service installation acknowledgment',
 }));
 jest.mock('../src/models/Nas', () => ({ findByIdOrFail: jest.fn() }));
 jest.mock('../src/services/routerProvisioningService', () => ({ pushSubscriber: jest.fn() }));
@@ -34,10 +40,24 @@ const suspensionService = require('../src/services/suspensionService');
 const service = require('../src/services/contractActivationService');
 
 const STARTED_AT = new Date('2026-08-10T10:00:00Z');
+const MX_SOURCE_ID = 71;
+const MX_SOURCE_BODY = 'Registered MX activation body';
+const MX_SOURCE_HASH = crypto.createHash('sha256').update(MX_SOURCE_BODY).digest('hex');
+function registeredTemplate(template = {}) {
+  return {
+    template_type: 'activation_contract', is_active: 1,
+    body_md: MX_SOURCE_BODY, contract_template_mx_id: MX_SOURCE_ID,
+    mx_id: MX_SOURCE_ID, mx_organization_id: 42,
+    mx_registration_number: 'IFT-2026-001', mx_registered_at: '2026-01-15',
+    mx_template_version: '1.0', mx_template_body: MX_SOURCE_BODY,
+    mx_status: 'registered', mx_deleted_at: null,
+    ...template,
+  };
+}
 const CONTRACT = {
   id: 33, organization_id: 42, client_id: 9, plan_id: 2,
   status: 'pending', connection_type: 'pppoe', test_window_expires_at: null,
-  test_window_cleanup_pending: 0,
+  test_window_cleanup_pending: 0, contract_template_mx_id: MX_SOURCE_ID,
 };
 const ORDER = {
   id: 16, organization_id: 42, order_number: 'SO-000016', order_type: 'new_install',
@@ -67,24 +87,45 @@ function tx() {
 
 function wireState({
   contract = CONTRACT, order = ORDER, workOrder = WORK_ORDER,
-  documents = [], speedTest = SPEED_TEST, locale = 'global', templates = [],
+  documents = null, speedTest = SPEED_TEST, locale = 'global', templates = [],
   arrivalTemplates = [], radius = 'inactive', nasId = null,
 } = {}) {
+  const sourceDocuments = documents ?? (locale === 'global' ? [{
+    id: 19,
+    template_id: null,
+    template_type: 'service_acknowledgment',
+    title: 'Service installation acknowledgment',
+    status: 'signed',
+    signer_name: 'Customer',
+  }] : []);
+  const effectiveDocuments = sourceDocuments.map(row => (
+    row.template_type === 'activation_contract'
+      ? {
+        contract_template_mx_id: MX_SOURCE_ID,
+        mx_registration_number: 'IFT-2026-001',
+        mx_registered_at: '2026-01-15',
+        mx_template_version: '1.0',
+        mx_source_sha256: MX_SOURCE_HASH,
+        ...row,
+      }
+      : row
+  ));
+  const effectiveTemplates = templates.map(registeredTemplate);
   db.query.mockImplementation(async (sql, params) => {
     const s = String(sql).replace(/\s+/g, ' ');
     if (/SELECT c\.\* FROM contracts c/.test(s)) return [contract ? [{ ...contract }] : []];
     if (/SELECT so\.\* FROM service_orders so/.test(s)) return [order ? [{ ...order }] : []];
     if (/SELECT wo\.\* FROM work_orders wo/.test(s)) return [workOrder ? [{ ...workOrder }] : []];
-    if (/SELECT DISTINCT template_id, status FROM signed_documents/.test(s)) {
-      return [documents
-        .filter(row => row.template_type === 'activation_contract'
+    if (/SELECT \* FROM signed_documents/.test(s)) {
+      return [effectiveDocuments
+        .filter(row => row.template_type === params[4]
           && ['pending', 'signed'].includes(row.status))
-        .map(row => ({ template_id: row.template_id, status: row.status }))];
+        .map(row => ({ ...row }))];
     }
     if (/FROM document_templates dt/.test(s)
         && /template_type = 'installation_authorization'/.test(s)) {
       return [arrivalTemplates.map(template => {
-        const live = documents.filter(row => (
+        const live = effectiveDocuments.filter(row => (
           Number(row.template_id) === Number(template.id)
           && row.template_type === 'installation_authorization'
           && ['pending', 'signed'].includes(row.status)
@@ -96,9 +137,10 @@ function wireState({
         };
       })];
     }
-    if (/FROM signed_documents/.test(s)) {
+    if (/SELECT id, template_id, template_type, title, status/.test(s)
+        && /FROM signed_documents/.test(s)) {
       expect(params).toEqual([order.id, contract.id]);
-      return [documents.map(row => ({ ...row }))];
+      return [effectiveDocuments.map(row => ({ ...row }))];
     }
     if (/FROM speed_tests/.test(s)) {
       if (speedTest) expect(params).toEqual([contract.id, workOrder.id, order.started_at]);
@@ -108,7 +150,7 @@ function wireState({
       return [radius ? [{ status: radius, nas_id: nasId }] : []];
     }
     if (/SELECT locale FROM organizations/.test(s)) return [[{ locale }]];
-    if (/FROM document_templates/.test(s)) return [templates.map(row => ({ ...row }))];
+    if (/FROM document_templates/.test(s)) return [effectiveTemplates.map(row => ({ ...row }))];
     return [[]];
   });
 }
@@ -116,10 +158,12 @@ function wireState({
 beforeEach(() => {
   jest.clearAllMocks();
   legalDocumentService.generateForOrder.mockResolvedValue([]);
+  legalDocumentService.signatureEvidenceIsValid
+    .mockImplementation(document => document.evidence_valid !== false);
 });
 
 describe('getActivationState', () => {
-  test('returns a ready global activation with technician speed evidence and no Mexican legal blockers', async () => {
+  test('returns a ready global activation with a signed generic acknowledgment and no Mexican legal blockers', async () => {
     wireState();
 
     const state = await service.getActivationState(33, { orgId: 42, includeDocuments: true });
@@ -141,7 +185,37 @@ describe('getActivationState', () => {
     expect(state.work_order).toEqual(expect.objectContaining({ id: 13, acceptance_rx_dbm: '-18.50' }));
     expect(state.blockers).not.toContain('activation_template_missing');
     expect(db.query.mock.calls.some(([sql]) => /FROM document_templates/.test(sql))).toBe(false);
-    expect(db.query.mock.calls.some(([sql]) => /FROM signed_documents/.test(sql))).toBe(false);
+    expect(db.query.mock.calls.some(([sql]) => /FROM signed_documents/.test(sql))).toBe(true);
+    expect(state.documents).toEqual([expect.objectContaining({
+      template_type: 'service_acknowledgment', status: 'signed',
+    })]);
+  });
+
+  test('global readiness blocks until the neutral service acknowledgment is signed', async () => {
+    wireState({ documents: [] });
+
+    const state = await service.getActivationState(33, { orgId: 42, includeDocuments: true });
+
+    expect(state.can_activate).toBe(false);
+    expect(state.blockers).toContain('signature_missing');
+    expect(state.blockers).not.toContain('activation_template_missing');
+    expect(state.document_sync_required).toBe(true);
+  });
+
+  test('a signed status with invalid signature evidence does not satisfy readiness', async () => {
+    wireState({
+      documents: [{
+        id: 19, template_id: null, template_type: 'service_acknowledgment',
+        status: 'signed', evidence_valid: false,
+      }],
+    });
+
+    const state = await service.getActivationState(33, { orgId: 42 });
+
+    expect(state.can_activate).toBe(false);
+    expect(state.blockers).toContain('signature_missing');
+    expect(legalDocumentService.signatureEvidenceIsValid)
+      .toHaveBeenCalledWith(expect.objectContaining({ id: 19, status: 'signed' }));
   });
 
   test('MX readiness is template-ID granular and exposes signer_name compatibility', async () => {
@@ -186,7 +260,25 @@ describe('getActivationState', () => {
     expect(state.can_activate).toBe(true);
     expect(state.documents).toEqual([]);
     expect(db.query.mock.calls.some(([sql]) => /signer_name/.test(sql))).toBe(false);
-    expect(db.query.mock.calls.some(([sql]) => /SELECT DISTINCT template_id, status/.test(sql))).toBe(true);
+    expect(db.query.mock.calls.some(([sql]) =>
+      /SELECT \*[\s\S]*FROM signed_documents/.test(sql))).toBe(true);
+  });
+
+  test('MX readiness blocks a contract linked to a different registered source', async () => {
+    wireState({
+      locale: 'MX',
+      contract: { ...CONTRACT, contract_template_mx_id: 999 },
+      templates: [{ id: 4, name: 'Contrato A' }],
+      documents: [{
+        id: 20, template_id: 4, template_type: 'activation_contract',
+        title: 'Contrato A', status: 'signed', signer_name: 'María',
+      }],
+    });
+
+    const state = await service.getActivationState(33, { orgId: 42 });
+
+    expect(state.can_activate).toBe(false);
+    expect(state.blockers).toContain('registered_template_mismatch');
   });
 
   test('flags late-template document sync without leaking metadata to a caller lacking document view', async () => {
@@ -379,6 +471,17 @@ describe('getActivationState', () => {
 describe('prepareActivation', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  test('fails closed before reading or creating anything without installations.start capability', async () => {
+    const findContract = jest.spyOn(Contract, 'findById');
+
+    await expect(service.prepareActivation(33, { orgId: 42, userId: 1 }))
+      .rejects.toMatchObject({ statusCode: 403 });
+
+    expect(findContract).not.toHaveBeenCalled();
+    expect(db.getConnection).not.toHaveBeenCalled();
+    expect(lifecycleService.startOrder).not.toHaveBeenCalled();
+  });
+
   test('rejects an MX prepare before any write when no activation-contract template is active', async () => {
     jest.spyOn(Contract, 'findById').mockResolvedValue(CONTRACT);
     db.query.mockImplementation(async (sql) => {
@@ -387,7 +490,9 @@ describe('prepareActivation', () => {
       return [[]];
     });
 
-    await expect(service.prepareActivation(33, { orgId: 42, userId: 1 }))
+    await expect(service.prepareActivation(33, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    }))
       .rejects.toThrow(/activation-contract template before preparing/i);
 
     expect(db.getConnection).not.toHaveBeenCalled();
@@ -420,11 +525,15 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState();
 
-    const state = await service.prepareActivation(33, { orgId: 42, userId: 1 });
+    const state = await service.prepareActivation(33, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    });
 
     expect(lifecycleService.nextOrderNumber).toHaveBeenCalledWith(prepareTx, 42);
     expect(lifecycleService.seedDefaultTasks).toHaveBeenCalledWith(prepareTx, 16);
-    expect(lifecycleService.startOrder).toHaveBeenCalledWith(16, { orgId: 42, userId: 1 });
+    expect(lifecycleService.startOrder).toHaveBeenCalledWith(16, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    });
     const insert = prepareTx.query.mock.calls.find(([sql]) => /INSERT INTO service_orders/.test(sql));
     expect(insert[0]).toMatch(/'new_install', 'new'/);
     expect(insert[1]).toEqual(expect.arrayContaining([42, 'SO-000016', 9, 2, 33]));
@@ -452,7 +561,9 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState();
 
-    await service.prepareActivation(33, { orgId: 42, userId: 1, assignedTo: 7 });
+    await service.prepareActivation(33, {
+      orgId: 42, userId: 1, assignedTo: 7, canStartInstallation: true,
+    });
 
     expect(User.hasEffectivePermission).toHaveBeenCalledWith(7, 42, 'work_orders.view');
     expect(User.hasEffectivePermission).toHaveBeenCalledWith(7, 42, 'work_orders.update');
@@ -483,7 +594,9 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState({ locale: 'MX', templates: [{ id: 7, name: 'Nuevo contrato' }] });
 
-    await service.prepareActivation(33, { orgId: 42, userId: 1 });
+    await service.prepareActivation(33, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    });
 
     expect(legalDocumentService.generateForOrder).toHaveBeenCalledWith(
       expect.any(Function),
@@ -525,7 +638,7 @@ describe('prepareActivation', () => {
     });
 
     await service.prepareActivation(33, {
-      orgId: 42, userId: 1, includeDocuments: false,
+      orgId: 42, userId: 1, includeDocuments: false, canStartInstallation: true,
     });
 
     expect(legalDocumentService.generateForOrder).toHaveBeenCalledWith(
@@ -562,7 +675,9 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState();
 
-    await service.prepareActivation(33, { orgId: 42, userId: 1, assignedTo: 7 });
+    await service.prepareActivation(33, {
+      orgId: 42, userId: 1, assignedTo: 7, canStartInstallation: true,
+    });
 
     expect(prepareTx.query.mock.calls.some(([sql]) => /UPDATE service_orders SET assigned_to/.test(sql))).toBe(false);
     const repair = prepareTx.query.mock.calls.find(([sql]) => /UPDATE work_orders SET assigned_to/.test(sql));
@@ -575,7 +690,9 @@ describe('prepareActivation', () => {
     jest.spyOn(Contract, 'findById').mockResolvedValue(CONTRACT);
     jest.spyOn(User, 'hasEffectivePermission').mockResolvedValue(false);
 
-    await expect(service.prepareActivation(33, { orgId: 42, assignedTo: 999 }))
+    await expect(service.prepareActivation(33, {
+      orgId: 42, assignedTo: 999, canStartInstallation: true,
+    }))
       .rejects.toThrow(/not authorized/i);
     expect(db.getConnection).not.toHaveBeenCalled();
   });
@@ -589,7 +706,9 @@ describe('prepareActivation', () => {
     jest.spyOn(User, 'hasEffectivePermission')
       .mockImplementation(async (_userId, _orgId, permission) => permission !== deniedPermission);
 
-    await expect(service.prepareActivation(33, { orgId: 42, assignedTo: 7 }))
+    await expect(service.prepareActivation(33, {
+      orgId: 42, assignedTo: 7, canStartInstallation: true,
+    }))
       .rejects.toThrow(/work-order view, work-order update, and speed-test create permissions/);
     expect(db.getConnection).not.toHaveBeenCalled();
   });
@@ -616,7 +735,9 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState({ workOrder: { ...WORK_ORDER, id: 14, status: 'pending' }, speedTest: null });
 
-    const state = await service.prepareActivation(33, { orgId: 42, userId: 1 });
+    const state = await service.prepareActivation(33, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    });
 
     const replacement = prepareTx.query.mock.calls.find(([sql]) => /INSERT INTO work_orders/.test(sql));
     expect(replacement).toBeDefined();
@@ -650,7 +771,9 @@ describe('prepareActivation', () => {
     db.getConnection.mockResolvedValueOnce(prepareTx).mockResolvedValueOnce(backfillTx);
     wireState({ workOrder: { ...WORK_ORDER, id: 14, status: 'pending' }, speedTest: null });
 
-    const state = await service.prepareActivation(33, { orgId: 42, userId: 1 });
+    const state = await service.prepareActivation(33, {
+      orgId: 42, userId: 1, canStartInstallation: true,
+    });
 
     expect(prepareTx.query.mock.calls.some(([sql]) => /INSERT INTO work_orders/.test(sql))).toBe(true);
     expect(prepareTx.query.mock.calls.some(([sql]) => /SELECT id FROM speed_tests/.test(sql)))

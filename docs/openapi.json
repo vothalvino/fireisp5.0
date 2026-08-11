@@ -4596,7 +4596,7 @@
         "tags": [
           "Service Orders"
         ],
-        "summary": "Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active reviewed activation template)",
+        "summary": "Start a service order (new -> in_process); auto-creates a pending contract and installation visit for new_install orders (MX requires an active activation document linked to the exact registered source)",
         "operationId": "startServiceOrder",
         "security": [
           {
@@ -4615,11 +4615,59 @@
         ],
         "responses": {
           "200": {
-            "description": "ServiceOrder",
+            "description": "Started service order with the linked/created contract, provisioning result, and installation work order",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "status"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "in_process"
+                          ]
+                        },
+                        "client_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "contract_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "contract": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "provisioning": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "work_order": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -6090,7 +6138,7 @@
         "tags": [
           "Contracts"
         ],
-        "summary": "Prepare a pending contract for activation by creating or reusing its installation service order, technician visit, and MX-only signing documents",
+        "summary": "Prepare a pending contract, installation visit, and locale-aware customer signing document",
         "operationId": "prepareContractActivation",
         "security": [
           {
@@ -6515,7 +6563,7 @@
         "tags": [
           "Contracts"
         ],
-        "summary": "Permanently activate a tested pending contract after the installation visit and any required MX activation contract are complete",
+        "summary": "Permanently activate after testing, handoff evidence, and the required MX contract or global acknowledgment are complete",
         "operationId": "activateContract",
         "security": [
           {
@@ -21495,7 +21543,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Capture the client signature on a pending document (signer name + canvas image; hash-verified)",
+        "summary": "Atomically capture the customer signature and, for handoff documents, explicit optional communication choices",
         "operationId": "signDocument",
         "security": [
           {
@@ -21577,7 +21625,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Generate pending instances for a service order from the active templates (skips types already covered)",
+        "summary": "Generate missing MX reviewed-template instances or the global neutral acknowledgment for a service order",
         "operationId": "generateSignedDocuments",
         "security": [
           {
@@ -53500,7 +53548,7 @@
             "type": "boolean"
           },
           "enabled_channels": {
-            "type": "string"
+            "type": "object"
           },
           "mode": {
             "type": "string",
@@ -56394,6 +56442,10 @@
             "type": "number",
             "minimum": 1
           },
+          "contract_template_mx_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "connection_type": {
             "type": "string",
             "enum": [
@@ -56464,6 +56516,10 @@
             "minimum": 1
           },
           "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_template_mx_id": {
             "type": "number",
             "minimum": 1
           },
@@ -56539,6 +56595,10 @@
             "minimum": 1
           },
           "plan_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "contract_template_mx_id": {
             "type": "number",
             "minimum": 1
           },
@@ -56956,7 +57016,7 @@
             "minimum": 1
           },
           "target_device_ids": {
-            "type": "string"
+            "type": "object"
           },
           "scheduled_at": {
             "type": "string",
@@ -56997,7 +57057,7 @@
             "minimum": 1
           },
           "target_device_ids": {
-            "type": "string"
+            "type": "object"
           },
           "status": {
             "type": "string",
@@ -57242,7 +57302,7 @@
             "maximum": 4094
           },
           "parameters": {
-            "type": "string"
+            "type": "object"
           },
           "status": {
             "type": "string",
@@ -57320,7 +57380,7 @@
             "maximum": 4094
           },
           "parameters": {
-            "type": "string"
+            "type": "object"
           },
           "status": {
             "type": "string",
@@ -57349,7 +57409,7 @@
             ]
           },
           "parameters": {
-            "type": "string"
+            "type": "object"
           },
           "priority": {
             "type": "number",
@@ -59376,7 +59436,7 @@
           "last_seen_at": {
             "type": "string",
             "maximum": 30,
-            "pattern": {}
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?"
           }
         }
       },
@@ -59394,7 +59454,7 @@
             "maximum": 128
           },
           "params": {
-            "type": "string"
+            "type": "object"
           },
           "timeout_ms": {
             "type": "number",
@@ -59417,15 +59477,15 @@
           "report_period": {
             "type": "string",
             "maximum": 10,
-            "pattern": {}
+            "pattern": "^\\d{4}-(?:Q[1-4]|(?:0[1-9]|1[0-2]))$"
           },
           "period_start": {
             "type": "string",
-            "pattern": {}
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "period_end": {
             "type": "string",
-            "pattern": {}
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "total_subscribers": {
             "type": "number",
@@ -59512,15 +59572,15 @@
           "report_period": {
             "type": "string",
             "maximum": 10,
-            "pattern": {}
+            "pattern": "^\\d{4}-(?:Q[1-4]|(?:0[1-9]|1[0-2]))$"
           },
           "period_start": {
             "type": "string",
-            "pattern": {}
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "period_end": {
             "type": "string",
-            "pattern": {}
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "total_subscribers": {
             "type": "number",
@@ -59616,10 +59676,10 @@
             "maximum": 255
           },
           "credentials": {
-            "type": "string"
+            "type": "object"
           },
           "config_json": {
-            "type": "string"
+            "type": "object"
           },
           "is_enabled": {
             "type": "boolean"
@@ -59639,10 +59699,10 @@
             "maximum": 255
           },
           "credentials": {
-            "type": "string"
+            "type": "object"
           },
           "config_json": {
-            "type": "string"
+            "type": "object"
           },
           "status": {
             "type": "string",
@@ -61750,6 +61810,10 @@
             "minimum": 1,
             "maximum": 500000
           },
+          "contract_template_mx_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "is_active": {
             "type": "boolean"
           }
@@ -61782,6 +61846,10 @@
             "minimum": 1,
             "maximum": 500000
           },
+          "contract_template_mx_id": {
+            "type": "number",
+            "minimum": 1
+          },
           "is_active": {
             "type": "boolean"
           }
@@ -61798,7 +61866,40 @@
           "signature_image": {
             "type": "string",
             "minimum": 30,
-            "maximum": 700000
+            "maximum": 500000
+          },
+          "communication_opt_ins": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "boolean"
+              },
+              "sms": {
+                "type": "boolean"
+              },
+              "whatsapp": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "email",
+              "sms",
+              "whatsapp"
+            ]
+          },
+          "communication_choices_confirmed": {
+            "type": "boolean"
+          },
+          "privacy_notice_version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "privacy_notice_hash": {
+            "type": "string",
+            "minimum": 64,
+            "maximum": 64,
+            "pattern": "^[a-f0-9]{64}$"
           }
         },
         "required": [
@@ -67108,7 +67209,7 @@
             "type": "string"
           },
           "serials": {
-            "type": "string"
+            "type": "object"
           }
         }
       },
@@ -68181,6 +68282,14 @@
               "paper",
               "phone",
               "email"
+            ]
+          },
+          "communication_channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "whatsapp"
             ]
           },
           "document_hash": {
@@ -70104,7 +70213,7 @@
             "type": "string"
           },
           "attribute_mapping": {
-            "type": "string"
+            "type": "object"
           },
           "idp_group_attribute": {
             "type": "string",
@@ -70147,7 +70256,7 @@
             "maximum": 500
           },
           "attribute_mapping": {
-            "type": "string"
+            "type": "object"
           },
           "idp_group_attribute": {
             "type": "string",
@@ -70377,7 +70486,7 @@
             "type": "boolean"
           },
           "availabilityHours": {
-            "type": "string"
+            "type": "object"
           },
           "handoffBehavior": {
             "type": "string",
@@ -70388,7 +70497,7 @@
             "maximum": 500
           },
           "configJson": {
-            "type": "string"
+            "type": "object"
           }
         }
       },
@@ -70686,7 +70795,7 @@
           "postal_codes": {
             "type": "string",
             "maximum": 2000,
-            "pattern": {}
+            "pattern": "^\\s*[A-Za-z0-9]{1,10}\\*?(\\s*-\\s*[A-Za-z0-9]{1,10})?(\\s*,\\s*[A-Za-z0-9]{1,10}\\*?(\\s*-\\s*[A-Za-z0-9]{1,10})?)*\\s*$"
           },
           "tax_type": {
             "type": "string",
@@ -70732,7 +70841,7 @@
           "postal_codes": {
             "type": "string",
             "maximum": 2000,
-            "pattern": {}
+            "pattern": "^\\s*[A-Za-z0-9]{1,10}\\*?(\\s*-\\s*[A-Za-z0-9]{1,10})?(\\s*,\\s*[A-Za-z0-9]{1,10}\\*?(\\s*-\\s*[A-Za-z0-9]{1,10})?)*\\s*$"
           },
           "tax_type": {
             "type": "string",
@@ -70986,7 +71095,7 @@
             ]
           },
           "boundary": {
-            "type": "string"
+            "type": "object"
           },
           "center_lat": {
             "type": "number",
@@ -71030,7 +71139,7 @@
             ]
           },
           "boundary": {
-            "type": "string"
+            "type": "object"
           },
           "center_lat": {
             "type": "number",

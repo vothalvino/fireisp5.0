@@ -20,6 +20,12 @@ import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
 import { MarkdownView } from '@/components/MarkdownView';
 import {
+  CommunicationOptInFields,
+  type CommunicationContacts,
+  type CommunicationOptIns,
+  type SigningPrivacyNotice,
+} from '@/components/CommunicationOptInFields';
+import {
   overlay, modalBox, cancelBtn, dangerBtn, inputStyle, labelStyle, submitBtn,
 } from '@/components/ClientFormModal';
 
@@ -1077,6 +1083,21 @@ interface ActivationDocument {
   signed_at: string | null;
 }
 
+interface ActivationDocumentDetail extends ActivationDocument {
+  rendered_body: string;
+  communication_contacts?: CommunicationContacts;
+  privacy_notice?: SigningPrivacyNotice | null;
+  communication_choices_recorded?: boolean;
+}
+
+function capturesCommunicationChoices(templateType: string): boolean {
+  return templateType === 'activation_contract' || templateType === 'service_acknowledgment';
+}
+
+function needsCommunicationChoices(document: ActivationDocumentDetail): boolean {
+  return capturesCommunicationChoices(document.template_type) && document.communication_choices_recorded !== true;
+}
+
 interface ActivationSpeedTest {
   download_mbps: number | string;
   upload_mbps: number | string;
@@ -1175,7 +1196,10 @@ function ActivationSignatureCanvas({ onChange }: { onChange: (value: string | nu
 
   function point(event: React.PointerEvent<HTMLCanvasElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    return {
+      x: (event.clientX - rect.left) * (rect.width ? event.currentTarget.width / rect.width : 1),
+      y: (event.clientY - rect.top) * (rect.height ? event.currentTarget.height / rect.height : 1),
+    };
   }
 
   function start(event: React.PointerEvent<HTMLCanvasElement>) {
@@ -1243,6 +1267,12 @@ function ActivationSignModal({ documentId, onClose, onSigned }: {
   const { t } = useTranslation();
   const [signerName, setSignerName] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
+  const [communicationOptIns, setCommunicationOptIns] = useState<CommunicationOptIns>({
+    email: false,
+    sms: false,
+    whatsapp: false,
+  });
+  const [communicationChoicesConfirmed, setCommunicationChoicesConfirmed] = useState(false);
   const [error, setError] = useState('');
 
   const documentQ = useQuery({
@@ -1255,7 +1285,7 @@ function ActivationSignModal({ documentId, onClose, onSigned }: {
         params: { path: { id: documentId } },
       });
       if (response.error) throw new Error(t('contractActivation.documentLoadFailed'));
-      return (response.data as { data: ActivationDocument & { rendered_body: string } }).data;
+      return (response.data as { data: ActivationDocumentDetail }).data;
     },
   });
 
@@ -1263,12 +1293,30 @@ function ActivationSignModal({ documentId, onClose, onSigned }: {
     mutationFn: async () => {
       if (!signerName.trim()) throw new Error(t('contractActivation.signerRequired'));
       if (!signature) throw new Error(t('contractActivation.signatureRequired'));
+      const captureChoices = Boolean(documentQ.data && needsCommunicationChoices(documentQ.data));
+      const privacyNotice = documentQ.data?.privacy_notice;
+      if (captureChoices && !privacyNotice) {
+        throw new Error(t('communicationOptIn.privacyUnavailable'));
+      }
+      if (captureChoices && !communicationChoicesConfirmed) {
+        throw new Error(t('communicationOptIn.reviewRequired'));
+      }
+      const body: Record<string, unknown> = {
+        signer_name: signerName.trim(),
+        signature_image: signature,
+      };
+      if (captureChoices && privacyNotice) {
+        body.communication_opt_ins = communicationOptIns;
+        body.communication_choices_confirmed = true;
+        body.privacy_notice_version = privacyNotice.version;
+        body.privacy_notice_hash = privacyNotice.hash;
+      }
       const response = await (api.POST as unknown as (
         path: string,
         options: unknown,
       ) => Promise<{ error?: { error?: { message?: string } } }>)('/signed-documents/{id}/sign', {
         params: { path: { id: documentId } },
-        body: { signer_name: signerName.trim(), signature_image: signature },
+        body,
       });
       if (response.error) throw new Error(response.error.error?.message || t('contractActivation.signFailed'));
     },
@@ -1302,10 +1350,33 @@ function ActivationSignModal({ documentId, onClose, onSigned }: {
                 </label>
                 <label style={labelStyle}>{t('contractActivation.signature')}</label>
                 <ActivationSignatureCanvas onChange={setSignature} />
+                {needsCommunicationChoices(documentQ.data) ? (
+                  <CommunicationOptInFields
+                    contacts={documentQ.data.communication_contacts ?? { email: false, phone: false }}
+                    privacyNotice={documentQ.data.privacy_notice ?? null}
+                    value={communicationOptIns}
+                    onChange={setCommunicationOptIns}
+                    confirmed={communicationChoicesConfirmed}
+                    onConfirmedChange={setCommunicationChoicesConfirmed}
+                    disabled={signMutation.isPending}
+                  />
+                ) : capturesCommunicationChoices(documentQ.data.template_type) ? (
+                  <p data-testid="communication-choices-recorded" style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                    {t('communicationOptIn.alreadyRecorded')}
+                  </p>
+                ) : null}
                 {error && <p style={{ color: '#991b1b', fontSize: '0.84rem' }}>{error}</p>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' }}>
                   <button type="button" style={cancelBtn} onClick={onClose}>{t('common.cancel')}</button>
-                  <button type="button" style={submitBtn} disabled={signMutation.isPending} onClick={() => { setError(''); signMutation.mutate(); }}>
+                  <button
+                    type="button"
+                    style={submitBtn}
+                    disabled={signMutation.isPending || (
+                      needsCommunicationChoices(documentQ.data)
+                      && (!communicationChoicesConfirmed || !documentQ.data.privacy_notice)
+                    )}
+                    onClick={() => { setError(''); signMutation.mutate(); }}
+                  >
                     {signMutation.isPending ? t('common.saving') : t('contractActivation.signDocument')}
                   </button>
                 </div>
@@ -1364,10 +1435,11 @@ function ActivationDocumentRow({ document, canSign, onSign }: {
   );
 }
 
-function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUpdateWorkOrders, canCreateSpeedTests, canViewSignedDocuments, canSignDocuments, operatorUserId, canSuperviseCommissioning, onActivated, onCancelled }: {
+function ActivationCard({ contractId, isMxOrg, canEdit, canStartInstallation, canCreateInvoices, canUpdateWorkOrders, canCreateSpeedTests, canViewSignedDocuments, canSignDocuments, operatorUserId, canSuperviseCommissioning, onActivated, onCancelled }: {
   contractId: string;
   isMxOrg: boolean;
   canEdit: boolean;
+  canStartInstallation: boolean;
   canCreateInvoices: boolean;
   canUpdateWorkOrders: boolean;
   canCreateSpeedTests: boolean;
@@ -1409,12 +1481,12 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
   const workOrderPrepared = state?.work_order_prepared ?? Boolean(workOrder);
   const expiresAt = state?.test_window_expires_at ?? null;
   const needsDocumentSync = Boolean(
-    isMxOrg && (
-      state?.document_sync_required
-      ?? (canViewSignedDocuments
-        && state?.blockers.includes('signature_missing')
-        && !state.documents.some(document => document.template_type === 'activation_contract' && document.status === 'pending'))
-    ),
+    state?.document_sync_required
+    ?? (canViewSignedDocuments
+      && state?.blockers.includes('signature_missing')
+      && !state.documents.some(document => (
+        capturesCommunicationChoices(document.template_type) && document.status === 'pending'
+      ))),
   );
 
   useEffect(() => {
@@ -1427,7 +1499,8 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
   const usersQ = useQuery({
     queryKey: ['activation-assignable-users'],
     queryFn: () => fetchActivationAssignableUsers(t('contractActivation.techniciansLoadFailed')),
-    enabled: canEdit && (!workOrder || workOrder.assigned_to == null || reassigning),
+    enabled: canEdit && canStartInstallation
+      && (!workOrder || workOrder.assigned_to == null || reassigning),
     retry: false,
   });
 
@@ -1598,18 +1671,18 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
     state.test_window_cleanup_pending || state.blockers.includes('test_window_cleanup_pending'),
   );
   const systemControlledLine = state.connection_type === 'pppoe' || state.connection_type === 'pppoe_dual';
-  const jurisdictionDocuments = isMxOrg ? state.documents ?? [] : [];
-  const documents = canViewSignedDocuments ? jurisdictionDocuments : [];
+  const availableDocuments = state.documents ?? [];
+  const documents = canViewSignedDocuments ? availableDocuments : [];
   const arrivalDocuments = documents.filter(document => document.template_type === 'installation_authorization');
   const handoffDocuments = documents.filter(document => document.template_type !== 'installation_authorization');
   // The start button still respects the authorization gate even when this
   // user may not view document metadata; no title/signer information leaks.
   const arrivalAuthorizationPending = state.arrival_authorization_pending
-    ?? jurisdictionDocuments.some(
+    ?? availableDocuments.some(
       document => document.template_type === 'installation_authorization' && document.status === 'pending',
     );
   const activationTemplateMissing = isMxOrg && state.blockers.includes('activation_template_missing');
-  const signatureBlocked = isMxOrg && (
+  const signatureBlocked = (
     state.blockers.includes('signature_missing') || activationTemplateMissing
   );
   const visitCompleted = workOrder?.status === 'completed';
@@ -1640,7 +1713,9 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
     test_window_cleanup_pending: t('contractActivation.blockers.testWindowCleanupPending'),
     speed_test_missing: t('contractActivation.blockers.speedTestMissing'),
     activation_template_missing: t('contractActivation.blockers.activationTemplateMissing'),
-    signature_missing: t('contractActivation.blockers.signatureMissing'),
+    signature_missing: t(isMxOrg
+      ? 'contractActivation.blockers.mxSignatureMissing'
+      : 'contractActivation.blockers.globalSignatureMissing'),
   };
   const actionError = prepareMutation.error || windowMutation.error || speedMutation.error
     || acceptanceMutation.error || activateMutation.error || cancelActivationMutation.error;
@@ -1690,7 +1765,7 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
         {!state.service_order && !workOrder && (serviceOrderPrepared || workOrderPrepared) && (
           <p style={activationStyles.summary}>{t('contractActivation.visitPreparedRestricted')}</p>
         )}
-        {isMxOrg && canViewSignedDocuments && workOrder && (
+        {canViewSignedDocuments && workOrder && arrivalDocuments.length > 0 && (
           <div style={{ margin: '0.75rem 0' }}>
             <strong style={{ fontSize: '0.84rem' }}>{t('contractActivation.arrivalAuthorization')}</strong>
             <p style={activationStyles.help}>{t('contractActivation.arrivalAuthorizationHelp')}</p>
@@ -1699,12 +1774,13 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
             ))}
           </div>
         )}
-        {workOrder?.assigned_to != null && !visitCompleted && canEdit && !reassigning && (
+        {workOrder?.assigned_to != null && !visitCompleted && canEdit && canStartInstallation && !reassigning && (
           <button type="button" style={styles.actionBtn} onClick={() => setReassigning(true)}>
             {t('contractActivation.reassignTechnician')}
           </button>
         )}
-        {canEdit && (!workOrder || workOrder.assigned_to == null || reassigning || needsDocumentSync || needsRecommission) && (
+        {canEdit && canStartInstallation
+          && (!workOrder || workOrder.assigned_to == null || reassigning || needsDocumentSync || needsRecommission) && (
           <div style={activationStyles.row}>
             {(!workOrder || workOrder.assigned_to == null || reassigning) && (
               <label style={{ ...labelStyle, margin: 0, minWidth: 230 }}>
@@ -1753,6 +1829,12 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
           </div>
         )}
         {!workOrderPrepared && !canEdit && <p style={activationStyles.help}>{t('contractActivation.waitingForPreparation')}</p>}
+        {canEdit && !canStartInstallation
+          && (!workOrder || workOrder.assigned_to == null || needsDocumentSync || needsRecommission) && (
+          <p style={activationStyles.autoOffWarning}>
+            {t('contractActivation.installationStartPermissionRequired')}
+          </p>
+        )}
         {workOrder && <Link to="/work-orders" style={styles.infoLink}>{t('contractActivation.openWorkOrders')}</Link>}
       </div>
 
@@ -1880,12 +1962,18 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
         )}
       </div>
 
-      {isMxOrg && canViewSignedDocuments && (
-        <div style={activationStyles.step} data-testid="mx-activation-documents">
-          <h3 style={activationStyles.stepTitle}>3. {t('contractActivation.clientSignature')}</h3>
-          <p style={activationStyles.help}>{t('contractActivation.clientSignatureHelp')}</p>
+      {canViewSignedDocuments && (
+        <div style={activationStyles.step} data-testid="activation-documents">
+          <h3 style={activationStyles.stepTitle}>
+            3. {t(isMxOrg ? 'contractActivation.mxClientSignature' : 'contractActivation.globalClientSignature')}
+          </h3>
+          <p style={activationStyles.help}>
+            {t(isMxOrg ? 'contractActivation.mxClientSignatureHelp' : 'contractActivation.globalClientSignatureHelp')}
+          </p>
           {!handoffDocuments.length ? (
-            <p style={activationStyles.help}>{t('contractActivation.noDocuments')}</p>
+            <p style={activationStyles.help}>
+              {t(isMxOrg ? 'contractActivation.noMxDocuments' : 'contractActivation.noGlobalDocuments')}
+            </p>
           ) : handoffDocuments.map(document => (
             <ActivationDocumentRow key={document.id} document={document} canSign={canSignDocuments} onSign={setSigningId} />
           ))}
@@ -1893,7 +1981,7 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
       )}
 
       <div style={activationStyles.step}>
-        <h3 style={activationStyles.stepTitle}>{isMxOrg ? '4' : '3'}. {t('contractActivation.installationHandoff')}</h3>
+        <h3 style={activationStyles.stepTitle}>4. {t('contractActivation.installationHandoff')}</h3>
         <p style={activationStyles.help}>{t('contractActivation.installationHandoffHelp')}</p>
         {visitCompleted ? (
           <p style={activationStyles.done}>{t('contractActivation.visitCompleted')}</p>
@@ -1901,7 +1989,11 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
           <p style={activationStyles.help}>{t('contractActivation.prepareFirst')}</p>
         ) : (
           <>
-            {signatureBlocked && <p style={activationStyles.autoOffWarning}>{t('contractActivation.signBeforeHandoff')}</p>}
+            {signatureBlocked && (
+              <p style={activationStyles.autoOffWarning}>
+                {t(isMxOrg ? 'contractActivation.mxSignBeforeHandoff' : 'contractActivation.globalSignBeforeHandoff')}
+              </p>
+            )}
             {!speedTestRecorded && <p style={activationStyles.help}>{t('contractActivation.testBeforeHandoff')}</p>}
             {canCompleteInstallation && (
               <div style={activationStyles.formGrid}>
@@ -1933,7 +2025,7 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
       </div>
 
       <div style={{ ...activationStyles.step, borderBottom: 0 }}>
-        <h3 style={activationStyles.stepTitle}>{isMxOrg ? '5' : '4'}. {t('contractActivation.permanentActivation')}</h3>
+        <h3 style={activationStyles.stepTitle}>5. {t('contractActivation.permanentActivation')}</h3>
         <p style={activationStyles.help}>{t('contractActivation.permanentActivationHelp')}</p>
         {state.blockers.length > 0 && (
           <div style={activationStyles.blockers}>
@@ -1979,7 +2071,7 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canCreateInvoices, canUp
         )}
       </div>
 
-      {signingId !== null && isMxOrg && canViewSignedDocuments && canSignDocuments && (
+      {signingId !== null && canViewSignedDocuments && canSignDocuments && (
         <ActivationSignModal
           documentId={signingId}
           onClose={() => setSigningId(null)}
@@ -2098,6 +2190,7 @@ export function ContractDetail() {
   const [activationNetworkWarning, setActivationNetworkWarning] = useState<string | null>(null);
 
   const canEdit = can(user, 'contracts.update');
+  const canStartInstallation = can(user, 'installations.start');
   const canCreateInvoices = can(user, 'invoices.create');
   const canUpdateWorkOrders = can(user, 'work_orders.update');
   const canCreateSpeedTests = can(user, 'speed_tests.create');
@@ -2274,6 +2367,7 @@ export function ContractDetail() {
           contractId={id}
           isMxOrg={isMxOrg}
           canEdit={canEdit}
+          canStartInstallation={canStartInstallation}
           canCreateInvoices={canCreateInvoices}
           canUpdateWorkOrders={canUpdateWorkOrders}
           canCreateSpeedTests={canCreateSpeedTests}

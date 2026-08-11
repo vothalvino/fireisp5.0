@@ -400,7 +400,9 @@ describe('Route-level cross-org isolation — contract FK payload guards (client
 
   test('POST /api/v1/contracts with a client_id belonging to a different org → 422 VALIDATION_ERROR (not 201)', async () => {
     const conn = {
-      query: jest.fn().mockResolvedValueOnce([[{ id: PLAN_ID }]]), // assertPlanSelectable: plan exists in this org
+      query: jest.fn()
+        .mockResolvedValueOnce([[{ id: PLAN_ID }]])       // assertPlanSelectable: plan exists in this org
+        .mockResolvedValueOnce([[{ locale: 'global' }]]), // no MX source is required
       beginTransaction: jest.fn().mockResolvedValue(undefined),
       commit: jest.fn().mockResolvedValue(undefined),
       rollback: jest.fn().mockResolvedValue(undefined),

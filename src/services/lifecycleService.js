@@ -27,12 +27,12 @@
 // =============================================================================
 
 const db = require('../config/database');
-const Lead = require('../models/Lead');
 const Client = require('../models/Client');
 const ServiceOrder = require('../models/ServiceOrder');
 const eventBus = require('./eventBus');
 const provisioningService = require('./subscriberProvisioningService');
 const billingService = require('./billingService');
+const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateService');
 const logger = require('../utils/logger').child({ service: 'lifecycle' });
 const {
   ValidationError, NotFoundError, AppError, ForbiddenError,
@@ -102,93 +102,145 @@ async function seedDefaultTasks(conn, orderId) {
   }
 }
 
+/** Build an optional tenant predicate used while a lead conversion holds row locks. */
+function conversionOrgCondition(orgId, params, column = 'organization_id') {
+  // Preserve BaseModel's established null-org behavior for trusted/single-
+  // tenant callers: null means no active-org filter, not an IS NULL tenant.
+  if (orgId === null || orgId === undefined) return '1 = 1';
+  params.push(orgId);
+  return `${column} = ?`;
+}
+
 /**
- * Convert a won lead into a client record (transactional). Marks the lead as
- * won and links it to the created client.
+ * Convert or resolve one lead while the CALLER owns the transaction.
  *
- * @param {number} leadId
- * @param {number|null} orgId
- * @param {object} [overrides] - Optional client field overrides (e.g. client_type)
- * @returns {Promise<{ lead: object, client: object }>}
+ * Both standalone conversion and installation start use this exact primitive.
+ * The lead row is locked before `converted_client_id` is inspected, so two
+ * concurrent conversions cannot both insert a client. `reuseExisting` is used
+ * by startOrder: a second service order for an already-converted lead should
+ * reuse the authoritative client, while the explicit /leads/:id/convert action
+ * retains its historical "already converted" refusal.
  */
-async function convertLead(leadId, orgId = null, overrides = {}) {
-  const lead = await Lead.findById(leadId, orgId);
+async function convertLeadOnConnection(conn, leadId, orgId, overrides = {}, {
+  reuseExisting = false,
+} = {}) {
+  const leadParams = [leadId];
+  const leadOrg = conversionOrgCondition(orgId, leadParams);
+  const [leadRows] = await conn.query(
+    `SELECT * FROM leads
+      WHERE id = ? AND ${leadOrg} AND deleted_at IS NULL
+      FOR UPDATE`,
+    leadParams,
+  );
+  const lead = leadRows[0];
   if (!lead) throw new NotFoundError('Lead');
+
+  const effectiveOrgId = lead.organization_id ?? orgId ?? null;
   if (lead.converted_client_id) {
-    throw new ValidationError('Lead has already been converted to a client');
+    if (!reuseExisting) {
+      throw new ValidationError('Lead has already been converted to a client');
+    }
+    const existingParams = [lead.converted_client_id];
+    const existingOrg = conversionOrgCondition(effectiveOrgId, existingParams);
+    const [existingClients] = await conn.query(
+      `SELECT * FROM clients
+        WHERE id = ? AND ${existingOrg} AND deleted_at IS NULL
+        LIMIT 1 FOR UPDATE`,
+      existingParams,
+    );
+    if (!existingClients[0]) {
+      throw new ValidationError('The lead\'s converted client no longer exists in this organization');
+    }
+    return { lead, client: existingClients[0], reused: true };
   }
 
   // MX fiscal chain (migration 446): the client inherits the ORGANIZATION's
-  // compliance locale — a client of a Mexican ISP is an MX client, full stop;
-  // leaving it 'global' is what made every converted lead unstampable.
-  // Resolved before the transaction (read-only, no lock needed).
-  const effectiveOrgId = orgId ?? lead.organization_id ?? null;
+  // compliance locale. Resolve it on this same transaction connection so a
+  // failed installation rolls the complete conversion back with its contract.
   let orgLocale = 'global';
   if (effectiveOrgId !== null) {
-    const [orgRows] = await db.query(
-      'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+    const [orgRows] = await conn.query(
+      'SELECT locale FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1',
       [effectiveOrgId],
     );
-    orgLocale = orgRows[0]?.locale || 'global';
+    if (!orgRows[0]) throw new NotFoundError('Organization');
+    orgLocale = orgRows[0].locale || 'global';
   }
 
+  const clientData = {
+    organization_id: effectiveOrgId,
+    name: lead.name,
+    email: lead.email || null,
+    phone: lead.phone || null,
+    client_type: overrides.client_type || (lead.company ? 'business' : 'residential'),
+    locale: orgLocale === 'MX' ? 'MX' : null,
+    tax_id: orgLocale === 'MX' ? (lead.rfc || null) : null,
+    curp: orgLocale === 'MX' ? (lead.curp || null) : null,
+    address: lead.address || null,
+    city: lead.city || null,
+    state: lead.state || null,
+    zip_code: lead.zip_code || null,
+    latitude: lead.latitude || null,
+    longitude: lead.longitude || null,
+    status: 'active',
+  };
+
+  const cols = Object.keys(clientData)
+    .filter(key => clientData[key] !== null && clientData[key] !== undefined);
+  const [ins] = await conn.query(
+    `INSERT INTO clients (${cols.map(column => `\`${column}\``).join(', ')})
+     VALUES (${cols.map(() => '?').join(', ')})`,
+    cols.map(column => clientData[column]),
+  );
+  const clientId = ins.insertId;
+
+  // Fiscal profile — created only when everything CFDI stamping requires is
+  // present. NEVER write rfc_unique_check — it is a GENERATED column.
+  if (orgLocale === 'MX' && lead.rfc && lead.razon_social
+      && lead.regimen_fiscal && lead.codigo_postal_fiscal) {
+    await conn.query(
+      `INSERT INTO client_mx_profiles
+         (client_id, rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [clientId, String(lead.rfc).trim().toUpperCase(), lead.curp || null,
+        lead.razon_social, lead.regimen_fiscal, lead.codigo_postal_fiscal],
+    );
+  }
+
+  const updateParams = [clientId, leadId];
+  // Even when the caller had no org context, the locked row gives us the
+  // authoritative tenant. Narrow the guarded write to that exact tenant.
+  const updateOrg = conversionOrgCondition(effectiveOrgId, updateParams);
+  const [updated] = await conn.query(
+    `UPDATE leads
+        SET status = 'won', converted_client_id = ?, converted_at = NOW()
+      WHERE id = ? AND ${updateOrg} AND converted_client_id IS NULL
+        AND deleted_at IS NULL`,
+    updateParams,
+  );
+  if (updated.affectedRows !== 1) {
+    throw new ValidationError('Lead was converted concurrently — reload and retry');
+  }
+
+  return {
+    lead: { ...lead, status: 'won', converted_client_id: clientId },
+    client: { id: clientId, ...clientData },
+    reused: false,
+  };
+}
+
+/**
+ * Convert a won lead into a client record (transactional). Marks the lead as
+ * won and links it to the created client.
+ */
+async function convertLead(leadId, orgId = null, overrides = {}) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-
-    const clientData = {
-      organization_id: effectiveOrgId,
-      name: lead.name,
-      email: lead.email || null,
-      phone: lead.phone || null,
-      client_type: overrides.client_type || (lead.company ? 'business' : 'residential'),
-      locale: orgLocale === 'MX' ? 'MX' : null,
-      tax_id: orgLocale === 'MX' ? (lead.rfc || null) : null,
-      curp: orgLocale === 'MX' ? (lead.curp || null) : null,
-      address: lead.address || null,
-      city: lead.city || null,
-      state: lead.state || null,
-      zip_code: lead.zip_code || null,
-      latitude: lead.latitude || null,
-      longitude: lead.longitude || null,
-      status: 'active',
-    };
-
-    const cols = Object.keys(clientData).filter(k => clientData[k] !== null && clientData[k] !== undefined);
-    const [ins] = await conn.query(
-      `INSERT INTO clients (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-      cols.map(c => clientData[c]),
-    );
-    const clientId = ins.insertId;
-
-    // Fiscal profile — created only when everything CFDI stamping requires is
-    // present (client_mx_profiles' rfc/razon_social/regimen/cp are NOT NULL;
-    // a partial row would trade one stamping failure for an INSERT failure).
-    // Partial fiscal data still reached clients.tax_id/curp above, and the
-    // profile can be completed later from the client's MX Profile modal.
-    // NEVER write rfc_unique_check — it is a GENERATED column.
-    if (orgLocale === 'MX' && lead.rfc && lead.razon_social && lead.regimen_fiscal && lead.codigo_postal_fiscal) {
-      await conn.query(
-        `INSERT INTO client_mx_profiles
-           (client_id, rfc, curp, razon_social, regimen_fiscal, codigo_postal_fiscal)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [clientId, String(lead.rfc).trim().toUpperCase(), lead.curp || null,
-          lead.razon_social, lead.regimen_fiscal, lead.codigo_postal_fiscal],
-      );
-    }
-
-    await conn.query(
-      `UPDATE leads SET status = 'won', converted_client_id = ?, converted_at = NOW()
-       WHERE id = ?`,
-      [clientId, leadId],
-    );
-
+    const result = await convertLeadOnConnection(conn, leadId, orgId, overrides);
     await conn.commit();
-
-    const client = await Client.findById(clientId, orgId);
-    const updatedLead = await Lead.findById(leadId, orgId);
-    logger.info({ leadId, clientId, orgId }, 'Lead converted to client');
-    return { lead: updatedLead, client };
+    logger.info({ leadId, clientId: result.client.id, orgId }, 'Lead converted to client');
+    return { lead: result.lead, client: result.client };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -249,7 +301,11 @@ function appendOrgFilter(sql, params, orgId, column = 'organization_id') {
  *   the route's own auditLog.log call; no column on service_orders records it.
  * @returns {Promise<{ order: object, contract: object|null, provisioning: object|undefined }>}
  */
-async function startOrder(orderId, { orgId = null, userId = null } = {}) {
+async function startOrder(orderId, {
+  orgId = null,
+  userId = null,
+  canStartInstallation = false,
+} = {}) {
   // ---- Pre-checks that don't need to hold the row lock ----
   const preOrder = await ServiceOrder.findById(orderId, orgId);
   if (!preOrder) throw new NotFoundError('Service order');
@@ -259,32 +315,15 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
   if (!preOrder.plan_id) {
     throw new ValidationError('Service order has no plan — set a plan before starting');
   }
-
-  // Resolve the client: prefer an already-linked client, otherwise resolve
-  // (and if needed convert) the linked lead. convertLead runs its own
-  // transaction and guards against double-conversion (its "already converted"
-  // check), so calling it here — outside the row lock taken below — is safe
-  // even under a rare concurrent double /start.
-  let clientId = preOrder.client_id || null;
-  if (!clientId) {
-    if (!preOrder.lead_id) {
-      throw new ValidationError('Service order has no client or lead — link one before starting');
-    }
-    const lead = await Lead.findById(preOrder.lead_id, orgId);
-    if (!lead) throw new NotFoundError('Lead');
-    if (lead.converted_client_id) {
-      clientId = lead.converted_client_id;
-    } else {
-      const { client } = await convertLead(preOrder.lead_id, orgId);
-      clientId = client.id;
-    }
+  if (!preOrder.client_id && !preOrder.lead_id) {
+    throw new ValidationError('Service order has no client or lead — link one before starting');
   }
-
-  // Defect-hardening: never trust a client_id carried on the order row (it may
-  // have been set on create/PATCH without an org check) — confirm it belongs
-  // to THIS organization before provisioning anything against it.
-  const client = await Client.findById(clientId, orgId);
-  if (!client) throw new ValidationError('Client not found in this organization');
+  // Authorization must fail before lead conversion or any other mutation. It
+  // is repeated against the transaction-locked order_type below to close a
+  // concurrent relabel race.
+  if (preOrder.order_type === 'new_install' && canStartInstallation !== true) {
+    throw new ForbiddenError('Starting a new installation requires installations.start');
+  }
 
   // ---- Single transaction: lock the order row, create + provision the
   // contract (new_install only), and transition the order atomically. ----
@@ -303,31 +342,91 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
     if (order.status !== 'new') {
       throw new ValidationError(`Invalid service order transition: ${order.status} → in_process`);
     }
+    if (!order.plan_id) {
+      throw new ValidationError('Service order has no plan — set a plan before starting');
+    }
+    if (!order.client_id && !order.lead_id) {
+      throw new ValidationError('Service order has no client or lead — link one before starting');
+    }
 
+    const effectiveOrgId = order.organization_id ?? orgId ?? null;
+    // Re-check against the transaction-locked row before resolving/converting
+    // the client. This closes a concurrent order_type relabel race without
+    // allowing an unauthorized lead conversion to become the first side effect.
+    if (order.order_type === 'new_install' && canStartInstallation !== true) {
+      throw new ForbiddenError('Starting a new installation requires installations.start');
+    }
+    let clientId = order.client_id || null;
+    if (clientId) {
+      // Re-resolve on the owning transaction. Besides tenant validation, the
+      // lock prevents the client from being deleted between the check and the
+      // contract/document inserts that reference it.
+      const clientParams = [clientId];
+      const clientOrg = conversionOrgCondition(effectiveOrgId, clientParams);
+      const [clients] = await conn.query(
+        `SELECT * FROM clients
+          WHERE id = ? AND ${clientOrg} AND deleted_at IS NULL
+          LIMIT 1 FOR UPDATE`,
+        clientParams,
+      );
+      if (!clients[0]) throw new ValidationError('Client not found in this organization');
+    } else {
+      const conversion = await convertLeadOnConnection(
+        conn,
+        order.lead_id,
+        effectiveOrgId,
+        {},
+        { reuseExisting: true },
+      );
+      clientId = conversion.client.id;
+    }
+
+    let mxRegistrationSnapshot = null;
     if (order.order_type === 'new_install') {
-      const activationOrgId = order.organization_id ?? orgId ?? null;
+      const activationOrgId = effectiveOrgId;
       if (activationOrgId !== null) {
         // Lock the organization row shared with template create/update/delete.
         // This makes the MX precondition stable until dispatch, contract
         // provisioning, WO creation, and legal-instance generation commit.
         const [organizations] = await conn.query(
-          `SELECT o.locale,
-                  EXISTS (
-                    SELECT 1 FROM document_templates dt
-                     WHERE dt.organization_id = o.id
-                       AND dt.template_type = 'activation_contract'
-                       AND dt.is_active = 1 AND dt.deleted_at IS NULL
-                  ) AS has_activation_template
-             FROM organizations o
-            WHERE o.id = ?
-            FOR UPDATE`,
+          'SELECT o.locale FROM organizations o WHERE o.id = ? FOR UPDATE',
           [activationOrgId],
         );
-        if (organizations[0]?.locale === 'MX'
-            && Number(organizations[0].has_activation_template) !== 1) {
-          throw new ValidationError(
-            'Configure and activate at least one reviewed MX activation-contract template before dispatching a new installation',
+        if (!organizations[0]) throw new NotFoundError('Organization');
+        if (organizations[0]?.locale === 'MX') {
+          const [activationTemplates] = await conn.query(
+            `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+               FROM document_templates dt
+               LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+              WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
+                AND dt.is_active = 1 AND dt.deleted_at IS NULL
+              ORDER BY dt.id FOR UPDATE`,
+            [activationOrgId],
           );
+          if (!activationTemplates.length) {
+            throw new ValidationError(
+              'Configure and activate at least one reviewed MX activation-contract template before dispatching a new installation',
+            );
+          }
+          mxRegistrationSnapshot = mxRegisteredTemplateService.assertOneRegisteredSource(
+            activationTemplates,
+            activationOrgId,
+          );
+          if (order.contract_id) {
+            const [linkedContracts] = await conn.query(
+              `SELECT contract_template_mx_id FROM contracts
+                WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+                LIMIT 1 FOR UPDATE`,
+              [order.contract_id, activationOrgId],
+            );
+            if (!linkedContracts[0]
+                || Number(linkedContracts[0].contract_template_mx_id)
+                  !== mxRegistrationSnapshot.contractTemplateMxId) {
+              throw new ValidationError(
+                'The installation contract is not linked to the registered MX template used by the active activation document',
+              );
+            }
+          }
         }
       }
     }
@@ -358,13 +457,16 @@ async function startOrder(orderId, { orgId = null, userId = null } = {}) {
       }
 
       const contractData = {
-        organization_id: orgId,
+        organization_id: order.organization_id ?? orgId,
         client_id: clientId,
         plan_id: order.plan_id,
         connection_type: 'pppoe',
         start_date: new Date().toISOString().slice(0, 10),
         status: 'pending',
       };
+      if (mxRegistrationSnapshot) {
+        contractData.contract_template_mx_id = mxRegistrationSnapshot.contractTemplateMxId;
+      }
       const cols = Object.keys(contractData);
       const [ins] = await conn.query(
         `INSERT INTO contracts (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
@@ -672,8 +774,7 @@ async function completeOrder(orderId, {
         throw new ValidationError('A technician speed test bound to this installation work order is required before activation');
       }
 
-      // Legal signatures are STRICTLY jurisdictional.  Global organizations
-      // never query or require Mexican templates.  For MX, every activation
+      // Customer approval is jurisdiction-aware. For MX, every activation
       // template that is active NOW must have a signed, non-deleted instance
       // generated from that exact template for this exact order.  This closes
       // both historical holes in the work-order gate: missing instances and
@@ -690,10 +791,12 @@ async function completeOrder(orderId, {
       }
       if (locale === 'MX') {
         const [requiredTemplates] = await conn.query(
-          `SELECT id, name FROM document_templates
-            WHERE organization_id = ? AND template_type = 'activation_contract'
-              AND is_active = 1 AND deleted_at IS NULL
-            ORDER BY id FOR UPDATE`,
+          `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+             FROM document_templates dt
+             LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+            WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
+              AND dt.is_active = 1 AND dt.deleted_at IS NULL
+            ORDER BY dt.id FOR UPDATE`,
           [activationOrgId],
         );
         if (requiredTemplates.length === 0) {
@@ -701,9 +804,19 @@ async function completeOrder(orderId, {
             'Configure and activate at least one reviewed MX activation-contract template before service goes live',
           );
         }
+        const registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
+          requiredTemplates,
+          activationOrgId,
+        );
+        if (Number(contract.contract_template_mx_id) !== registeredSource.contractTemplateMxId) {
+          throw new ValidationError(
+            'The contract is not linked to the registered MX template used by the active activation document',
+          );
+        }
         if (requiredTemplates.length) {
           const [signedDocuments] = await conn.query(
-            `SELECT template_id FROM signed_documents
+            `SELECT *
+               FROM signed_documents
               WHERE service_order_id = ? AND organization_id = ?
                 AND client_id <=> ? AND contract_id = ?
                 AND template_type = 'activation_contract' AND status = 'signed'
@@ -711,13 +824,47 @@ async function completeOrder(orderId, {
               FOR UPDATE`,
             [order.id, activationOrgId, order.client_id, order.contract_id],
           );
-          const signedIds = new Set(signedDocuments.map(row => Number(row.template_id)));
+          const legalDocumentService = require('./legalDocumentService');
+          const signedIds = new Set(signedDocuments
+            .filter(row => legalDocumentService.signatureEvidenceIsValid(row)
+              && mxRegisteredTemplateService.snapshotMatchesRegisteredSource(
+                row,
+                registeredSource,
+              ))
+            .map(row => Number(row.template_id)));
           const missing = requiredTemplates.filter(template => !signedIds.has(Number(template.id)));
           if (missing.length) {
             throw new ValidationError(
               `The client must sign every required activation contract before service goes live (missing: ${missing.map(t => t.name).join(', ')})`,
             );
           }
+        }
+      } else {
+        // Global organizations sign the bundled neutral operational handoff,
+        // never an MX contrato de adhesión. Exact order/client/contract
+        // scoping prevents an unrelated historical signature from passing.
+        const legalDocumentService = require('./legalDocumentService');
+        const [acknowledgments] = await conn.query(
+          `SELECT * FROM signed_documents
+            WHERE service_order_id = ? AND organization_id = ?
+              AND client_id <=> ? AND contract_id = ?
+              AND template_id IS NULL AND template_type = ?
+              AND status = 'signed' AND deleted_at IS NULL
+            LIMIT 1 FOR UPDATE`,
+          [
+            order.id,
+            activationOrgId,
+            order.client_id,
+            order.contract_id,
+            legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE,
+          ],
+        );
+        if (!acknowledgments.some(document => (
+          legalDocumentService.signatureEvidenceIsValid(document)
+        ))) {
+          throw new ValidationError(
+            'The client must sign the service installation acknowledgment before service goes live',
+          );
         }
       }
 
@@ -966,6 +1113,17 @@ async function cancelOrder(orderId, { orgId = null, canCancelContract = true } =
     if (result.affectedRows === 0) {
       throw new ValidationError('Service order was modified concurrently — please retry');
     }
+
+    // A cancelled installation cannot retain a signable handoff packet. Keep
+    // signed history immutable, but close each pending instance atomically
+    // with the authoritative service-order cancellation.
+    await conn.query(
+      `UPDATE signed_documents
+          SET status = 'cancelled'
+        WHERE service_order_id = ? AND organization_id <=> ?
+          AND status = 'pending' AND deleted_at IS NULL`,
+      [orderId, order.organization_id ?? orgId ?? null],
+    );
 
     // The auto-created install visit dies with its order — a technician must
     // not drive to an address whose order was cancelled. Only open install WOs

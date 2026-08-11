@@ -13,7 +13,14 @@ import { styles, modalStyles } from './crudStyles';
 import { ClientPicker } from '@/components/ClientPicker';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { MarkdownView } from '@/components/MarkdownView';
+import {
+  CommunicationOptInFields,
+  type CommunicationContacts,
+  type CommunicationOptIns,
+  type SigningPrivacyNotice,
+} from '@/components/CommunicationOptInFields';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -443,14 +450,33 @@ interface SignedDocSummary {
   signer_name: string | null; signed_at: string | null;
 }
 
+interface SignedDocDetail extends SignedDocSummary {
+  rendered_body: string;
+  communication_contacts?: CommunicationContacts;
+  privacy_notice?: SigningPrivacyNotice | null;
+  communication_choices_recorded?: boolean;
+}
+
+function capturesCommunicationChoices(templateType: string): boolean {
+  return templateType === 'activation_contract' || templateType === 'service_acknowledgment';
+}
+
+function needsCommunicationChoices(document: SignedDocDetail): boolean {
+  return capturesCommunicationChoices(document.template_type) && document.communication_choices_recorded !== true;
+}
+
 function SignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const dirty = useRef(false);
 
   function pos(e: React.PointerEvent<HTMLCanvasElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return {
+      x: (e.clientX - rect.left) * (rect.width ? e.currentTarget.width / rect.width : 1),
+      y: (e.clientY - rect.top) * (rect.height ? e.currentTarget.height / rect.height : 1),
+    };
   }
   function start(e: React.PointerEvent<HTMLCanvasElement>) {
     drawing.current = true;
@@ -499,7 +525,7 @@ function SignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => v
         onPointerLeave={end}
       />
       <button type="button" style={{ ...styles.btnSecondary, marginTop: 4, padding: '3px 10px', fontSize: '0.78rem' }} onClick={clear}>
-        Clear
+        {t('workOrders.documents.clearSignature')}
       </button>
     </div>
   );
@@ -511,6 +537,12 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
   const { t } = useTranslation();
   const [signerName, setSignerName] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
+  const [communicationOptIns, setCommunicationOptIns] = useState<CommunicationOptIns>({
+    email: false,
+    sms: false,
+    whatsapp: false,
+  });
+  const [communicationChoicesConfirmed, setCommunicationChoicesConfirmed] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -521,19 +553,41 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
         '/signed-documents/{id}', { params: { path: { id: docId } } },
       );
       if (res.error) throw new Error('Failed to load the document');
-      return (res.data as { data: SignedDocSummary & { rendered_body: string } }).data;
+      return (res.data as { data: SignedDocDetail }).data;
     },
   });
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
 
   async function submit() {
     if (!signerName.trim()) { setErr(t('workOrders.documents.signerRequired')); return; }
     if (!signature) { setErr(t('workOrders.documents.signatureRequired')); return; }
+    const captureChoices = Boolean(docQ.data && needsCommunicationChoices(docQ.data));
+    const privacyNotice = docQ.data?.privacy_notice;
+    if (captureChoices && !privacyNotice) { setErr(t('communicationOptIn.privacyUnavailable')); return; }
+    if (captureChoices && !communicationChoicesConfirmed) { setErr(t('communicationOptIn.reviewRequired')); return; }
+    const body: Record<string, unknown> = {
+      signer_name: signerName.trim(),
+      signature_image: signature,
+    };
+    if (captureChoices && privacyNotice) {
+      body.communication_opt_ins = communicationOptIns;
+      body.communication_choices_confirmed = true;
+      body.privacy_notice_version = privacyNotice.version;
+      body.privacy_notice_hash = privacyNotice.hash;
+    }
     setErr('');
     setBusy(true);
     try {
       const res = await (api.POST as unknown as (p: string, o: unknown) => Promise<{ error?: { error?: { message?: string } } }>)(
         '/signed-documents/{id}/sign',
-        { params: { path: { id: docId } }, body: { signer_name: signerName.trim(), signature_image: signature } },
+        { params: { path: { id: docId } }, body },
       );
       if (res.error) throw new Error(res.error.error?.message || 'Failed to sign');
       onSigned();
@@ -550,9 +604,28 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
       <div style={{ ...modalStyles.panel, maxWidth: 640 }} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('workOrders.documents.signTitle')}>
         <div style={modalStyles.header}>
           <h2 style={modalStyles.title}>{docQ.data?.title ?? t('workOrders.documents.signTitle')}</h2>
+          <button
+            type="button"
+            style={{ ...modalStyles.closeBtn, minWidth: 44, minHeight: 44 }}
+            onClick={onClose}
+            aria-label={t('common.close')}
+          >✕</button>
         </div>
         <div style={{ ...modalStyles.form, maxHeight: '70vh', overflowY: 'auto' }}>
           {docQ.isLoading && <p>{t('common.loading')}</p>}
+          {docQ.isError && (
+            <div>
+              <p role="alert" style={{ color: '#ef4444', fontSize: '0.85rem' }}>
+                {t('workOrders.documents.loadFailed')}
+              </p>
+              <div style={modalStyles.actions}>
+                <button type="button" style={styles.btnSecondary} onClick={onClose}>{t('common.cancel')}</button>
+                <button type="button" style={styles.btnPrimary} onClick={() => void docQ.refetch()}>
+                  {t('common.retry')}
+                </button>
+              </div>
+            </div>
+          )}
           {docQ.data && (
             <>
               <div style={{ border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 8, padding: '0.75rem', background: 'var(--bg-subtle, #f9fafb)' }}>
@@ -570,10 +643,33 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
                   </label>
                   <label style={modalStyles.label}>{t('workOrders.documents.signHere')}</label>
                   <SignatureCanvas onChange={setSignature} />
+                  {needsCommunicationChoices(docQ.data) ? (
+                    <CommunicationOptInFields
+                      contacts={docQ.data.communication_contacts ?? { email: false, phone: false }}
+                      privacyNotice={docQ.data.privacy_notice ?? null}
+                      value={communicationOptIns}
+                      onChange={setCommunicationOptIns}
+                      confirmed={communicationChoicesConfirmed}
+                      onConfirmedChange={setCommunicationChoicesConfirmed}
+                      disabled={busy}
+                    />
+                  ) : capturesCommunicationChoices(docQ.data.template_type) ? (
+                    <p data-testid="communication-choices-recorded" style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                      {t('communicationOptIn.alreadyRecorded')}
+                    </p>
+                  ) : null}
                   {err && <p style={{ color: '#ef4444', fontSize: '0.85rem', margin: 0 }}>{err}</p>}
                   <div style={modalStyles.actions}>
                     <button type="button" style={styles.btnSecondary} onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
-                    <button type="button" style={styles.btnPrimary} onClick={submit} disabled={busy}>
+                    <button
+                      type="button"
+                      style={styles.btnPrimary}
+                      onClick={submit}
+                      disabled={busy || (
+                        needsCommunicationChoices(docQ.data)
+                        && (!communicationChoicesConfirmed || !docQ.data.privacy_notice)
+                      )}
+                    >
                       {busy ? t('workOrders.documents.signing') : t('workOrders.documents.signButton')}
                     </button>
                   </div>
@@ -690,9 +786,9 @@ function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; 
   const { user } = useAuth();
   const qc = useQueryClient();
   const [signingId, setSigningId] = useState<number | null>(null);
-  // STRICTLY MX: instances are only ever generated for MX orgs, so skip the
-  // fetch entirely elsewhere.
   const isMxOrg = user?.organization_locale === 'MX';
+  const canViewDocuments = can(user, 'signed_documents.view');
+  const canSignDocuments = can(user, 'signed_documents.sign');
 
   const docsQ = useQuery({
     queryKey: ['wo-documents', workOrderId, serviceOrderId],
@@ -704,17 +800,31 @@ function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; 
       if (res.error) throw new Error('unavailable');
       return (res.data as { data: SignedDocSummary[] }).data;
     },
+    enabled: canViewDocuments,
     retry: false,
-    enabled: isMxOrg,
   });
 
+  if (!canViewDocuments) {
+    return (
+      <div style={{ padding: '0.5rem 1rem 0.75rem' }}>
+        <strong style={{ fontSize: '0.85rem' }}>
+          {t(isMxOrg ? 'workOrders.documents.mxTitle' : 'workOrders.documents.globalTitle')}
+        </strong>
+        <p style={{ margin: '6px 0 0', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+          {t('workOrders.documents.viewPermissionRequired')}
+        </p>
+      </div>
+    );
+  }
   if (docsQ.isError) return null;
   const docs = docsQ.data ?? [];
   if (!docs.length) return null;
 
   return (
     <div style={{ padding: '0.5rem 1rem 0.75rem' }}>
-      <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.documents.title')}</strong>
+      <strong style={{ fontSize: '0.85rem' }}>
+        {t(isMxOrg ? 'workOrders.documents.mxTitle' : 'workOrders.documents.globalTitle')}
+      </strong>
       <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {docs.map(d => (
           <li key={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: '0.82rem', padding: '5px 8px', background: 'var(--bg-subtle)', borderRadius: 6 }}>
@@ -724,9 +834,15 @@ function DocumentsPanel({ workOrderId, serviceOrderId }: { workOrderId: number; 
             ) : d.status === 'pending' ? (
               <>
                 <span style={{ color: '#b45309' }}>{t('workOrders.documents.pending')}</span>
-                <button style={{ ...styles.btnPrimary, padding: '3px 12px', fontSize: '0.78rem' }} onClick={() => setSigningId(d.id)}>
-                  {t('workOrders.documents.openSign')}
-                </button>
+                {canSignDocuments ? (
+                  <button style={{ ...styles.btnPrimary, padding: '3px 12px', fontSize: '0.78rem' }} onClick={() => setSigningId(d.id)}>
+                    {t('workOrders.documents.openSign')}
+                  </button>
+                ) : (
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.76rem' }}>
+                    {t('workOrders.documents.signPermissionRequired')}
+                  </span>
+                )}
               </>
             ) : (
               <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{d.status}</span>

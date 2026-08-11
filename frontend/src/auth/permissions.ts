@@ -19,7 +19,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'clients.create', 'clients.update',
     'tickets.view', 'tickets.create', 'tickets.update', 'tickets.delete',
     'leads.create', 'leads.update',
-    'service_orders.create', 'service_orders.update',
+    'service_orders.create', 'service_orders.update', 'installations.start',
     'winback.view', 'lifecycle.view',
     'interactions.view', 'interactions.create', 'interactions.update', 'interactions.delete',
     'follow_ups.view', 'follow_ups.create', 'follow_ups.update', 'follow_ups.delete',

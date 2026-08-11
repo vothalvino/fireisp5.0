@@ -21,6 +21,7 @@ const topologyContextService = require('../services/topologyContextService');
 const provisioningService = require('../services/subscriberProvisioningService');
 const routerProvisioningService = require('../services/routerProvisioningService');
 const contractActivationService = require('../services/contractActivationService');
+const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
 const testWindowService = require('../services/testWindowService');
 const { assertPlanSelectable } = require('../services/planAvailability');
 const Nas = require('../models/Nas');
@@ -200,6 +201,30 @@ async function updateContractHandler(req, res, next) {
       await assertPlanSelectable(db, req.body.plan_id, req.orgId);
     }
 
+    if (req.body.contract_template_mx_id !== undefined) {
+      const changesRegisteredSource = Number(req.body.contract_template_mx_id)
+        !== Number(old.contract_template_mx_id);
+      if (old.first_activated_at && changesRegisteredSource) {
+        throw new ValidationError(
+          'The registered MX contract template is immutable after first activation; use a dedicated re-contracting and signature workflow',
+        );
+      }
+      if (!old.first_activated_at) {
+        const activeMxSource = await mxRegisteredTemplateService.resolveActiveContractSource(
+          db.query.bind(db),
+          {
+            orgId: req.orgId,
+            contractTemplateMxId: req.body.contract_template_mx_id,
+          },
+        );
+        // Optional validation permits an explicit null. Normalize every
+        // pre-activation request to the authoritative active source so
+        // PATCH {contract_template_mx_id:null} cannot clear an MX contract;
+        // global organizations deliberately normalize to null.
+        req.body.contract_template_mx_id = activeMxSource?.contractTemplateMxId ?? null;
+      }
+    }
+
     // Block MOVING a contract onto another organization's client (security
     // hardening — mirrors serviceOrders.js#assertServiceOrderFks, PR #388).
     // Keeping its current client_id is always fine, even if that client were
@@ -359,11 +384,16 @@ router.post(
   validate(prepareContractActivation, { strip: true }),
   async (req, res, next) => {
     try {
+      const canStartInstallation = await userHasPermission(req, 'installations.start');
+      if (!canStartInstallation) {
+        throw new ForbiddenError('Preparing a new installation requires installations.start');
+      }
       const projection = await activationProjectionPermissions(req);
       const state = await contractActivationService.prepareActivation(req.params.id, {
         orgId: req.orgId,
         userId: req.user?.id ?? null,
         assignedTo: req.body.assigned_to ?? null,
+        canStartInstallation,
         ...projection,
       });
       await auditLog.log({
@@ -465,6 +495,20 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
     // A new contract may only run on a live (non-archived) plan that belongs
     // to this organization, or a global plan (organization_id IS NULL).
     await assertPlanSelectable(conn, filtered.plan_id, req.orgId);
+
+    const activeMxSource = await mxRegisteredTemplateService.resolveActiveContractSource(
+      conn.query.bind(conn),
+      {
+        orgId: req.orgId,
+        contractTemplateMxId: filtered.contract_template_mx_id,
+        lock: true,
+      },
+    );
+    if (activeMxSource) {
+      filtered.contract_template_mx_id = activeMxSource.contractTemplateMxId;
+    } else {
+      delete filtered.contract_template_mx_id;
+    }
 
     // Reject a client_id that does not belong to this organization (security
     // hardening — mirrors serviceOrders.js#assertServiceOrderFks, PR #388).

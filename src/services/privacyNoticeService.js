@@ -139,18 +139,18 @@ function fill(template, org, version) {
  * Build the privacy notice an org currently serves.
  * Returns { version, content, hash, source: 'org' | 'bundled' }.
  */
-async function getNotice(orgId) {
+async function getNotice(orgId, run = db.query.bind(db)) {
   // orgId is NULL on single-tenant installs (parent org columns are
   // 'NULL = single-tenant' by design), where there is exactly one org row —
   // serve that one rather than 404ing every subscriber of the install.
   const [rows] = orgId !== null && orgId !== undefined
-    ? await db.query(
+    ? await run(
       `SELECT name, legal_name, email, phone, address, city, state, zip_code,
               country, locale, privacy_notice, privacy_notice_version
        FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
       [orgId],
     )
-    : await db.query(
+    : await run(
       `SELECT name, legal_name, email, phone, address, city, state, zip_code,
               country, locale, privacy_notice, privacy_notice_version
        FROM organizations WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
