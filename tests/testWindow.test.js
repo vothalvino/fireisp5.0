@@ -132,6 +132,12 @@ function wireLine({
     if (/FROM radius WHERE contract_id = \?/.test(sql) && /FOR UPDATE/.test(sql)) {
       return [radiusState ? [{ ...radiusState }] : []];
     }
+    if (/AS live_radius_count/.test(sql) && /AS archived_radius_count/.test(sql)) {
+      return [current ? [{
+        live_radius_count: radiusState && !radiusState.deleted_at ? 1 : 0,
+        archived_radius_count: radiusState?.deleted_at ? 1 : 0,
+      }] : []];
+    }
     if (/FROM contracts c JOIN radius r/.test(sql)) {
       if (!current || !radiusState) return [[]];
       return [[{
@@ -240,6 +246,7 @@ describe('test-window cancellation cleanup evidence', () => {
   it.each([
     [{ ...PENDING, test_window_expires_at: FUTURE }, RADIUS],
     [{ ...PENDING, test_window_cleanup_pending: 1 }, RADIUS],
+    [{ ...PENDING, first_activated_at: '2025-01-01 00:00:00' }, RADIUS],
     [PENDING, { ...RADIUS, nas_id: 8 }],
     [PENDING, { ...RADIUS, status: 'active' }],
     [PENDING, { ...RADIUS, status: undefined }],
@@ -290,6 +297,92 @@ describe('test-window cancellation cleanup evidence', () => {
   });
 });
 
+describe('transactional external-cleanup preparation', () => {
+  function preparationRunner({
+    contract = PENDING,
+    radius = [RADIUS],
+    externalCleanupRequired = 0,
+    preparedAffectedRows = 0,
+  } = {}) {
+    return {
+      query: jest.fn(async (rawSql) => {
+        const sql = normalize(rawSql);
+        if (/SELECT \* FROM contracts/.test(sql) && /FOR UPDATE/.test(sql)) {
+          return [[contract]];
+        }
+        if (/SELECT \* FROM radius/.test(sql) && /FOR UPDATE/.test(sql)) {
+          return [radius];
+        }
+        if (/AS external_cleanup_required/.test(sql)) {
+          return [[{ external_cleanup_required: externalCleanupRequired }]];
+        }
+        if (/UPDATE contracts SET test_window_cleanup_pending/.test(sql)) {
+          return [{ affectedRows: preparedAffectedRows }];
+        }
+        if (/UPDATE radius SET status = 'inactive'/.test(sql)) {
+          return [{ affectedRows: radius.length }];
+        }
+        if (/FROM contracts c JOIN radius r/.test(sql)) {
+          return [[]];
+        }
+        return [[]];
+      }),
+    };
+  }
+
+  it('keeps the exact pristine line marker-free even when its idempotent update reports zero changes', async () => {
+    const runner = preparationRunner({ preparedAffectedRows: 0 });
+
+    await expect(svc.prepareExternalCleanup(runner, 33, {
+      orgId: 42,
+      expectedStatuses: ['pending'],
+      expectedConnectionTypes: ['pppoe'],
+      requireNeverActivated: true,
+    })).resolves.toMatchObject({ cleanup_required: false, marker_prepared: false });
+
+    const markerWrite = runner.query.mock.calls.find(([sql]) =>
+      /UPDATE contracts[\s\S]*test_window_cleanup_pending/.test(String(sql)));
+    expect(normalize(markerWrite[0])).toMatch(
+      /test_window_cleanup_pending = 0.*test_window_expires_at = NULL.*test_window_cleanup_attempted_at = NULL/,
+    );
+    expect(runner.query.mock.calls.some(([sql]) =>
+      /UPDATE radius SET status = 'inactive'/.test(String(sql)))).toBe(false);
+  });
+
+  it('marks and disables ambiguous evidence without manufacturing an expiry', async () => {
+    const runner = preparationRunner({
+      contract: { ...PENDING, test_window_cleanup_pending: 1 },
+      externalCleanupRequired: 1,
+      preparedAffectedRows: 0,
+    });
+
+    await expect(svc.prepareExternalCleanup(runner, 33, {
+      orgId: 42,
+      expectedStatuses: ['pending'],
+    })).resolves.toMatchObject({ cleanup_required: true, marker_prepared: true });
+
+    const markerWrite = runner.query.mock.calls.find(([sql]) =>
+      /UPDATE contracts[\s\S]*test_window_cleanup_pending/.test(String(sql)));
+    expect(normalize(markerWrite[0])).toMatch(/test_window_cleanup_pending = 1/);
+    expect(normalize(markerWrite[0])).not.toMatch(/test_window_expires_at|DATE_SUB|COALESCE/);
+    expect(runner.query.mock.calls.some(([sql]) =>
+      /UPDATE radius SET status = 'inactive'/.test(String(sql)))).toBe(true);
+  });
+
+  it('fails closed for a previously activated line even when its remaining network rows look pristine', async () => {
+    const runner = preparationRunner({
+      contract: { ...PENDING, first_activated_at: '2025-01-01 00:00:00' },
+    });
+
+    const result = await svc.prepareExternalCleanup(runner, 33, {
+      orgId: 42,
+      expectedStatuses: ['pending'],
+    });
+
+    expect(result.cleanup_required).toBe(true);
+  });
+});
+
 describe('test-window archived cleanup safety', () => {
   it('never sends an archived identity to RouterOS and retains the marker for reconciliation', async () => {
     const archived = {
@@ -330,7 +423,9 @@ describe('test-window archived cleanup safety', () => {
   it('retains cleanup when scoped storage reveals archive history absent from supplied live rows', async () => {
     db.query.mockImplementation(async (rawSql) => {
       const sql = normalize(rawSql);
-      if (/AS archived_radius_history/.test(sql)) return [[{ archived_radius_history: 1 }]];
+      if (/AS live_radius_count/.test(sql)) {
+        return [[{ live_radius_count: 1, archived_radius_count: 1 }]];
+      }
       if (/SET test_window_cleanup_pending = 1/.test(sql)) return [{ affectedRows: 1 }];
       if (/SET test_window_cleanup_pending = 0/.test(sql)) return [{ affectedRows: 1 }];
       return [[]];
@@ -348,13 +443,91 @@ describe('test-window archived cleanup safety', () => {
     });
     expect(result.nas_disable_warning).toMatch(/marker release were blocked/i);
     const archiveLookup = db.query.mock.calls.find(([sql]) =>
-      /AS archived_radius_history/.test(normalize(sql)));
+      /AS archived_radius_count/.test(normalize(sql)));
     expect(normalize(archiveLookup[0])).toMatch(
       /c\.organization_id = \? OR c\.organization_id IS NULL/,
     );
     expect(archiveLookup[1]).toEqual([33, 42]);
     expect(db.query.mock.calls.some(([sql]) =>
       /SET test_window_cleanup_pending = 0/.test(normalize(sql)))).toBe(false);
+  });
+
+  it('retains cleanup for zero live RADIUS identities even when no_account confirms no session', async () => {
+    db.query.mockImplementation(async (rawSql) => {
+      const sql = normalize(rawSql);
+      if (/AS live_radius_count/.test(sql)) {
+        return [[{ live_radius_count: 0, archived_radius_count: 0 }]];
+      }
+      if (/SET test_window_cleanup_pending = 1/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SET test_window_cleanup_pending = 0/.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+    suspensionService.sendRadiusDisconnect.mockResolvedValueOnce({
+      sent: false,
+      response: 'No RADIUS account found for contract',
+      outcome: 'no_account',
+    });
+    const findNas = jest.spyOn(Nas, 'findByIdOrFail');
+    const remove = jest.spyOn(routerosService, 'pppoeDelete');
+
+    const result = await svc.finalizeMarkedCleanup(33, {
+      orgId: 42,
+      radius: [],
+      reason: 'missing_identity_retry',
+    });
+
+    expect(result).toMatchObject({ nas_disabled: false, disconnect_confirmed: true });
+    expect(result.nas_disable_warning).toMatch(/ambiguous RADIUS account count/i);
+    expect(findNas).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([sql]) =>
+      /SET test_window_cleanup_pending = 1/.test(normalize(sql)))).toBe(true);
+    expect(db.query.mock.calls.some(([sql]) =>
+      /SET test_window_cleanup_pending = 0/.test(normalize(sql)))).toBe(false);
+  });
+
+  it('attempts every supplied live NAS but never releases cleanup for multiple identities', async () => {
+    const accounts = [
+      { ...RADIUS, nas_id: 5 },
+      { ...RADIUS, id: 10, username: 'sub_y', nas_id: 6 },
+    ];
+    db.query.mockImplementation(async (rawSql) => {
+      const sql = normalize(rawSql);
+      if (/AS live_radius_count/.test(sql)) {
+        return [[{ live_radius_count: 2, archived_radius_count: 0 }]];
+      }
+      if (/SET test_window_cleanup_pending = 1/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SET test_window_cleanup_pending = 0/.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+    const findNas = jest.spyOn(Nas, 'findByIdOrFail')
+      .mockImplementation(async id => ({ id }));
+    const toConn = jest.spyOn(routerProvisioningService, 'nasToConn')
+      .mockImplementation(nas => ({ host: `192.0.2.${nas.id}` }));
+    const remove = jest.spyOn(routerosService, 'pppoeDelete')
+      .mockResolvedValue({ deleted: true });
+    try {
+      const result = await svc.finalizeMarkedCleanup(33, {
+        orgId: 42,
+        radius: accounts,
+        reason: 'duplicate_identity_retry',
+      });
+
+      expect(result).toMatchObject({ nas_disabled: false, disconnect_confirmed: true });
+      expect(result.nas_disable_warning).toMatch(/ambiguous RADIUS account count/i);
+      expect(findNas).toHaveBeenCalledTimes(2);
+      expect(remove).toHaveBeenCalledTimes(2);
+      expect(remove).toHaveBeenCalledWith({ host: '192.0.2.5' }, { name: 'sub_x' });
+      expect(remove).toHaveBeenCalledWith({ host: '192.0.2.6' }, { name: 'sub_y' });
+      expect(db.query.mock.calls.some(([sql]) =>
+        /SET test_window_cleanup_pending = 1/.test(normalize(sql)))).toBe(true);
+      expect(db.query.mock.calls.some(([sql]) =>
+        /SET test_window_cleanup_pending = 0/.test(normalize(sql)))).toBe(false);
+    } finally {
+      findNas.mockRestore();
+      toConn.mockRestore();
+      remove.mockRestore();
+    }
   });
 });
 
@@ -596,113 +769,18 @@ describe('testWindowService transactional line state', () => {
     }
   });
 
-  it('shuts down a legacy pending PPPoE secret even without a window marker', async () => {
-    const secondRadius = {
-      ...RADIUS, id: 10, username: 'sub_y', status: 'active', nas_id: 6,
-    };
-    const conn = wireLine({
-      contract: { ...PENDING, test_window_expires_at: null, test_window_cleanup_pending: 0 },
-      radius: { ...RADIUS, status: 'active', nas_id: 5 },
-      extra: async (sql) => {
-        if (/SELECT \* FROM radius WHERE contract_id = \?/.test(sql)) {
-          return [[{ ...RADIUS, status: 'active', nas_id: 5 }, secondRadius]];
-        }
-        return undefined;
-      },
-    });
-    const findNas = jest.spyOn(Nas, 'findByIdOrFail')
-      .mockImplementation(async id => ({ id }));
-    const toConn = jest.spyOn(routerProvisioningService, 'nasToConn')
-      .mockImplementation(nas => ({ host: `192.0.2.${nas.id}` }));
-    const remove = jest.spyOn(routerosService, 'pppoeDelete').mockResolvedValue({ deleted: true });
-    try {
-      const result = await svc.cleanupMarkedWindow(33, {
-        orgId: 42, reason: 'legacy_cancel', requireMarker: false,
-      });
-
-      expect(result).toMatchObject({ closed: true, nas_disabled: true, disconnect_confirmed: true });
-      expect(remove).toHaveBeenCalledWith({ host: '192.0.2.5' }, { name: 'sub_x' });
-      expect(remove).toHaveBeenCalledWith({ host: '192.0.2.6' }, { name: 'sub_y' });
-      expect(remove).toHaveBeenCalledTimes(2);
-      const prepared = conn.query.mock.calls.find(([sql]) =>
-        /SET test_window_cleanup_pending = 1/.test(normalize(sql)));
-      expect(normalize(prepared[0])).not.toMatch(/DATE_SUB|COALESCE/);
-      expect(db.query.mock.calls.some(([sql]) =>
-        /SET test_window_cleanup_pending = 0, test_window_expires_at = NULL/.test(normalize(sql)))).toBe(true);
-    } finally {
-      findNas.mockRestore();
-      toConn.mockRestore();
-      remove.mockRestore();
-    }
-  });
-
-  it('durably retries a failed no-marker legacy secret shutdown without inventing a bound', async () => {
+  it('does not expose a no-marker cleanup escape hatch', async () => {
     const conn = wireLine({
       contract: { ...PENDING, test_window_expires_at: null, test_window_cleanup_pending: 0 },
       radius: { ...RADIUS, status: 'active', nas_id: 5 },
     });
-    const findNas = jest.spyOn(Nas, 'findByIdOrFail').mockResolvedValue({ id: 5 });
-    const toConn = jest.spyOn(routerProvisioningService, 'nasToConn').mockReturnValue({ host: '192.0.2.5' });
-    const remove = jest.spyOn(routerosService, 'pppoeDelete')
-      .mockRejectedValue(new Error('connect ETIMEDOUT'));
-    try {
-      const result = await svc.cleanupMarkedWindow(33, {
-        orgId: 42, reason: 'legacy_cancel', requireMarker: false,
-      });
+    const remove = jest.spyOn(routerosService, 'pppoeDelete');
 
-      expect(result).toMatchObject({ closed: true, nas_disabled: false });
-      expect(conn.commit).toHaveBeenCalledTimes(1);
-      const markerWrites = db.query.mock.calls.filter(([sql]) =>
-        /SET test_window_cleanup_pending = 1/.test(normalize(sql)));
-      expect(markerWrites).toHaveLength(2);
-      expect(markerWrites.every(([sql]) => !/DATE_SUB|COALESCE/.test(normalize(sql)))).toBe(true);
-      expect(db.query.mock.calls.some(([sql]) =>
-        /SET test_window_cleanup_pending = 0, test_window_expires_at = NULL/.test(normalize(sql)))).toBe(false);
-    } finally {
-      findNas.mockRestore();
-      toConn.mockRestore();
-      remove.mockRestore();
-    }
-  });
+    const result = await svc.cleanupMarkedWindow(33, { orgId: 42, reason: 'manual' });
 
-  it('does not treat an unbounded legacy no-target session as expired', async () => {
-    wireLine({
-      contract: { ...PENDING, test_window_expires_at: null, test_window_cleanup_pending: 0 },
-      radius: { ...RADIUS, status: 'active', nas_id: null },
-    });
-    suspensionService.sendRadiusDisconnect.mockResolvedValueOnce({
-      sent: false, response: 'No target NAS', outcome: 'no_target',
-    });
-
-    const result = await svc.cleanupMarkedWindow(33, {
-      orgId: 42, reason: 'legacy_cancel', requireMarker: false,
-    });
-
-    expect(result).toMatchObject({ closed: true, disconnect_confirmed: false });
-    expect(db.query.mock.calls.some(([sql]) =>
-      /SET test_window_cleanup_pending = 0, test_window_expires_at = NULL/.test(normalize(sql)))).toBe(false);
-    expect(db.query.mock.calls.filter(([sql]) =>
-      /SET test_window_cleanup_pending = 1/.test(normalize(sql)))).toHaveLength(2);
-  });
-
-  it('clears a no-marker retry when there is definitively no RADIUS account or NAS secret', async () => {
-    wireLine({
-      contract: { ...PENDING, test_window_expires_at: null, test_window_cleanup_pending: 0 },
-      radius: null,
-    });
-    suspensionService.sendRadiusDisconnect.mockResolvedValueOnce({
-      sent: false, response: 'No RADIUS account found for contract', outcome: 'no_account',
-    });
-
-    const result = await svc.cleanupMarkedWindow(33, {
-      orgId: 42, reason: 'legacy_cancel', requireMarker: false,
-    });
-
-    expect(result).toMatchObject({
-      closed: true, nas_disabled: null, disconnect_confirmed: true, disconnect_outcome: 'no_account',
-    });
-    expect(db.query.mock.calls.some(([sql]) =>
-      /SET test_window_cleanup_pending = 0, test_window_expires_at = NULL/.test(normalize(sql)))).toBe(true);
+    expect(result).toEqual({ contract_id: 33, closed: false, prepared: false });
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it('keeps the DB close successful but exposes a warning when NAS removal fails', async () => {

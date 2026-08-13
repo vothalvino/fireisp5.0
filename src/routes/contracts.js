@@ -89,10 +89,11 @@ async function assertFacturarJurisdiction(body, orgId, runner = db, organization
   }
 }
 
-async function updateContractWithActivationGuard(contract, body, orgId) {
+async function updateContractWithActivationGuard(contract, body, orgId, runner = db) {
+  const exec = runner.query.bind(runner);
   const touched = [...ACTIVATION_FROZEN_FIELDS].filter(field => body[field] !== undefined);
   if (!touched.length || Object.prototype.hasOwnProperty.call(body, 'organization_id')) {
-    return Contract.update(contract.id, body, orgId);
+    return Contract.update(contract.id, body, orgId, { exec });
   }
 
   const filtered = {};
@@ -100,7 +101,7 @@ async function updateContractWithActivationGuard(contract, body, orgId) {
     if (field !== 'organization_id' && body[field] !== undefined) filtered[field] = body[field];
   }
   const columns = Object.keys(filtered);
-  if (!columns.length) return Contract.findByIdOrFail(contract.id, orgId);
+  if (!columns.length) return Contract.findByIdOrFail(contract.id, orgId, { exec });
 
   // One conditional UPDATE is the concurrency boundary: prepare locks the
   // contract before creating its order, while this statement locks/updates the
@@ -116,7 +117,7 @@ async function updateContractWithActivationGuard(contract, body, orgId) {
     orgId,
     ...touched.map(field => comparableContractValue(field, body[field])),
   ];
-  const [result] = await db.query(
+  const [result] = await runner.query(
     `UPDATE \`contracts\`
         SET ${sets}
       WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
@@ -133,7 +134,7 @@ async function updateContractWithActivationGuard(contract, body, orgId) {
         )`,
     params,
   );
-  const current = await Contract.findByIdOrFail(contract.id, orgId);
+  const current = await Contract.findByIdOrFail(contract.id, orgId, { exec });
   if (result.affectedRows === 0) {
     const changed = touched.filter(field =>
       comparableContractValue(field, body[field]) !== comparableContractValue(field, current[field]));
@@ -155,7 +156,6 @@ router.use(orgScope);
  * from IPv4-only to dual-stack (IPv4 -> DUAL).
  */
 async function updateContractHandler(req, res, next) {
-  let retainedCleanup = null;
   try {
     const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
     if (Object.prototype.hasOwnProperty.call(req.body, 'mx_contract_environment')) {
@@ -297,21 +297,48 @@ async function updateContractHandler(req, res, next) {
       || Number(old.test_window_cleanup_pending) === 1;
     const legacyPendingPppoeShutdown = old.status === 'pending'
       && provisioningService.isPppoe(old.connection_type);
-    if (old.status !== 'active'
+    const preparesNetworkCleanup = old.status !== 'active'
         && (hasWindowState || legacyPendingPppoeShutdown)
-        && (changesStatus || changesType)) {
-      retainedCleanup = await testWindowService.closeForContractMutation(old.id, {
-        orgId: req.orgId,
-        reason: changesStatus ? 'contract_status_change' : 'contract_connection_type_change',
-      });
-    }
-
-    const record = await updateContractWithActivationGuard(old, req.body, req.orgId);
-    if (retainedCleanup?.prepared
-        && retainedCleanup.nas_disabled !== false
-        && retainedCleanup.disconnect_confirmed === true) {
-      await testWindowService.releaseCleanupMarker(old.id, { orgId: req.orgId });
-      retainedCleanup = null;
+        && (changesStatus || changesType);
+    const cleanupReason = changesStatus
+      ? 'contract_status_change'
+      : 'contract_connection_type_change';
+    let cleanupPreparation = null;
+    let record;
+    if (preparesNetworkCleanup) {
+      const conn = await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        cleanupPreparation = await testWindowService.prepareExternalCleanup(conn, old.id, {
+          orgId: req.orgId,
+          expectedStatuses: [old.status],
+          expectedConnectionTypes: [old.connection_type],
+        });
+        record = await updateContractWithActivationGuard(
+          cleanupPreparation.contract,
+          req.body,
+          req.orgId,
+          conn,
+        );
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+      if (cleanupPreparation.cleanup_required) {
+        await testWindowService.finalizeMarkedCleanup(old.id, {
+          orgId: req.orgId,
+          radius: cleanupPreparation.radius,
+          reason: cleanupReason,
+        }).catch(err => logger.warn(
+          { err: err.message, contractId: old.id },
+          'Contract mutation committed; external network cleanup remains pending',
+        ));
+      }
+    } else {
+      record = await updateContractWithActivationGuard(old, req.body, req.orgId);
     }
 
     // Generic transitions that turn service OFF retain their historical
@@ -381,16 +408,7 @@ async function updateContractHandler(req, res, next) {
       .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract update'));
 
     res.json({ data: provisioning ? { ...record, provisioning } : record });
-  } catch (err) {
-    // If network cleanup succeeded but the business mutation failed, the line
-    // is safely down and the retained concurrency marker can be released.
-    if (retainedCleanup?.prepared
-        && retainedCleanup.nas_disabled !== false
-        && retainedCleanup.disconnect_confirmed === true) {
-      await testWindowService.releaseCleanupMarker(req.params.id, { orgId: req.orgId }).catch(() => {});
-    }
-    next(err);
-  }
+  } catch (err) { next(err); }
 }
 
 router.get('/', requirePermission('contracts.view'), ctrl.list);
@@ -634,7 +652,6 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
 router.put('/:id', requirePermission('contracts.update'), validate(updateContract), updateContractHandler);
 router.patch('/:id', requirePermission('contracts.update'), validate(patchContract), updateContractHandler);
 router.delete('/:id', requirePermission('contracts.delete'), async (req, res, next) => {
-  let retainedCleanup = null;
   try {
     const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
     if (!['cancelled', 'terminated', 'expired'].includes(old.status)) {
@@ -647,33 +664,45 @@ router.delete('/:id', requirePermission('contracts.delete'), async (req, res, ne
         'Terminate live or suspended service before deleting this contract',
       );
     }
-    if (old.status !== 'active'
+    const preparesNetworkCleanup = old.status !== 'active'
         && (old.test_window_expires_at
           || Number(old.test_window_cleanup_pending) === 1
-          || provisioningService.isPppoe(old.connection_type))) {
-      retainedCleanup = await testWindowService.closeForContractMutation(old.id, {
-        orgId: req.orgId,
-        reason: 'contract_delete',
-      });
-    }
-    await Contract.delete(req.params.id, req.orgId);
-    if (retainedCleanup?.prepared
-        && retainedCleanup.nas_disabled !== false
-        && retainedCleanup.disconnect_confirmed === true) {
-      await testWindowService.releaseCleanupMarker(old.id, { orgId: req.orgId });
-      retainedCleanup = null;
+          || provisioningService.isPppoe(old.connection_type));
+    let cleanupPreparation = null;
+    if (preparesNetworkCleanup) {
+      const conn = await db.getConnection();
+      try {
+        await conn.beginTransaction();
+        cleanupPreparation = await testWindowService.prepareExternalCleanup(conn, old.id, {
+          orgId: req.orgId,
+          expectedStatuses: [old.status],
+          expectedConnectionTypes: [old.connection_type],
+        });
+        await Contract.delete(req.params.id, req.orgId, { exec: conn.query.bind(conn) });
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+      if (cleanupPreparation.cleanup_required) {
+        await testWindowService.finalizeMarkedCleanup(old.id, {
+          orgId: req.orgId,
+          radius: cleanupPreparation.radius,
+          reason: 'contract_delete',
+        }).catch(err => logger.warn(
+          { err: err.message, contractId: old.id },
+          'Contract delete committed; external network cleanup remains pending',
+        ));
+      }
+    } else {
+      await Contract.delete(req.params.id, req.orgId);
     }
     topologyContextService.invalidate(old.id, 'contract')
       .catch(err => logger.warn({ err: err.message, contractId: old.id }, 'topology invalidate failed on contract delete'));
     res.status(204).send();
-  } catch (err) {
-    if (retainedCleanup?.prepared
-        && retainedCleanup.nas_disabled !== false
-        && retainedCleanup.disconnect_confirmed === true) {
-      await testWindowService.releaseCleanupMarker(req.params.id, { orgId: req.orgId }).catch(() => {});
-    }
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 router.post('/:id/restore', requirePermission('contracts.update'), async (req, res, next) => {
   try {
@@ -798,55 +827,109 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     // the guided activation flow. Existing/imported subscribers carry the
     // durable marker and continue through the ordinary direct-renew path.
     if (!contract.first_activated_at) {
-      await mxRegisteredTemplateService.assertSandboxContractCanResume(
-        db.query.bind(db),
-        { contract, context: 'Contract renewal' },
-      );
       const pppoe = provisioningService.isPppoe(contract.connection_type);
-      // A never-activated terminal PPPoE record may be a pre-window legacy
-      // line with a local RouterOS secret despite carrying no marker. Always
-      // run the idempotent shutdown before reopening it for commissioning.
+      let cleanupPreparation = null;
       if (pppoe) {
-        await testWindowService.cleanupMarkedWindow(contract.id, {
-          orgId: req.orgId,
-          reason: 'first_activation_reset',
-          requireMarker: false,
-        });
-      }
-      if (pppoe) {
-        await db.query(
-          `UPDATE radius SET status = 'inactive'
-            WHERE contract_id = ? AND deleted_at IS NULL`,
-          [contract.id],
-        );
-      }
+        const conn = await db.getConnection();
+        try {
+          await conn.beginTransaction();
+          // Preserve the legal-source lock order used by activation: contract,
+          // organization/profile provenance, then all RADIUS identities.
+          const [lockedRows] = await conn.query(
+            `SELECT * FROM contracts
+              WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+              FOR UPDATE`,
+            [contract.id, req.orgId],
+          );
+          const locked = lockedRows[0];
+          if (!locked
+              || locked.status !== contract.status
+              || locked.connection_type !== contract.connection_type
+              || locked.first_activated_at) {
+            throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
+          }
+          await mxRegisteredTemplateService.assertSandboxContractCanResume(
+            conn.query.bind(conn),
+            { contract: locked, context: 'Contract renewal', lock: true },
+          );
+          cleanupPreparation = await testWindowService.prepareExternalCleanup(
+            conn,
+            contract.id,
+            {
+              orgId: req.orgId,
+              expectedStatuses: [contract.status],
+              expectedConnectionTypes: [contract.connection_type],
+              requireNeverActivated: true,
+            },
+          );
 
-      const resetSets = ["status = 'pending'"];
-      const resetParams = [];
-      if (!pppoe) {
-        resetSets.push('test_window_expires_at = NULL');
-        resetSets.push('test_window_cleanup_pending = 0');
-      }
-      if (Object.prototype.hasOwnProperty.call(updates, 'end_date')) {
-        resetSets.push('end_date = ?');
-        resetParams.push(updates.end_date);
-      }
-      if (Object.prototype.hasOwnProperty.call(updates, 'plan_id')) {
-        resetSets.push('plan_id = ?');
-        resetParams.push(updates.plan_id);
-      }
-      const [reset] = await db.query(
-        `UPDATE contracts SET ${resetSets.join(', ')}
-          WHERE id = ? AND organization_id = ? AND status = ?
-            AND first_activated_at IS NULL AND deleted_at IS NULL`,
-        [...resetParams, contract.id, req.orgId, contract.status],
-      );
-      if (reset.affectedRows !== 1) {
+          const resetSets = ["status = 'pending'"];
+          const resetParams = [];
+          if (Object.prototype.hasOwnProperty.call(updates, 'end_date')) {
+            resetSets.push('end_date = ?');
+            resetParams.push(updates.end_date);
+          }
+          if (Object.prototype.hasOwnProperty.call(updates, 'plan_id')) {
+            resetSets.push('plan_id = ?');
+            resetParams.push(updates.plan_id);
+          }
+          const [reset] = await conn.query(
+            `UPDATE contracts SET ${resetSets.join(', ')}
+              WHERE id = ? AND organization_id = ? AND status = ?
+                AND first_activated_at IS NULL AND deleted_at IS NULL`,
+            [...resetParams, locked.id, req.orgId, locked.status],
+          );
+          if (reset.affectedRows !== 1) {
+            throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
+          }
+          await conn.commit();
+        } catch (err) {
+          await conn.rollback();
+          throw err;
+        } finally {
+          conn.release();
+        }
+        if (cleanupPreparation.cleanup_required) {
+          await testWindowService.finalizeMarkedCleanup(contract.id, {
+            orgId: req.orgId,
+            radius: cleanupPreparation.radius,
+            reason: 'first_activation_reset',
+          }).catch(err => logger.warn(
+            { err: err.message, contractId: contract.id },
+            'Contract renewal reset committed; external network cleanup remains pending',
+          ));
+        }
+      } else {
         await mxRegisteredTemplateService.assertSandboxContractCanResume(
           db.query.bind(db),
           { contract, context: 'Contract renewal' },
         );
-        throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
+        const resetSets = ["status = 'pending'"];
+        const resetParams = [];
+        resetSets.push('test_window_expires_at = NULL');
+        resetSets.push('test_window_cleanup_pending = 0');
+        resetSets.push('test_window_cleanup_attempted_at = NULL');
+        if (Object.prototype.hasOwnProperty.call(updates, 'end_date')) {
+          resetSets.push('end_date = ?');
+          resetParams.push(updates.end_date);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'plan_id')) {
+          resetSets.push('plan_id = ?');
+          resetParams.push(updates.plan_id);
+        }
+        const [reset] = await db.query(
+          `UPDATE contracts SET ${resetSets.join(', ')}
+            WHERE id = ? AND organization_id = ? AND status = ?
+              AND first_activated_at IS NULL AND deleted_at IS NULL`,
+          [...resetParams, contract.id, req.orgId, contract.status],
+        );
+        if (reset.affectedRows !== 1) {
+          await mxRegisteredTemplateService.assertSandboxContractCanResume(
+            db.query.bind(db),
+            { contract, context: 'Contract renewal' },
+          );
+          throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
+        }
       }
       const record = await Contract.findByIdOrFail(contract.id, req.orgId);
       await auditLog.log({

@@ -256,10 +256,13 @@ describe('POST /contracts/:id/renew', () => {
     expect(reset[0]).toMatch(/test_window_cleanup_pending = 0/);
   });
 
-  test('a no-marker legacy PPPoE renewal performs shutdown before reopening pending', async () => {
-    const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow').mockResolvedValue({
-      contract_id: 10, closed: true, nas_disabled: true, disconnect_confirmed: true,
-    });
+  test('a pristine no-marker PPPoE renewal reopens pending without inventing cleanup work', async () => {
+    const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup');
+    const conn = {
+      beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+      query: jest.fn(),
+    };
+    db.getConnection.mockResolvedValueOnce(conn);
     db.query
       .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
       .mockResolvedValueOnce([[
@@ -271,15 +274,47 @@ describe('POST /contracts/:id/renew', () => {
       ]])
       .mockResolvedValueOnce([[
         { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
-      ]]) // current organization jurisdiction
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // radius inactive
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded terminal -> pending
+      ]]) // authenticated organization / registered-source context
+      .mockResolvedValueOnce([[
+        { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+      ]]) // final post-commit source guard/read context
       .mockResolvedValueOnce([[
         {
           id: 10, status: 'pending', connection_type: 'pppoe', client_id: 3,
           organization_id: 1, first_activated_at: null,
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+          test_window_cleanup_attempted_at: null,
         },
       ]]);
+    conn.query.mockImplementation(async (rawSql) => {
+      const sql = String(rawSql).replace(/\s+/g, ' ');
+      if (/SELECT \* FROM contracts/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 10, status: 'cancelled', connection_type: 'pppoe', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+        }]];
+      }
+      if (/FROM organizations o/.test(sql)) {
+        return [[{ locale: 'global', contract_environment: 'sandbox', mx_profile_id: null }]];
+      }
+      if (/SELECT \* FROM radius/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 77, contract_id: 10, username: 'fresh_10', status: 'inactive',
+          nas_id: null, deleted_at: null,
+        }]];
+      }
+      if (/AS external_cleanup_required/.test(sql)) {
+        return [[{ external_cleanup_required: 0 }]];
+      }
+      if (/UPDATE contracts SET test_window_cleanup_pending = 0/.test(sql)) {
+        return [{ affectedRows: 0 }];
+      }
+      if (/UPDATE contracts SET status = 'pending'/.test(sql)) {
+        return [{ affectedRows: 1 }];
+      }
+      return [[]];
+    });
 
     const res = await request(app)
       .post('/api/v1/contracts/10/renew')
@@ -287,13 +322,72 @@ describe('POST /contracts/:id/renew', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    expect(cleanup).toHaveBeenCalledWith(10, {
-      orgId: 1, reason: 'first_activation_reset', requireMarker: false,
+    expect(finalize).not.toHaveBeenCalled();
+    const pristineWrite = conn.query.mock.calls.find(([sql]) =>
+      /UPDATE contracts[\s\S]*test_window_cleanup_pending = 0/.test(String(sql)));
+    expect(String(pristineWrite[0]).replace(/\s+/g, ' ')).toMatch(
+      /test_window_cleanup_pending = 0.*test_window_expires_at = NULL.*test_window_cleanup_attempted_at = NULL/,
+    );
+    expect(conn.query.mock.calls.some(([sql]) =>
+      /UPDATE radius SET status = 'inactive'/.test(String(sql)))).toBe(false);
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+  });
+
+  test('a no-marker PPPoE renewal with network evidence stays durably marked without inventing an expiry', async () => {
+    const conn = {
+      beginTransaction: jest.fn(), commit: jest.fn(), rollback: jest.fn(), release: jest.fn(),
+      query: jest.fn(),
+    };
+    db.getConnection.mockResolvedValueOnce(conn);
+    const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup').mockResolvedValue({
+      disconnect_confirmed: false, disconnect_outcome: 'no_target', nas_disabled: null,
     });
-    const radiusOff = db.query.mock.calls.find(([sql]) => /UPDATE radius SET status = 'inactive'/.test(sql));
-    const reset = db.query.mock.calls.find(([sql]) => /UPDATE contracts SET status = 'pending'/.test(sql));
-    expect(radiusOff).toBeDefined();
-    expect(reset[0]).not.toMatch(/test_window_cleanup_pending = 0|test_window_expires_at = NULL/);
+    const contract = {
+      id: 11, status: 'cancelled', connection_type: 'pppoe', client_id: 3,
+      plan_id: 2, organization_id: 1, first_activated_at: null,
+      test_window_expires_at: null, test_window_cleanup_pending: 0,
+    };
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[contract]])
+      .mockResolvedValueOnce([[
+        { id: 11, status: 'pending', organization_id: 1, activation_required: true },
+      ]]);
+    conn.query.mockImplementation(async (rawSql) => {
+      const sql = String(rawSql).replace(/\s+/g, ' ');
+      if (/SELECT \* FROM contracts/.test(sql) && /FOR UPDATE/.test(sql)) return [[contract]];
+      if (/FROM organizations o/.test(sql)) {
+        return [[{ locale: 'global', contract_environment: 'sandbox', mx_profile_id: null }]];
+      }
+      if (/SELECT \* FROM radius/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 78, contract_id: 11, username: 'legacy_11', status: 'inactive',
+          nas_id: null, deleted_at: null,
+        }]];
+      }
+      if (/AS external_cleanup_required/.test(sql)) {
+        return [[{ external_cleanup_required: 1 }]];
+      }
+      if (/FROM contracts c JOIN radius r/.test(sql)) return [[]];
+      if (/UPDATE contracts SET status = 'pending'/.test(sql)) return [{ affectedRows: 1 }];
+      return [{ affectedRows: 1 }];
+    });
+
+    const res = await request(app)
+      .post('/api/v1/contracts/11/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    const markerWrite = conn.query.mock.calls.find(([sql]) =>
+      /test_window_cleanup_pending = 1/.test(String(sql)));
+    expect(markerWrite).toBeDefined();
+    expect(markerWrite[0]).not.toMatch(/test_window_expires_at|DATE_SUB|COALESCE/);
+    expect(finalize).toHaveBeenCalledWith(11, expect.objectContaining({
+      orgId: 1, reason: 'first_activation_reset',
+    }));
+    expect(conn.commit.mock.invocationCallOrder[0])
+      .toBeLessThan(finalize.mock.invocationCallOrder[0]);
   });
 
   test('returns 422 for an already active contract', async () => {

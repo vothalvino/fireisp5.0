@@ -189,14 +189,24 @@ async function setCleanupMarker(contractId, orgId) {
 }
 
 async function releaseCleanupMarker(contractId, { orgId = null } = {}) {
-  const scope = contractOrgPredicate(orgId);
+  const scope = contractOrgPredicate(orgId, 'c');
   const [result] = await db.query(
-    `UPDATE contracts
+    `UPDATE contracts c
         SET test_window_cleanup_pending = 0,
             test_window_expires_at = NULL,
             test_window_cleanup_attempted_at = NULL
-      WHERE id = ? ${scope.sql} AND status <> 'active'
-        AND test_window_cleanup_pending = 1`,
+      WHERE c.id = ? ${scope.sql} AND c.status <> 'active'
+        AND c.test_window_cleanup_pending = 1
+        AND 1 = (
+          SELECT COUNT(*) FROM radius live_account
+           WHERE live_account.contract_id = c.id
+             AND live_account.deleted_at IS NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM radius archived_account
+           WHERE archived_account.contract_id = c.id
+             AND archived_account.deleted_at IS NOT NULL
+        )`,
     [contractId, ...scope.params],
   );
   return result.affectedRows > 0;
@@ -212,6 +222,7 @@ async function releaseCleanupMarker(contractId, { orgId = null } = {}) {
  * is allowed to skip external cleanup.
  */
 async function requiresExternalCleanup(contract, radiusRows, runner) {
+  if (contract.first_activated_at) return true;
   if (contract.test_window_expires_at !== null
       && contract.test_window_expires_at !== undefined) return true;
   if (Number(contract.test_window_cleanup_pending) === 1) return true;
@@ -267,22 +278,130 @@ async function requiresExternalCleanup(contract, radiusRows, runner) {
   return Number(rows[0]?.external_cleanup_required) === 1;
 }
 
-async function hasArchivedRadiusHistory(contractId, radius, orgId) {
+function runnerQuery(runner) {
+  if (typeof runner === 'function') return runner;
+  if (typeof runner?.query === 'function') return runner.query.bind(runner);
+  if (typeof runner?.execute === 'function') return runner.execute.bind(runner);
+  throw new TypeError('A transaction query runner is required');
+}
+
+/**
+ * Prepare a non-active line for a reset or destructive mutation while the
+ * caller's transaction is still open. The lock order is deliberately the
+ * same as commissioning/cancellation: contract first, then every current and
+ * archived RADIUS identity for that contract.
+ *
+ * Only the exact pristine shape recognized by requiresExternalCleanup may be
+ * left marker-free. Every ambiguous or materialized line is disabled and
+ * durably marked before the caller changes status or soft-deletes it. The
+ * original expiry is never synthesized or shortened: a real bounded window
+ * must retain its bound, while an unbounded legacy line must remain unbounded
+ * until external cleanup is conclusively confirmed.
+ *
+ * This helper intentionally does not begin or commit a transaction. Callers
+ * must apply their state mutation and commit on the same runner, then invoke
+ * finalizeMarkedCleanup only when cleanup_required is true.
+ */
+async function prepareExternalCleanup(runner, contractId, {
+  orgId = null,
+  expectedStatuses = null,
+  expectedConnectionTypes = null,
+  requireNeverActivated = false,
+} = {}) {
+  const query = runnerQuery(runner);
+  const scope = contractOrgPredicate(orgId);
+  const [contractRows] = await query(
+    `SELECT * FROM contracts
+      WHERE id = ? ${scope.sql} AND deleted_at IS NULL
+      FOR UPDATE`,
+    [contractId, ...scope.params],
+  );
+  const contract = contractRows[0];
+  if (!contract) throw new NotFoundError('Contract');
+  if (contract.status === 'active') {
+    throw new ValidationError('Active service cannot be prepared for test-window cleanup');
+  }
+  if (Array.isArray(expectedStatuses) && !expectedStatuses.includes(contract.status)) {
+    throw new ValidationError('The contract changed while network cleanup was being prepared — reload and retry');
+  }
+  if (Array.isArray(expectedConnectionTypes)
+      && !expectedConnectionTypes.includes(contract.connection_type)) {
+    throw new ValidationError('The contract connection type changed while network cleanup was being prepared — reload and retry');
+  }
+  if (requireNeverActivated && contract.first_activated_at) {
+    throw new ValidationError('The contract crossed its first-activation boundary — reload and retry');
+  }
+
+  const [radius] = await query(
+    `SELECT * FROM radius
+      WHERE contract_id = ?
+      ORDER BY (deleted_at IS NULL) DESC, id DESC
+      FOR UPDATE`,
+    [contract.id],
+  );
+  const queryRunner = { query };
+  const cleanupRequired = await requiresExternalCleanup(contract, radius, queryRunner);
+  await query(
+    cleanupRequired
+      ? `UPDATE contracts
+            SET test_window_cleanup_pending = 1,
+                test_window_cleanup_attempted_at = NULL
+          WHERE id = ? AND status <> 'active' AND deleted_at IS NULL`
+      : `UPDATE contracts
+            SET test_window_cleanup_pending = 0,
+                test_window_expires_at = NULL,
+                test_window_cleanup_attempted_at = NULL
+          WHERE id = ? AND status <> 'active' AND deleted_at IS NULL`,
+    [contract.id],
+  );
+
+  if (cleanupRequired) {
+    await query(
+      "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
+      [contract.id],
+    );
+    await syncFreeradius(
+      contract.id,
+      contract.organization_id ?? orgId ?? null,
+      false,
+      queryRunner,
+    );
+  }
+
+  return {
+    contract,
+    radius,
+    cleanup_required: cleanupRequired,
+    marker_prepared: cleanupRequired,
+    organization_id: contract.organization_id ?? orgId ?? null,
+  };
+}
+
+async function radiusCleanupIdentityState(contractId, radius, orgId) {
   const accounts = (Array.isArray(radius) ? radius : [radius]).filter(Boolean);
-  if (accounts.some(account => account.deleted_at !== null
-      && account.deleted_at !== undefined)) return true;
+  const suppliedLiveCount = accounts.filter(account => account.deleted_at === null
+    || account.deleted_at === undefined).length;
+  const suppliedArchivedHistory = accounts.some(account => account.deleted_at !== null
+    && account.deleted_at !== undefined);
 
   const scope = contractOrgPredicate(orgId, 'c');
   const [rows] = await db.query(
-    `SELECT EXISTS (
-       SELECT 1 FROM contracts c
-       JOIN radius archived_account ON archived_account.contract_id = c.id
-        WHERE c.id = ? ${scope.sql}
-          AND archived_account.deleted_at IS NOT NULL
-     ) AS archived_radius_history`,
+    `SELECT COUNT(CASE WHEN account_history.id IS NOT NULL AND account_history.deleted_at IS NULL THEN 1 END) AS live_radius_count,
+            COUNT(CASE WHEN account_history.id IS NOT NULL AND account_history.deleted_at IS NOT NULL THEN 1 END) AS archived_radius_count
+       FROM contracts c
+       LEFT JOIN radius account_history ON account_history.contract_id = c.id
+      WHERE c.id = ? ${scope.sql}
+      GROUP BY c.id`,
     [contractId, ...scope.params],
   );
-  return Number(rows[0]?.archived_radius_history) === 1;
+  const current = rows[0] || null;
+  return {
+    archived_history: suppliedArchivedHistory
+      || Number(current?.archived_radius_count || 0) > 0,
+    ambiguous_live_cardinality: suppliedLiveCount !== 1
+      || current === null
+      || Number(current.live_radius_count) !== 1,
+  };
 }
 
 /**
@@ -297,22 +416,33 @@ async function finalizeMarkedCleanup(contractId, {
   reason = 'manual',
   retainMarker = false,
 } = {}) {
-  const archivedHistory = await hasArchivedRadiusHistory(contractId, radius, orgId);
+  const identityState = await radiusCleanupIdentityState(contractId, radius, orgId);
   const liveRadius = (Array.isArray(radius) ? radius : [radius])
     .filter(account => account
       && (account.deleted_at === null || account.deleted_at === undefined));
   const attemptedNasState = await disableNasBestEffort(contractId, liveRadius, orgId);
-  const nasState = archivedHistory
+  const manualReconciliationWarnings = [
+    identityState.archived_history
+      ? 'Archived network credentials require manual reconciliation; automatic NAS cleanup and marker release were blocked'
+      : null,
+    identityState.ambiguous_live_cardinality
+      ? 'Ambiguous RADIUS account count requires manual reconciliation; automatic marker release was blocked'
+      : null,
+  ].filter(Boolean);
+  const manualReconciliationRequired = manualReconciliationWarnings.length > 0;
+  const nasState = manualReconciliationRequired
     ? {
       nas_disabled: false,
       nas_disable_warning: [
         attemptedNasState.nas_disable_warning,
-        'Archived network credentials require manual reconciliation; automatic NAS cleanup and marker release were blocked',
+        ...manualReconciliationWarnings,
       ].filter(Boolean).join('; '),
     }
     : attemptedNasState;
   const disconnectState = await disconnectBestEffort(contractId);
-  if (nasState.nas_disabled === false || !disconnectState.disconnect_confirmed) {
+  if (manualReconciliationRequired
+      || nasState.nas_disabled === false
+      || !disconnectState.disconnect_confirmed) {
     await setCleanupMarker(contractId, orgId);
   } else if (!retainMarker) {
     await releaseCleanupMarker(contractId, { orgId });
@@ -458,9 +588,7 @@ async function endWindow(contractId, { orgId, reason = 'manual' } = {}) {
   // start-only pending/PPPoE assertion. cleanupMarkedWindow locks the contract
   // and explicitly refuses to disable a formally active line.
   return cleanupMarkedWindow(contractId, {
-    orgId,
-    reason,
-    requireMarker: true,
+    orgId, reason,
   });
 }
 
@@ -671,16 +799,14 @@ async function recordOfflineCommissioningTest(workOrderId, measurement, {
 }
 
 /**
- * Cleanup path used by sweep and mutation guards. Unlike endWindow it admits
- * cancelled/type-changed/soft-deleted contracts, but it never touches active
- * service. `retainMarker` blocks a concurrent start until the caller's state
- * mutation finishes.
+ * Cleanup path used by manual close, post-commit finalization, and sweep. It
+ * admits cancelled/type-changed/soft-deleted contracts, but only when a real
+ * expiry or durable marker already exists and never touches active service.
  */
 async function cleanupMarkedWindow(contractId, {
   orgId = null,
   reason = 'expired',
   retainMarker = false,
-  requireMarker = true,
   onlyIfExpired = false,
 } = {}) {
   const conn = await db.getConnection();
@@ -713,7 +839,7 @@ async function cleanupMarkedWindow(contractId, {
     }
     const hasMarker = Number(contract.test_window_cleanup_pending) === 1
       || contract.test_window_expires_at !== null;
-    if (requireMarker && !hasMarker) {
+    if (!hasMarker) {
       await conn.commit();
       return { contract_id: Number(contractId), closed: false, prepared: false };
     }
@@ -772,12 +898,6 @@ async function cleanupMarkedWindow(contractId, {
   };
 }
 
-async function closeForContractMutation(contractId, { orgId = null, reason = 'contract_mutation' } = {}) {
-  return cleanupMarkedWindow(contractId, {
-    orgId, reason, retainMarker: true, requireMarker: false,
-  });
-}
-
 /** Scheduled sweep retries both natural expiry and durable cleanup failures. */
 async function sweep() {
   const [rows] = await db.query(
@@ -810,10 +930,10 @@ module.exports = {
   completeWindow,
   recordOfflineCommissioningTest,
   cleanupMarkedWindow,
-  closeForContractMutation,
   finalizeMarkedCleanup,
   releaseCleanupMarker,
   requiresExternalCleanup,
+  prepareExternalCleanup,
   sweep,
   windowMinutes,
 };
