@@ -7,9 +7,10 @@
 // contrato de adhesión — signed when the install is DONE, plus an optional
 // comodato annex for rented equipment.
 //
-//   * render()            — {{placeholder}} substitution over a flat context;
-//                           unknown placeholders survive verbatim so a typo is
-//                           VISIBLE in the document instead of silently blank.
+//   * render()            — {{placeholder}} substitution over an explicit
+//                           context; missing optional values become an em dash,
+//                           while unknown placeholders fail closed so a typo
+//                           can never be frozen into a signable document.
 //   * generateForOrder()  — one pending signed_documents row per ACTIVE
 //                           template, body frozen + SHA-256 hashed at
 //                           generation. Runs on the caller's transaction
@@ -69,17 +70,117 @@ My optional promotional communication choices are shown separately on this signi
 This is a factual service-installation and handoff acknowledgment. It is generic, is not jurisdiction-specific legal advice, and does not replace any service agreement or privacy notice that applies between the customer and provider.
 `;
 
-/** {{a.b}} substitution. Values are stringified; null/undefined → '—'. */
+const SUPPORTED_PLACEHOLDERS = Object.freeze([
+  'date',
+  'client.name',
+  'client.email',
+  'client.phone',
+  'client.address',
+  'client.rfc',
+  'client.curp',
+  'client.razon_social',
+  'contract.id',
+  'contract.start_date',
+  'contract.connection_type',
+  'contract.contract_template_mx_id',
+  'contract.mx_contract_environment',
+  'plan.name',
+  'plan.download',
+  'plan.upload',
+  'plan.price',
+  'order.number',
+  'order.address',
+  'org.name',
+  'org.legal_name',
+  'org.phone',
+  'org.email',
+  'org.rfc',
+  'org.razon_social',
+  'org.profeco_registro',
+  'org.carta_derechos_url',
+]);
+const SUPPORTED_PLACEHOLDER_SET = new Set(SUPPORTED_PLACEHOLDERS);
+const PLACEHOLDER_PATH_PATTERN = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/;
+
+function resolvePlaceholder(context, path) {
+  let value = context;
+  for (const key of path.split('.')) {
+    if ((typeof value !== 'object' && typeof value !== 'function')
+        || value === null
+        || !Object.prototype.hasOwnProperty.call(value, key)) {
+      return { found: false, value: undefined };
+    }
+    value = value[key];
+  }
+  return { found: true, value };
+}
+
+function unresolvedPlaceholderError(placeholder) {
+  return new ValidationError(
+    `Unsupported or unresolved legal document placeholder "${placeholder}". Update the source template before generating or signing this document`,
+  );
+}
+
+/**
+ * Validate template syntax and its placeholder allowlist without needing live
+ * customer data. This is also used by source/template write routes so a typo
+ * is rejected before reviewed text can become immutable evidence.
+ */
+function assertSupportedPlaceholders(body) {
+  const source = String(body ?? '');
+  let cursor = 0;
+  while (cursor < source.length) {
+    const open = source.indexOf('{{', cursor);
+    const strayClose = source.indexOf('}}', cursor);
+    if (strayClose !== -1 && (open === -1 || strayClose < open)) {
+      throw unresolvedPlaceholderError('}}');
+    }
+    if (open === -1) break;
+
+    const close = source.indexOf('}}', open + 2);
+    if (close === -1) throw unresolvedPlaceholderError(source.slice(open));
+    const rawPath = source.slice(open + 2, close);
+    const path = rawPath.trim();
+    const adjacentBrace = source[open - 1] === '{' || source[close + 2] === '}';
+    if (adjacentBrace || !PLACEHOLDER_PATH_PATTERN.test(path)) {
+      throw unresolvedPlaceholderError(source.slice(open, close + 2));
+    }
+    if (!SUPPORTED_PLACEHOLDER_SET.has(path)) {
+      throw unresolvedPlaceholderError(`{{${path}}}`);
+    }
+    cursor = close + 2;
+  }
+  return true;
+}
+
+/**
+ * {{a.b}} substitution over explicit own-properties. Values are stringified;
+ * a supported property whose value is null/undefined/empty becomes an em dash.
+ * Unknown or malformed placeholders are rejected instead of being frozen.
+ */
 function render(body, context) {
-  return String(body).replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, path) => {
-    const value = path.split('.').reduce(
-      (acc, key) => (acc === null || acc === undefined ? undefined : acc[key]),
-      context,
-    );
-    if (value === undefined) return match; // typo stays visible
-    if (value === null || value === '') return '—';
+  assertSupportedPlaceholders(body);
+  const rendered = String(body).replace(/\{\{([^{}]*)\}\}/g, (match, rawPath) => {
+    const path = rawPath.trim();
+    const { found, value } = resolvePlaceholder(context, path);
+    if (!found) throw unresolvedPlaceholderError(match);
+    if (value === null || value === undefined || value === '') return '—';
     return String(value);
   });
+
+  // Also reject an unmatched/nested mustache sequence and placeholder-like
+  // text introduced by an interpolated value. A legal body with any visible
+  // {{...}} marker is not safe to freeze or present for signature.
+  if (rendered.includes('{{') || rendered.includes('}}')) {
+    throw unresolvedPlaceholderError('{{...}}');
+  }
+  return rendered;
+}
+
+function assertNoUnresolvedPlaceholders(body) {
+  if (String(body).includes('{{') || String(body).includes('}}')) {
+    throw unresolvedPlaceholderError('{{...}}');
+  }
 }
 
 function sha256(value) {
@@ -90,6 +191,18 @@ function canonicalDateTime(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+function canonicalDate(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  const text = String(value);
+  const dateOnly = /^(\d{4}-\d{2}-\d{2})(?:[ T]|$)/.exec(text);
+  if (dateOnly) return dateOnly[1];
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString().slice(0, 10);
 }
 
 /**
@@ -149,23 +262,33 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
   return {
     date: now.toISOString().slice(0, 10),
     client: {
-      name: client?.name, email: client?.email, phone: client?.phone,
+      name: client?.name ?? null, email: client?.email ?? null, phone: client?.phone ?? null,
       address: [client?.address, client?.city, client?.state, client?.zip_code].filter(Boolean).join(', '),
-      rfc: clientMx?.rfc ?? client?.tax_id, curp: clientMx?.curp ?? client?.curp,
-      razon_social: clientMx?.razon_social,
+      rfc: clientMx?.rfc ?? client?.tax_id ?? null,
+      curp: clientMx?.curp ?? client?.curp ?? null,
+      razon_social: clientMx?.razon_social ?? null,
     },
     contract: {
-      id: contract?.id, start_date: contract?.start_date,
-      connection_type: contract?.connection_type,
-      contract_template_mx_id: contract?.contract_template_mx_id,
-      mx_contract_environment: contract?.mx_contract_environment,
+      id: contract?.id ?? null, start_date: canonicalDate(contract?.start_date),
+      connection_type: contract?.connection_type ?? null,
+      contract_template_mx_id: contract?.contract_template_mx_id ?? null,
+      mx_contract_environment: contract?.mx_contract_environment ?? null,
     },
-    plan: { name: plan?.name, download: plan?.download_speed, upload: plan?.upload_speed, price: plan?.price },
-    order: { number: order?.order_number, address: order?.address },
+    plan: {
+      name: plan?.name ?? null,
+      download: plan?.download_speed_mbps ?? null,
+      upload: plan?.upload_speed_mbps ?? null,
+      price: plan?.price ?? null,
+    },
+    order: { number: order?.order_number ?? null, address: order?.address ?? null },
     org: {
-      name: org?.name, legal_name: org?.legal_name, phone: org?.phone, email: org?.email,
-      rfc: orgMx?.rfc, razon_social: orgMx?.razon_social,
-      profeco_registro: orgMx?.profeco_registro,
+      name: org?.name ?? null,
+      legal_name: org?.legal_name ?? null,
+      phone: org?.phone ?? null,
+      email: org?.email ?? null,
+      rfc: orgMx?.rfc ?? org?.tax_id ?? null,
+      razon_social: orgMx?.razon_social ?? null,
+      profeco_registro: orgMx?.profeco_registro ?? null,
       carta_derechos_url: orgMx?.carta_derechos_url || CARTA_DERECHOS_DEFAULT_URL,
     },
   };
@@ -494,6 +617,41 @@ async function sign(documentId, {
     if (hash !== doc.content_sha256) {
       throw new ValidationError('Document integrity check failed — the stored body does not match its generation hash');
     }
+    assertNoUnresolvedPlaceholders(doc.rendered_body);
+
+    // Old renderers left unknown placeholders visible and could partially
+    // consume malformed triple braces (for example, {{{client.name}}} became
+    // {María}). That output no longer contains a {{...}} marker, so validate
+    // the original tenant-owned template as well. Soft-deleted templates are
+    // intentionally included: their frozen source remains signing evidence.
+    // The bundled global acknowledgment has no physical template row. Every
+    // other document must retain its physical source reference; a hard-deleted
+    // template (FK SET NULL), orphaned row, or forged zero id cannot bypass
+    // validation of the original legal text.
+    if (doc.template_type !== GLOBAL_ACKNOWLEDGMENT_TYPE) {
+      if (doc.template_id === null
+          || doc.template_id === undefined
+          || !Number.isInteger(Number(doc.template_id))
+          || Number(doc.template_id) <= GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID) {
+        throw new ValidationError(
+          'The original legal document template is missing from this pending document',
+        );
+      }
+      const [sourceTemplates] = await conn.query(
+        `SELECT template_type, body_md
+           FROM document_templates
+          WHERE id = ? AND organization_id <=> ?
+          LIMIT 1 FOR UPDATE`,
+        [doc.template_id, doc.organization_id],
+      );
+      const sourceTemplate = sourceTemplates[0];
+      if (!sourceTemplate || sourceTemplate.template_type !== doc.template_type) {
+        throw new ValidationError(
+          'The original legal document template no longer matches this pending document',
+        );
+      }
+      assertSupportedPlaceholders(sourceTemplate.body_md);
+    }
 
     // Validate the frozen chain, never the organization's current switch. A
     // switch is allowed only between flows and cannot relabel old contracts or
@@ -520,6 +678,7 @@ async function sign(documentId, {
             lock: true,
           },
         );
+        assertSupportedPlaceholders(source?.template_body);
         const snapshot = mxRegisteredTemplateService.assertReadyRecord(source, {
           orgId: doc.organization_id,
           bodyMd: source?.template_body,
@@ -775,6 +934,8 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
 
 module.exports = {
   render,
+  assertSupportedPlaceholders,
+  SUPPORTED_PLACEHOLDERS,
   buildContext,
   generateForOrder,
   sign,

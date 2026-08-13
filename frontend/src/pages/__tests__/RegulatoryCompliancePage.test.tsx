@@ -5,6 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import RegulatoryCompliancePage from '../RegulatoryCompliancePage';
+import { LEGAL_DOCUMENT_PLACEHOLDER_HELP } from '@/legalDocumentPlaceholders';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -270,6 +271,7 @@ describe('Consumer Protection MX registered-template evidence', () => {
       'regulatoryCompliance.consumer.registry.environment.label',
     )).toHaveValue('production'));
     fireEvent.click(screen.getByText('regulatoryCompliance.consumer.registry.create'));
+    expect(screen.getByText(LEGAL_DOCUMENT_PLACEHOLDER_HELP)).toBeDefined();
 
     fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.name'), { target: { value: 'Contrato 2027' } });
     fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.version'), { target: { value: '2027.1' } });

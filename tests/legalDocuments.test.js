@@ -58,12 +58,36 @@ beforeEach(() => jest.clearAllMocks());
 // render()
 // ---------------------------------------------------------------------------
 describe('render', () => {
-  it('substitutes nested paths, keeps unknown placeholders visible, and dashes empty values', () => {
+  it('substitutes nested paths and dashes supported empty values', () => {
     const out = svc.render(
-      'Yo {{client.name}} (RFC {{client.rfc}}) autorizo a {{org.name}} — {{typo.here}}',
-      { client: { name: 'María', rfc: null }, org: { name: 'MX ISP' } },
+      'Yo {{client.name}} (RFC {{client.rfc}}, razón social {{client.razon_social}}) autorizo a {{org.name}}',
+      {
+        client: { name: 'María', rfc: null, razon_social: undefined },
+        org: { name: 'MX ISP' },
+      },
     );
-    expect(out).toBe('Yo María (RFC —) autorizo a MX ISP — {{typo.here}}');
+    expect(out).toBe('Yo María (RFC —, razón social —) autorizo a MX ISP');
+  });
+
+  it('rejects unknown placeholders instead of returning signable-looking text', () => {
+    expect(() => svc.render(
+      'Yo {{client.name}} — {{client.raozn_social}}',
+      { client: { name: 'María', razon_social: null } },
+    )).toThrow(/unsupported or unresolved.*client\.raozn_social/i);
+  });
+
+  it.each([
+    '{{{client.name}}}',
+    '{{client.name}}}',
+    '{{{client.name}}',
+    '{{client.name}',
+    '{client.name}}',
+    '{{}}',
+    '{{client.{{name}}',
+    '{{client-name}}',
+  ])('rejects malformed placeholder syntax: %s', (body) => {
+    expect(() => svc.render(body, { client: { name: 'María' } }))
+      .toThrow(/unsupported or unresolved.*placeholder/i);
   });
 });
 
@@ -81,15 +105,15 @@ describe('generateForOrder', () => {
         id: 33,
         plan_id: 2,
         connection_type: 'pppoe',
-        start_date: '2026-08-05',
+        start_date: state.contractStartDate ?? '2026-08-05',
         contract_template_mx_id: MX_SOURCE_ID,
         mx_contract_environment: state.contractEnvironment || 'production',
       }]];
-      if (/FROM plans WHERE/.test(s)) return [[{ id: 2, name: 'Inalambrico 50', price: '400.00' }]];
+      if (/FROM plans WHERE/.test(s)) return [[state.plan ?? { id: 2, name: 'Inalambrico 50', price: '400.00' }]];
       if (/FROM service_orders WHERE/.test(s)) return [[{ id: 16, order_number: 'SO-000016', address: 'Calle 1, CDMX' }]];
-      if (/FROM organizations WHERE/.test(s)) return [[{ id: 42, name: 'MX ISP', legal_name: 'MX ISP SA' }]];
+      if (/FROM organizations WHERE/.test(s)) return [[state.org ?? { id: 42, name: 'MX ISP', legal_name: 'MX ISP SA' }]];
       if (/FROM organization_mx_profiles/.test(s)) return [[{ rfc: 'AAA010101AAA', razon_social: 'MX ISP SA de CV', profeco_registro: state.profeco ?? null, carta_derechos_url: null }]];
-      if (/FROM client_mx_profiles/.test(s)) return [[{ rfc: 'FAPM900215AB7' }]];
+      if (/FROM client_mx_profiles/.test(s)) return [[state.clientMx ?? { rfc: 'FAPM900215AB7' }]];
       if (/^INSERT INTO signed_documents/.test(s.trim())) {
         state.inserts.push(sql);
         state.insertParams = state.insertParams || [];
@@ -172,6 +196,93 @@ describe('generateForOrder', () => {
     expect(params.slice(11, 13)).toEqual([null, null]);
     expect(params[15]).toBe('sandbox');
     expect(state.inserts[0]).toMatch(/evidence_format_version[\s\S]*3/);
+  });
+
+  it('renders an absent optional client razon_social deterministically', async () => {
+    const state = {
+      clientMx: { rfc: 'FAPM900215AB7', curp: null },
+      templates: [{
+        id: 9,
+        template_type: 'activation_contract',
+        name: 'Contrato',
+        body_md: 'RFC {{client.rfc}} — CURP {{client.curp}} — Razón social {{client.razon_social}}',
+      }],
+      inserts: [],
+    };
+
+    await svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    });
+
+    expect(state.insertParams[0][8]).toBe(
+      'RFC FAPM900215AB7 — CURP — — Razón social —',
+    );
+  });
+
+  it('uses current plan speed columns and the organization tax-id fallback', async () => {
+    const state = {
+      plan: {
+        id: 2, name: 'Fibra 100', download_speed_mbps: 100,
+        upload_speed_mbps: 25, price: '500.00',
+      },
+      org: { id: 42, name: 'MX ISP', tax_id: 'ORG010101AAA' },
+      templates: [{
+        id: 11,
+        template_type: 'activation_contract',
+        name: 'Contrato',
+        body_md: 'Velocidad {{plan.download}}/{{plan.upload}} Mbps — RFC {{org.rfc}}',
+      }],
+      inserts: [],
+    };
+    const base = runner(state);
+    const run = async (sql, params) => {
+      if (/FROM organization_mx_profiles/.test(String(sql).replace(/\s+/g, ' '))) return [[]];
+      return base(sql, params);
+    };
+
+    await svc.generateForOrder(run, {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    });
+
+    expect(state.insertParams[0][8]).toBe(
+      'Velocidad 100/25 Mbps — RFC ORG010101AAA',
+    );
+  });
+
+  it('renders a mysql2 Date contract start_date as a timezone-safe calendar date', async () => {
+    const state = {
+      contractStartDate: new Date('2026-08-05T00:00:00.000Z'),
+      templates: [{
+        id: 12,
+        template_type: 'activation_contract',
+        name: 'Contrato',
+        body_md: 'Inicio {{contract.start_date}}',
+      }],
+      inserts: [],
+    };
+
+    await svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    });
+
+    expect(state.insertParams[0][8]).toBe('Inicio 2026-08-05');
+  });
+
+  it('fails closed before freezing a template with an unknown placeholder', async () => {
+    const state = {
+      templates: [{
+        id: 10,
+        template_type: 'activation_contract',
+        name: 'Contrato con error',
+        body_md: 'Razón social {{client.raozn_social}}',
+      }],
+      inserts: [],
+    };
+
+    await expect(svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    })).rejects.toThrow(/unsupported or unresolved.*client\.raozn_social/i);
+    expect(state.inserts).toHaveLength(0);
   });
 
   it('generates one bundled neutral acknowledgment for a global-locale org', async () => {
@@ -269,7 +380,10 @@ describe('POST /signed-documents/:id/sign', () => {
   const NOTICE_VERSION = 'install-v1';
   const NOTICE_HASH = crypto.createHash('sha256').update(NOTICE, 'utf8').digest('hex');
 
-  function wire(doc) {
+  function wire(inputDoc, { templateBody = 'Reviewed {{client.name}}' } = {}) {
+    const doc = inputDoc?.template_type === 'service_acknowledgment'
+      ? inputDoc
+      : { template_id: 17, ...inputDoc };
     mockTxConnection(db);
     db.query.mockImplementation(async (sql) => {
       if (isAuthLookup(sql)) return ADMIN_ROW;
@@ -277,6 +391,12 @@ describe('POST /signed-documents/:id/sign', () => {
         return [doc ? [{ ...doc }] : []];
       }
       if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [doc ? [{ ...doc }] : []];
+      if (/FROM document_templates[\s\S]*LIMIT 1 FOR UPDATE/.test(sql)) {
+        return [templateBody === null ? [] : [{
+          template_type: doc.template_type,
+          body_md: templateBody,
+        }]];
+      }
       if (/UPDATE signed_documents[\s\S]*SET status = 'signed'/.test(sql)) return [{ affectedRows: 1 }];
       if (/SELECT \* FROM signed_documents WHERE id = \?$/.test(String(sql).trim())) return [[{ ...doc, status: 'signed' }]];
       return [[]];
@@ -305,6 +425,73 @@ describe('POST /signed-documents/:id/sign', () => {
     expect(res.status).toBe(422);
     expect(res.body.error.message).toMatch(/integrity/i);
   });
+
+  it('refuses to sign a previously frozen body that still contains a placeholder', async () => {
+    const unresolvedBody = 'Yo {{client.razon_social}} autorizo la instalación.';
+    wire({
+      id: 7,
+      organization_id: 42,
+      template_type: 'installation_authorization',
+      status: 'pending',
+      rendered_body: unresolvedBody,
+      content_sha256: crypto.createHash('sha256').update(unresolvedBody, 'utf8').digest('hex'),
+    });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/unsupported or unresolved.*placeholder/i);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+  });
+
+  it('refuses a legacy partially-rendered body when its original template has malformed braces', async () => {
+    const legacyRenderedBody = 'Yo {María} autorizo la instalación.';
+    wire({
+      id: 7,
+      organization_id: 42,
+      template_id: 17,
+      template_type: 'installation_authorization',
+      status: 'pending',
+      rendered_body: legacyRenderedBody,
+      content_sha256: crypto.createHash('sha256').update(legacyRenderedBody, 'utf8').digest('hex'),
+    }, { templateBody: 'Yo {{{client.name}}} autorizo la instalación.' });
+
+    const res = await request(app)
+      .post('/api/v1/signed-documents/7/sign')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ signer_name: 'María', signature_image: SIG });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/unsupported or unresolved.*placeholder/i);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+  });
+
+  it.each([null, 0])(
+    'refuses a non-global pending document whose physical template id is %s',
+    async (templateId) => {
+      wire({
+        id: 7,
+        organization_id: 42,
+        template_id: templateId,
+        template_type: 'installation_authorization',
+        status: 'pending',
+        rendered_body: BODY,
+        content_sha256: HASH,
+      });
+
+      const res = await request(app)
+        .post('/api/v1/signed-documents/7/sign')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ signer_name: 'María', signature_image: SIG });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/original legal document template is missing/i);
+      expect(db.query.mock.calls.some(([sql]) => /UPDATE signed_documents/.test(sql))).toBe(false);
+    },
+  );
 
   it('refuses a non-pending document and a non-image payload', async () => {
     wire({ id: 7, organization_id: 42, template_type: 'installation_authorization', status: 'signed', rendered_body: BODY, content_sha256: HASH });
@@ -474,9 +661,12 @@ describe('POST /signed-documents/:id/sign', () => {
         return [[{
           id: 7, organization_id: 42, client_id: 9, contract_id: 33,
           service_order_id: 16, work_order_id: 13,
-          template_type: 'activation_contract', status: 'pending',
+          template_id: 17, template_type: 'activation_contract', status: 'pending',
           rendered_body: BODY, content_sha256: HASH,
         }]];
+      }
+      if (/FROM document_templates[\s\S]*LIMIT 1 FOR UPDATE/.test(sql)) {
+        return [[{ template_type: 'activation_contract', body_md: 'Reviewed {{client.name}}' }]];
       }
       if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
       if (/communication_choices IS NOT NULL/.test(sql)) return [[]];
@@ -569,7 +759,7 @@ describe('POST /signed-documents/:id/sign', () => {
     const doc = {
       id: 8, organization_id: 42, client_id: 9, contract_id: 33,
       service_order_id: 16, work_order_id: 13,
-      template_type: 'activation_contract', status: 'pending',
+      template_id: 17, template_type: 'activation_contract', status: 'pending',
       rendered_body: BODY, content_sha256: HASH,
     };
     const conn = mockTxConnection(db);
@@ -585,6 +775,9 @@ describe('POST /signed-documents/:id/sign', () => {
         }]];
       }
       if (/SELECT \* FROM signed_documents[\s\S]*FOR UPDATE/.test(sql)) return [[doc]];
+      if (/FROM document_templates[\s\S]*LIMIT 1 FOR UPDATE/.test(sql)) {
+        return [[{ template_type: 'activation_contract', body_md: 'Reviewed {{client.name}}' }]];
+      }
       if (/FROM work_orders/.test(sql)) return [[{ id: 13, status: 'in_progress' }]];
       if (/communication_choices IS NOT NULL/.test(sql)) return [[{ id: 7 }]];
       if (/UPDATE signed_documents/.test(sql)) return [{ affectedRows: 1 }];
@@ -718,6 +911,62 @@ describe('document-template version integrity', () => {
     jest.spyOn(Organization, 'getLocale').mockResolvedValue('MX');
     db.query.mockImplementation(async (sql) => (isAuthLookup(sql) ? ADMIN_ROW : [[]]));
   }
+
+  it('rejects an unsupported placeholder before creating a template', async () => {
+    authorizeMx();
+    const conn = connection(async (sql) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        name: 'Contrato con typo',
+        template_type: 'installation_authorization',
+        body_md: 'Cliente {{client.nmae}}',
+        is_active: false,
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/unsupported or unresolved.*client\.nmae/i);
+    expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO document_templates/.test(sql)))
+      .toBe(false);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects activating an inactive legacy template with a bad frozen body', async () => {
+    authorizeMx();
+    const conn = connection(async (sql) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/SELECT \* FROM document_templates/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return [[{
+          id: 7,
+          organization_id: 42,
+          template_type: 'installation_authorization',
+          name: 'Legacy typo',
+          body_md: 'Cliente {{client.nmae}}',
+          contract_template_mx_id: null,
+          is_active: 0,
+        }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .put('/api/v1/document-templates/7')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ is_active: true });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/unsupported or unresolved.*client\.nmae/i);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE document_templates/.test(sql)))
+      .toBe(false);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+  });
 
   it('rejects material edits while a template is active', async () => {
     authorizeMx();

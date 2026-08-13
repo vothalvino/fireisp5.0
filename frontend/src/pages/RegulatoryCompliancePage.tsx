@@ -27,6 +27,7 @@ import {
   type MxContractEnvironment,
   type MxContractSourceStatus,
 } from '@/components/MxContractEnvironment';
+import { LEGAL_DOCUMENT_PLACEHOLDER_HELP } from '@/legalDocumentPlaceholders';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1194,6 +1195,9 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate, organizatio
               style={{ display: 'block', width: '100%', boxSizing: 'border-box', fontFamily: 'monospace' }}
             />
           </label>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            {t('documentTemplates.placeholders')}: <code style={{ fontSize: '0.72rem' }}>{LEGAL_DOCUMENT_PLACEHOLDER_HELP}</code>
+          </p>
           {form.environment === 'production' && (
             <>
               <label>

@@ -24,6 +24,7 @@ import {
   type MxContractSourceStatus,
 } from '@/components/MxContractEnvironment';
 import { extractApiError } from '@/components/ClientFormModal';
+import { LEGAL_DOCUMENT_PLACEHOLDER_HELP } from '@/legalDocumentPlaceholders';
 import { styles, modalStyles } from './crudStyles';
 
 interface DocumentTemplate {
@@ -50,8 +51,6 @@ interface RegisteredContractTemplatePage {
 const TYPES: DocumentTemplate['template_type'][] = [
   'installation_authorization', 'activation_contract', 'equipment_comodato', 'custom',
 ];
-
-const PLACEHOLDER_HELP = '{{client.name}} {{client.address}} {{client.rfc}} {{client.curp}} {{client.razon_social}} {{contract.id}} {{plan.name}} {{plan.price}} {{order.number}} {{order.address}} {{org.name}} {{org.razon_social}} {{org.rfc}} {{org.profeco_registro}} {{org.carta_derechos_url}} {{date}}';
 
 async function fetchTemplates(): Promise<DocumentTemplate[]> {
   const res = await (api.GET as unknown as (p: string) => Promise<{ data?: unknown; error?: unknown }>)('/document-templates');
@@ -322,7 +321,7 @@ function TemplateModal({ initial, onClose, onSaved }: {
             />
           </label>
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            {t('documentTemplates.placeholders')}: <code style={{ fontSize: '0.72rem' }}>{PLACEHOLDER_HELP}</code>
+            {t('documentTemplates.placeholders')}: <code style={{ fontSize: '0.72rem' }}>{LEGAL_DOCUMENT_PLACEHOLDER_HELP}</code>
           </p>
           <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <input
