@@ -208,8 +208,9 @@ describe('E2E Payment Flow: client → plan → contract → invoice → payment
       // pool lookup, radius INSERT) → commit → Contract.findById → auditLog.
       const conn = {
         query: jest.fn()
+          .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
           .mockResolvedValueOnce([[{ id: 1 }]])                      // assertPlanSelectable — plan is live
-          .mockResolvedValueOnce([[{ locale: 'global' }]])           // contract legal-source jurisdiction
+          .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // source resolution
           .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }]) // INSERT contracts
           .mockResolvedValueOnce([[{ name: 'Acme' }]])               // SELECT client name
           .mockResolvedValueOnce([[]])                               // radius username uniqueness

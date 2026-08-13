@@ -315,6 +315,9 @@ test('POST derives the registered source used by the active MX activation docume
   const conn = {
     query: jest.fn(async (sql) => {
       const s = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT o\.locale,\s+CASE/.test(s)) {
+        return [[{ locale: 'MX', contract_environment: 'production', mx_profile_id: 4 }]];
+      }
       if (/FROM plans/.test(s)) return [[{ id: 2 }]];
       if (/^INSERT INTO contracts/.test(s)) return [{ insertId: 33, affectedRows: 1 }];
       if (/SELECT name FROM clients/.test(s)) return [[{ name: 'María' }]];
@@ -335,13 +338,14 @@ test('POST derives the registered source used by the active MX activation docume
     if (/FROM `?contracts`?/.test(s)) {
       return [[{
         id: 33, organization_id: 42, client_id: 9, plan_id: 2,
-        contract_template_mx_id: 71, status: 'pending',
+        contract_template_mx_id: 71, mx_contract_environment: 'production', status: 'pending',
       }]];
     }
     return [[]];
   });
   jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource').mockResolvedValue({
     contractTemplateMxId: 71,
+    contractEnvironment: 'production',
   });
   jest.spyOn(provisioningService, 'provisionNewContract').mockResolvedValue({});
 
@@ -355,16 +359,20 @@ test('POST derives the registered source used by the active MX activation docume
     expect.any(Function),
     expect.objectContaining({ orgId: 42, lock: true }),
   );
+  const orgLock = conn.query.mock.calls.find(([sql]) => /SELECT o\.locale,\s+CASE/.test(String(sql)));
+  expect(orgLock[0]).toMatch(/FOR UPDATE/);
   const insert = conn.query.mock.calls.find(([sql]) => /^INSERT INTO contracts/.test(String(sql)));
   expect(insert[0]).toMatch(/`contract_template_mx_id`/);
+  expect(insert[0]).toMatch(/`mx_contract_environment`/);
   expect(insert[1]).toContain(71);
+  expect(insert[1]).toContain('production');
   expect(conn.commit).toHaveBeenCalledTimes(1);
 });
 
 test('PATCH rejects an MX source that is not used by the active activation document', async () => {
   const pending = {
     id: 33, organization_id: 42, client_id: 9, plan_id: 2,
-    contract_template_mx_id: 71, connection_type: 'pppoe',
+    contract_template_mx_id: 71, mx_contract_environment: 'production', connection_type: 'pppoe',
     start_date: '2026-08-10', status: 'pending', first_activated_at: null,
   };
   db.query.mockImplementation(async (sql) => {
@@ -388,7 +396,7 @@ test('PATCH rejects an MX source that is not used by the active activation docum
   expect(res.body.error.message).toMatch(/active activation document/i);
   expect(mxRegisteredTemplateService.resolveActiveContractSource).toHaveBeenCalledWith(
     expect.any(Function),
-    { orgId: 42, contractTemplateMxId: 72 },
+    { orgId: 42, contractTemplateMxId: 72, contractEnvironment: 'production' },
   );
   expect(db.query.mock.calls.some(([sql]) => /^UPDATE `?contracts`?/.test(String(sql)))).toBe(false);
 });
@@ -396,7 +404,7 @@ test('PATCH rejects an MX source that is not used by the active activation docum
 test('PATCH cannot clear a pending MX source with an explicit null', async () => {
   const pending = {
     id: 33, organization_id: 42, client_id: 9, plan_id: 2,
-    contract_template_mx_id: 71, connection_type: 'pppoe',
+    contract_template_mx_id: 71, mx_contract_environment: 'production', connection_type: 'pppoe',
     start_date: '2026-08-10', status: 'pending', first_activated_at: null,
   };
   db.query.mockImplementation(async (sql) => {
@@ -410,6 +418,7 @@ test('PATCH cannot clear a pending MX source with an explicit null', async () =>
   });
   jest.spyOn(mxRegisteredTemplateService, 'resolveActiveContractSource').mockResolvedValue({
     contractTemplateMxId: 71,
+    contractEnvironment: 'production',
   });
 
   const res = await request(app)
@@ -420,10 +429,11 @@ test('PATCH cannot clear a pending MX source with an explicit null', async () =>
   expect(res.status).toBe(200);
   expect(mxRegisteredTemplateService.resolveActiveContractSource).toHaveBeenCalledWith(
     expect.any(Function),
-    { orgId: 42, contractTemplateMxId: null },
+    { orgId: 42, contractTemplateMxId: null, contractEnvironment: 'production' },
   );
   const guardedUpdate = db.query.mock.calls.find(([sql]) => /^UPDATE `contracts`/.test(String(sql)));
-  expect(guardedUpdate[1][0]).toBe(71);
+  expect(guardedUpdate[0]).toMatch(/`contract_template_mx_id` = \?[\s\S]*`mx_contract_environment` = \?/);
+  expect(guardedUpdate[1].slice(0, 2)).toEqual([71, 'production']);
 });
 
 test('PATCH cannot relink an MX contract after its first activation', async () => {

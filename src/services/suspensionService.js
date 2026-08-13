@@ -10,6 +10,7 @@ const dgram = require('dgram');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'suspension' });
 const { ValidationError } = require('../utils/errors');
+const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateService');
 // NOTE: the action values below are written as SQL literals ('suspended',
 // 'unsuspended') rather than interpolated from SUSPENSION_ACTIONS on purpose —
 // the new `node src/scripts/sql-column-check.js` gate can only validate an ENUM
@@ -266,7 +267,8 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
     const [reactivated] = await conn.execute(
       `UPDATE contracts SET status = ?
         WHERE id = ? AND status = 'suspended'
-          AND first_activated_at IS NOT NULL AND deleted_at IS NULL${orgClause}`,
+          AND first_activated_at IS NOT NULL AND deleted_at IS NULL${orgClause}
+          AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
       ['active', contractId, ...orgParams],
     );
 
@@ -292,7 +294,8 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
             AND first_activated_at IS NULL
             AND connection_type IN ('pppoe','pppoe_dual')
             AND test_window_expires_at IS NULL AND test_window_cleanup_pending = 0
-            AND deleted_at IS NULL${orgClause}`,
+            AND deleted_at IS NULL${orgClause}
+            AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
         [contractId, ...orgParams],
       );
       let pppoeReset = cleanPppoeReset.affectedRows === 1;
@@ -306,7 +309,8 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
             WHERE id = ? AND status = 'suspended'
               AND first_activated_at IS NULL
               AND connection_type IN ('static','dual')
-              AND deleted_at IS NULL${orgClause}`,
+              AND deleted_at IS NULL${orgClause}
+              AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
           [contractId, ...orgParams],
         );
         resetApplied = nonPppoeReset.affectedRows === 1;
@@ -322,7 +326,8 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
               AND first_activated_at IS NULL
               AND connection_type IN ('pppoe','pppoe_dual')
               AND (test_window_expires_at IS NOT NULL OR test_window_cleanup_pending = 1)
-              AND deleted_at IS NULL${orgClause}`,
+              AND deleted_at IS NULL${orgClause}
+              AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
           [contractId, ...orgParams],
         );
         pppoeReset = windowedPppoeReset.affectedRows === 1;
@@ -349,9 +354,15 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
         // require the same durable first-activation proof and reject every
         // other source state.
         const [states] = await conn.execute(
-          `SELECT status, first_activated_at FROM contracts
+          `SELECT status, first_activated_at, organization_id, client_id,
+                  contract_template_mx_id, mx_contract_environment
+             FROM contracts
             WHERE id = ? AND deleted_at IS NULL${orgClause} FOR UPDATE`,
           [contractId, ...orgParams],
+        );
+        await mxRegisteredTemplateService.assertSandboxContractCanResume(
+          conn.execute.bind(conn),
+          { contract: states[0], context: 'Contract reconnect', lock: true },
         );
         if (!(states[0]?.status === 'active' && states[0]?.first_activated_at)) {
           throw new ValidationError('Only a suspended contract can be reconnected');

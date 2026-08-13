@@ -43,10 +43,25 @@ function mockReqRes(overrides = {}) {
  * connection_type (pppoe/pppoe_dual provision a RADIUS account; static/dual
  * do not).
  */
-function makeContractConn({ insertId = 10, radiusUsernameTaken = false, ipPoolId = null } = {}) {
+function makeContractConn({
+  insertId = 10, radiusUsernameTaken = false, ipPoolId = null,
+  locale = 'global', contractEnvironment = 'sandbox', mxTemplate = null,
+} = {}) {
   return {
     beginTransaction: jest.fn().mockResolvedValue(undefined),
     query: jest.fn().mockImplementation((sql) => {
+      if (/FROM organizations o/.test(sql)) {
+        return Promise.resolve([[
+          {
+            locale,
+            contract_environment: contractEnvironment,
+            mx_profile_id: locale === 'MX' ? 4 : null,
+          },
+        ]]);
+      }
+      if (/FROM document_templates dt/.test(sql)) {
+        return Promise.resolve([mxTemplate ? [mxTemplate] : []]);
+      }
       if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId }]);
       if (/^SELECT name FROM clients/.test(sql)) return Promise.resolve([[{ name: 'Alice' }]]);
       if (/^SELECT id FROM radius WHERE username/.test(sql)) {
@@ -274,6 +289,57 @@ describe('importController', () => {
       expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
+    test.each([
+      ['sandbox', 'sandbox_ready', null, null],
+      ['production', 'registered', 'PROFECO-2026-001', '2026-08-01'],
+    ])('MX %s import locks and freezes the current active contract source', async (
+      environment, status, registrationNumber, registeredAt,
+    ) => {
+      db.query.mockResolvedValue([[{ id: 1 }]]);
+      const sourceBody = `Exact ${environment} source`;
+      const source = {
+        id: 80,
+        organization_id: 1,
+        template_type: 'activation_contract',
+        name: `${environment} activation contract`,
+        body_md: sourceBody,
+        is_active: 1,
+        contract_template_mx_id: 71,
+        mx_id: 71,
+        mx_organization_id: 1,
+        mx_registration_number: registrationNumber,
+        mx_registered_at: registeredAt,
+        mx_template_version: '1.0',
+        mx_template_body: sourceBody,
+        mx_contract_environment: environment,
+        mx_status: status,
+        mx_deleted_at: null,
+      };
+      const conn = makeContractConn({
+        insertId: environment === 'sandbox' ? 81 : 82,
+        locale: 'MX', contractEnvironment: environment, mxTemplate: source,
+      });
+      db.getConnection.mockResolvedValue(conn);
+
+      const { req, res, next } = mockReqRes({
+        body: { csv: 'client_id,plan_id,connection_type\n1,2,static' },
+      });
+      await importContracts(req, res, next);
+
+      expect(res.json.mock.calls[0][0].data.errors).toEqual([]);
+      const orgLock = conn.query.mock.calls.find(([sql]) => /FROM organizations o/.test(sql));
+      const sourceLock = conn.query.mock.calls.find(([sql]) => /FROM document_templates dt/.test(sql));
+      expect(orgLock[0]).toMatch(/FOR UPDATE/);
+      expect(sourceLock[0]).toMatch(/ctm\.environment = \?[\s\S]*FOR UPDATE/);
+      expect(sourceLock[1]).toEqual([1, environment]);
+
+      const insert = conn.query.mock.calls.find(([sql]) => /^INSERT INTO contracts/.test(sql));
+      expect(insert[0]).toMatch(/`contract_template_mx_id`/);
+      expect(insert[0]).toMatch(/`mx_contract_environment`/);
+      expect(insert[1]).toEqual(expect.arrayContaining([71, environment, 'pending']));
+      expect(conn.commit).toHaveBeenCalledTimes(1);
+    });
+
     test('rejects an invalid connection_type as a per-row error, without touching the DB', async () => {
       const { req, res, next } = mockReqRes({ body: { csv: 'client_id,plan_id,connection_type\n1,2,fiber' } });
       await importContracts(req, res, next);
@@ -299,6 +365,11 @@ describe('importController', () => {
       db.query.mockResolvedValue([[{ id: 1 }]]);
       const conn = makeContractConn({ insertId: 9 });
       conn.query.mockImplementation((sql) => {
+        if (/FROM organizations o/.test(sql)) {
+          return Promise.resolve([[
+            { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+          ]]);
+        }
         if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId: 9 }]);
         if (/^SELECT name FROM clients/.test(sql)) return Promise.reject(new Error('connection lost'));
         return Promise.resolve([[]]);

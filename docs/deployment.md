@@ -185,6 +185,39 @@ choices, and consent provenance columns. Take a database backup and export any
 required evidence before running that rollback; rolling the application image
 back does not require rolling this additive database migration back.
 
+#### MX contract sandbox/production upgrade (migration 452)
+
+Migration 452 adds an independent environment selector for Mexican adhesion
+contracts. This selector is separate from the PAC/CFDI environment: an ISP may
+test contract onboarding while issuing real CFDIs, or test CFDIs while using
+its real registered contract.
+
+The contract **sandbox is a FireISP simulation only**. It is not a PROFECO
+sandbox, registration service, approval, or legal contract. Sandbox sources:
+
+- use `sandbox_ready` rather than `registered`;
+- cannot contain an official registration number or registration date;
+- are permanently marked as test/no-legal-effect in the rendered signing
+  evidence; and
+- can never be promoted or relabeled as production evidence.
+
+Prepare a separate production source with the exact externally registered text,
+real registration number, and date, then link an active production document
+template before switching the organization to production. The switch applies
+only to new contracts. It refuses to move while installations are in progress
+or while a live sandbox contract remains, and it never rewrites existing
+contracts, documents, or signatures.
+
+Existing pre-452 MX registry sources are preserved in the production lane. An
+otherwise unconfigured MX organization starts in sandbox. The environment of
+every new MX contract and signed document is frozen with its source so a later
+organization switch cannot change historical provenance.
+
+Rollback 452 intentionally refuses to run after v3 signing evidence exists or
+after a sandbox source has been linked into operational/history records. Roll
+the application image back without rolling back this additive migration, or
+export and migrate that evidence through a deliberate recovery procedure.
+
 #### New settings arrive on their own
 
 `redeploy` appends any **managed setting** your `.env.prod` does not yet

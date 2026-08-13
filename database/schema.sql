@@ -484,7 +484,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     connection_type ENUM('pppoe', 'pppoe_dual', 'static', 'dual') NOT NULL DEFAULT 'pppoe'
                        COMMENT 'pppoe = PPPoE IPv4-only (requires RADIUS); pppoe_dual = PPPoE dual-stack IPv4+IPv6 (requires RADIUS); static = static IPv4 (no RADIUS); dual = dual-stack static IPv4+IPv6 (no RADIUS)',
     contract_template_mx_id BIGINT UNSIGNED NULL
-                       COMMENT 'IFT/CRT-registered Carta de Adhesión template used for this contract; NULL for non-MX clients',
+                       COMMENT 'MX contract source used for this contract; NULL for contracts without an MX legal source',
+    mx_contract_environment ENUM('sandbox','production') NULL
+                       COMMENT 'Immutable environment snapshot of contract_template_mx_id; NULL for contracts without an MX source',
     facturar       BOOLEAN         NOT NULL DEFAULT FALSE
                        COMMENT 'MX only: TRUE = generate individual CFDI for this contract invoices; FALSE = invoices go to factura pública (venta al público en general). When TRUE the client must have a client_mx_profiles row with valid SAT data. Ignored when client locale is not MX',
     status         ENUM('pending','active','suspended','expired','cancelled','terminated') NOT NULL DEFAULT 'pending',
@@ -516,6 +518,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     KEY idx_contracts_test_window (test_window_expires_at),
     KEY idx_contracts_test_cleanup (test_window_cleanup_pending, test_window_cleanup_attempted_at, test_window_expires_at),
     KEY idx_contracts_contract_template_mx_id (contract_template_mx_id),
+    KEY idx_contracts_mx_source_environment (contract_template_mx_id, mx_contract_environment),
     KEY idx_contracts_facturar (facturar),
     KEY idx_contracts_status (status),
     KEY idx_contracts_client_status (client_id, status),
@@ -531,7 +534,16 @@ CREATE TABLE IF NOT EXISTS contracts (
     CONSTRAINT fk_contracts_created_by FOREIGN KEY (created_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT fk_contracts_contract_template_mx FOREIGN KEY (contract_template_mx_id)
-        REFERENCES contract_templates_mx (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_contracts_mx_source_environment
+        FOREIGN KEY (contract_template_mx_id, mx_contract_environment)
+        REFERENCES contract_templates_mx (id, environment)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT chk_contracts_mx_environment_link CHECK (
+        (contract_template_mx_id IS NULL AND mx_contract_environment IS NULL)
+        OR
+        (contract_template_mx_id IS NOT NULL AND mx_contract_environment IS NOT NULL)
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -4532,6 +4544,8 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
                                 COMMENT 'PROFECO adhesion-contract registration number (LFTR art. 191); printed on the activation contract via {{org.profeco_registro}} (migration 449)',
     carta_derechos_url      VARCHAR(500)    NULL
                                 COMMENT 'URL of the Carta de Derechos Minimos de los Usuarios; NULL = official IFT document (migration 449)',
+    contract_environment    ENUM('sandbox', 'production') NOT NULL DEFAULT 'sandbox'
+                                COMMENT 'MX adhesion-contract lane; independent from the CFDI/PAC environment',
 
     -- CSD (Certificado de Sello Digital) for signing CFDIs
     csd_certificate_number  VARCHAR(30)     NULL
@@ -4584,6 +4598,7 @@ CREATE TABLE IF NOT EXISTS organization_mx_profiles (
     UNIQUE KEY uq_organization_mx_profiles_org_id (organization_id, active_flag),
     UNIQUE KEY uq_organization_mx_profiles_rfc (rfc, active_flag),
     KEY idx_organization_mx_profiles_pac_environment (pac_environment),
+    KEY idx_organization_mx_profiles_contract_environment (contract_environment),
     KEY idx_organization_mx_profiles_deleted_at (deleted_at),
     CONSTRAINT fk_organization_mx_profiles_org FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE
@@ -5321,6 +5336,8 @@ CREATE TABLE IF NOT EXISTS contract_templates_mx (
     id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id         BIGINT UNSIGNED NOT NULL
                                 COMMENT 'Organization that owns this registered template',
+    environment             ENUM('sandbox', 'production') NOT NULL DEFAULT 'sandbox'
+                                COMMENT 'Immutable legal-evidence lane; sandbox is a FireISP simulation, production is externally registered workflow',
     template_name           VARCHAR(200)    NOT NULL
                                 COMMENT 'Internal descriptive name for this template version',
     ift_registration_number VARCHAR(100)    NULL
@@ -5333,22 +5350,37 @@ CREATE TABLE IF NOT EXISTS contract_templates_mx (
                                 COMMENT 'Full text of the registered contract template',
     document_file_id        BIGINT UNSIGNED NULL
                                 COMMENT 'Uploaded PDF/Word of the registered template in the files table',
-    status                  ENUM('draft', 'submitted', 'registered', 'expired', 'revoked')
+    status                  ENUM('draft', 'submitted', 'sandbox_ready', 'registered', 'expired', 'revoked')
                                 NOT NULL DEFAULT 'draft'
-                                COMMENT 'draft=being prepared; submitted=sent to IFT/CRT; registered=officially approved; expired=superseded; revoked=withdrawn',
+                                COMMENT 'sandbox_ready is usable simulation text; registered is externally approved production text',
     created_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
+    UNIQUE KEY uq_contract_templates_mx_id_environment (id, environment),
     KEY idx_contract_templates_mx_organization_id (organization_id),
     KEY idx_contract_templates_mx_status (status),
+    KEY idx_contract_templates_mx_org_environment_status (organization_id, environment, status, deleted_at),
     KEY idx_contract_templates_mx_registered_at (registered_at),
     KEY idx_contract_templates_mx_deleted_at (deleted_at),
     CONSTRAINT fk_contract_templates_mx_organization FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_contract_templates_mx_document FOREIGN KEY (document_file_id)
-        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE
+        REFERENCES files (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT chk_contract_templates_mx_environment_status CHECK (
+        (
+            environment = 'sandbox'
+            AND status IN ('draft', 'sandbox_ready')
+            AND ift_registration_number IS NULL
+            AND registered_at IS NULL
+        )
+        OR
+        (
+            environment = 'production'
+            AND status IN ('draft', 'submitted', 'registered', 'expired', 'revoked')
+        )
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -5650,6 +5682,18 @@ BEGIN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'contract_templates_mx requires the referenced organization to have locale = ''MX''';
         END IF;
+    END IF;
+END$$
+
+-- Contract-source environment is legal provenance, not workflow state.
+-- Configure the other lane by creating a separate source.
+CREATE TRIGGER trg_contract_templates_mx_environment_bu
+BEFORE UPDATE ON contract_templates_mx
+FOR EACH ROW
+BEGIN
+    IF NEW.environment <> OLD.environment THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'contract_templates_mx.environment is immutable; create a separate source for the other environment';
     END IF;
 END$$
 
@@ -7816,7 +7860,7 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------------
--- Triggers: contract status FSM (migrations 149, 195, 362, 450)
+-- Triggers: contract status FSM (migrations 149, 195, 362, 450, 452)
 -- Purpose: Enforces valid contract status transitions. Renew/reinstate from a
 --          terminal state -> active is allowed as of migration 362. Migration
 --          450 also permits never-activated service to re-enter commissioning
@@ -7830,6 +7874,10 @@ CREATE TRIGGER trg_contracts_status_fsm_bu
 BEFORE UPDATE ON contracts
 FOR EACH ROW
 BEGIN
+    DECLARE contract_org_id BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE current_org_locale VARCHAR(10) DEFAULT NULL;
+    DECLARE current_mx_contract_environment VARCHAR(16) DEFAULT NULL;
+
     IF NEW.status != OLD.status THEN
         IF NOT (
                (OLD.status = 'pending'    AND NEW.status IN ('active', 'cancelled'))
@@ -7839,6 +7887,55 @@ BEGIN
         ) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Invalid contract status transition';
+        END IF;
+    END IF;
+
+    IF NEW.status IN ('pending', 'active')
+       AND (
+           NEW.status != OLD.status
+           OR (OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL)
+       )
+    THEN
+        SET contract_org_id = OLD.organization_id;
+        IF contract_org_id IS NULL THEN
+            SELECT client.organization_id INTO contract_org_id
+              FROM clients client WHERE client.id = OLD.client_id LIMIT 1;
+        END IF;
+
+        SELECT organization_row.locale,
+               CASE
+                 WHEN profile.contract_environment IS NOT NULL
+                   THEN profile.contract_environment
+                 WHEN EXISTS (
+                   SELECT 1
+                     FROM contract_templates_mx legacy_source
+                    WHERE legacy_source.organization_id = organization_row.id
+                      AND legacy_source.environment = 'production'
+                 ) THEN 'production'
+                 ELSE 'sandbox'
+               END
+          INTO current_org_locale, current_mx_contract_environment
+          FROM organizations organization_row
+          LEFT JOIN organization_mx_profiles profile
+            ON profile.organization_id = organization_row.id
+           AND profile.deleted_at IS NULL
+         WHERE organization_row.id = contract_org_id
+         LIMIT 1
+         FOR UPDATE;
+
+        IF current_org_locale = 'MX'
+           AND (OLD.contract_template_mx_id IS NULL OR OLD.mx_contract_environment IS NULL)
+        THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'MX contract renewal/activation requires a frozen contract source and environment; create a new classified MX contract';
+        END IF;
+
+        IF OLD.mx_contract_environment = 'sandbox'
+           AND current_org_locale = 'MX'
+           AND current_mx_contract_environment = 'production'
+        THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Sandbox contract evidence cannot return to pending or active service in production; create a new production contract';
         END IF;
     END IF;
 END$$
@@ -14290,8 +14387,12 @@ CREATE TABLE IF NOT EXISTS signed_documents (
                            COMMENT 'Exact optional email/SMS/WhatsApp choices captured with this customer signature',
       evidence_sha256  CHAR(64)        NULL
                            COMMENT 'SHA-256 of canonical document, signature, signer, actor, IP, and communication-choice evidence',
+      evidence_format_version SMALLINT UNSIGNED NOT NULL DEFAULT 2
+                           COMMENT 'Canonical evidence-envelope version; legacy evidence is v2 and environment-bound evidence is v3',
       contract_template_mx_id BIGINT UNSIGNED NULL
                            COMMENT 'Registered MX source snapshotted when this document was generated',
+      mx_contract_environment ENUM('sandbox','production') NULL
+                           COMMENT 'Immutable environment snapshot of contract_template_mx_id; NULL for documents without an MX source',
       mx_registration_number VARCHAR(100) NULL
                            COMMENT 'Official registration number frozen at generation',
       mx_registered_at DATE NULL
@@ -14313,6 +14414,7 @@ CREATE TABLE IF NOT EXISTS signed_documents (
       KEY idx_signed_documents_status (status),
       KEY idx_signed_documents_captured_by (captured_by),
       KEY idx_signed_documents_contract_template_mx (contract_template_mx_id),
+      KEY idx_signed_documents_mx_source_environment (contract_template_mx_id, mx_contract_environment),
       KEY idx_signed_documents_deleted (deleted_at),
       CONSTRAINT fk_signed_documents_org FOREIGN KEY (organization_id)
           REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE,
@@ -14330,11 +14432,241 @@ CREATE TABLE IF NOT EXISTS signed_documents (
           REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT fk_signed_documents_contract_template_mx FOREIGN KEY (contract_template_mx_id)
           REFERENCES contract_templates_mx (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+      CONSTRAINT fk_signed_documents_mx_source_environment
+          FOREIGN KEY (contract_template_mx_id, mx_contract_environment)
+          REFERENCES contract_templates_mx (id, environment)
+          ON DELETE RESTRICT ON UPDATE RESTRICT,
       CONSTRAINT fk_signed_documents_creator FOREIGN KEY (created_by)
           REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE,
       CONSTRAINT chk_signed_documents_mx_link_type
-          CHECK (contract_template_mx_id IS NULL OR template_type = 'activation_contract')
+          CHECK (contract_template_mx_id IS NULL OR template_type = 'activation_contract'),
+      CONSTRAINT chk_signed_documents_evidence_format_version
+          CHECK (evidence_format_version IN (2, 3)),
+      CONSTRAINT chk_signed_documents_mx_environment_link CHECK (
+          (
+              contract_template_mx_id IS NULL
+              AND mx_contract_environment IS NULL
+          )
+          OR
+          (
+              contract_template_mx_id IS NOT NULL
+              AND mx_contract_environment IS NOT NULL
+              AND (
+                  mx_contract_environment = 'production'
+                  OR (
+                      mx_registration_number IS NULL
+                      AND mx_registered_at IS NULL
+                      AND evidence_format_version = 3
+                  )
+              )
+          )
+      )
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DELIMITER $$
+DROP TRIGGER IF EXISTS trg_signed_documents_mx_snapshot_bu$$
+CREATE TRIGGER trg_signed_documents_mx_snapshot_bu
+BEFORE UPDATE ON signed_documents
+FOR EACH ROW
+BEGIN
+    IF NOT (NEW.contract_template_mx_id <=> OLD.contract_template_mx_id)
+       OR NOT (NEW.mx_contract_environment <=> OLD.mx_contract_environment)
+       OR NOT (NEW.mx_registration_number <=> OLD.mx_registration_number)
+       OR NOT (NEW.mx_registered_at <=> OLD.mx_registered_at)
+       OR NOT (NEW.mx_template_version <=> OLD.mx_template_version)
+       OR NOT (NEW.mx_source_sha256 <=> OLD.mx_source_sha256)
+    THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Signed-document MX source snapshot is immutable';
+    END IF;
+END$$
+
+-- Migration 452 hardened contract-provenance guards are defined here, after
+-- document_templates and signed_documents exist. The early definitions
+-- intentionally retain migration 087's locale-only bootstrap guards.
+DROP TRIGGER IF EXISTS trg_contracts_mx_template_bi$$
+CREATE TRIGGER trg_contracts_mx_template_bi
+BEFORE INSERT ON contracts
+FOR EACH ROW
+BEGIN
+  DECLARE contract_org_id BIGINT UNSIGNED DEFAULT NULL;
+  DECLARE contract_locale VARCHAR(10) DEFAULT NULL;
+  DECLARE current_contract_environment VARCHAR(16) DEFAULT NULL;
+  DECLARE source_org_id BIGINT UNSIGNED DEFAULT NULL;
+
+  SELECT client.organization_id INTO contract_org_id
+    FROM clients client WHERE client.id = NEW.client_id LIMIT 1;
+  SET contract_org_id = COALESCE(NEW.organization_id, contract_org_id);
+
+  SELECT organization_row.locale,
+         CASE
+           WHEN profile.contract_environment IS NOT NULL THEN profile.contract_environment
+           WHEN EXISTS (
+             SELECT 1 FROM contract_templates_mx legacy_source
+              WHERE legacy_source.organization_id = organization_row.id
+                AND legacy_source.environment = 'production'
+           ) THEN 'production'
+           ELSE 'sandbox'
+         END
+    INTO contract_locale, current_contract_environment
+    FROM organizations organization_row
+    LEFT JOIN organization_mx_profiles profile
+      ON profile.organization_id = organization_row.id AND profile.deleted_at IS NULL
+   WHERE organization_row.id = contract_org_id
+   LIMIT 1
+   FOR UPDATE;
+
+  IF contract_locale = 'MX' THEN
+    IF NEW.contract_template_mx_id IS NULL OR NEW.mx_contract_environment IS NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'MX contracts require a classified contract source and environment';
+    END IF;
+    IF NEW.mx_contract_environment <> current_contract_environment THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'MX contract environment must match the organization current contract environment';
+    END IF;
+    SELECT source.organization_id INTO source_org_id
+      FROM contract_templates_mx source
+     WHERE source.id = NEW.contract_template_mx_id
+       AND source.environment = NEW.mx_contract_environment
+       AND source.deleted_at IS NULL
+       AND (
+         (source.environment = 'sandbox'
+          AND source.status = 'sandbox_ready'
+          AND source.ift_registration_number IS NULL
+          AND source.registered_at IS NULL)
+         OR (source.environment = 'production'
+          AND source.status = 'registered'
+          AND source.ift_registration_number IS NOT NULL
+          AND source.registered_at IS NOT NULL)
+       )
+       AND EXISTS (
+         SELECT 1 FROM document_templates activation_template
+          WHERE activation_template.organization_id = contract_org_id
+            AND activation_template.contract_template_mx_id = source.id
+            AND activation_template.template_type = 'activation_contract'
+            AND activation_template.is_active = 1
+            AND activation_template.deleted_at IS NULL
+            AND BINARY activation_template.body_md = BINARY source.template_body
+            AND NOT EXISTS (
+              SELECT 1 FROM document_templates competing_template
+              LEFT JOIN contract_templates_mx competing_source
+                ON competing_source.id = competing_template.contract_template_mx_id
+               WHERE competing_template.organization_id = contract_org_id
+                 AND competing_template.template_type = 'activation_contract'
+                 AND competing_template.is_active = 1
+                 AND competing_template.deleted_at IS NULL
+                 AND (competing_source.id IS NULL OR competing_source.environment = NEW.mx_contract_environment)
+                 AND (competing_source.id IS NULL OR competing_source.id <> source.id)
+            )
+       )
+     LIMIT 1;
+    IF source_org_id IS NULL OR source_org_id <> contract_org_id THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'MX contract source must belong to the contract organization';
+    END IF;
+  ELSEIF NEW.contract_template_mx_id IS NOT NULL OR NEW.mx_contract_environment IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Global contracts cannot carry an MX contract source or environment';
+  END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_contracts_mx_template_bu$$
+CREATE TRIGGER trg_contracts_mx_template_bu
+BEFORE UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+  DECLARE contract_org_id BIGINT UNSIGNED DEFAULT NULL;
+  DECLARE contract_locale VARCHAR(10) DEFAULT NULL;
+  DECLARE source_org_id BIGINT UNSIGNED DEFAULT NULL;
+
+  IF NOT (NEW.mx_contract_environment <=> OLD.mx_contract_environment) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Contract MX environment snapshot is immutable; create a new contract';
+  END IF;
+
+  IF OLD.contract_template_mx_id IS NOT NULL
+     AND (
+       NOT (NEW.organization_id <=> OLD.organization_id)
+       OR NEW.client_id <> OLD.client_id
+     )
+  THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Contract organization/client is immutable once MX provenance is frozen';
+  END IF;
+
+  IF NOT (NEW.contract_template_mx_id <=> OLD.contract_template_mx_id)
+     AND (
+       OLD.mx_contract_environment IS NULL
+       OR OLD.status <> 'pending'
+       OR OLD.first_activated_at IS NOT NULL
+       OR EXISTS (
+         SELECT 1 FROM signed_documents document_history
+          WHERE document_history.contract_id = OLD.id
+       )
+     )
+  THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Contract MX source can change only while pending, unsigned, and never activated';
+  END IF;
+
+  -- Revalidate current readiness only when deliberately repairing the source
+  -- of a still-pending, unsigned contract.  A source may later expire, be
+  -- revoked, or have its operational template retired; that must not brick
+  -- cancellation, suspension, deletion, or other updates to historical rows.
+  IF NOT (NEW.contract_template_mx_id <=> OLD.contract_template_mx_id) THEN
+    IF NEW.contract_template_mx_id IS NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Contract MX source snapshot cannot be cleared';
+    END IF;
+    SELECT client.organization_id INTO contract_org_id
+      FROM clients client WHERE client.id = NEW.client_id LIMIT 1;
+    SET contract_org_id = COALESCE(NEW.organization_id, contract_org_id);
+    SELECT organization_row.locale INTO contract_locale
+      FROM organizations organization_row WHERE organization_row.id = contract_org_id LIMIT 1;
+    SELECT source.organization_id INTO source_org_id
+      FROM contract_templates_mx source
+     WHERE source.id = NEW.contract_template_mx_id
+       AND source.environment = NEW.mx_contract_environment
+       AND source.deleted_at IS NULL
+       AND (
+         (source.environment = 'sandbox'
+          AND source.status = 'sandbox_ready'
+          AND source.ift_registration_number IS NULL
+          AND source.registered_at IS NULL)
+         OR (source.environment = 'production'
+          AND source.status = 'registered'
+          AND source.ift_registration_number IS NOT NULL
+          AND source.registered_at IS NOT NULL)
+       )
+       AND EXISTS (
+         SELECT 1 FROM document_templates activation_template
+          WHERE activation_template.organization_id = contract_org_id
+            AND activation_template.contract_template_mx_id = source.id
+            AND activation_template.template_type = 'activation_contract'
+            AND activation_template.is_active = 1
+            AND activation_template.deleted_at IS NULL
+            AND BINARY activation_template.body_md = BINARY source.template_body
+            AND NOT EXISTS (
+              SELECT 1 FROM document_templates competing_template
+              LEFT JOIN contract_templates_mx competing_source
+                ON competing_source.id = competing_template.contract_template_mx_id
+               WHERE competing_template.organization_id = contract_org_id
+                 AND competing_template.template_type = 'activation_contract'
+                 AND competing_template.is_active = 1
+                 AND competing_template.deleted_at IS NULL
+                 AND (competing_source.id IS NULL OR competing_source.environment = NEW.mx_contract_environment)
+                 AND (competing_source.id IS NULL OR competing_source.id <> source.id)
+            )
+       )
+     LIMIT 1;
+    IF contract_locale <> 'MX' OR source_org_id IS NULL OR source_org_id <> contract_org_id THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'MX contract source must remain attached to its Mexican organization';
+    END IF;
+  END IF;
+END$$
+DELIMITER ;
 
 -- subscriber_consents is defined earlier than signed_documents. Add this
 -- forward-reference only after both tables exist (migration 451).

@@ -90,6 +90,7 @@ module.exports = /* GraphQL */ `
     status: String!
     ipAddress: String
     priceOverride: String
+    mxContractEnvironment: String
     notes: String
     createdAt: String!
 

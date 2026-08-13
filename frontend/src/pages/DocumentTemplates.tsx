@@ -14,6 +14,15 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import {
+  fetchMxContractEnvironment,
+  isEligibleMxContractSource,
+  MxContractEnvironmentBadge,
+  MxSandboxDocumentBanner,
+  type MxContractEnvironment,
+  type MxContractSourceEvidence,
+  type MxContractSourceStatus,
+} from '@/components/MxContractEnvironment';
 import { styles, modalStyles } from './crudStyles';
 
 interface DocumentTemplate {
@@ -22,18 +31,19 @@ interface DocumentTemplate {
   name: string;
   body_md: string;
   contract_template_mx_id: number | null;
+  contract_template_mx_environment?: MxContractEnvironment | null;
   is_active: number;
   created_at: string;
 }
 
-interface RegisteredContractTemplateMx {
+interface RegisteredContractTemplateMx extends MxContractSourceEvidence {
   id: number;
-  template_name: string;
-  ift_registration_number: string | null;
-  registered_at: string | null;
-  version: string | null;
-  template_body: string | null;
-  status: 'draft' | 'submitted' | 'registered' | 'expired' | 'revoked';
+  status: MxContractSourceStatus;
+}
+
+interface RegisteredContractTemplatePage {
+  data: RegisteredContractTemplateMx[];
+  meta?: { totalPages?: number };
 }
 
 const TYPES: DocumentTemplate['template_type'][] = [
@@ -49,21 +59,42 @@ async function fetchTemplates(): Promise<DocumentTemplate[]> {
 }
 
 async function fetchRegisteredContractTemplates(): Promise<RegisteredContractTemplateMx[]> {
-  const res = await (api.GET as unknown as (p: string) => Promise<{ data?: unknown; error?: unknown }>)('/consumer-protection/contract-templates-mx');
-  if (res.error) throw new Error('Failed to load registered MX contract templates');
-  return (res.data as { data: RegisteredContractTemplateMx[] }).data;
+  const requestPage = async (page: number): Promise<RegisteredContractTemplatePage> => {
+    const res = await (api.GET as unknown as (
+      p: string,
+      options?: unknown,
+    ) => Promise<{ data?: unknown; error?: unknown }>)(
+      '/consumer-protection/contract-templates-mx',
+      { params: { query: { page, limit: 100, order_by: 'id', order: 'ASC' } } },
+    );
+    if (res.error) throw new Error('Failed to load MX contract sources');
+    return (res.data as RegisteredContractTemplatePage | undefined) ?? { data: [] };
+  };
+
+  const firstPage = await requestPage(1);
+  const totalPages = Math.max(1, Number(firstPage.meta?.totalPages) || 1);
+  const remainingPages = totalPages > 1
+    ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => requestPage(index + 2)))
+    : [];
+  const byId = new Map<number, RegisteredContractTemplateMx>();
+  for (const source of [firstPage, ...remainingPages].flatMap(page => page.data ?? [])) {
+    byId.set(source.id, {
+      ...source,
+      // Sources created before environments existed are real registered evidence.
+      environment: source.environment ?? 'production',
+    });
+  }
+  return [...byId.values()];
 }
 
-function isCompleteRegisteredSource(source: RegisteredContractTemplateMx | undefined): source is RegisteredContractTemplateMx {
-  return Boolean(
-    source
-      && source.status === 'registered'
-      && source.template_name?.trim()
-      && source.ift_registration_number?.trim()
-      && source.registered_at
-      && source.version?.trim()
-      && source.template_body?.trim(),
-  );
+async function fetchRegisteredContractTemplate(id: number): Promise<RegisteredContractTemplateMx> {
+  const res = await (api.GET as unknown as (
+    p: string,
+  ) => Promise<{ data?: unknown; error?: unknown }>)(`/consumer-protection/contract-templates-mx/${id}`);
+  if (res.error) throw new Error('Failed to load the linked MX contract source');
+  const source = (res.data as { data?: RegisteredContractTemplateMx } | undefined)?.data;
+  if (!source) throw new Error('The linked MX contract source was not found');
+  return { ...source, environment: source.environment ?? 'production' };
 }
 
 function isTerminalRegisteredSource(source: RegisteredContractTemplateMx | undefined): boolean {
@@ -83,13 +114,33 @@ function TemplateModal({ initial, onClose, onSaved }: {
   const [err, setErr] = useState('');
   const isActivationContract = type === 'activation_contract';
   const mayViewRegisteredSources = can(user, 'contract_templates_mx.view');
+  const organizationId = user?.organization_id ?? null;
+  const environmentQ = useQuery({
+    queryKey: ['mx-contract-environment', organizationId],
+    queryFn: fetchMxContractEnvironment,
+    enabled: isActivationContract && mayViewRegisteredSources,
+  });
   const sourcesQ = useQuery({
-    queryKey: ['contract-templates-mx', 'registered-source-picker'],
+    queryKey: ['contract-templates-mx', organizationId, 'legal-document-source-picker'],
     queryFn: fetchRegisteredContractTemplates,
     enabled: isActivationContract && mayViewRegisteredSources,
   });
-  const selectedSource = sourcesQ.data?.find(source => source.id === registeredSourceId);
-  const selectedSourceIsEligible = isCompleteRegisteredSource(selectedSource);
+  const initialSourceId = initial?.contract_template_mx_id ?? null;
+  const initialSourceMissing = Boolean(
+    initialSourceId
+      && sourcesQ.isSuccess
+      && !(sourcesQ.data ?? []).some(source => source.id === initialSourceId),
+  );
+  const exactInitialSourceQ = useQuery({
+    queryKey: ['contract-templates-mx', organizationId, 'legal-document-source', initialSourceId],
+    queryFn: () => fetchRegisteredContractTemplate(initialSourceId!),
+    enabled: isActivationContract && mayViewRegisteredSources && initialSourceMissing,
+  });
+  const availableSources = exactInitialSourceQ.data
+    ? [...(sourcesQ.data ?? []), exactInitialSourceQ.data]
+    : (sourcesQ.data ?? []);
+  const selectedSource = availableSources.find(source => source.id === registeredSourceId);
+  const selectedSourceIsEligible = isEligibleMxContractSource(selectedSource);
   const isExactTerminalSourceDeactivation = Boolean(
     initial
       && initial.template_type === 'activation_contract'
@@ -109,7 +160,7 @@ function TemplateModal({ initial, onClose, onSaved }: {
     // A terminal source is no longer selectable legal content. Preserve the
     // currently-active template byte-for-byte so the operator can perform the
     // one safe action the API permits: an exact active -> inactive transition.
-    if (!isActivationContract || !isCompleteRegisteredSource(selectedSource)) return;
+    if (!isActivationContract || !isEligibleMxContractSource(selectedSource)) return;
     setName(selectedSource.template_name);
     setBody(selectedSource.template_body ?? '');
   }, [isActivationContract, selectedSource]);
@@ -194,27 +245,50 @@ function TemplateModal({ initial, onClose, onSaved }: {
                     setActive(false);
                     setErr('');
                   }}
-                  disabled={!mayViewRegisteredSources || sourcesQ.isLoading || Boolean(sourcesQ.error)}
+                  disabled={!mayViewRegisteredSources || sourcesQ.isLoading || exactInitialSourceQ.isLoading
+                    || Boolean(sourcesQ.error || exactInitialSourceQ.error)}
                 >
                   <option value="">{sourcesQ.isLoading ? t('common.loading') : t('documentTemplates.selectRegisteredSource')}</option>
-                  {(sourcesQ.data ?? []).map(source => (
-                    <option key={source.id} value={source.id} disabled={!isCompleteRegisteredSource(source)}>
-                      {source.template_name} · {t(`documentTemplates.registrationStatuses.${source.status}`)}
-                    </option>
+                  {(['sandbox', 'production'] as const).map(environment => (
+                    <optgroup
+                      key={environment}
+                      label={t(`mxContractEnvironment.environments.${environment}`)}
+                    >
+                      {availableSources
+                        .filter(source => source.environment === environment)
+                        .map(source => (
+                          <option key={source.id} value={source.id} disabled={!isEligibleMxContractSource(source)}>
+                            {source.template_name} · {t(`documentTemplates.registrationStatuses.${source.status}`)}
+                          </option>
+                        ))}
+                    </optgroup>
                   ))}
                 </select>
               </label>
+              {environmentQ.data && (
+                <p style={{ ...styles.msg, margin: 0 }}>
+                  {t('documentTemplates.currentEnvironment')}{' '}
+                  <MxContractEnvironmentBadge environment={environmentQ.data} />
+                </p>
+              )}
               {!mayViewRegisteredSources && <p style={styles.msgError}>{t('documentTemplates.registeredSourcePermission')}</p>}
-              {sourcesQ.error && <p style={styles.msgError}>{t('documentTemplates.registeredSourceLoadError')}</p>}
-              {!sourcesQ.isLoading && !sourcesQ.error && mayViewRegisteredSources
-                && !(sourcesQ.data ?? []).some(isCompleteRegisteredSource)
+              {(sourcesQ.error || exactInitialSourceQ.error) && <p style={styles.msgError}>{t('documentTemplates.registeredSourceLoadError')}</p>}
+              {!sourcesQ.isLoading && !exactInitialSourceQ.isLoading
+                && !sourcesQ.error && !exactInitialSourceQ.error && mayViewRegisteredSources
+                && !availableSources.some(source => isEligibleMxContractSource(source))
                 && <p style={styles.msg}>{t('documentTemplates.noRegisteredSources')}</p>}
               {selectedSource && (
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem' }}>
-                  <strong>{t('documentTemplates.registeredEvidence')}</strong>
+                  <strong>{t('documentTemplates.sourceEvidence')}</strong>{' '}
+                  <MxContractEnvironmentBadge environment={selectedSource.environment} />
+                  <MxSandboxDocumentBanner environment={selectedSource.environment} />
                   <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 12px', margin: '10px 0 0' }}>
-                    <dt>{t('documentTemplates.registrationNumber')}</dt><dd style={{ margin: 0 }}>{selectedSource.ift_registration_number || '—'}</dd>
-                    <dt>{t('documentTemplates.registrationDate')}</dt><dd style={{ margin: 0 }}>{selectedSource.registered_at ? String(selectedSource.registered_at).slice(0, 10) : '—'}</dd>
+                    {selectedSource.environment === 'production' && (
+                      <>
+                        <dt>{t('documentTemplates.registrationNumber')}</dt><dd style={{ margin: 0 }}>{selectedSource.ift_registration_number || '—'}</dd>
+                        <dt>{t('documentTemplates.registrationDate')}</dt><dd style={{ margin: 0 }}>{selectedSource.registered_at ? String(selectedSource.registered_at).slice(0, 10) : '—'}</dd>
+                      </>
+                    )}
                     <dt>{t('documentTemplates.registrationVersion')}</dt><dd style={{ margin: 0 }}>{selectedSource.version || '—'}</dd>
                     <dt>{t('documentTemplates.registrationStatus')}</dt><dd style={{ margin: 0 }}>{t(`documentTemplates.registrationStatuses.${selectedSource.status}`)}</dd>
                   </dl>
@@ -269,20 +343,35 @@ export function DocumentTemplates() {
   // non-MX orgs; the nav entry is requiredLocale-gated. This covers a typed
   // URL with an explanation instead of an error page.
   const isMxOrg = user?.organization_locale === 'MX';
+  const mayViewTemplates = can(user, 'document_templates.view');
+  const mayCreateTemplates = can(user, 'document_templates.create');
+  const mayUpdateTemplates = can(user, 'document_templates.update');
+  const mayDeleteTemplates = can(user, 'document_templates.delete');
+  const mayViewRegisteredSources = can(user, 'contract_templates_mx.view');
   const [editing, setEditing] = useState<DocumentTemplate | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  const q = useQuery({ queryKey: ['document-templates'], queryFn: fetchTemplates, enabled: isMxOrg });
+  const organizationId = user?.organization_id ?? null;
+  const q = useQuery({
+    queryKey: ['document-templates', organizationId, 'legal-document-admin'],
+    queryFn: fetchTemplates,
+    enabled: isMxOrg && mayViewTemplates,
+  });
+  const environmentQ = useQuery({
+    queryKey: ['mx-contract-environment', organizationId],
+    queryFn: fetchMxContractEnvironment,
+    enabled: isMxOrg && mayViewRegisteredSources,
+  });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await (api.DELETE as unknown as (p: string, o: unknown) => Promise<{ error?: unknown }>)('/document-templates/{id}', { params: { path: { id } } });
       if (res.error) throw new Error('Failed to delete');
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['document-templates'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['document-templates', organizationId] }),
   });
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ['document-templates'] });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['document-templates', organizationId] });
 
   if (!isMxOrg) {
     return (
@@ -293,17 +382,35 @@ export function DocumentTemplates() {
     );
   }
 
+  if (!mayViewTemplates) {
+    return (
+      <div style={styles.page}>
+        <h1 style={styles.pageTitle}>📜 {t('documentTemplates.title')}</h1>
+        <p style={styles.msg}>{t('documentTemplates.viewPermission')}</p>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>📜 {t('documentTemplates.title')}</h1>
-        <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
-          + {t('documentTemplates.new')}
-        </button>
+        {mayCreateTemplates && (
+          <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
+            + {t('documentTemplates.new')}
+          </button>
+        )}
       </div>
       <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
         {t('documentTemplates.intro')}
       </p>
+      {environmentQ.data && (
+        <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          {t('documentTemplates.currentEnvironment')}{' '}
+          <MxContractEnvironmentBadge environment={environmentQ.data} />{' '}
+          {t('documentTemplates.bothLanesHint')}
+        </p>
+      )}
 
       <div style={styles.tableCard}>
         {q.isLoading ? <p style={styles.msg}>{t('common.loading')}</p>
@@ -313,7 +420,7 @@ export function DocumentTemplates() {
                 <div style={{ overflowX: 'auto' }}>
                   <table style={styles.table}>
                     <thead>
-                      <tr>{[t('documentTemplates.name'), t('documentTemplates.type'), t('documentTemplates.status'), ''].map((h, i) => <th key={i} style={styles.th}>{h}</th>)}</tr>
+                      <tr>{[t('documentTemplates.name'), t('documentTemplates.type'), t('documentTemplates.environment'), t('documentTemplates.status'), ''].map((h, i) => <th key={i} style={styles.th}>{h}</th>)}</tr>
                     </thead>
                     <tbody>
                       {(q.data ?? []).map(tpl => (
@@ -321,13 +428,22 @@ export function DocumentTemplates() {
                           <td style={{ ...styles.td, fontWeight: 500 }}>{tpl.name}</td>
                           <td style={styles.td}>{t(`documentTemplates.types.${tpl.template_type}`)}</td>
                           <td style={styles.td}>
+                            {tpl.template_type === 'activation_contract' && tpl.contract_template_mx_environment
+                              ? <MxContractEnvironmentBadge environment={tpl.contract_template_mx_environment} />
+                              : '—'}
+                          </td>
+                          <td style={styles.td}>
                             {tpl.is_active
                               ? <span style={{ color: 'var(--accent, #16a34a)', fontWeight: 600 }}>{t('documentTemplates.active')}</span>
                               : <span style={{ color: 'var(--text-secondary)' }}>{t('documentTemplates.inactive')}</span>}
                           </td>
                           <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                            <button style={styles.actionBtn} onClick={() => setEditing(tpl)}>{t('common.edit')}</button>
-                            <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => deleteMutation.mutate(tpl.id)}>{t('common.delete')}</button>
+                            {mayUpdateTemplates && (
+                              <button style={styles.actionBtn} onClick={() => setEditing(tpl)}>{t('common.edit')}</button>
+                            )}
+                            {mayDeleteTemplates && (
+                              <button style={{ ...styles.actionBtn, color: '#991b1b' }} onClick={() => deleteMutation.mutate(tpl.id)}>{t('common.delete')}</button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -337,8 +453,8 @@ export function DocumentTemplates() {
               )}
       </div>
 
-      {showNew && <TemplateModal initial={null} onClose={() => setShowNew(false)} onSaved={refresh} />}
-      {editing && <TemplateModal initial={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
+      {mayCreateTemplates && showNew && <TemplateModal initial={null} onClose={() => setShowNew(false)} onSaved={refresh} />}
+      {mayUpdateTemplates && editing && <TemplateModal initial={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
     </div>
   );
 }

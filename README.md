@@ -79,7 +79,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
 - IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
-- Customer lifecycle management — a guided lead → installation order → pending contract handoff, assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, explicit optional Email/SMS/WhatsApp choices, and customer signature before permanent service; MX organizations must link the exact externally registered contract source and its registration evidence, while global organizations sign a neutral service-installation acknowledgment
+- Customer lifecycle management — a guided lead → installation order → pending contract handoff, assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, explicit optional Email/SMS/WhatsApp choices, and customer signature before permanent service; MX organizations can rehearse with permanently watermarked FireISP-only sandbox evidence before switching new contracts to an exact externally registered production source, while global organizations sign a neutral service-installation acknowledgment
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
 - Customer self-service portal (§11) — dashboard with plan overview, live session status, daily usage graph; invoice PDF/CFDI download; online payment (card/OXXO/SPEI/PayPal via checkout session); payment history; self-service requests (plan upgrade with proration, Wi-Fi/PPPoE password change, static IP, cancellation, visit schedule) with admin approval workflow; knowledge-base / FAQ with rating; embedded speed test (queues `subscriber_speed_test_jobs`, results view); AI-powered chatbot with automatic ticket-creation fallback; callback request; Web Push notification subscriptions (outage/billing/ticket events); PWA with offline service worker and web app manifest
@@ -110,7 +110,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 fireisp5.0/
 ├── database/                # Database schema and migrations
 │   ├── schema.sql           # Combined schema (all 341 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–451)
+│   └── migrations/          # Individual numbered migration files (001–452)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point

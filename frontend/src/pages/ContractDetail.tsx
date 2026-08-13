@@ -28,6 +28,11 @@ import {
 import {
   overlay, modalBox, cancelBtn, dangerBtn, inputStyle, labelStyle, submitBtn,
 } from '@/components/ClientFormModal';
+import {
+  MxContractEnvironmentBadge,
+  MxSandboxDocumentBanner,
+  type MxContractEnvironment,
+} from '@/components/MxContractEnvironment';
 
 // ---------------------------------------------------------------------------
 // GraphQL query — fetches the contract + all sub-resources in one request
@@ -46,6 +51,7 @@ const CONTRACT_DETAIL_QUERY = /* GraphQL */ `
       status
       ipAddress
       priceOverride
+      mxContractEnvironment
       notes
       createdAt
       client {
@@ -139,6 +145,7 @@ interface Contract {
   status: string;
   ipAddress: string | null;
   priceOverride: string | null;
+  mxContractEnvironment?: MxContractEnvironment | null;
   notes: string | null;
   createdAt: string;
   client: ContractClient | null;
@@ -1085,6 +1092,7 @@ interface ActivationDocument {
 
 interface ActivationDocumentDetail extends ActivationDocument {
   rendered_body: string;
+  mx_contract_environment?: MxContractEnvironment | null;
   communication_contacts?: CommunicationContacts;
   privacy_notice?: SigningPrivacyNotice | null;
   communication_choices_recorded?: boolean;
@@ -1113,6 +1121,7 @@ interface ContractActivationState {
   contract_id: number;
   client_id: number;
   status: string;
+  contract_environment?: MxContractEnvironment | null;
   connection_type: string | null;
   test_window_expires_at: string | null;
   test_window_cleanup_pending?: boolean;
@@ -1337,6 +1346,7 @@ function ActivationSignModal({ documentId, onClose, onSigned }: {
         {documentQ.isError && <p style={{ color: '#991b1b' }}>{t('contractActivation.documentLoadFailed')}</p>}
         {documentQ.data && (
           <>
+            <MxSandboxDocumentBanner environment={documentQ.data.mx_contract_environment} />
             <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.75rem', background: 'var(--bg-subtle)' }}>
               <MarkdownView markdown={documentQ.data.rendered_body} />
             </div>
@@ -1727,14 +1737,19 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canStartInstallation, ca
           <h2 id="contract-activation-title" style={activationStyles.title}>{t('contractActivation.title')}</h2>
           <p style={activationStyles.intro}>{t('contractActivation.intro')}</p>
         </div>
-        <div style={{ ...activationStyles.lineState, ...(windowOpen ? activationStyles.lineOn : activationStyles.lineOff) }}>
-          {!systemControlledLine
-            ? t('contractActivation.manualLineControl')
-            : cleanupPending
-              ? t('contractActivation.lineShutdownPending')
-            : windowOpen && expiresAt
-              ? t('contractActivation.lineOn', { remaining: countdown(expiresAt, now) })
-              : t('contractActivation.lineOff')}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          {state.contract_environment && (
+            <MxContractEnvironmentBadge environment={state.contract_environment} />
+          )}
+          <div style={{ ...activationStyles.lineState, ...(windowOpen ? activationStyles.lineOn : activationStyles.lineOff) }}>
+            {!systemControlledLine
+              ? t('contractActivation.manualLineControl')
+              : cleanupPending
+                ? t('contractActivation.lineShutdownPending')
+              : windowOpen && expiresAt
+                ? t('contractActivation.lineOn', { remaining: countdown(expiresAt, now) })
+                : t('contractActivation.lineOff')}
+          </div>
         </div>
       </div>
 
@@ -2027,6 +2042,7 @@ function ActivationCard({ contractId, isMxOrg, canEdit, canStartInstallation, ca
       <div style={{ ...activationStyles.step, borderBottom: 0 }}>
         <h3 style={activationStyles.stepTitle}>5. {t('contractActivation.permanentActivation')}</h3>
         <p style={activationStyles.help}>{t('contractActivation.permanentActivationHelp')}</p>
+        <MxSandboxDocumentBanner environment={state.contract_environment} />
         {state.blockers.length > 0 && (
           <div style={activationStyles.blockers}>
             <strong>{t('contractActivation.blockersTitle')}</strong>
@@ -2285,6 +2301,9 @@ export function ContractDetail() {
           <h1 style={styles.contractTitle}>Contract #{contract.id}</h1>
           <div style={styles.headerMeta}>
             <StatusBadge status={contract.status} />
+            {contract.mxContractEnvironment && (
+              <MxContractEnvironmentBadge environment={contract.mxContractEnvironment} />
+            )}
             {contract.connectionType && (
               <span style={styles.metaChip}>{contract.connectionType}</span>
             )}
@@ -2334,6 +2353,8 @@ export function ContractDetail() {
           </div>
         )}
       </div>
+
+      <MxSandboxDocumentBanner environment={contract.mxContractEnvironment} />
 
       {/* Action error */}
       {actionError && (

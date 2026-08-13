@@ -21,6 +21,10 @@ import {
 } from '@/components/CommunicationOptInFields';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import {
+  MxSandboxDocumentBanner,
+  type MxContractEnvironment,
+} from '@/components/MxContractEnvironment';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -452,6 +456,7 @@ interface SignedDocSummary {
 
 interface SignedDocDetail extends SignedDocSummary {
   rendered_body: string;
+  mx_contract_environment?: MxContractEnvironment | null;
   communication_contacts?: CommunicationContacts;
   privacy_notice?: SigningPrivacyNotice | null;
   communication_choices_recorded?: boolean;
@@ -628,6 +633,7 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
           )}
           {docQ.data && (
             <>
+              <MxSandboxDocumentBanner environment={docQ.data.mx_contract_environment} />
               <div style={{ border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 8, padding: '0.75rem', background: 'var(--bg-subtle, #f9fafb)' }}>
                 <MarkdownView markdown={docQ.data.rendered_body} />
               </div>
@@ -687,6 +693,25 @@ function SignDocumentModal({ docId, onClose, onSigned }: {
 // Install test window (migration 448) — bounded internet for on-site testing
 // before formal activation. Pending contracts are otherwise DOWN.
 // ---------------------------------------------------------------------------
+interface WorkOrderContractState {
+  status: string;
+  connection_type?: string | null;
+  test_window_expires_at: string | null;
+  test_window_cleanup_pending?: boolean | number;
+  mx_contract_environment?: MxContractEnvironment | null;
+}
+
+async function fetchWorkOrderContract(contractId: number): Promise<WorkOrderContractState> {
+  const res = await (api.GET as unknown as (
+    p: string,
+    options: unknown,
+  ) => Promise<{ data?: unknown; error?: unknown }>)(
+    '/contracts/{id}', { params: { path: { id: contractId } } },
+  );
+  if (res.error) throw new Error('unavailable');
+  return (res.data as { data: WorkOrderContractState }).data;
+}
+
 function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; contractId: number }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -694,18 +719,7 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
 
   const contractQ = useQuery({
     queryKey: ['wo-test-window-contract', contractId],
-    queryFn: async () => {
-      const res = await (api.GET as unknown as (p: string, o: unknown) => Promise<{ data?: unknown; error?: unknown }>)(
-        '/contracts/{id}', { params: { path: { id: contractId } } },
-      );
-      if (res.error) throw new Error('unavailable');
-      return (res.data as { data: {
-        status: string;
-        connection_type?: string | null;
-        test_window_expires_at: string | null;
-        test_window_cleanup_pending?: boolean | number;
-      } }).data;
-    },
+    queryFn: () => fetchWorkOrderContract(contractId),
     retry: false,
     refetchInterval: (q) => {
       const current = q.state.data as {
@@ -739,6 +753,7 @@ function TestWindowPanel({ workOrderId, contractId }: { workOrderId: number; con
   return (
     <div style={{ padding: '0.5rem 1rem 0.25rem' }}>
       <strong style={{ fontSize: '0.85rem' }}>{t('workOrders.testWindow.title')}</strong>
+      <MxSandboxDocumentBanner environment={c.mx_contract_environment} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: '0.82rem', flexWrap: 'wrap' }}>
         {!systemControlled ? (
           <span style={{ color: 'var(--text-secondary)' }}>{t('workOrders.testWindow.manualLine')}</span>
@@ -881,6 +896,12 @@ function AcceptanceModal({ workOrder, onClose, onSubmit }: {
   const [notes, setNotes] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const contractQ = useQuery({
+    queryKey: ['wo-test-window-contract', workOrder.contract_id],
+    queryFn: () => fetchWorkOrderContract(workOrder.contract_id!),
+    enabled: Boolean(workOrder.contract_id),
+    retry: false,
+  });
 
   const submit = async () => {
     const body: WorkOrderPatchBody = { status: 'completed' };
@@ -917,6 +938,7 @@ function AcceptanceModal({ workOrder, onClose, onSubmit }: {
           <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             {t('workOrders.acceptance.intro')}
           </p>
+          <MxSandboxDocumentBanner environment={contractQ.data?.mx_contract_environment} />
           <label style={modalStyles.label}>
             {t('workOrders.acceptance.signal')}
             <input style={modalStyles.input} type="number" step="1" placeholder="-58"

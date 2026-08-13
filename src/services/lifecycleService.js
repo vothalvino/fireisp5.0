@@ -394,14 +394,45 @@ async function startOrder(orderId, {
         );
         if (!organizations[0]) throw new NotFoundError('Organization');
         if (organizations[0]?.locale === 'MX') {
+          let flowEnvironment;
+          let linkedContract = null;
+          if (order.contract_id) {
+            const [linkedContracts] = await conn.query(
+              `SELECT contract_template_mx_id, mx_contract_environment FROM contracts
+                WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+                LIMIT 1 FOR UPDATE`,
+              [order.contract_id, activationOrgId],
+            );
+            linkedContract = linkedContracts[0] || null;
+            if (!linkedContract?.mx_contract_environment) {
+              throw new ValidationError(
+                'The installation contract has no frozen MX contract environment',
+              );
+            }
+            flowEnvironment = linkedContract.mx_contract_environment;
+          } else {
+            const environmentOrganization = await mxRegisteredTemplateService
+              .loadOrganizationContractEnvironment(
+                conn.query.bind(conn),
+                { orgId: activationOrgId },
+              );
+            if (!environmentOrganization) {
+              throw new NotFoundError('Organization');
+            }
+            if (environmentOrganization.locale !== 'MX') {
+              throw new ValidationError('The installation organization is no longer configured for Mexico');
+            }
+            flowEnvironment = environmentOrganization.contract_environment;
+          }
           const [activationTemplates] = await conn.query(
             `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
                FROM document_templates dt
                LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
               WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
                 AND dt.is_active = 1 AND dt.deleted_at IS NULL
+                AND (ctm.id IS NULL OR ctm.environment = ?)
               ORDER BY dt.id FOR UPDATE`,
-            [activationOrgId],
+            [activationOrgId, flowEnvironment],
           );
           if (!activationTemplates.length) {
             throw new ValidationError(
@@ -411,17 +442,14 @@ async function startOrder(orderId, {
           mxRegistrationSnapshot = mxRegisteredTemplateService.assertOneRegisteredSource(
             activationTemplates,
             activationOrgId,
+            flowEnvironment,
           );
           if (order.contract_id) {
-            const [linkedContracts] = await conn.query(
-              `SELECT contract_template_mx_id FROM contracts
-                WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
-                LIMIT 1 FOR UPDATE`,
-              [order.contract_id, activationOrgId],
-            );
-            if (!linkedContracts[0]
-                || Number(linkedContracts[0].contract_template_mx_id)
-                  !== mxRegistrationSnapshot.contractTemplateMxId) {
+            if (!linkedContract
+                || Number(linkedContract.contract_template_mx_id)
+                  !== mxRegistrationSnapshot.contractTemplateMxId
+                || linkedContract.mx_contract_environment
+                  !== mxRegistrationSnapshot.contractEnvironment) {
               throw new ValidationError(
                 'The installation contract is not linked to the registered MX template used by the active activation document',
               );
@@ -466,6 +494,7 @@ async function startOrder(orderId, {
       };
       if (mxRegistrationSnapshot) {
         contractData.contract_template_mx_id = mxRegistrationSnapshot.contractTemplateMxId;
+        contractData.mx_contract_environment = mxRegistrationSnapshot.contractEnvironment;
       }
       const cols = Object.keys(contractData);
       const [ins] = await conn.query(
@@ -794,10 +823,11 @@ async function completeOrder(orderId, {
           `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
              FROM document_templates dt
              LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
-            WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
+              WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
               AND dt.is_active = 1 AND dt.deleted_at IS NULL
+              AND (ctm.id IS NULL OR ctm.environment = ?)
             ORDER BY dt.id FOR UPDATE`,
-          [activationOrgId],
+          [activationOrgId, contract.mx_contract_environment],
         );
         if (requiredTemplates.length === 0) {
           throw new ValidationError(
@@ -807,10 +837,16 @@ async function completeOrder(orderId, {
         const registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
           requiredTemplates,
           activationOrgId,
+          contract.mx_contract_environment,
         );
         if (Number(contract.contract_template_mx_id) !== registeredSource.contractTemplateMxId) {
           throw new ValidationError(
             'The contract is not linked to the registered MX template used by the active activation document',
+          );
+        }
+        if (contract.mx_contract_environment !== registeredSource.contractEnvironment) {
+          throw new ValidationError(
+            'The contract environment does not match the source used by the active activation document',
           );
         }
         if (requiredTemplates.length) {
@@ -872,6 +908,15 @@ async function completeOrder(orderId, {
       // best-effort guarded UPDATE.  With both rows locked, zero means a data
       // integrity/concurrency failure and may not be followed by an order
       // completion or invoice.
+      await mxRegisteredTemplateService.assertSandboxContractCanResume(
+        conn.query.bind(conn),
+        {
+          contract,
+          context: 'Contract activation',
+          lock: true,
+          organizationLocale: locale,
+        },
+      );
       const [activation] = await conn.query(
         `UPDATE contracts
             SET status = 'active',
@@ -880,7 +925,8 @@ async function completeOrder(orderId, {
                 test_window_cleanup_pending = 0
           WHERE id = ? AND status = 'pending'
             AND test_window_expires_at IS NULL
-            AND test_window_cleanup_pending = 0`,
+            AND test_window_cleanup_pending = 0
+            AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
         [order.contract_id],
       );
       if (activation.affectedRows !== 1) {

@@ -4,36 +4,48 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import {
+  fetchMxContractEnvironment,
+  isEligibleMxContractSource,
+  MxContractEnvironmentBadge,
+  MxSandboxDocumentBanner,
+  type MxContractEnvironment,
+  type MxContractSourceEvidence,
+  type MxContractSourceStatus,
+} from './MxContractEnvironment';
 
 interface ActivationDocumentTemplate {
   id: number;
   template_type: string;
   contract_template_mx_id: number | null;
+  contract_template_mx_environment?: MxContractEnvironment | null;
   is_active: boolean | number;
 }
 
-export interface RegisteredContractSource {
+export interface RegisteredContractSource extends MxContractSourceEvidence {
   id: number;
-  template_name: string;
-  ift_registration_number: string | null;
-  registered_at: string | null;
-  version: string | null;
-  template_body: string | null;
-  status: 'draft' | 'submitted' | 'registered' | 'expired' | 'revoked';
+  status: MxContractSourceStatus;
 }
 
 type ActiveSourceResolution =
   | { kind: 'ready'; sourceId: number }
   | { kind: 'missing' | 'unlinked' | 'ambiguous' };
 
-async function resolveActiveSource(): Promise<ActiveSourceResolution> {
+async function resolveActiveSource(environment: MxContractEnvironment): Promise<ActiveSourceResolution> {
   const res = await (api.GET as unknown as (
     path: string,
   ) => Promise<{ data?: unknown; error?: unknown }>)('/document-templates');
   if (res.error) throw new Error('Failed to load active activation documents');
 
-  const templates = ((res.data as { data?: ActivationDocumentTemplate[] } | undefined)?.data ?? [])
+  const activeTemplates = ((res.data as { data?: ActivationDocumentTemplate[] } | undefined)?.data ?? [])
     .filter(template => template.template_type === 'activation_contract' && Boolean(template.is_active));
+  // Linked activation documents can coexist — one for each immutable source
+  // lane. An old row without the joined environment is production evidence;
+  // an unlinked active row is unsafe for either lane and remains visible here.
+  const templates = activeTemplates.filter(template => (
+    !template.contract_template_mx_id
+      || (template.contract_template_mx_environment ?? 'production') === environment
+  ));
   if (templates.length === 0) return { kind: 'missing' };
   if (templates.some(template => !template.contract_template_mx_id)) return { kind: 'unlinked' };
 
@@ -52,25 +64,14 @@ async function fetchRegisteredSource(id: number): Promise<RegisteredContractSour
   if (res.error) throw new Error('Failed to load the registered MX contract source');
   const source = (res.data as { data?: RegisteredContractSource } | undefined)?.data;
   if (!source) throw new Error('Registered MX contract source was not found');
-  return source;
-}
-
-function isUsableRegisteredSource(source: RegisteredContractSource | undefined): source is RegisteredContractSource {
-  return Boolean(
-    source
-      && source.status === 'registered'
-      && source.template_name?.trim()
-      && source.ift_registration_number?.trim()
-      && source.registered_at
-      && source.version?.trim()
-      && source.template_body?.trim(),
-  );
+  return { ...source, environment: source.environment ?? 'production' };
 }
 
 export interface MxRegisteredContractSourceFieldProps {
   value: string;
   onChange: (value: string) => void;
   onAvailabilityChange?: (available: boolean) => void;
+  frozenEnvironment?: MxContractEnvironment | null;
   disabled?: boolean;
   required?: boolean;
   labelStyle?: CSSProperties;
@@ -86,6 +87,7 @@ export function MxRegisteredContractSourceField({
   value,
   onChange,
   onAvailabilityChange,
+  frozenEnvironment,
   disabled = false,
   required = true,
   labelStyle,
@@ -96,21 +98,30 @@ export function MxRegisteredContractSourceField({
   const mayViewDocuments = can(user, 'document_templates.view');
   const mayViewRegistry = can(user, 'contract_templates_mx.view');
   const mayResolveSource = mayViewDocuments && mayViewRegistry;
+  const organizationId = user?.organization_id ?? null;
+  const hasFrozenEnvironment = frozenEnvironment === 'sandbox' || frozenEnvironment === 'production';
+
+  const environmentQ = useQuery({
+    queryKey: ['mx-contract-environment', organizationId],
+    queryFn: fetchMxContractEnvironment,
+    enabled: mayResolveSource && !hasFrozenEnvironment,
+  });
+  const activeEnvironment = hasFrozenEnvironment ? frozenEnvironment : environmentQ.data;
 
   const activeSourceQ = useQuery({
-    queryKey: ['document-templates', 'active-mx-contract-source'],
-    queryFn: resolveActiveSource,
-    enabled: mayResolveSource,
+    queryKey: ['document-templates', organizationId, 'active-mx-contract-source', activeEnvironment],
+    queryFn: () => resolveActiveSource(activeEnvironment!),
+    enabled: mayResolveSource && Boolean(activeEnvironment),
   });
   const resolvedSourceId = activeSourceQ.data?.kind === 'ready'
     ? activeSourceQ.data.sourceId
     : null;
   const sourceQ = useQuery({
-    queryKey: ['contract-templates-mx', 'active-contract-source', resolvedSourceId],
+    queryKey: ['contract-templates-mx', organizationId, 'active-contract-source', activeEnvironment, resolvedSourceId],
     queryFn: () => fetchRegisteredSource(resolvedSourceId!),
-    enabled: mayResolveSource && resolvedSourceId !== null,
+    enabled: mayResolveSource && Boolean(activeEnvironment) && resolvedSourceId !== null,
   });
-  const usableSource = isUsableRegisteredSource(sourceQ.data) ? sourceQ.data : undefined;
+  const usableSource = isEligibleMxContractSource(sourceQ.data, activeEnvironment) ? sourceQ.data : undefined;
   const sourceAvailable = Boolean(usableSource);
 
   useEffect(() => {
@@ -122,12 +133,17 @@ export function MxRegisteredContractSourceField({
   // authoritative, forcing the operator to select the one source that can pass
   // prepareActivation today.
   useEffect(() => {
-    if (usableSource && value && Number(value) !== Number(usableSource.id)) onChange('');
-  }, [onChange, usableSource, value]);
+    if (mayResolveSource && (hasFrozenEnvironment || environmentQ.isSuccess) && activeSourceQ.isSuccess
+        && !sourceQ.isLoading && (!environmentQ.error || hasFrozenEnvironment)
+        && !activeSourceQ.error && !sourceQ.error
+        && value && (!usableSource || Number(value) !== Number(usableSource.id))) onChange('');
+  }, [activeSourceQ.error, activeSourceQ.isSuccess, environmentQ.error, environmentQ.isSuccess,
+    hasFrozenEnvironment, mayResolveSource, onChange, sourceQ.error, sourceQ.isLoading, usableSource, value]);
 
-  const isLoading = mayResolveSource && (activeSourceQ.isLoading
+  const isLoading = mayResolveSource && ((!hasFrozenEnvironment && environmentQ.isLoading) || activeSourceQ.isLoading
     || (resolvedSourceId !== null && sourceQ.isLoading));
-  const loadFailed = Boolean(activeSourceQ.error || sourceQ.error);
+  const loadFailed = Boolean((!hasFrozenEnvironment && environmentQ.error)
+    || activeSourceQ.error || sourceQ.error);
   const resolutionKind = activeSourceQ.data?.kind;
   const messageStyle: CSSProperties = {
     margin: '6px 0 0',
@@ -142,7 +158,8 @@ export function MxRegisteredContractSourceField({
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <label style={labelStyle} htmlFor={fieldId}>
-        {t('mxContractSource.label')}{required ? ' *' : ''}
+        {t('mxContractSource.label')}{required ? ' *' : ''}{' '}
+        {activeEnvironment && <MxContractEnvironmentBadge environment={activeEnvironment} />}
       </label>
       <select
         id={fieldId}
@@ -174,6 +191,7 @@ export function MxRegisteredContractSourceField({
             <button
               type="button"
               onClick={() => {
+                if (!hasFrozenEnvironment && environmentQ.error) void environmentQ.refetch();
                 if (activeSourceQ.error) void activeSourceQ.refetch();
                 if (sourceQ.error) void sourceQ.refetch();
               }}
@@ -195,13 +213,16 @@ export function MxRegisteredContractSourceField({
         {!isLoading && !loadFailed && resolvedSourceId !== null && sourceQ.data && !usableSource && (
           <p style={alertStyle} role="alert">{t('mxContractSource.sourceNotUsable')}</p>
         )}
+        <MxSandboxDocumentBanner environment={usableSource?.environment} />
         {usableSource && (
           <p style={messageStyle}>
-            {t('mxContractSource.evidence', {
-              number: usableSource.ift_registration_number,
-              version: usableSource.version,
-              date: String(usableSource.registered_at).slice(0, 10),
-            })}
+            {usableSource.environment === 'sandbox'
+              ? t('mxContractSource.sandboxEvidence', { version: usableSource.version })
+              : t('mxContractSource.evidence', {
+                number: usableSource.ift_registration_number,
+                version: usableSource.version,
+                date: String(usableSource.registered_at).slice(0, 10),
+              })}
           </p>
         )}
         {!sourceAvailable && !isLoading && mayResolveSource && (

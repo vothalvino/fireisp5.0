@@ -9,7 +9,8 @@ class ContractTemplateMx extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'template_name', 'ift_registration_number',
-      'registered_at', 'version', 'template_body', 'document_file_id', 'status',
+      'registered_at', 'version', 'template_body', 'document_file_id',
+      'environment', 'status',
     ];
   }
   static get hasOrgScope() { return true; }

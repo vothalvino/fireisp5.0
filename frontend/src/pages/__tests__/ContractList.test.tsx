@@ -93,6 +93,74 @@ describe('ContractList page', () => {
     await waitFor(() => expect(screen.getByText('10.0.0.1')).toBeInTheDocument());
   });
 
+  it('visibly marks every sandbox contract in the contracts table', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: {
+          data: [{ ...contract1, mx_contract_environment: 'sandbox' }],
+          meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+        },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderContractList();
+
+    const contractLink = await screen.findByRole('link', { name: '#1' });
+    const row = contractLink.closest('tr');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute('data-contract-environment', 'sandbox');
+    expect(row).toHaveStyle({ background: '#fffbeb' });
+    expect(within(row!).getByText('SANDBOX · TEST')).toBeInTheDocument();
+  });
+
+  it('shows the no-legal-effect sandbox warning before renewing a sandbox contract', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: {
+          data: [{ ...contract1, status: 'suspended', mx_contract_environment: 'sandbox' }],
+          meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+        },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Renew Contract/ });
+    expect(within(dialog).getByText('SANDBOX · TEST')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('mx-contract-sandbox-banner')).toHaveTextContent(/NO LEGAL EFFECT/i);
+  });
+
+  it('keeps the sandbox warning visible when opening contract credentials', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: {
+          data: [{ ...contract1, mx_contract_environment: 'sandbox' }],
+          meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+        },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      if (path === '/radius/contract/{contractId}') {
+        return Promise.resolve({ data: { data: [] }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Credentials/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Credentials/ });
+    expect(within(dialog).getByText('SANDBOX · TEST')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('mx-contract-sandbox-banner')).toHaveTextContent(/NO LEGAL EFFECT/i);
+  });
+
   it('renders the client name in the Client column', async () => {
     renderContractList();
     await waitFor(() => expect(screen.getByText('Acme Corp')).toBeInTheDocument());
@@ -308,8 +376,11 @@ describe('ContractList page', () => {
       if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
       if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
       if (path === '/document-templates') return Promise.resolve({
-        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 }] },
+        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, contract_template_mx_environment: 'production', is_active: 1 }] },
         error: undefined,
+      });
+      if (path === '/consumer-protection/contract-environment') return Promise.resolve({
+        data: { data: { contract_environment: 'production' } }, error: undefined,
       });
       if (path === '/consumer-protection/contract-templates-mx/77') return Promise.resolve({
         data: { data: {
@@ -320,6 +391,7 @@ describe('ContractList page', () => {
           version: '2026.1',
           template_body: 'Exact registered terms',
           status: 'registered',
+          environment: 'production',
         } },
         error: undefined,
       });
@@ -370,6 +442,57 @@ describe('ContractList page', () => {
     expect(mockApiGet).not.toHaveBeenCalledWith('/document-templates');
   });
 
+  it('preserves the frozen source when a pending-contract editor cannot view legal templates', async () => {
+    mockLocale = 'MX';
+    mockRole = 'custom';
+    mockPermissions = ['contracts.update'];
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [{ ...contract1, status: 'pending', contract_template_mx_id: 66 }], meta: { total: 1, page: 1, limit: 20, totalPages: 1 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPut.mockResolvedValue({ data: { data: contract1 }, error: undefined });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Edit/i }));
+    expect(await screen.findByText(/frozen MX source will be preserved/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalled());
+    const body = mockApiPut.mock.calls[0][1].body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('contract_template_mx_id');
+    expect(mockApiGet).not.toHaveBeenCalledWith('/document-templates');
+  });
+
+  it('shows the backend lane preflight reason when direct creation fails', async () => {
+    mockLocale = 'MX';
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/contracts') return Promise.resolve({
+        data: { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 0 } },
+        error: undefined,
+      });
+      if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
+      if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+    mockApiPost.mockResolvedValue({
+      data: undefined,
+      error: { error: { message: 'Configure an active sandbox activation document first.' } },
+    });
+    renderContractList();
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Contract' }));
+    fireEvent.change(screen.getByLabelText(/Client \*/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Plan \*/), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Contract' }));
+
+    expect(await screen.findByText('Configure an active sandbox activation document first.')).toBeInTheDocument();
+  });
+
   it('repairs a pending MX contract to the source used by the active activation document', async () => {
     mockLocale = 'MX';
     mockApiGet.mockImplementation((path: string) => {
@@ -380,8 +503,11 @@ describe('ContractList page', () => {
       if (path === '/plans') return Promise.resolve({ data: { data: [{ id: 2, name: 'Fiber 100' }] }, error: undefined });
       if (path === '/clients') return Promise.resolve({ data: { data: [client1] }, error: undefined });
       if (path === '/document-templates') return Promise.resolve({
-        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 }] },
+        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, contract_template_mx_environment: 'production', is_active: 1 }] },
         error: undefined,
+      });
+      if (path === '/consumer-protection/contract-environment') return Promise.resolve({
+        data: { data: { contract_environment: 'production' } }, error: undefined,
       });
       if (path === '/consumer-protection/contract-templates-mx/77') return Promise.resolve({
         data: { data: {
@@ -392,6 +518,7 @@ describe('ContractList page', () => {
           version: '2026.1',
           template_body: 'Exact registered terms',
           status: 'registered',
+          environment: 'production',
         } },
         error: undefined,
       });

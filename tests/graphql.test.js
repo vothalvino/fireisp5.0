@@ -79,6 +79,7 @@ const CONTRACT_ROW = {
   id: 20, client_id: 10, organization_id: 1, plan_id: 3,
   connection_type: 'fiber', start_date: '2024-02-01', end_date: null,
   billing_day: 1, status: 'active', ip_address: '10.0.0.100',
+  mx_contract_environment: 'sandbox',
   price_override: null, notes: null, deleted_at: null,
   created_at: '2024-02-01T00:00:00.000Z',
 };
@@ -304,7 +305,7 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
     const res = await graphql(`
       query {
         contract(id: "20") {
-          id clientId planId connectionType startDate billingDay ipAddress status createdAt
+          id clientId planId connectionType startDate billingDay ipAddress mxContractEnvironment status createdAt
         }
       }
     `);
@@ -318,6 +319,7 @@ describe('GraphQL endpoint — /api/v1/graphql', () => {
     expect(contract.connectionType).toBe('fiber');
     expect(contract.ipAddress).toBe('10.0.0.100');
     expect(contract.billingDay).toBe(1);
+    expect(contract.mxContractEnvironment).toBe('sandbox');
     expect(contract.status).toBe('active');
   });
 

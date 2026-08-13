@@ -109,17 +109,22 @@ async function getDocuments(orderId, contractId, run = db.query.bind(db)) {
   return rows;
 }
 
-async function getRequiredActivationTemplates(orgId, run = db.query.bind(db)) {
+async function getRequiredActivationTemplates(
+  orgId, contractEnvironment, run = db.query.bind(db),
+) {
   const [rows] = await run(
     `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
        FROM document_templates dt
        LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
       WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
         AND dt.is_active = 1 AND dt.deleted_at IS NULL
+        AND (ctm.id IS NULL OR ctm.environment = ?)
       ORDER BY dt.id`,
-    [orgId],
+    [orgId, contractEnvironment],
   );
-  if (rows.length) mxRegisteredTemplateService.assertOneRegisteredSource(rows, orgId);
+  if (rows.length) {
+    mxRegisteredTemplateService.assertOneRegisteredSource(rows, orgId, contractEnvironment);
+  }
   return rows;
 }
 
@@ -383,13 +388,17 @@ async function getActivationState(contractId, {
     ? 'activation_contract'
     : legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TYPE;
   const requiredTemplates = locale === 'MX'
-    ? await getRequiredActivationTemplates(effectiveOrgId)
+    ? await getRequiredActivationTemplates(effectiveOrgId, contract.mx_contract_environment)
     : [{
       id: legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID,
       name: legalDocumentService.GLOBAL_ACKNOWLEDGMENT_TITLE,
     }];
   const requiredMxSource = locale === 'MX' && requiredTemplates.length
-    ? mxRegisteredTemplateService.assertOneRegisteredSource(requiredTemplates, effectiveOrgId)
+    ? mxRegisteredTemplateService.assertOneRegisteredSource(
+      requiredTemplates,
+      effectiveOrgId,
+      contract.mx_contract_environment,
+    )
     : null;
   const templateInstances = requiredTemplates.length
     ? await getActivationTemplateInstanceState(
@@ -439,7 +448,8 @@ async function getActivationState(contractId, {
     blockers.push('activation_template_missing');
   }
   if (requiredMxSource
-      && Number(contract.contract_template_mx_id) !== requiredMxSource.contractTemplateMxId) {
+      && (Number(contract.contract_template_mx_id) !== requiredMxSource.contractTemplateMxId
+        || contract.mx_contract_environment !== requiredMxSource.contractEnvironment)) {
     blockers.push('registered_template_mismatch');
   }
 
@@ -447,6 +457,7 @@ async function getActivationState(contractId, {
     contract_id: contract.id,
     client_id: contract.client_id,
     status: contract.status,
+    contract_environment: contract.mx_contract_environment,
     connection_type: contract.connection_type,
     test_window_expires_at: contract.test_window_expires_at,
     test_window_cleanup_pending: Number(contract.test_window_cleanup_pending) === 1,
@@ -505,7 +516,10 @@ async function prepareActivation(contractId, {
   // outside the Mexican legal-document flow entirely.
   const locale = await organizationLocale(effectiveOrgId);
   if (locale === 'MX') {
-    const requiredTemplates = await getRequiredActivationTemplates(effectiveOrgId);
+    const requiredTemplates = await getRequiredActivationTemplates(
+      effectiveOrgId,
+      contract.mx_contract_environment,
+    );
     if (requiredTemplates.length === 0) {
       throw new ValidationError(
         'Configure and activate at least one reviewed MX activation-contract template before preparing service',
@@ -514,8 +528,10 @@ async function prepareActivation(contractId, {
     const registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
       requiredTemplates,
       effectiveOrgId,
+      contract.mx_contract_environment,
     );
-    if (Number(contract.contract_template_mx_id) !== registeredSource.contractTemplateMxId) {
+    if (Number(contract.contract_template_mx_id) !== registeredSource.contractTemplateMxId
+        || contract.mx_contract_environment !== registeredSource.contractEnvironment) {
       throw new ValidationError(
         'Select the registered MX contract template used by the active activation document before preparing service',
       );
@@ -924,6 +940,11 @@ async function renewPreviouslyActivated(contractId, {
       throw new ValidationError('This contract still requires its first activation workflow');
     }
 
+    await mxRegisteredTemplateService.assertSandboxContractCanResume(
+      conn.query.bind(conn),
+      { contract: locked, context: 'Contract renewal', lock: true },
+    );
+
     const effectiveOrgId = locked.organization_id ?? orgId ?? null;
     const isPppoe = ['pppoe', 'pppoe_dual'].includes(locked.connection_type);
     if (isPppoe) {
@@ -974,7 +995,8 @@ async function renewPreviouslyActivated(contractId, {
     const [renewed] = await conn.query(
       `UPDATE contracts SET ${sets.join(', ')}
         WHERE id = ?${updateScope} AND status = ?
-          AND first_activated_at IS NOT NULL AND deleted_at IS NULL`,
+          AND first_activated_at IS NOT NULL AND deleted_at IS NULL
+          AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
       [
         ...updateParams,
         locked.id,

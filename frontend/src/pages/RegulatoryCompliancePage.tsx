@@ -18,9 +18,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { readCsrfCookie } from '@/api/csrf';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
+import {
+  MxContractEnvironmentBadge,
+  type MxContractEnvironment,
+  type MxContractSourceStatus,
+} from '@/components/MxContractEnvironment';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,7 +93,7 @@ interface ServiceModification {
   notice_required_days: number | null;
 }
 
-type ContractTemplateMxStatus = 'draft' | 'submitted' | 'registered' | 'expired' | 'revoked';
+type ContractTemplateMxStatus = MxContractSourceStatus;
 
 interface ContractTemplateMxRecord {
   id: number;
@@ -97,6 +103,14 @@ interface ContractTemplateMxRecord {
   ift_registration_number: string | null;
   registered_at: string | null;
   status: ContractTemplateMxStatus;
+  environment: MxContractEnvironment;
+}
+
+interface ContractTemplateMxPageMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 interface DataResidencyConfig {
@@ -745,42 +759,75 @@ function ConsumerTab() {
         canView={can(user, 'contract_templates_mx.view')}
         canCreate={can(user, 'contract_templates_mx.create')}
         canUpdate={can(user, 'contract_templates_mx.update')}
+        organizationId={user?.organization_id ?? null}
       />
     </div>
   );
 }
 
-const EMPTY_CONTRACT_TEMPLATE_MX_FORM = {
-  template_name: '',
-  template_body: '',
-  version: '1.0',
-  ift_registration_number: '',
-  registered_at: '',
-  status: 'draft' as ContractTemplateMxStatus,
-};
+function emptyContractTemplateMxForm(environment: MxContractEnvironment) {
+  return {
+    template_name: '',
+    template_body: '',
+    version: '1.0',
+    ift_registration_number: '',
+    registered_at: '',
+    status: 'draft' as ContractTemplateMxStatus,
+    environment,
+  };
+}
 
-function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
-  canView: boolean; canCreate: boolean; canUpdate: boolean;
+function ContractTemplateMxRegistry({ canView, canCreate, canUpdate, organizationId }: {
+  canView: boolean; canCreate: boolean; canUpdate: boolean; organizationId: number | null;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [records, setRecords] = useState<ContractTemplateMxRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [registryPage, setRegistryPage] = useState(1);
+  const [registryMeta, setRegistryMeta] = useState<ContractTemplateMxPageMeta>({
+    total: 0,
+    page: 1,
+    limit: 100,
+    totalPages: 1,
+  });
   const [editing, setEditing] = useState<ContractTemplateMxRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_CONTRACT_TEMPLATE_MX_FORM);
+  const [contractEnvironment, setContractEnvironment] = useState<MxContractEnvironment | null>(null);
+  const [environmentLoading, setEnvironmentLoading] = useState(false);
+  const [environmentSaving, setEnvironmentSaving] = useState(false);
+  const [environmentError, setEnvironmentError] = useState('');
+  const [form, setForm] = useState(() => emptyContractTemplateMxForm('sandbox'));
   const [externalRegistrationConfirmed, setExternalRegistrationConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
-  function load() {
+  function load(page = registryPage) {
     if (!canView) return;
     setLoading(true);
     setLoadError('');
-    apiFetch<{ data: ContractTemplateMxRecord[] }>('/consumer-protection/contract-templates-mx')
-      .then(r => setRecords(r.data || []))
+    apiFetch<{ data: ContractTemplateMxRecord[]; meta?: ContractTemplateMxPageMeta }>(
+      `/consumer-protection/contract-templates-mx?page=${page}&limit=100&order_by=id&order=ASC`,
+    )
+      .then(r => {
+        const nextRecords = (r.data || []).map(record => ({
+          ...record,
+          // All records predating the environment feature were real-registration
+          // evidence and are migration-backfilled to production.
+          environment: record.environment ?? 'production' as MxContractEnvironment,
+        }));
+        setRecords(nextRecords);
+        setRegistryMeta(r.meta ?? {
+          total: nextRecords.length,
+          page,
+          limit: 100,
+          totalPages: 1,
+        });
+      })
       .catch((err: unknown) => {
         setRecords([]);
+        setRegistryMeta({ total: 0, page, limit: 100, totalPages: 1 });
         setLoadError(err instanceof Error && !/^HTTP \d+$/.test(err.message)
           ? err.message
           : t('regulatoryCompliance.consumer.registry.loadError'));
@@ -788,11 +835,72 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { load(); }, [canView]);
+  function loadEnvironment() {
+    if (!canView) return;
+    setContractEnvironment(null);
+    setEnvironmentLoading(true);
+    setEnvironmentError('');
+    apiFetch<{ data: { contract_environment: MxContractEnvironment } }>(
+      '/consumer-protection/contract-environment',
+    )
+      .then(response => {
+        const environment = response.data?.contract_environment;
+        if (environment !== 'sandbox' && environment !== 'production') throw new Error('invalid environment');
+        setContractEnvironment(environment);
+      })
+      .catch(() => setEnvironmentError(t('regulatoryCompliance.consumer.registry.environment.loadError')))
+      .finally(() => setEnvironmentLoading(false));
+  }
+
+  useEffect(() => {
+    setRegistryPage(1);
+  }, [organizationId]);
+
+  useEffect(() => {
+    load(registryPage);
+  }, [canView, organizationId, registryPage]);
+
+  useEffect(() => {
+    loadEnvironment();
+  }, [canView, organizationId]);
+
+  async function changeContractEnvironment(nextEnvironment: MxContractEnvironment) {
+    if (!contractEnvironment) return;
+    if (nextEnvironment === contractEnvironment) return;
+    if (nextEnvironment === 'production' && !window.confirm(
+      t('regulatoryCompliance.consumer.registry.environment.productionConfirmation'),
+    )) return;
+
+    setEnvironmentSaving(true);
+    setEnvironmentError('');
+    try {
+      const response = await apiFetch<{ data: { contract_environment: MxContractEnvironment } }>(
+        '/consumer-protection/contract-environment',
+        { method: 'PUT', body: JSON.stringify({ contract_environment: nextEnvironment }) },
+      );
+      const savedEnvironment = response.data?.contract_environment;
+      if (savedEnvironment !== 'sandbox' && savedEnvironment !== 'production') {
+        throw new Error(t('regulatoryCompliance.consumer.registry.environment.saveError'));
+      }
+      setContractEnvironment(savedEnvironment);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['mx-contract-environment', organizationId] }),
+        queryClient.invalidateQueries({ queryKey: ['document-templates', organizationId] }),
+        queryClient.invalidateQueries({ queryKey: ['contract-templates-mx', organizationId] }),
+      ]);
+      load();
+    } catch (error) {
+      setEnvironmentError(error instanceof Error && !/^HTTP \d+$/.test(error.message)
+        ? error.message
+        : t('regulatoryCompliance.consumer.registry.environment.saveError'));
+    } finally {
+      setEnvironmentSaving(false);
+    }
+  }
 
   function openCreate() {
     setEditing(null);
-    setForm(EMPTY_CONTRACT_TEMPLATE_MX_FORM);
+    setForm(emptyContractTemplateMxForm(contractEnvironment ?? 'sandbox'));
     setExternalRegistrationConfirmed(false);
     setSaveMessage(null);
     setShowForm(true);
@@ -807,21 +915,28 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
       ift_registration_number: record.ift_registration_number || '',
       registered_at: record.registered_at ? String(record.registered_at).slice(0, 10) : '',
       status: record.status,
+      environment: record.environment,
     });
     setExternalRegistrationConfirmed(record.status === 'registered');
     setSaveMessage(null);
     setShowForm(true);
   }
 
-  const sourceFrozen = Boolean(editing && ['registered', 'expired', 'revoked'].includes(editing.status));
-  const registeringNow = form.status === 'registered' && editing?.status !== 'registered';
-  const allowedStatuses: ContractTemplateMxStatus[] = editing?.status === 'registered'
-    ? ['registered', 'expired', 'revoked']
-    : editing?.status === 'expired'
-      ? ['expired']
-      : editing?.status === 'revoked'
-        ? ['revoked']
-        : ['draft', 'submitted', 'registered'];
+  const sourceFrozen = Boolean(editing && ['sandbox_ready', 'registered', 'expired', 'revoked'].includes(editing.status));
+  const registeringNow = form.environment === 'production'
+    && form.status === 'registered'
+    && editing?.status !== 'registered';
+  const allowedStatuses: ContractTemplateMxStatus[] = form.environment === 'sandbox'
+    ? editing?.status === 'sandbox_ready'
+      ? ['sandbox_ready']
+      : ['draft', 'sandbox_ready']
+    : editing?.status === 'registered'
+      ? ['registered', 'expired', 'revoked']
+      : editing?.status === 'expired'
+        ? ['expired']
+        : editing?.status === 'revoked'
+          ? ['revoked']
+          : ['draft', 'submitted', 'registered'];
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -830,7 +945,7 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
       setSaveMessage({ ok: false, text: t('regulatoryCompliance.consumer.registry.requiredFields') });
       return;
     }
-    if (form.status === 'registered'
+    if (form.environment === 'production' && form.status === 'registered'
         && (!form.ift_registration_number.trim() || !form.registered_at || !externalRegistrationConfirmed)) {
       setSaveMessage({ ok: false, text: t('regulatoryCompliance.consumer.registry.registrationRequired') });
       return;
@@ -841,9 +956,12 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
         template_name: form.template_name,
         template_body: form.template_body,
         version: form.version,
-        ift_registration_number: form.ift_registration_number.trim() || null,
-        registered_at: form.registered_at || null,
+        ift_registration_number: form.environment === 'production'
+          ? form.ift_registration_number.trim() || null
+          : null,
+        registered_at: form.environment === 'production' ? form.registered_at || null : null,
         status: form.status,
+        ...(!editing && { environment: form.environment }),
       };
       await apiFetch(
         editing
@@ -881,6 +999,55 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
           </button>
         )}
       </div>
+      <div style={{
+        margin: '12px 0',
+        padding: '12px 14px',
+        border: `1px solid ${contractEnvironment === 'production' ? '#f59e0b' : 'var(--border-color, #d1d5db)'}`,
+        borderRadius: 8,
+        background: contractEnvironment === 'production' ? '#fffbeb' : 'var(--bg-secondary, #f8fafc)',
+      }}>
+        <strong>{t('regulatoryCompliance.consumer.registry.environment.label')}</strong>
+        {environmentLoading && (
+          <p role="status" style={{ margin: '8px 0 0', color: 'var(--text-secondary)' }}>
+            {t('common.loading')}
+          </p>
+        )}
+        {!environmentLoading && contractEnvironment && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+            <label htmlFor="mx-contract-environment" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+              {t('regulatoryCompliance.consumer.registry.environment.label')}
+            </label>
+            <select
+              id="mx-contract-environment"
+              aria-label={t('regulatoryCompliance.consumer.registry.environment.label')}
+              value={contractEnvironment}
+              disabled={!canUpdate || environmentSaving}
+              onChange={event => void changeContractEnvironment(event.target.value as MxContractEnvironment)}
+              style={{ padding: '6px 10px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6 }}
+            >
+              <option value="sandbox">{t('regulatoryCompliance.consumer.registry.environment.sandboxOption')}</option>
+              <option value="production">{t('regulatoryCompliance.consumer.registry.environment.productionOption')}</option>
+            </select>
+            <MxContractEnvironmentBadge environment={contractEnvironment} />
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+              {environmentSaving
+                ? t('common.saving')
+                : t(`regulatoryCompliance.consumer.registry.environment.${contractEnvironment}Summary`)}
+            </span>
+          </div>
+        )}
+        <p style={{ margin: '8px 0 0', color: contractEnvironment === 'production' ? '#92400e' : 'var(--text-secondary)', fontSize: '0.8rem' }}>
+          {t('regulatoryCompliance.consumer.registry.environment.explanation')}
+        </p>
+        {environmentError && (
+          <div style={{ marginTop: 8 }}>
+            <p role="alert" style={{ color: '#b91c1c', margin: 0 }}>{environmentError}</p>
+            <button type="button" onClick={loadEnvironment} style={{ marginTop: 6 }}>
+              {t('common.retry')}
+            </button>
+          </div>
+        )}
+      </div>
       <p>{t('regulatoryCompliance.consumer.registry.explanation')}</p>
       <p style={{ padding: 10, border: '1px solid #d6a700', background: '#fff9db' }}>
         {t('regulatoryCompliance.consumer.registry.externalWarning')}
@@ -893,6 +1060,7 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
             <thead>
               <tr>
                 <th style={thStyle}>{t('regulatoryCompliance.consumer.registry.name')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.consumer.registry.environment.sourceEnvironment')}</th>
                 <th style={thStyle}>{t('regulatoryCompliance.consumer.registry.version')}</th>
                 <th style={thStyle}>{t('regulatoryCompliance.consumer.registry.registrationNumber')}</th>
                 <th style={thStyle}>{t('regulatoryCompliance.consumer.registry.registrationDate')}</th>
@@ -904,6 +1072,7 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
               {records.map(record => (
                 <tr key={record.id}>
                   <td style={tdStyle}>{record.template_name}</td>
+                  <td style={tdStyle}><MxContractEnvironmentBadge environment={record.environment} /></td>
                   <td style={tdStyle}>{record.version}</td>
                   <td style={tdStyle}>{record.ift_registration_number || '—'}</td>
                   <td style={tdStyle}>{record.registered_at ? String(record.registered_at).slice(0, 10) : '—'}</td>
@@ -918,11 +1087,39 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
                 </tr>
               ))}
               {!records.length && !loadError && (
-                <tr><td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#777' }}>{t('common.noResults')}</td></tr>
+                <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: '#777' }}>{t('common.noResults')}</td></tr>
               )}
             </tbody>
           </table>
         </div>
+      )}
+      {registryMeta.totalPages > 1 && (
+        <nav
+          aria-label={t('regulatoryCompliance.consumer.registry.paginationLabel')}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}
+        >
+          <button
+            type="button"
+            disabled={loading || registryPage <= 1}
+            onClick={() => setRegistryPage(page => Math.max(1, page - 1))}
+          >
+            {t('common.prev')}
+          </button>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+            {t('regulatoryCompliance.consumer.registry.pageSummary', {
+              page: registryMeta.page,
+              totalPages: registryMeta.totalPages,
+              total: registryMeta.total,
+            })}
+          </span>
+          <button
+            type="button"
+            disabled={loading || registryPage >= registryMeta.totalPages}
+            onClick={() => setRegistryPage(page => Math.min(registryMeta.totalPages, page + 1))}
+          >
+            {t('common.next')}
+          </button>
+        </nav>
       )}
 
       {showForm && (
@@ -930,6 +1127,38 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
           <h4 style={{ margin: 0 }}>
             {editing ? t('regulatoryCompliance.consumer.registry.edit') : t('regulatoryCompliance.consumer.registry.create')}
           </h4>
+          <label>
+            {t('regulatoryCompliance.consumer.registry.environment.sourceEnvironment')} *
+            <select
+              aria-label={t('regulatoryCompliance.consumer.registry.environment.sourceEnvironment')}
+              value={form.environment}
+              disabled={Boolean(editing)}
+              onChange={event => {
+                const environment = event.target.value as MxContractEnvironment;
+                setForm(current => ({
+                  ...current,
+                  environment,
+                  status: 'draft',
+                  ift_registration_number: '',
+                  registered_at: '',
+                }));
+                setExternalRegistrationConfirmed(false);
+              }}
+            >
+              <option value="sandbox">{t('regulatoryCompliance.consumer.registry.environment.sandboxOption')}</option>
+              <option value="production">{t('regulatoryCompliance.consumer.registry.environment.productionOption')}</option>
+            </select>
+          </label>
+          <p style={{
+            margin: 0,
+            padding: 10,
+            border: `1px solid ${form.environment === 'sandbox' ? '#b45309' : '#15803d'}`,
+            background: form.environment === 'sandbox' ? '#fffbeb' : '#f0fdf4',
+            color: form.environment === 'sandbox' ? '#78350f' : '#14532d',
+            fontWeight: 600,
+          }}>
+            {t(`regulatoryCompliance.consumer.registry.environment.${form.environment}SourceWarning`)}
+          </p>
           <label>
             {t('regulatoryCompliance.consumer.registry.name')} *
             <input
@@ -961,26 +1190,30 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
               style={{ display: 'block', width: '100%', boxSizing: 'border-box', fontFamily: 'monospace' }}
             />
           </label>
-          <label>
-            {t('regulatoryCompliance.consumer.registry.registrationNumber')}
-            <input
-              aria-label={t('regulatoryCompliance.consumer.registry.registrationNumber')}
-              value={form.ift_registration_number}
-              readOnly={sourceFrozen}
-              onChange={e => setForm(f => ({ ...f, ift_registration_number: e.target.value }))}
-              style={{ display: 'block', width: '100%', boxSizing: 'border-box' }}
-            />
-          </label>
-          <label>
-            {t('regulatoryCompliance.consumer.registry.registrationDate')}
-            <input
-              aria-label={t('regulatoryCompliance.consumer.registry.registrationDate')}
-              type="date"
-              value={form.registered_at}
-              readOnly={sourceFrozen}
-              onChange={e => setForm(f => ({ ...f, registered_at: e.target.value }))}
-            />
-          </label>
+          {form.environment === 'production' && (
+            <>
+              <label>
+                {t('regulatoryCompliance.consumer.registry.registrationNumber')}
+                <input
+                  aria-label={t('regulatoryCompliance.consumer.registry.registrationNumber')}
+                  value={form.ift_registration_number}
+                  readOnly={sourceFrozen}
+                  onChange={e => setForm(f => ({ ...f, ift_registration_number: e.target.value }))}
+                  style={{ display: 'block', width: '100%', boxSizing: 'border-box' }}
+                />
+              </label>
+              <label>
+                {t('regulatoryCompliance.consumer.registry.registrationDate')}
+                <input
+                  aria-label={t('regulatoryCompliance.consumer.registry.registrationDate')}
+                  type="date"
+                  value={form.registered_at}
+                  readOnly={sourceFrozen}
+                  onChange={e => setForm(f => ({ ...f, registered_at: e.target.value }))}
+                />
+              </label>
+            </>
+          )}
           <label>
             {t('regulatoryCompliance.consumer.registry.status')}
             <select
@@ -1007,6 +1240,7 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate }: {
             </label>
           )}
           {sourceFrozen && <p>{t('regulatoryCompliance.consumer.registry.frozenEvidence')}</p>}
+          {editing && <p>{t('regulatoryCompliance.consumer.registry.environment.immutable')}</p>}
           {saveMessage && (
             <p role="alert" style={{ color: saveMessage.ok ? '#166534' : '#b91c1c' }}>{saveMessage.text}</p>
           )}

@@ -20,6 +20,7 @@ const {
   testDatabaseIsolation,
 } = require('../services/tenantDatabaseService');
 const emailSettingsService = require('../services/emailSettingsService');
+const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
 const { updateEmailSettings, testEmailSettings: testEmailSettingsSchema } = require('../middleware/schemas/emailSettings');
 const auditLog = require('../services/auditLog');
 const { AppError } = require('../utils/errors');
@@ -27,6 +28,83 @@ const logger = require('../utils/logger').child({ service: 'routes/organizations
 
 const router = Router();
 const ctrl = crudController(Organization);
+
+/**
+ * A locale selects the legal/activation workflow for NEW work.  Never change
+ * it underneath an unfinished workflow: doing so can leave a generic contract
+ * waiting for MX evidence, or an MX contract waiting on generic paperwork.
+ *
+ * The guarded controller locks the organization row before this hook runs and
+ * uses the same transaction for these reads and the eventual UPDATE.  Child
+ * inserts also reference that parent row, so their FK lock serializes with the
+ * organization lock.  Keep the lock order organization -> child rows.
+ * Historical, closed workflows intentionally do not block a change; their own
+ * source/environment snapshots remain immutable.
+ */
+async function assertLocaleChangeHasNoOpenWork(old, req, exec) {
+  if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'locale')) return;
+  if (req.body.locale === old.locale) return;
+
+  const [rows] = await exec(
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM contracts
+          WHERE organization_id = ?
+            AND status IN ('pending','active','suspended')
+            AND deleted_at IS NULL
+          LIMIT 1
+       ) AS has_nonterminal_contract,
+       EXISTS (
+         SELECT 1 FROM service_orders
+          WHERE organization_id = ?
+            AND order_type = 'new_install'
+            AND status IN ('new','in_process')
+            AND deleted_at IS NULL
+          LIMIT 1
+       ) AS has_open_new_install,
+       EXISTS (
+         SELECT 1 FROM signed_documents
+          WHERE organization_id = ?
+            AND status = 'pending'
+            AND deleted_at IS NULL
+          LIMIT 1
+       ) AS has_pending_signed_document`,
+    [old.id, old.id, old.id],
+  );
+
+  const state = rows[0] || {};
+  const blockers = [];
+  if (Number(state.has_nonterminal_contract)) blockers.push('nonterminal_contract');
+  if (Number(state.has_open_new_install)) blockers.push('open_new_install');
+  if (Number(state.has_pending_signed_document)) blockers.push('pending_signed_document');
+  if (!blockers.length) return;
+
+  const err = new AppError(
+    'Finish or cancel open contracts, new installations, and pending signing documents before changing the organization locale.',
+    409,
+    'ORG_LOCALE_CHANGE_BLOCKED',
+  );
+  err.details = {
+    current_locale: old.locale,
+    requested_locale: req.body.locale,
+    blockers,
+  };
+  throw err;
+}
+
+const localeGuardedCtrl = crudController(Organization, {
+  transactionalWrites: true,
+  beforeUpdate: assertLocaleChangeHasNoOpenWork,
+});
+
+function localeAwareUpdate(method) {
+  return (req, res, next) => {
+    const controller = Object.prototype.hasOwnProperty.call(req.body || {}, 'locale')
+      ? localeGuardedCtrl
+      : ctrl;
+    return controller[method](req, res, next);
+  };
+}
 
 router.use(authenticate);
 
@@ -102,8 +180,8 @@ async function assertCallerOwnsTargetOrg(req, res, next) {
   } catch (err) { return next(err); }
 }
 
-router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(updateOrganization), ctrl.update);
-router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(patchOrganization), ctrl.partialUpdate);
+router.put('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(updateOrganization), localeAwareUpdate('update'));
+router.patch('/:id', orgScope, requirePermission('organizations.update'), assertCallerOwnsTargetOrg, validate(patchOrganization), localeAwareUpdate('partialUpdate'));
 // Delete and restore had NO ownership guard at all, and Organization declares
 // hasOrgScope=false — so BaseModel omitted the org filter entirely (the j36
 // trap, on the organizations table itself) and any tenant admin could
@@ -345,6 +423,7 @@ router.get('/:id/mx-profile', orgScope, requirePermission('organizations.view'),
 });
 
 router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'), validate(updateOrgMxProfile), async (req, res, next) => {
+  let profileConnection = null;
   try {
     assertCallerCanManageOrgFiscal(req);
     await assertTargetOrgIsMx(req.params.id);
@@ -379,6 +458,7 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
       [req.params.id],
     );
 
+    let profile;
     if (existing[0]) {
       await db.query(
         `UPDATE organization_mx_profiles
@@ -387,21 +467,66 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
         [rfc, razon_social, regimen_fiscal, codigo_postal_fiscal, ...params, req.params.id],
       );
     } else {
-      const body = req.body;
-      await db.query(
-        `INSERT INTO organization_mx_profiles
-           (organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
-            colonia, municipio, exterior_number, interior_number,
-            profeco_registro, carta_derechos_url,
-            cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'A'), COALESCE(?, 'E'), COALESCE(?, 'P'))`,
-        [req.params.id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
-          (body.colonia ?? '').trim() || null, (body.municipio ?? '').trim() || null,
-          (body.exterior_number ?? '').trim() || null, (body.interior_number ?? '').trim() || null,
-          (body.profeco_registro ?? '').trim() || null, (body.carta_derechos_url ?? '').trim() || null,
-          (body.cfdi_serie_ingreso ?? '').trim() || null, (body.cfdi_serie_egreso ?? '').trim() || null,
-          (body.cfdi_serie_pago ?? '').trim() || null],
+      // A pre-452 registry may exist even when the fiscal profile was never
+      // created. Serialize first profile creation on the organization row and
+      // inherit that effective production lane; accepting the DB's sandbox
+      // default here would silently switch an established installation flow
+      // outside the audited environment-switch endpoint.
+      profileConnection = await db.getConnection();
+      await profileConnection.beginTransaction();
+      const [lockedOrganizations] = await profileConnection.query(
+        'SELECT id, locale FROM organizations WHERE id = ? LIMIT 1 FOR UPDATE',
+        [req.params.id],
       );
+      if (!lockedOrganizations[0] || lockedOrganizations[0].locale !== 'MX') {
+        throw new AppError('Mexican fiscal configuration is disabled for this organization.', 404, 'REGION_DISABLED');
+      }
+      const [concurrentProfiles] = await profileConnection.query(
+        'SELECT id FROM organization_mx_profiles WHERE organization_id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+        [req.params.id],
+      );
+      const body = req.body;
+      if (concurrentProfiles[0]) {
+        await profileConnection.query(
+          `UPDATE organization_mx_profiles
+              SET rfc = ?, razon_social = ?, regimen_fiscal = ?, codigo_postal_fiscal = ?${sets.length ? ', ' + sets.join(', ') : ''}
+            WHERE organization_id = ? AND deleted_at IS NULL`,
+          [rfc, razon_social, regimen_fiscal, codigo_postal_fiscal, ...params, req.params.id],
+        );
+      } else {
+        const effective = await mxRegisteredTemplateService.loadOrganizationContractEnvironment(
+          profileConnection.query.bind(profileConnection),
+          { orgId: Number(req.params.id) },
+        );
+        const contractEnvironment = effective?.contract_environment || 'sandbox';
+        await profileConnection.query(
+          `INSERT INTO organization_mx_profiles
+             (organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+              colonia, municipio, exterior_number, interior_number,
+              profeco_registro, carta_derechos_url, contract_environment,
+              cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'A'), COALESCE(?, 'E'), COALESCE(?, 'P'))`,
+          [req.params.id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+            (body.colonia ?? '').trim() || null, (body.municipio ?? '').trim() || null,
+            (body.exterior_number ?? '').trim() || null, (body.interior_number ?? '').trim() || null,
+            (body.profeco_registro ?? '').trim() || null, (body.carta_derechos_url ?? '').trim() || null,
+            contractEnvironment,
+            (body.cfdi_serie_ingreso ?? '').trim() || null, (body.cfdi_serie_egreso ?? '').trim() || null,
+            (body.cfdi_serie_pago ?? '').trim() || null],
+        );
+      }
+      const [profileRows] = await profileConnection.query(
+        `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
+                colonia, municipio, exterior_number, interior_number,
+                profeco_registro, carta_derechos_url,
+                cfdi_serie_ingreso, cfdi_serie_egreso, cfdi_serie_pago, cfdi_folio_next,
+                created_at, updated_at
+           FROM organization_mx_profiles
+          WHERE organization_id = ? AND deleted_at IS NULL`,
+        [req.params.id],
+      );
+      profile = profileRows[0];
+      await profileConnection.commit();
     }
 
     await auditLog.log({
@@ -410,7 +535,7 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
       summary: `Updated MX fiscal profile (emisor) for org ${req.params.id}`,
     });
 
-    const [rows] = await db.query(
+    const [rows] = profile ? [[profile]] : await db.query(
       `SELECT id, organization_id, rfc, razon_social, regimen_fiscal, codigo_postal_fiscal,
               colonia, municipio, exterior_number, interior_number,
               profeco_registro, carta_derechos_url,
@@ -422,7 +547,10 @@ router.put('/:id/mx-profile', orgScope, requirePermission('organizations.update'
     );
     res.json({ data: rows[0] });
   } catch (err) {
+    if (profileConnection) await profileConnection.rollback().catch(() => {});
     next(err);
+  } finally {
+    if (profileConnection) profileConnection.release();
   }
 });
 

@@ -1092,13 +1092,22 @@ describe('MX registered contract-template evidence guards', () => {
 
   it('requires official registration metadata before creating a registered record', async () => {
     mockDbAuth();
+    const baseQuery = db.query.getMockImplementation();
+    db.query.mockImplementation((sql, params) => {
+      if (/SELECT o\.locale,/.test(String(sql))) {
+        return Promise.resolve([[
+          { locale: 'MX', contract_environment: 'production', mx_profile_id: 12 },
+        ]]);
+      }
+      return baseQuery(sql, params);
+    });
     const res = await request(app)
       .post('/api/v1/consumer-protection/contract-templates-mx')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '10')
       .send({
         template_name: 'Contrato 2026', template_body: 'Texto oficial',
-        version: '1.0', status: 'registered',
+        version: '1.0', environment: 'production', status: 'registered',
       });
 
     expect(res.status).toBe(422);
@@ -1119,7 +1128,7 @@ describe('MX registered contract-template evidence guards', () => {
           id: 71, organization_id: 10, template_name: 'Contrato 2026',
           ift_registration_number: 'IFT-2026-001', registered_at: '2026-01-15',
           version: '1.0', template_body: 'Texto oficial', status: 'registered',
-          deleted_at: null,
+          environment: 'production', deleted_at: null,
         }]];
       }
       return [[]];

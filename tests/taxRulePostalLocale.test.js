@@ -30,7 +30,12 @@ jest.mock('../src/middleware/rbac', () => ({
   userHasPermission: async () => true,
 }));
 jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
-jest.mock('../src/models/Organization', () => ({ getLocale: jest.fn(), getCurrency: jest.fn() }));
+jest.mock('../src/models/Organization', () => ({
+  getLocale: jest.fn(),
+  getCurrency: jest.fn(),
+  update: jest.fn(),
+  findById: jest.fn(),
+}));
 
 const db = require('../src/config/database');
 const Organization = require('../src/models/Organization');

@@ -228,6 +228,9 @@ describe('POST /contracts/:id/renew', () => {
           plan_id: 2, organization_id: 1, first_activated_at: null,
         },
       ]])
+      .mockResolvedValueOnce([[
+        { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+      ]]) // current organization jurisdiction
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded terminal -> pending
       .mockResolvedValueOnce([[
         {
@@ -266,6 +269,9 @@ describe('POST /contracts/:id/renew', () => {
           test_window_expires_at: null, test_window_cleanup_pending: 0,
         },
       ]])
+      .mockResolvedValueOnce([[
+        { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+      ]]) // current organization jurisdiction
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // radius inactive
       .mockResolvedValueOnce([{ affectedRows: 1 }]) // guarded terminal -> pending
       .mockResolvedValueOnce([[
@@ -320,6 +326,112 @@ describe('POST /contracts/:id/renew', () => {
   test('returns 401 without a token', async () => {
     const res = await request(app).post('/api/v1/contracts/5/renew').send({});
     expect(res.status).toBe(401);
+  });
+
+  test('never-activated sandbox renewal is blocked in production before cleanup or reset', async () => {
+    const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow');
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 19, status: 'cancelled', connection_type: 'static', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+          contract_template_mx_id: 71,
+          mx_contract_environment: 'sandbox',
+        },
+      ]])
+      .mockResolvedValueOnce([[
+        { locale: 'MX', contract_environment: 'production', mx_profile_id: 4 },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/19/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/sandbox.*production|production.*sandbox/i);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE contracts SET/.test(String(sql))))
+      .toBe(false);
+    expect(contractActivationService.renewPreviouslyActivated).not.toHaveBeenCalled();
+  });
+
+  test('never-activated source-free renewal is blocked after the organization becomes Mexican', async () => {
+    const cleanup = jest.spyOn(testWindowService, 'cleanupMarkedWindow');
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 22, status: 'cancelled', connection_type: 'static', client_id: 3,
+          plan_id: 2, organization_id: 1, first_activated_at: null,
+          contract_template_mx_id: null, mx_contract_environment: null,
+        },
+      ]])
+      .mockResolvedValueOnce([[
+        { locale: 'MX', contract_environment: 'sandbox', mx_profile_id: 4 },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/22/renew')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/frozen MX contract source.*environment|classified MX contract/i);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE contracts SET/.test(String(sql))))
+      .toBe(false);
+    expect(contractActivationService.renewPreviouslyActivated).not.toHaveBeenCalled();
+  });
+});
+
+describe('sandbox contract restore and legacy snapshot guards', () => {
+  test('does not restore an archived pending sandbox contract in production', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 20, organization_id: 1, status: 'pending', deleted_at: '2026-08-01',
+          contract_template_mx_id: 71,
+          mx_contract_environment: 'sandbox',
+        },
+      ]])
+      .mockResolvedValueOnce([[
+        { locale: 'MX', contract_environment: 'production', mx_profile_id: 4 },
+      ]]);
+
+    const res = await request(app)
+      .post('/api/v1/contracts/20/restore')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/sandbox.*production|production.*sandbox/i);
+    expect(db.query.mock.calls.some(([sql]) => /SET deleted_at = NULL/.test(String(sql))))
+      .toBe(false);
+  });
+
+  test('generic PATCH cannot choose a lane for a legacy NULL-environment contract', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active', organization_id: 1 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 21, organization_id: 1, client_id: 3, plan_id: 2,
+          status: 'pending', contract_template_mx_id: null,
+          mx_contract_environment: null, connection_type: 'static',
+        },
+      ]]);
+
+    const res = await request(app)
+      .patch('/api/v1/contracts/21')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ contract_template_mx_id: 71 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/no frozen MX environment.*cannot be initialized/i);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE `contracts`/.test(String(sql))))
+      .toBe(false);
   });
 });
 

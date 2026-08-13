@@ -33,7 +33,7 @@ const router = Router();
 const ctrl = crudController(Contract);
 
 const ACTIVATION_FROZEN_FIELDS = new Set([
-  'client_id', 'plan_id', 'contract_template_mx_id', 'connection_type',
+  'client_id', 'plan_id', 'contract_template_mx_id', 'mx_contract_environment', 'connection_type',
   'start_date', 'end_date', 'billing_day', 'price_override', 'ip_address',
   'facturar', 'status',
 ]);
@@ -71,16 +71,20 @@ function comparableContractValue(field, value) {
   return String(value);
 }
 
-async function assertFacturarJurisdiction(body, orgId, runner = db) {
+async function assertFacturarJurisdiction(body, orgId, runner = db, organization = null) {
   if (body.facturar !== true && Number(body.facturar) !== 1) return;
   if (orgId === null || orgId === undefined) {
     throw new ValidationError('facturar is available only for Mexican organizations');
   }
-  const [rows] = await runner.query(
-    'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
-    [orgId],
-  );
-  if (rows[0]?.locale !== 'MX') {
+  let resolvedOrganization = organization;
+  if (!resolvedOrganization) {
+    const [rows] = await runner.query(
+      'SELECT locale FROM organizations WHERE id = ? LIMIT 1',
+      [orgId],
+    );
+    [resolvedOrganization] = rows;
+  }
+  if (resolvedOrganization?.locale !== 'MX') {
     throw new ValidationError('facturar is available only for Mexican organizations');
   }
 }
@@ -154,6 +158,11 @@ async function updateContractHandler(req, res, next) {
   let retainedCleanup = null;
   try {
     const old = await Contract.findByIdOrFail(req.params.id, req.orgId);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'mx_contract_environment')) {
+      throw new ValidationError(
+        'mx_contract_environment is server-managed and immutable; create a new contract in the other environment',
+      );
+    }
     await assertFacturarJurisdiction(req.body, req.orgId);
 
     // No generic form may turn service on. Each source status has a dedicated
@@ -204,10 +213,41 @@ async function updateContractHandler(req, res, next) {
     if (req.body.contract_template_mx_id !== undefined) {
       const changesRegisteredSource = Number(req.body.contract_template_mx_id)
         !== Number(old.contract_template_mx_id);
-      if (old.first_activated_at && changesRegisteredSource) {
+      const initializesFrozenEnvironment = !old.mx_contract_environment;
+      const changesFrozenSnapshot = changesRegisteredSource || initializesFrozenEnvironment;
+      if (old.first_activated_at && changesFrozenSnapshot) {
         throw new ValidationError(
           'The registered MX contract template is immutable after first activation; use a dedicated re-contracting and signature workflow',
         );
+      }
+      // Migration 452 initializes every source-linked legacy row. A remaining
+      // NULL lane is therefore unclassified/corrupt history. Do not let a
+      // generic PATCH choose its provenance based on a mode read that can race
+      // the environment switch; cancel it and create a correctly classified
+      // contract through the normal flow instead.
+      if (initializesFrozenEnvironment) {
+        throw new ValidationError(
+          'This legacy contract has no frozen MX environment and cannot be initialized by PATCH; cancel it and create a new classified contract',
+        );
+      }
+      if (changesFrozenSnapshot) {
+        if (old.status !== 'pending') {
+          throw new ValidationError(
+            'The registered MX contract template can only be initialized or changed while the contract is pending',
+          );
+        }
+        const [documentHistory] = await db.query(
+          `SELECT id
+             FROM signed_documents
+            WHERE organization_id = ? AND contract_id = ?
+            LIMIT 1`,
+          [req.orgId, old.id],
+        );
+        if (documentHistory.length) {
+          throw new ValidationError(
+            'The registered MX contract template is immutable after contract documents have been generated; use a dedicated re-contracting and signature workflow',
+          );
+        }
       }
       if (!old.first_activated_at) {
         const activeMxSource = await mxRegisteredTemplateService.resolveActiveContractSource(
@@ -215,6 +255,7 @@ async function updateContractHandler(req, res, next) {
           {
             orgId: req.orgId,
             contractTemplateMxId: req.body.contract_template_mx_id,
+            contractEnvironment: old.mx_contract_environment || undefined,
           },
         );
         // Optional validation permits an explicit null. Normalize every
@@ -222,6 +263,15 @@ async function updateContractHandler(req, res, next) {
         // PATCH {contract_template_mx_id:null} cannot clear an MX contract;
         // global organizations deliberately normalize to null.
         req.body.contract_template_mx_id = activeMxSource?.contractTemplateMxId ?? null;
+        if (old.mx_contract_environment
+            && activeMxSource?.contractEnvironment !== old.mx_contract_environment) {
+          throw new ValidationError(
+            'The registered source must remain in the contract\'s frozen MX environment',
+          );
+        }
+        // This is an internal coupled snapshot write; client-supplied values
+        // were rejected above and the already-frozen lane is preserved.
+        req.body.mx_contract_environment = old.mx_contract_environment;
       }
     }
 
@@ -473,7 +523,25 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
     await conn.beginTransaction();
 
     if (req.orgId) req.body.organization_id = req.orgId;
-    await assertFacturarJurisdiction(req.body, req.orgId, conn);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'mx_contract_environment')) {
+      throw new ValidationError('mx_contract_environment is server-managed');
+    }
+    // Take the same organization/profile lock used by locale changes and the
+    // contract-environment switch before any locale-dependent validation.
+    // The later source resolver reuses the transaction and may safely lock the
+    // same rows again; no stale MX check can commit after a locale change.
+    const lockedOrganization = await mxRegisteredTemplateService
+      .loadOrganizationContractEnvironment(conn.query.bind(conn), {
+        orgId: req.orgId,
+        lock: true,
+      });
+    if (!lockedOrganization) throw new ValidationError('Contract organization does not exist');
+    await assertFacturarJurisdiction(
+      req.body,
+      req.orgId,
+      conn,
+      lockedOrganization,
+    );
 
     // Build the contract insert from fillable columns (transactional write).
     const filtered = {};
@@ -506,8 +574,10 @@ router.post('/', requirePermission('contracts.create'), validate(createContract)
     );
     if (activeMxSource) {
       filtered.contract_template_mx_id = activeMxSource.contractTemplateMxId;
+      filtered.mx_contract_environment = activeMxSource.contractEnvironment;
     } else {
       delete filtered.contract_template_mx_id;
+      delete filtered.mx_contract_environment;
     }
 
     // Reject a client_id that does not belong to this organization (security
@@ -607,6 +677,18 @@ router.delete('/:id', requirePermission('contracts.delete'), async (req, res, ne
 });
 router.post('/:id/restore', requirePermission('contracts.update'), async (req, res, next) => {
   try {
+    const [archivedRows] = await db.query(
+      `SELECT * FROM contracts
+        WHERE id = ? AND organization_id = ? AND deleted_at IS NOT NULL
+        LIMIT 1`,
+      [req.params.id, req.orgId],
+    );
+    if (archivedRows[0]) {
+      await mxRegisteredTemplateService.assertSandboxContractCanResume(
+        db.query.bind(db),
+        { contract: archivedRows[0], context: 'Archived contract' },
+      );
+    }
     const record = await Contract.restore(req.params.id, req.orgId);
     topologyContextService.invalidate(record.id, 'contract')
       .catch(err => logger.warn({ err: err.message, contractId: record.id }, 'topology invalidate failed on contract restore'));
@@ -716,6 +798,10 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
     // the guided activation flow. Existing/imported subscribers carry the
     // durable marker and continue through the ordinary direct-renew path.
     if (!contract.first_activated_at) {
+      await mxRegisteredTemplateService.assertSandboxContractCanResume(
+        db.query.bind(db),
+        { contract, context: 'Contract renewal' },
+      );
       const pppoe = provisioningService.isPppoe(contract.connection_type);
       // A never-activated terminal PPPoE record may be a pre-window legacy
       // line with a local RouterOS secret despite carrying no marker. Always
@@ -752,10 +838,15 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       const [reset] = await db.query(
         `UPDATE contracts SET ${resetSets.join(', ')}
           WHERE id = ? AND organization_id = ? AND status = ?
-            AND first_activated_at IS NULL AND deleted_at IS NULL`,
+            AND first_activated_at IS NULL AND deleted_at IS NULL
+            AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
         [...resetParams, contract.id, req.orgId, contract.status],
       );
       if (reset.affectedRows !== 1) {
+        await mxRegisteredTemplateService.assertSandboxContractCanResume(
+          db.query.bind(db),
+          { contract, context: 'Contract renewal' },
+        );
         throw new ValidationError('Contract renewal was modified concurrently — reload and retry');
       }
       const record = await Contract.findByIdOrFail(contract.id, req.orgId);

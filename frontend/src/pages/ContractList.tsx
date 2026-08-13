@@ -14,7 +14,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, authedFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 import { MxRegisteredContractSourceField } from '@/components/MxRegisteredContractSourceField';
+import {
+  MxContractEnvironmentBadge,
+  MxSandboxDocumentBanner,
+  type MxContractEnvironment,
+} from '@/components/MxContractEnvironment';
+import { extractApiError } from '@/components/ClientFormModal';
 import { useTableSort, SortableTh } from '@/components/SortableTh';
 import { Pagination } from '@/components/Pagination';
 
@@ -35,6 +42,7 @@ interface Contract {
   status: string;
   facturar: boolean | number | null;
   contract_template_mx_id: number | null;
+  mx_contract_environment?: MxContractEnvironment | null;
   notes: string | null;
   escalation_enabled: boolean | number | null;
   escalate_on_disconnect: boolean | number | null;
@@ -234,8 +242,11 @@ async function postContractAction(
 }
 
 async function createContract(body: CreateContractBody): Promise<number> {
-  const res = await api.POST('/contracts', { body: body as never });
-  if (res.error) throw new Error('Failed to create contract');
+  const res = await api.POST('/contracts', { body: body as never }) as unknown as {
+    data?: unknown;
+    error?: unknown;
+  };
+  if (res.error) throw new Error(extractApiError(res.error, 'Failed to create contract'));
   return Number((res.data as unknown as { data: { id: number } }).data.id);
 }
 
@@ -263,8 +274,8 @@ async function updateContract(id: number, body: UpdateContractBody): Promise<voi
   const res = await api.PUT('/contracts/{id}', {
     params: { path: { id } },
     body: body as never,
-  });
-  if (res.error) throw new Error('Failed to update contract');
+  }) as unknown as { error?: unknown };
+  if (res.error) throw new Error(extractApiError(res.error, 'Failed to update contract'));
 }
 
 async function deleteContract(id: number): Promise<void> {
@@ -407,8 +418,10 @@ function NewContractModal({ plans, clients, isMxOrg, onClose, onCreated }: NewCo
       const contractId = await createContract(body);
       onCreated(contractId);
       onClose();
-    } catch {
-      setError('Failed to create contract. Check all fields and try again.');
+    } catch (cause) {
+      setError(cause instanceof Error
+        ? cause.message
+        : 'Failed to create contract. Check all fields and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -618,11 +631,12 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 
 interface RenewModalProps {
   contractId: number;
+  contractEnvironment?: MxContractEnvironment | null;
   onClose: () => void;
   onRenewed: (result: ContractActionResult) => void;
 }
 
-function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
+function RenewModal({ contractId, contractEnvironment, onClose, onRenewed }: RenewModalProps) {
   const [endDate, setEndDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -655,9 +669,11 @@ function RenewModal({ contractId, onClose, onRenewed }: RenewModalProps) {
       >
         <div style={modalStyles.header}>
           <h2 id="renew-title" style={modalStyles.title}>🔄 Renew Contract</h2>
+          {contractEnvironment && <MxContractEnvironmentBadge environment={contractEnvironment} />}
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
         </div>
         <form onSubmit={handleSubmit} style={modalStyles.form}>
+          <MxSandboxDocumentBanner environment={contractEnvironment} />
           <label style={modalStyles.label}>
             New End Date (leave blank for month-to-month)
             <input
@@ -696,7 +712,10 @@ interface EditContractModalProps {
 
 function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditContractModalProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const mayResolveMxSource = can(user, 'document_templates.view')
+    && can(user, 'contract_templates_mx.view');
   const connectionOptions = ['pppoe', 'pppoe_dual'].includes(contract.connection_type ?? '')
     ? [
       { value: 'pppoe', label: 'PPPoE' },
@@ -758,7 +777,7 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
       // The generic Edit form must never be an activation/suspension bypass.
       if (isMxOrg) {
         body.facturar = form.facturar;
-        if (contract.status === 'pending') {
+        if (contract.status === 'pending' && mayResolveMxSource) {
           body.contract_template_mx_id = Number(form.contract_template_mx_id);
         }
       }
@@ -773,13 +792,15 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
       onSaved();
       onClose();
     },
-    onError: () => setError('Failed to update contract. Check all fields and try again.'),
+    onError: (cause) => setError(cause instanceof Error
+      ? cause.message
+      : 'Failed to update contract. Check all fields and try again.'),
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    if (isMxOrg && contract.status === 'pending'
+    if (isMxOrg && contract.status === 'pending' && mayResolveMxSource
         && (!mxSourceAvailable || !form.contract_template_mx_id)) {
       setError(t('mxContractSource.required'));
       return;
@@ -853,15 +874,19 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
             <input style={modalStyles.input} type="number" min={0} step="0.01" value={form.price_override} onChange={e => setField('price_override', e.target.value)} />
           </label>
 
-          {isMxOrg && contract.status === 'pending' && (
+          {isMxOrg && contract.status === 'pending' && mayResolveMxSource && (
             <MxRegisteredContractSourceField
               value={form.contract_template_mx_id}
               onChange={value => setField('contract_template_mx_id', value)}
               onAvailabilityChange={setMxSourceAvailable}
+              frozenEnvironment={contract.mx_contract_environment}
               disabled={mutation.isPending}
               labelStyle={modalStyles.label}
               selectStyle={modalStyles.select}
             />
+          )}
+          {isMxOrg && contract.status === 'pending' && !mayResolveMxSource && (
+            <p style={modalStyles.hint}>{t('mxContractSource.preservedOnEditHint')}</p>
           )}
 
           {isMxOrg && (
@@ -946,7 +971,7 @@ function EditContractModal({ contract, plans, isMxOrg, onClose, onSaved }: EditC
             <button
               type="submit"
               style={styles.btnPrimary}
-              disabled={mutation.isPending || (isMxOrg && contract.status === 'pending'
+              disabled={mutation.isPending || (isMxOrg && contract.status === 'pending' && mayResolveMxSource
                 && (!mxSourceAvailable || !form.contract_template_mx_id))}
             >
               {mutation.isPending ? 'Saving…' : 'Save Changes'}
@@ -1100,8 +1125,13 @@ function ContractDetailModal({ contract, plans, onClose }: ContractDetailModalPr
           <h2 id="contract-detail-title" style={modalStyles.title}>
             🔑 {t('contractList.credentials')} — #{contract.id}
           </h2>
+          {contract.mx_contract_environment && (
+            <MxContractEnvironmentBadge environment={contract.mx_contract_environment} />
+          )}
           <button style={modalStyles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
         </div>
+
+        <MxSandboxDocumentBanner environment={contract.mx_contract_environment} />
 
         {/* Contract summary */}
         <div style={detailStyles.summary}>
@@ -1164,7 +1194,7 @@ export function ContractList() {
   const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
-  const [renewId, setRenewId] = useState<number | null>(null);
+  const [renewContract, setRenewContract] = useState<Contract | null>(null);
   const [editContract, setEditContract] = useState<Contract | null>(null);
   const [detailContract, setDetailContract] = useState<Contract | null>(null);
   const [renewNetworkWarning, setRenewNetworkWarning] = useState<{ contractId: number; message: string } | null>(null);
@@ -1328,6 +1358,7 @@ export function ContractList() {
                     <SortableTh label={t('contractList.table.end')} col="end_date" sort={sort} style={styles.th} />
                     <SortableTh label={t('contractList.table.billingDay')} col="billing_day" sort={sort} style={styles.th} />
                     <th style={styles.th}>{t('contractList.table.ip')}</th>
+                    <th style={styles.th}>{t('contractList.table.environment')}</th>
                     <SortableTh label={t('contractList.table.status')} col="status" sort={sort} style={styles.th} />
                     <th style={styles.th}>{t('contractList.table.actions')}</th>
                   </tr>
@@ -1342,7 +1373,7 @@ export function ContractList() {
                       onSuspend={() => setConfirm({ type: 'suspend', contractId: c.id })}
                       onTerminate={() => setConfirm({ type: 'terminate', contractId: c.id })}
                       onCancel={() => setConfirm({ type: 'cancel', contractId: c.id, pending: c.status === 'pending' })}
-                      onRenew={() => setRenewId(c.id)}
+                      onRenew={() => setRenewContract(c)}
                       onEdit={() => setEditContract(c)}
                       onDelete={() => setConfirm({ type: 'delete', contractId: c.id })}
                       onCredentials={() => setDetailContract(c)}
@@ -1379,16 +1410,17 @@ export function ContractList() {
         />
       )}
 
-      {renewId !== null && (
+      {renewContract && (
         <RenewModal
-          contractId={renewId}
-          onClose={() => setRenewId(null)}
+          contractId={renewContract.id}
+          contractEnvironment={renewContract.mx_contract_environment}
+          onClose={() => setRenewContract(null)}
           onRenewed={(result) => {
             void queryClient.invalidateQueries({ queryKey: ['contracts'] });
-            if (result.activation_required) navigate(`/contracts/${renewId}`);
+            if (result.activation_required) navigate(`/contracts/${renewContract.id}`);
             else if (result.network_activation?.nas_push_error) {
               setRenewNetworkWarning({
-                contractId: renewId,
+                contractId: renewContract.id,
                 message: result.network_activation.nas_push_error,
               });
             }
@@ -1461,9 +1493,13 @@ function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, o
   const canCancel = c.status !== 'cancelled' && c.status !== 'terminated' && c.status !== 'expired';
   const canRenew = c.status === 'suspended' || c.status === 'cancelled' || c.status === 'expired' || c.status === 'terminated';
   const canDelete = c.status === 'cancelled' || c.status === 'terminated' || c.status === 'expired';
+  const isSandbox = c.mx_contract_environment === 'sandbox';
 
   return (
-    <tr style={styles.tr}>
+    <tr
+      style={{ ...styles.tr, ...(isSandbox ? { background: '#fffbeb' } : {}) }}
+      data-contract-environment={c.mx_contract_environment ?? undefined}
+    >
       <td style={styles.td}>
         <Link
           to={`/contracts/${c.id}`}
@@ -1490,6 +1526,11 @@ function ContractRow({ contract: c, plans, clientName, onSuspend, onTerminate, o
       <td style={styles.td}>{fmt(c.end_date)}</td>
       <td style={styles.td}>{c.billing_day ?? '—'}</td>
       <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: '0.78rem' }}>{c.ip_address || '—'}</td>
+      <td style={styles.td}>
+        {c.mx_contract_environment
+          ? <MxContractEnvironmentBadge environment={c.mx_contract_environment} />
+          : '—'}
+      </td>
       <td style={styles.td}><StatusBadge status={c.status} /></td>
       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
         <button

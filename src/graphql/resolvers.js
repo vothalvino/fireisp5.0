@@ -273,6 +273,7 @@ const resolvers = {
     billingDay: (c) => c.billing_day,
     ipAddress: (c) => c.ip_address,
     priceOverride: (c) => c.price_override,
+    mxContractEnvironment: (c) => c.mx_contract_environment,
     createdAt: (c) => c.created_at,
 
     client: (contract, _args, ctx) =>

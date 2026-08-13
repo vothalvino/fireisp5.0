@@ -786,6 +786,11 @@ describe('importController — deep', () => {
     // dual do not).
     beforeEach(() => {
       mockConnection.query = jest.fn().mockImplementation((sql) => {
+        if (/FROM organizations o/.test(sql)) {
+          return Promise.resolve([[
+            { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+          ]]);
+        }
         if (/^INSERT INTO contracts/.test(sql)) return Promise.resolve([{ insertId: 1 }]);
         if (/^SELECT name FROM clients/.test(sql)) return Promise.resolve([[{ name: 'Client' }]]);
         if (/^SELECT id FROM radius WHERE username/.test(sql)) return Promise.resolve([[]]);
@@ -838,6 +843,11 @@ describe('importController — deep', () => {
       const csv = 'client_id,plan_id\n1,2\n3,4';
       let insertCount = 0;
       mockConnection.query = jest.fn().mockImplementation((sql) => {
+        if (/FROM organizations o/.test(sql)) {
+          return Promise.resolve([[
+            { locale: 'global', contract_environment: 'sandbox', mx_profile_id: null },
+          ]]);
+        }
         if (/^INSERT INTO contracts/.test(sql)) {
           insertCount += 1;
           if (insertCount === 2) return Promise.reject(new Error('FK constraint'));
