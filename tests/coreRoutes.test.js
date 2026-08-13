@@ -21,6 +21,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const config = require('../src/config');
 const db = require('../src/config/database');
+const testWindowService = require('../src/services/testWindowService');
 const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const User = require('../src/models/User');
 const app = require('../src/app');
@@ -307,6 +308,55 @@ describe('Contract Routes — /api/contracts', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('suspended');
+    });
+
+    test('a pristine pending PPPoE browser status edit does not invent a cleanup marker', async () => {
+      mockAuthUser();
+      const old = {
+        ...mockContract,
+        status: 'pending',
+        connection_type: 'pppoe',
+        first_activated_at: null,
+        test_window_expires_at: null,
+        test_window_cleanup_pending: 0,
+      };
+      const conn = {
+        query: jest.fn(), beginTransaction: jest.fn(), commit: jest.fn(),
+        rollback: jest.fn(), release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValueOnce(conn);
+      db.query.mockResolvedValueOnce([[old]]);
+      conn.query.mockImplementation(async (rawSql) => {
+        const sql = String(rawSql).replace(/\s+/g, ' ');
+        if (/SELECT \* FROM contracts/.test(sql) && /FOR UPDATE/.test(sql)) return [[old]];
+        if (/SELECT \* FROM radius/.test(sql) && /FOR UPDATE/.test(sql)) {
+          return [[{
+            id: 9, contract_id: 1, username: 'fresh_1', status: 'inactive',
+            nas_id: null, deleted_at: null,
+          }]];
+        }
+        if (/AS external_cleanup_required/.test(sql)) {
+          return [[{ external_cleanup_required: 0 }]];
+        }
+        if (/^UPDATE `contracts`/.test(sql)) return [{ affectedRows: 1 }];
+        if (/FROM `contracts`/.test(sql)) {
+          return [[{ ...old, status: 'cancelled' }]];
+        }
+        return [{ affectedRows: 0 }];
+      });
+      const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup');
+
+      const res = await request(app)
+        .patch('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ connection_type: 'pppoe', status: 'cancelled' });
+
+      expect(res.status).toBe(200);
+      expect(finalize).not.toHaveBeenCalled();
+      const pristineWrite = conn.query.mock.calls.find(([sql]) =>
+        /test_window_cleanup_pending = 0/.test(String(sql)));
+      expect(pristineWrite).toBeDefined();
+      expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
     test('global organizations cannot enable the MX-only facturar flag on update', async () => {
@@ -686,6 +736,50 @@ describe('Contract Routes — /api/contracts', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(204);
+    });
+
+    test('deletes a pristine cancelled PPPoE contract without leaving a soft-deleted sweep marker', async () => {
+      mockAuthUser();
+      const old = {
+        ...mockContract,
+        status: 'cancelled',
+        first_activated_at: null,
+        test_window_expires_at: null,
+        test_window_cleanup_pending: 0,
+      };
+      const conn = {
+        query: jest.fn(), beginTransaction: jest.fn(), commit: jest.fn(),
+        rollback: jest.fn(), release: jest.fn(),
+      };
+      db.getConnection.mockResolvedValueOnce(conn);
+      db.query.mockResolvedValueOnce([[old]]);
+      conn.query.mockImplementation(async (rawSql) => {
+        const sql = String(rawSql).replace(/\s+/g, ' ');
+        if (/SELECT \* FROM contracts/.test(sql) && /FOR UPDATE/.test(sql)) return [[old]];
+        if (/SELECT \* FROM radius/.test(sql) && /FOR UPDATE/.test(sql)) {
+          return [[{
+            id: 9, contract_id: 1, username: 'fresh_1', status: 'inactive',
+            nas_id: null, deleted_at: null,
+          }]];
+        }
+        if (/AS external_cleanup_required/.test(sql)) {
+          return [[{ external_cleanup_required: 0 }]];
+        }
+        if (/deleted_at = NOW\(\)/.test(sql)) return [{ affectedRows: 1 }];
+        return [{ affectedRows: 0 }];
+      });
+      const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup');
+
+      const res = await request(app)
+        .delete('/api/contracts/1')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(204);
+      expect(finalize).not.toHaveBeenCalled();
+      const pristineWrite = conn.query.mock.calls.find(([sql]) =>
+        /test_window_cleanup_pending = 0/.test(String(sql)));
+      expect(String(pristineWrite[0])).toMatch(/test_window_expires_at = NULL/);
+      expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
     test.each([

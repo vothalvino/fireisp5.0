@@ -259,6 +259,7 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
   const conn = await db.getConnection();
   let activationRequired = false;
   let cleanupRequired = false;
+  let cleanupRadius = null;
   try {
     await conn.beginTransaction();
 
@@ -269,8 +270,10 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
     // status trigger locks that same organization, and MariaDB rejects the
     // statement with error 1442 when its invoking UPDATE already reads it.
     const [lockedStates] = await conn.execute(
-      `SELECT status, first_activated_at, organization_id, client_id,
-              contract_template_mx_id, mx_contract_environment
+      `SELECT id, status, first_activated_at, organization_id, client_id,
+              contract_template_mx_id, mx_contract_environment,
+              connection_type, test_window_expires_at,
+              test_window_cleanup_pending, test_window_cleanup_attempted_at
          FROM contracts
         WHERE id = ? AND deleted_at IS NULL${orgClause} FOR UPDATE`,
       [contractId, ...orgParams],
@@ -299,26 +302,38 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
       );
     } else {
       // The only alternative accepted here is a suspended line that has never
-      // crossed the activation boundary. Every PPPoE reset gets durable
-      // cleanup, even without a window marker: pre-feature provisioning may
-      // already have pushed an unbounded RouterOS local secret. Static/dual
-      // rows have no RADIUS/NAS window and clear impossible stale state.
-      const [cleanPppoeReset] = await conn.execute(
-        `UPDATE contracts
-            SET status = 'pending', test_window_cleanup_pending = 1,
-                test_window_cleanup_attempted_at = NULL,
-                test_window_expires_at = NULL
-          WHERE id = ? AND status = 'suspended'
-            AND first_activated_at IS NULL
-            AND connection_type IN ('pppoe','pppoe_dual')
-            AND test_window_expires_at IS NULL AND test_window_cleanup_pending = 0
-            AND deleted_at IS NULL${orgClause}`,
-        [contractId, ...orgParams],
-      );
-      let pppoeReset = cleanPppoeReset.affectedRows === 1;
-      if (pppoeReset) cleanupRequired = true;
-      let resetApplied = pppoeReset;
-      if (!resetApplied) {
+      // crossed the activation boundary. Classify PPPoE evidence while the
+      // contract and every RADIUS identity are locked; only the exact pristine
+      // shape may return to pending without a durable cleanup marker.
+      const pppoeReset = lockedState?.status === 'suspended'
+        && !lockedState.first_activated_at
+        && ['pppoe', 'pppoe_dual'].includes(lockedState.connection_type);
+      const neverActivatedSuspended = lockedState?.status === 'suspended'
+        && !lockedState.first_activated_at;
+      let resetApplied = false;
+      if (pppoeReset) {
+        const testWindowService = require('./testWindowService');
+        const cleanupPreparation = await testWindowService.prepareExternalCleanup(
+          conn,
+          contractId,
+          {
+            orgId,
+            expectedStatuses: ['suspended'],
+            expectedConnectionTypes: [lockedState.connection_type],
+            requireNeverActivated: true,
+          },
+        );
+        cleanupRequired = cleanupPreparation.cleanup_required;
+        cleanupRadius = cleanupPreparation.radius;
+        const [reset] = await conn.execute(
+          `UPDATE contracts SET status = 'pending'
+            WHERE id = ? AND status = 'suspended'
+              AND first_activated_at IS NULL AND deleted_at IS NULL${orgClause}`,
+          [contractId, ...orgParams],
+        );
+        resetApplied = reset.affectedRows === 1;
+      }
+      if (!resetApplied && neverActivatedSuspended && !pppoeReset) {
         const [nonPppoeReset] = await conn.execute(
           `UPDATE contracts
               SET status = 'pending', test_window_cleanup_pending = 0,
@@ -331,38 +346,8 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
         );
         resetApplied = nonPppoeReset.affectedRows === 1;
       }
-      if (!resetApplied) {
-        const [windowedPppoeReset] = await conn.execute(
-          `UPDATE contracts
-              SET status = 'pending', test_window_cleanup_pending = 1,
-                  test_window_expires_at = COALESCE(
-                    test_window_expires_at, DATE_SUB(NOW(), INTERVAL 1 SECOND)
-                  )
-            WHERE id = ? AND status = 'suspended'
-              AND first_activated_at IS NULL
-              AND connection_type IN ('pppoe','pppoe_dual')
-              AND (test_window_expires_at IS NOT NULL OR test_window_cleanup_pending = 1)
-              AND deleted_at IS NULL${orgClause}`,
-          [contractId, ...orgParams],
-        );
-        pppoeReset = windowedPppoeReset.affectedRows === 1;
-        resetApplied = pppoeReset;
-        cleanupRequired = pppoeReset;
-      }
       if (resetApplied) {
         activationRequired = true;
-        if (pppoeReset) {
-          await conn.execute(
-            "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
-            [contractId],
-          );
-          const radiusService = require('./radiusService');
-          await radiusService.syncFreeradiusContract(contractId, {
-            organizationId: orgId,
-            enabled: false,
-            runner: conn,
-          });
-        }
       } else {
         // Soft/walled-garden suspension deliberately leaves an already-live
         // contract active. Preserve that established reconnect use case, but
@@ -425,8 +410,10 @@ async function reconnectContract(contractId, userId, invoiceId, { orgId = null }
     // The durable marker remains set on failure for the scheduled sweep.
     if (cleanupRequired) {
       const testWindowService = require('./testWindowService');
-      await testWindowService.cleanupMarkedWindow(contractId, {
-        orgId, reason: 'first_activation_reset', requireMarker: true,
+      await testWindowService.finalizeMarkedCleanup(contractId, {
+        orgId,
+        radius: cleanupRadius,
+        reason: 'first_activation_reset',
       }).catch(err => logger.warn(
         { err: err.message, contractId },
         'Never-activated reconnect reset; RouterOS cleanup remains pending',
