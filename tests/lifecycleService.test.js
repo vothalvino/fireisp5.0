@@ -1418,6 +1418,42 @@ describe('cancelOrder', () => {
     expect(result.contractCancelled).toBe(true);
   });
 
+  test('cancels a pristine auto-created PPPoE contract without leaking a cleanup marker', async () => {
+    const radius = {
+      id: 91, contract_id: 900, username: 'client01', status: 'inactive', nas_id: null,
+    };
+    const finalize = jest.spyOn(testWindowService, 'finalizeMarkedCleanup');
+    conn.query
+      .mockResolvedValueOnce([[{ id: 1, status: 'in_process', contract_id: 900 }]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, connection_type: 'pppoe',
+          test_window_expires_at: null, test_window_cleanup_pending: 0,
+        },
+      ]])
+      .mockResolvedValueOnce([[radius]])
+      .mockResolvedValueOnce([[{ external_cleanup_required: 0 }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    db.query.mockResolvedValueOnce([[{ id: 1, status: 'cancelled', contract_id: 900 }]]);
+
+    const result = await lifecycleService.cancelOrder(1, { orgId: 1 });
+
+    const contractUpdate = conn.query.mock.calls.find(([sql]) =>
+      /UPDATE contracts/.test(sql));
+    expect(contractUpdate[0]).toMatch(/test_window_cleanup_pending = 0/);
+    expect(contractUpdate[0]).toMatch(/test_window_expires_at = NULL/);
+    expect(contractUpdate[0]).toMatch(/test_window_cleanup_attempted_at = NULL/);
+    expect(finalize).not.toHaveBeenCalled();
+    // Retain a best-effort CoA disconnect without poisoning the cancelled
+    // pristine row when no external state exists to confirm.
+    expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(900);
+    expect(result.contractCancelled).toBe(true);
+  });
+
   test('cancelling an order with an open test window persists cleanup and deletes NAS access after commit', async () => {
     const radius = {
       id: 91, contract_id: 900, username: 'client01', nas_id: 12,

@@ -214,6 +214,150 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+describe('test-window cancellation cleanup evidence', () => {
+  it('recognizes the exact pristine inactive account shape', async () => {
+    const runner = { query: jest.fn().mockResolvedValue([[{ external_cleanup_required: 0 }]]) };
+
+    await expect(svc.requiresExternalCleanup(PENDING, [RADIUS], runner)).resolves.toBe(false);
+
+    const [sql, params] = runner.query.mock.calls[0];
+    expect(normalize(sql)).toMatch(/radcheck.*radreply.*radusergroup.*connection_logs/);
+    expect(normalize(sql)).toMatch(/cl\.contract_id = \?/);
+    expect(normalize(sql)).toMatch(/stopped\.contract_id = cl\.contract_id/);
+    expect(normalize(sql)).toMatch(/cl\.session_id IS NULL OR NOT EXISTS/);
+    expect(normalize(sql)).toMatch(/stopped\.event_at >= cl\.event_at/);
+    expect(normalize(sql)).toMatch(/archived_account\.deleted_at IS NOT NULL/);
+    expect(normalize(sql)).toMatch(/evidence_account\.deleted_at IS NULL/);
+    expect(params).toEqual([33, 33, 33]);
+  });
+
+  it('keeps cleanup durable for materialized auth or an open session', async () => {
+    const runner = { query: jest.fn().mockResolvedValue([[{ external_cleanup_required: 1 }]]) };
+
+    await expect(svc.requiresExternalCleanup(PENDING, [RADIUS], runner)).resolves.toBe(true);
+  });
+
+  it.each([
+    [{ ...PENDING, test_window_expires_at: FUTURE }, RADIUS],
+    [{ ...PENDING, test_window_cleanup_pending: 1 }, RADIUS],
+    [PENDING, { ...RADIUS, nas_id: 8 }],
+    [PENDING, { ...RADIUS, status: 'active' }],
+    [PENDING, { ...RADIUS, status: undefined }],
+    [PENDING, { ...RADIUS, username: '' }],
+  ])('fails closed for window, NAS, or ambiguous RADIUS state', async (contract, radius) => {
+    const runner = { query: jest.fn() };
+
+    await expect(svc.requiresExternalCleanup(contract, [radius], runner)).resolves.toBe(true);
+    expect(runner.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the expected live PPPoE identity is missing', async () => {
+    const runner = { query: jest.fn() };
+
+    await expect(svc.requiresExternalCleanup(PENDING, [], runner)).resolves.toBe(true);
+    expect(runner.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when multiple live PPPoE identities make cleanup ambiguous', async () => {
+    const runner = { query: jest.fn() };
+
+    await expect(svc.requiresExternalCleanup(
+      PENDING,
+      [RADIUS, { ...RADIUS, id: 10, username: 'sub_y' }],
+      runner,
+    )).resolves.toBe(true);
+    expect(runner.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when supplied account history contains an archived identity', async () => {
+    const runner = { query: jest.fn() };
+    const deleted = {
+      ...RADIUS, status: 'active', nas_id: 8, deleted_at: '2026-08-01T00:00:00.000Z',
+    };
+
+    await expect(svc.requiresExternalCleanup(PENDING, [RADIUS, deleted], runner)).resolves.toBe(true);
+    expect(runner.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the database reveals archived history omitted by a live-only lock', async () => {
+    const runner = { query: jest.fn().mockResolvedValue([[{ external_cleanup_required: 1 }]]) };
+
+    await expect(svc.requiresExternalCleanup(PENDING, [RADIUS], runner)).resolves.toBe(true);
+
+    expect(normalize(runner.query.mock.calls[0][0])).toMatch(
+      /archived_account\.contract_id = \? AND archived_account\.deleted_at IS NOT NULL/,
+    );
+  });
+});
+
+describe('test-window archived cleanup safety', () => {
+  it('never sends an archived identity to RouterOS and retains the marker for reconciliation', async () => {
+    const archived = {
+      ...RADIUS,
+      nas_id: 5,
+      deleted_at: '2026-08-01T00:00:00.000Z',
+    };
+    db.query.mockImplementation(async (rawSql) => {
+      const sql = normalize(rawSql);
+      if (/SET test_window_cleanup_pending = 1/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SET test_window_cleanup_pending = 0/.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+    const findNas = jest.spyOn(Nas, 'findByIdOrFail');
+    const remove = jest.spyOn(routerosService, 'pppoeDelete');
+    try {
+      const result = await svc.finalizeMarkedCleanup(33, {
+        orgId: 42,
+        radius: [archived],
+        reason: 'archived_retry',
+      });
+
+      expect(result.nas_disabled).toBe(false);
+      expect(result.nas_disable_warning).toMatch(/manual reconciliation/i);
+      expect(findNas).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+      expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(33);
+      expect(db.query.mock.calls.some(([sql]) =>
+        /SET test_window_cleanup_pending = 1/.test(normalize(sql)))).toBe(true);
+      expect(db.query.mock.calls.some(([sql]) =>
+        /SET test_window_cleanup_pending = 0/.test(normalize(sql)))).toBe(false);
+    } finally {
+      findNas.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it('retains cleanup when scoped storage reveals archive history absent from supplied live rows', async () => {
+    db.query.mockImplementation(async (rawSql) => {
+      const sql = normalize(rawSql);
+      if (/AS archived_radius_history/.test(sql)) return [[{ archived_radius_history: 1 }]];
+      if (/SET test_window_cleanup_pending = 1/.test(sql)) return [{ affectedRows: 1 }];
+      if (/SET test_window_cleanup_pending = 0/.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+
+    const result = await svc.finalizeMarkedCleanup(33, {
+      orgId: 42,
+      radius: [RADIUS],
+      reason: 'live_lock_with_archive_history',
+    });
+
+    expect(result).toMatchObject({
+      nas_disabled: false,
+      disconnect_confirmed: true,
+    });
+    expect(result.nas_disable_warning).toMatch(/marker release were blocked/i);
+    const archiveLookup = db.query.mock.calls.find(([sql]) =>
+      /AS archived_radius_history/.test(normalize(sql)));
+    expect(normalize(archiveLookup[0])).toMatch(
+      /c\.organization_id = \? OR c\.organization_id IS NULL/,
+    );
+    expect(archiveLookup[1]).toEqual([33, 42]);
+    expect(db.query.mock.calls.some(([sql]) =>
+      /SET test_window_cleanup_pending = 0/.test(normalize(sql)))).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Service — row locks, rollback, repeat safety, activation race
 // ---------------------------------------------------------------------------

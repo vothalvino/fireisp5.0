@@ -203,6 +203,89 @@ async function releaseCleanupMarker(contractId, { orgId = null } = {}) {
 }
 
 /**
+ * Decide whether cancelling a pending line still needs the durable external
+ * cleanup loop. Freshly-created PPPoE accounts are intentionally inactive and
+ * have no NAS, FreeRADIUS rows, or session history; marking those rows would
+ * leave an unbounded (NULL-expiry) cleanup marker that can never age out.
+ *
+ * Ambiguous account state remains fail-closed. Only the exact pristine shape
+ * is allowed to skip external cleanup.
+ */
+async function requiresExternalCleanup(contract, radiusRows, runner) {
+  if (contract.test_window_expires_at !== null
+      && contract.test_window_expires_at !== undefined) return true;
+  if (Number(contract.test_window_cleanup_pending) === 1) return true;
+
+  const suppliedAccounts = (Array.isArray(radiusRows) ? radiusRows : [radiusRows])
+    .filter(Boolean);
+  if (suppliedAccounts.some(account => account.deleted_at !== null
+      && account.deleted_at !== undefined)) return true;
+  const accounts = suppliedAccounts.filter(account => account.deleted_at === null
+    || account.deleted_at === undefined);
+  if (accounts.length !== 1) return true;
+  if (accounts.some(account => account.nas_id !== null && account.nas_id !== undefined)) return true;
+  if (accounts.some(account => String(account.status || '').toLowerCase() !== 'inactive')) return true;
+  if (accounts.some(account => !String(account.username || '').trim())) return true;
+  if (contract.id === null || contract.id === undefined) return true;
+
+  const [rows] = await runner.query(
+    `SELECT (
+       EXISTS (
+         SELECT 1 FROM radius archived_account
+          WHERE archived_account.contract_id = ?
+            AND archived_account.deleted_at IS NOT NULL
+       )
+       OR EXISTS (
+         SELECT 1 FROM radius evidence_account
+          WHERE evidence_account.contract_id = ?
+            AND evidence_account.deleted_at IS NULL
+            AND (
+              EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = evidence_account.username)
+              OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = evidence_account.username)
+              OR EXISTS (SELECT 1 FROM radusergroup rug WHERE rug.username = evidence_account.username)
+            )
+       )
+       OR EXISTS (
+         SELECT 1 FROM connection_logs cl
+          WHERE cl.contract_id = ?
+            AND cl.event_type IN ('start', 'interim-update')
+            AND (
+              cl.session_id IS NULL
+              OR NOT EXISTS (
+                SELECT 1 FROM connection_logs stopped
+                 WHERE stopped.contract_id = cl.contract_id
+                   AND stopped.username = cl.username
+                   AND stopped.session_id = cl.session_id
+                   AND stopped.event_type = 'stop'
+                   AND stopped.event_at >= cl.event_at
+              )
+            )
+       )
+     ) AS external_cleanup_required`,
+    [contract.id, contract.id, contract.id],
+  );
+  return Number(rows[0]?.external_cleanup_required) === 1;
+}
+
+async function hasArchivedRadiusHistory(contractId, radius, orgId) {
+  const accounts = (Array.isArray(radius) ? radius : [radius]).filter(Boolean);
+  if (accounts.some(account => account.deleted_at !== null
+      && account.deleted_at !== undefined)) return true;
+
+  const scope = contractOrgPredicate(orgId, 'c');
+  const [rows] = await db.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM contracts c
+       JOIN radius archived_account ON archived_account.contract_id = c.id
+        WHERE c.id = ? ${scope.sql}
+          AND archived_account.deleted_at IS NOT NULL
+     ) AS archived_radius_history`,
+    [contractId, ...scope.params],
+  );
+  return Number(rows[0]?.archived_radius_history) === 1;
+}
+
+/**
  * Finish the external half of an already-committed shutdown. A failed NAS or
  * session cleanup restores/retains the durable marker, so sweep retries across
  * process restarts and even after cancellation/type-change/soft-delete. The
@@ -214,7 +297,20 @@ async function finalizeMarkedCleanup(contractId, {
   reason = 'manual',
   retainMarker = false,
 } = {}) {
-  const nasState = await disableNasBestEffort(contractId, radius, orgId);
+  const archivedHistory = await hasArchivedRadiusHistory(contractId, radius, orgId);
+  const liveRadius = (Array.isArray(radius) ? radius : [radius])
+    .filter(account => account
+      && (account.deleted_at === null || account.deleted_at === undefined));
+  const attemptedNasState = await disableNasBestEffort(contractId, liveRadius, orgId);
+  const nasState = archivedHistory
+    ? {
+      nas_disabled: false,
+      nas_disable_warning: [
+        attemptedNasState.nas_disable_warning,
+        'Archived network credentials require manual reconciliation; automatic NAS cleanup and marker release were blocked',
+      ].filter(Boolean).join('; '),
+    }
+    : attemptedNasState;
   const disconnectState = await disconnectBestEffort(contractId);
   if (nasState.nas_disabled === false || !disconnectState.disconnect_confirmed) {
     await setCleanupMarker(contractId, orgId);
@@ -717,6 +813,7 @@ module.exports = {
   closeForContractMutation,
   finalizeMarkedCleanup,
   releaseCleanupMarker,
+  requiresExternalCleanup,
   sweep,
   windowMinutes,
 };
