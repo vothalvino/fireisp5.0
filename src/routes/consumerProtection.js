@@ -12,6 +12,7 @@ const { requirePermission } = require('../middleware/rbac');
 const ContractTemplateMx = require('../models/ContractTemplateMx');
 const { crudController } = require('../controllers/crudController');
 const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
+const legalDocumentService = require('../services/legalDocumentService');
 const { AppError, ValidationError } = require('../utils/errors');
 
 const router = Router();
@@ -33,7 +34,7 @@ function normalizeOfficialFields(record) {
   }
 }
 
-function assertSourceState(record) {
+function assertSourceState(record, { validatePlaceholders = true } = {}) {
   if (!String(record.template_name || '').trim()) {
     throw new ValidationError('template_name is required');
   }
@@ -42,6 +43,9 @@ function assertSourceState(record) {
     'environment',
   );
   const status = record.status || 'draft';
+  if (validatePlaceholders) {
+    legalDocumentService.assertSupportedPlaceholders(record.template_body);
+  }
   const sandboxStatuses = new Set(['draft', 'sandbox_ready']);
   const productionStatuses = new Set(['draft', 'submitted', 'registered', 'expired', 'revoked']);
   if (environment === 'sandbox' && !sandboxStatuses.has(status)) {
@@ -111,7 +115,15 @@ const ctrl = crudController(ContractTemplateMx, {
         'A contract source environment is permanently immutable; create a separate source in the other environment',
       );
     }
-    assertSourceState(next);
+    const bodyChanged = req.body.template_body !== undefined
+      && !sameSourceValue('template_body', req.body.template_body, old.template_body);
+    // Old frozen rows predate this validation in some installations. Preserve
+    // their terminal expiry/revocation path, but validate every editable row,
+    // every text change, and every transition into an immutable ready state.
+    assertSourceState(next, {
+      validatePlaceholders: !mxRegisteredTemplateService.FROZEN_STATUSES.has(old.status)
+        || bodyChanged,
+    });
 
     if (old.status === 'sandbox_ready'
         && req.body.status !== undefined

@@ -124,6 +124,7 @@ templatesRouter.post('/', requirePermission('document_templates.create'), valida
   try {
     await conn.beginTransaction();
     await lockTemplateOrganization(conn, req.orgId);
+    legalDocumentService.assertSupportedPlaceholders(req.body.body_md);
     const sourceSnapshot = await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
       orgId: req.orgId,
       templateType: req.body.template_type,
@@ -207,6 +208,10 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
     }
 
     const nextTemplate = { ...template, ...req.body };
+    const isActivating = Number(template.is_active) !== 1 && Boolean(nextTemplate.is_active);
+    if (changedMaterial.includes('body_md') || isActivating) {
+      legalDocumentService.assertSupportedPlaceholders(nextTemplate.body_md);
+    }
     const allowTerminalSourceForDeactivation = Number(template.is_active) === 1
       && Number(nextTemplate.is_active) === 0
       && changedMaterial.length === 0;

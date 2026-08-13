@@ -248,6 +248,65 @@ describe('profile-less MX contract-source configuration', () => {
       .toBe(true);
   });
 
+  test('rejects a typoed placeholder before creating an immutable-ready sandbox source', async () => {
+    profilelessSourceDb();
+
+    const response = await request(app)
+      .post('/api/v1/consumer-protection/contract-templates-mx')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .set('X-Org-Id', '42')
+      .send({
+        template_name: 'Simulation contract',
+        template_body: 'Cliente {{client.nmae}}',
+        version: 'test-1',
+        environment: 'sandbox',
+        status: 'sandbox_ready',
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error.message).toMatch(/unsupported or unresolved.*client\.nmae/i);
+    expect(db.query.mock.calls.some(([sql]) => /INSERT INTO `contract_templates_mx`/.test(sql)))
+      .toBe(false);
+  });
+
+  test('rejects promoting a legacy draft with a bad body to sandbox-ready', async () => {
+    db.query.mockImplementation(async (sql) => (/`users`/.test(String(sql)) ? [USER] : [[]]));
+    const old = {
+      id: 81,
+      organization_id: 42,
+      environment: 'sandbox',
+      template_name: 'Legacy draft',
+      template_body: 'Cliente {{client.nmae}}',
+      version: 'test-1',
+      status: 'draft',
+      deleted_at: null,
+    };
+    const conn = {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+      execute: jest.fn(async (sql) => {
+        const normalized = String(sql).replace(/\s+/g, ' ');
+        if (/SELECT \* FROM `contract_templates_mx`/.test(normalized)) return [[old]];
+        return [[]];
+      }),
+    };
+    db.getConnection.mockResolvedValue(conn);
+
+    const response = await request(app)
+      .put('/api/v1/consumer-protection/contract-templates-mx/81')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .set('X-Org-Id', '42')
+      .send({ status: 'sandbox_ready' });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error.message).toMatch(/unsupported or unresolved.*client\.nmae/i);
+    expect(conn.execute.mock.calls.some(([sql]) => /^UPDATE `contract_templates_mx`/.test(sql)))
+      .toBe(false);
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+  });
+
   test('requires an explicit immutable lane when creating a source', async () => {
     profilelessSourceDb();
 
