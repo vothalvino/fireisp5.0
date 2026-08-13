@@ -62,6 +62,38 @@ function signedGlobalAcknowledgment() {
   document.evidence_sha256 = legalDocumentService.evidenceDigest(document);
   return document;
 }
+function signedSandboxActivationDocument() {
+  const renderedBody = 'TEST/SANDBOX — NO LEGAL EFFECT\n\nSandbox activation body';
+  const document = {
+    id: 88,
+    organization_id: 1,
+    client_id: 50,
+    contract_id: 900,
+    service_order_id: 1,
+    work_order_id: 70,
+    template_id: 4,
+    template_type: 'activation_contract',
+    title: 'Sandbox activation contract',
+    rendered_body: renderedBody,
+    content_sha256: crypto.createHash('sha256').update(renderedBody).digest('hex'),
+    contract_template_mx_id: MX_SOURCE_ID,
+    mx_registration_number: null,
+    mx_registered_at: null,
+    mx_template_version: '1.0',
+    mx_source_sha256: MX_SOURCE_HASH,
+    mx_contract_environment: 'sandbox',
+    evidence_format_version: 3,
+    signer_name: 'Customer',
+    signature_image: 'data:image/png;base64,c2lnbmF0dXJl',
+    signed_at: '2026-08-10T11:00:00.000Z',
+    signed_ip: '127.0.0.1',
+    captured_by: 9,
+    communication_choices: null,
+    status: 'signed',
+  };
+  document.evidence_sha256 = legalDocumentService.evidenceDigest(document);
+  return document;
+}
 function registeredTemplate(row) {
   return {
     template_type: 'activation_contract', is_active: 1, body_md: MX_SOURCE_BODY,
@@ -69,6 +101,7 @@ function registeredTemplate(row) {
     mx_id: MX_SOURCE_ID, mx_organization_id: 1,
     mx_registration_number: 'IFT-2026-001', mx_registered_at: '2026-01-15',
     mx_template_version: '1.0', mx_template_body: MX_SOURCE_BODY,
+    mx_contract_environment: 'production',
     mx_status: 'registered', mx_deleted_at: null,
     ...row,
   };
@@ -410,6 +443,9 @@ describe('startOrder', () => {
       ]])
       .mockResolvedValueOnce([[{ id: 50, name: 'Acme' }]])
       .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[
+        { locale: 'MX', contract_environment: 'sandbox', mx_profile_id: 4 },
+      ]])
       .mockResolvedValueOnce([[]]);
 
     await expect(lifecycleService.startOrder(1, {
@@ -417,7 +453,7 @@ describe('startOrder', () => {
     }))
       .rejects.toThrow(/activation-contract template before dispatching/i);
 
-    expect(conn.query).toHaveBeenCalledTimes(4);
+    expect(conn.query).toHaveBeenCalledTimes(5);
     expect(conn.query.mock.calls[2][0]).toMatch(/organizations o[\s\S]*FOR UPDATE/);
     expect(conn.rollback).toHaveBeenCalled();
     expect(provisioningService.provisionNewContract).not.toHaveBeenCalled();
@@ -567,13 +603,25 @@ describe('startOrder', () => {
       if (/SELECT \* FROM plans/.test(t)) return [[{ id: 2, name: '50 Mbps' }]];
       if (/INSERT INTO contracts/.test(t)) return [{ insertId: 900 }];
       if (/SELECT name FROM clients/.test(t)) return [[{ name: 'Acme' }]];
-      if (/SELECT \* FROM contracts WHERE id = \?/.test(t)) return [[{ id: 900, status: 'pending', plan_id: 2 }]];
+      if (/SELECT \* FROM contracts WHERE id = \?/.test(t)) return [[{
+        id: 900,
+        status: 'pending',
+        plan_id: 2,
+        contract_template_mx_id: MX_SOURCE_ID,
+        mx_contract_environment: 'production',
+      }]];
       if (/SELECT \* FROM service_orders/.test(t)) return [[{ id: 1, order_number: 'SO-000001' }]];
       if (/UPDATE service_orders SET/.test(t)) return [{ affectedRows: 1 }];
       if (/SELECT id, assigned_to FROM work_orders/.test(t)) return [[]];
       if (/INSERT INTO work_orders/.test(t)) return [{ insertId: 70 }];
       if (/SELECT \* FROM work_orders WHERE id = \?/.test(t)) return [[{ id: 70, organization_id: 1, assigned_to: null }]];
       if (/SELECT o\.locale FROM organizations o/.test(t)) return [[{ locale: 'MX' }]];
+      if (/SELECT o\.locale,/.test(t)) {
+        return [[{ locale: 'MX', contract_environment: 'production', mx_profile_id: 4 }]];
+      }
+      if (/SELECT contract_environment FROM organization_mx_profiles/.test(t)) {
+        return [[{ contract_environment: 'production' }]];
+      }
       if (/SELECT locale FROM organizations/.test(t)) return [[{ locale: 'MX' }]];
       if (/FROM document_templates/.test(t)) return [[
         { id: 4, template_type: 'installation_authorization', name: 'Autorización', body_md: 'Cliente {{client.name}}' },
@@ -593,7 +641,9 @@ describe('startOrder', () => {
 
     const contractInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO contracts/.test(sql));
     expect(contractInsert[0]).toMatch(/contract_template_mx_id/);
+    expect(contractInsert[0]).toMatch(/mx_contract_environment/);
     expect(contractInsert[1]).toContain(MX_SOURCE_ID);
+    expect(contractInsert[1]).toContain('production');
     const docInsert = conn.query.mock.calls.find(([sql]) => /INSERT INTO signed_documents/.test(sql));
     expect(docInsert).toBeDefined();
     expect(docInsert[1][6]).toBe('installation_authorization'); // template_type
@@ -1051,6 +1101,7 @@ describe('completeOrder', () => {
           id: 900, status: 'pending', organization_id: 1, client_id: 50,
           plan_id: null, test_window_expires_at: null,
           contract_template_mx_id: MX_SOURCE_ID,
+          mx_contract_environment: 'production',
         },
       ]])
       .mockResolvedValueOnce([[{ id: 70, status: 'completed', acceptance_rx_dbm: -17, acceptance_waived: 0 }]])
@@ -1067,6 +1118,7 @@ describe('completeOrder', () => {
           mx_registered_at: '2026-01-15',
           mx_template_version: '1.0',
           mx_source_sha256: MX_SOURCE_HASH,
+          mx_contract_environment: 'production',
         },
       ]]); // template 5 missing/cancelled/not generated
 
@@ -1076,6 +1128,53 @@ describe('completeOrder', () => {
     expect(conn.query.mock.calls[5][0]).toMatch(/document_templates[\s\S]*FOR UPDATE/);
     expect(conn.query.mock.calls[6][0]).toMatch(/signed_documents[\s\S]*FOR UPDATE/);
     expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql))).toBe(false);
+  });
+
+  test('MX sandbox activation fails closed after the organization switches to production', async () => {
+    const order = newInstallOrder();
+    jest.spyOn(ServiceOrder, 'findById').mockResolvedValue(order);
+    jest.spyOn(Client, 'findById').mockResolvedValue({ id: 50 });
+    conn.query
+      .mockResolvedValueOnce([[order]])
+      .mockResolvedValueOnce([[
+        {
+          id: 900, status: 'pending', organization_id: 1, client_id: 50,
+          plan_id: null, test_window_expires_at: null, test_window_cleanup_pending: 0,
+          contract_template_mx_id: MX_SOURCE_ID,
+          mx_contract_environment: 'sandbox',
+        },
+      ]])
+      .mockResolvedValueOnce([[
+        { id: 70, status: 'completed', acceptance_rx_dbm: -17, acceptance_waived: 0 },
+      ]])
+      .mockResolvedValueOnce([[{ id: 80 }]])
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[
+        registeredTemplate({
+          id: 4,
+          name: 'Sandbox activation contract',
+          mx_registration_number: null,
+          mx_registered_at: null,
+          mx_contract_environment: 'sandbox',
+          mx_status: 'sandbox_ready',
+        }),
+      ]])
+      .mockResolvedValueOnce([[signedSandboxActivationDocument()]])
+      .mockResolvedValueOnce([[
+        { locale: 'MX', contract_environment: 'production', mx_profile_id: 4 },
+      ]]);
+
+    await expect(lifecycleService.completeOrder(1, { orgId: 1, billing: 'already_paid' }))
+      .rejects.toThrow(/sandbox.*production|production.*sandbox/i);
+
+    const currentLaneRead = conn.query.mock.calls.find(([sql]) => /SELECT o\.locale,/.test(String(sql)));
+    expect(currentLaneRead[1]).toEqual([1]);
+    expect(conn.query.mock.calls.some(([sql]) => (
+      /UPDATE contracts[\s\S]*SET status = 'active'/.test(String(sql))
+    ))).toBe(false);
+    expect(radiusService.syncFreeradiusContract).not.toHaveBeenCalled();
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
   });
 
   test('global new_install blocks until the client signs the neutral service acknowledgment', async () => {

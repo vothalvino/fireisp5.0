@@ -47587,6 +47587,125 @@
         }
       }
     },
+    "/consumer-protection/contract-environment": {
+      "get": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Get the org's MX contract lane (sandbox|production), independent from PAC/CFDI",
+        "operationId": "getMxContractEnvironment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current MX adhesion-contract environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_environment"
+                      ],
+                      "properties": {
+                        "contract_environment": {
+                          "type": "string",
+                          "enum": [
+                            "sandbox",
+                            "production"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Consumer Protection MX"
+        ],
+        "summary": "Transactionally switch the MX contract lane after target-source preflight and in-flight safety checks",
+        "operationId": "setMxContractEnvironment",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Target MX adhesion-contract environment",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "contract_environment"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "contract_environment": {
+                    "type": "string",
+                    "enum": [
+                      "sandbox",
+                      "production"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current MX adhesion-contract environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "contract_environment",
+                        "active_contract_source_id"
+                      ],
+                      "properties": {
+                        "contract_environment": {
+                          "type": "string",
+                          "enum": [
+                            "sandbox",
+                            "production"
+                          ]
+                        },
+                        "active_contract_source_id": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/consumer-protection/service-modifications/{id}/send": {
       "put": {
         "tags": [

@@ -298,9 +298,9 @@ describe('Route-level cross-org isolation — GET /:id returns 404', () => {
   const RECORD_ID = 42;
 
   beforeEach(() => {
-  // Invoice delete/restore run transactionally (j50).
-  mockTxConnection(db);
     jest.clearAllMocks();
+    // Invoice delete/restore run transactionally (j50).
+    mockTxConnection(db);
     ctx.orgId = ORG_A;
     // DB returns empty: the row exists in the DB but belongs to a different org
     mockQuery.mockResolvedValue([[]]); // → findByIdOrFail throws NotFoundError → 404
@@ -401,8 +401,9 @@ describe('Route-level cross-org isolation — contract FK payload guards (client
   test('POST /api/v1/contracts with a client_id belonging to a different org → 422 VALIDATION_ERROR (not 201)', async () => {
     const conn = {
       query: jest.fn()
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
         .mockResolvedValueOnce([[{ id: PLAN_ID }]])       // assertPlanSelectable: plan exists in this org
-        .mockResolvedValueOnce([[{ locale: 'global' }]]), // no MX source is required
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]), // no MX source is required
       beginTransaction: jest.fn().mockResolvedValue(undefined),
       commit: jest.fn().mockResolvedValue(undefined),
       rollback: jest.fn().mockResolvedValue(undefined),

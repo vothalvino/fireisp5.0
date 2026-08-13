@@ -88,6 +88,19 @@ function renderDetail() {
 }
 
 describe('ContractDetail — PPPoE credentials', () => {
+  it.each(['active', 'suspended', 'terminated'])('keeps the sandbox warning visible for a %s contract', async (status) => {
+    mockLocale = 'MX';
+    mockGql.mockResolvedValue({
+      contract: { ...makeContract('ipoe'), status, mxContractEnvironment: 'sandbox' },
+    });
+    renderDetail();
+
+    await screen.findByRole('heading', { name: 'Contract #5' });
+    expect(screen.getByText('SANDBOX · TEST')).toBeInTheDocument();
+    expect(screen.getByTestId('mx-contract-sandbox-banner')).toHaveTextContent(/NO LEGAL EFFECT/i);
+    expect(mockGql.mock.calls[0][0]).toContain('mxContractEnvironment');
+  });
+
   it('shows a PPPoE tab for a PPPoE contract and reveals the credentials', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Contract #5' })).toBeInTheDocument());
@@ -200,6 +213,20 @@ describe('ContractDetail — guided activation', () => {
     expect(screen.getAllByText(/Line OFF until permanent activation/).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
     expect(screen.getByText(/Record the technician speed-test result/)).toBeInTheDocument();
+  });
+
+  it('marks the commissioning and permanent-activation operation as sandbox simulation', async () => {
+    mockLocale = 'MX';
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(
+      pendingActivation({ contract_environment: 'sandbox' }),
+    ));
+    renderDetail();
+
+    expect(await screen.findByText('SANDBOX · TEST')).toBeInTheDocument();
+    expect(screen.getByTestId('mx-contract-sandbox-banner')).toHaveTextContent(
+      /NOT PROFECO REGISTERED — NO LEGAL EFFECT/,
+    );
+    expect(screen.getByRole('button', { name: 'Activate contract permanently' })).toBeInTheDocument();
   });
 
   it('does not offer preparation to a contract editor without installations.start', async () => {
@@ -414,6 +441,38 @@ describe('ContractDetail — guided activation', () => {
     expect(screen.getByText('Service installation acknowledgment')).toBeInTheDocument();
     expect(screen.getByText(/does not add jurisdiction-specific legal terms/i)).toBeInTheDocument();
     expect((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.every(([url]) => !String(url).includes('/signed-documents'))).toBe(true);
+  });
+
+  it('shows the no-legal-effect warning in the contract signing view for sandbox MX evidence', async () => {
+    mockLocale = 'MX';
+    const state = pendingActivation({
+      documents: [{ id: 43, template_type: 'activation_contract', title: 'Sandbox activation contract', status: 'pending', signer_name: null, signed_at: null }],
+      blockers: ['signature_missing'],
+    });
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => jsonResponse(state));
+    mockApiGet.mockImplementation((path: unknown) => {
+      if (path === '/signed-documents/{id}') {
+        return Promise.resolve({ data: { data: {
+          id: 43,
+          template_type: 'activation_contract',
+          title: 'Sandbox activation contract',
+          status: 'pending',
+          signer_name: null,
+          signed_at: null,
+          rendered_body: 'TEST / SIMULATION',
+          mx_contract_environment: 'sandbox',
+          communication_choices_recorded: true,
+        } }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [radiusAccount] }, error: undefined });
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Read & sign' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign document' });
+    expect(await within(dialog).findByTestId('mx-contract-sandbox-banner')).toHaveTextContent(
+      /NOT PROFECO REGISTERED — NO LEGAL EFFECT/,
+    );
   });
 
   it('captures explicit communication choices with the global handoff signature', async () => {

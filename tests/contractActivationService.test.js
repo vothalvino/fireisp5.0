@@ -50,6 +50,7 @@ function registeredTemplate(template = {}) {
     mx_id: MX_SOURCE_ID, mx_organization_id: 42,
     mx_registration_number: 'IFT-2026-001', mx_registered_at: '2026-01-15',
     mx_template_version: '1.0', mx_template_body: MX_SOURCE_BODY,
+    mx_contract_environment: 'production',
     mx_status: 'registered', mx_deleted_at: null,
     ...template,
   };
@@ -58,6 +59,7 @@ const CONTRACT = {
   id: 33, organization_id: 42, client_id: 9, plan_id: 2,
   status: 'pending', connection_type: 'pppoe', test_window_expires_at: null,
   test_window_cleanup_pending: 0, contract_template_mx_id: MX_SOURCE_ID,
+  mx_contract_environment: 'production',
 };
 const ORDER = {
   id: 16, organization_id: 42, order_number: 'SO-000016', order_type: 'new_install',
@@ -106,6 +108,7 @@ function wireState({
         mx_registered_at: '2026-01-15',
         mx_template_version: '1.0',
         mx_source_sha256: MX_SOURCE_HASH,
+        mx_contract_environment: 'production',
         ...row,
       }
       : row
@@ -1074,5 +1077,76 @@ describe('renewPreviouslyActivated', () => {
       nas_pushed: false,
       nas_push_error: 'NAS unreachable',
     }));
+  });
+
+  test('does not revive a frozen sandbox contract after the organization switches to production', async () => {
+    const conn = tx();
+    conn.query.mockImplementation(async (sql, params) => {
+      const s = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT c\.\* FROM contracts c/.test(s) && /FOR UPDATE/.test(s)) {
+        return [[{
+          ...CONTRACT,
+          status: 'terminated',
+          first_activated_at: new Date('2025-01-01T00:00:00Z'),
+          mx_contract_environment: 'sandbox',
+        }]];
+      }
+      if (/FROM organizations o/.test(s)) {
+        expect(params).toEqual([42]);
+        return [[{
+          locale: 'MX', contract_environment: 'production', mx_profile_id: 4,
+        }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    await expect(service.renewPreviouslyActivated(33, { orgId: 42 }))
+      .rejects.toThrow(/sandbox.*production|production.*sandbox/i);
+
+    expect(subscriberProvisioningService.provisionNewContract).not.toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /SELECT r\.\* FROM radius r/.test(String(sql))))
+      .toBe(false);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts SET/.test(String(sql))))
+      .toBe(false);
+    expect(radiusService.syncFreeradiusContract).not.toHaveBeenCalled();
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn.release).toHaveBeenCalled();
+  });
+
+  test('does not renew source-free legacy history after its organization becomes Mexican', async () => {
+    const conn = tx();
+    conn.query.mockImplementation(async (sql, params) => {
+      const s = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT c\.\* FROM contracts c/.test(s) && /FOR UPDATE/.test(s)) {
+        return [[{
+          ...CONTRACT,
+          status: 'terminated',
+          first_activated_at: new Date('2025-01-01T00:00:00Z'),
+          contract_template_mx_id: null,
+          mx_contract_environment: null,
+        }]];
+      }
+      if (/FROM organizations o/.test(s)) {
+        expect(params).toEqual([42]);
+        return [[{
+          locale: 'MX', contract_environment: 'sandbox', mx_profile_id: 4,
+        }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    await expect(service.renewPreviouslyActivated(33, { orgId: 42 }))
+      .rejects.toThrow(/frozen MX contract source.*environment|classified MX contract/i);
+
+    expect(subscriberProvisioningService.provisionNewContract).not.toHaveBeenCalled();
+    expect(conn.query.mock.calls.some(([sql]) => /SELECT r\.\* FROM radius r/.test(String(sql))))
+      .toBe(false);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE contracts SET/.test(String(sql))))
+      .toBe(false);
+    expect(conn.rollback).toHaveBeenCalled();
+    expect(conn.commit).not.toHaveBeenCalled();
   });
 });

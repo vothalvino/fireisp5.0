@@ -47,7 +47,11 @@ jest.mock('../src/services/billingService', () => ({
   // edit rather than as a missing-guard failure. (Same trap as #550.)
   assertTaxCoherent: jest.fn().mockResolvedValue(undefined),
 }));
-jest.mock('../src/models/Organization', () => ({ getCurrency: jest.fn().mockResolvedValue('MXN') }));
+jest.mock('../src/models/Organization', () => ({
+  getCurrency: jest.fn().mockResolvedValue('MXN'),
+  update: jest.fn(),
+  findById: jest.fn(),
+}));
 
 const db = require('../src/config/database');
 const { mockTxConnection } = require('./fixtures/mockTxConnection');
@@ -290,7 +294,7 @@ describe('legacy inconsistent rows stay repairable', () => {
   it('does not impose the rate invariant on a row that was already inconsistent', async () => {
     wireDb();
     // stored row is made inconsistent: tax 160 with rate 0 (a legacy 0%-rate row)
-    db.query.mockImplementation(async (sql, params) => {
+    db.query.mockImplementation(async (sql, _params) => {
       if (/FROM cfdi_documents/.test(sql)) return [[]];
       if (/SELECT tax_exempt FROM clients/.test(sql)) return [[{ tax_exempt: 0 }]];
       if (/SELECT id FROM clients/.test(sql)) return [[{ id: 42 }]];

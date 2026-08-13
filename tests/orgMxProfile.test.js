@@ -94,16 +94,66 @@ describe('PUT /organizations/:id/mx-profile', () => {
   test('creates the profile on first save (INSERT path, serie defaults applied)', async () => {
     db.query
       .mockResolvedValueOnce([[{ locale: 'MX' }]])   // getLocale
-      .mockResolvedValueOnce([[]])                    // no existing profile
-      .mockResolvedValueOnce([{ insertId: 3 }])       // INSERT
-      .mockResolvedValueOnce([[PROFILE_ROW]]);        // read-back
+      .mockResolvedValueOnce([[]]);                   // no existing profile
+    const conn = {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+      query: jest.fn(async (sql) => {
+        if (/SELECT id, locale FROM organizations/.test(sql)) return [[{ id: 5, locale: 'MX' }]];
+        if (/SELECT id FROM organization_mx_profiles/.test(sql)) return [[]];
+        if (/SELECT o\.locale,/.test(sql)) {
+          return [[{ locale: 'MX', contract_environment: 'sandbox', mx_profile_id: null }]];
+        }
+        if (/INSERT INTO organization_mx_profiles/.test(sql)) return [{ insertId: 3 }];
+        if (/SELECT id, organization_id, rfc/.test(sql)) return [[PROFILE_ROW]];
+        return [[]];
+      }),
+    };
+    db.getConnection.mockResolvedValue(conn);
     const res = await request(app).put('/api/v1/organizations/5/mx-profile').send(VALID_BODY);
     expect(res.status).toBe(200);
     expect(res.body.data.rfc).toBe('EKU9003173C9');
-    const insert = db.query.mock.calls.find(c => /INSERT INTO organization_mx_profiles/.test(c[0]));
+    const insert = conn.query.mock.calls.find(c => /INSERT INTO organization_mx_profiles/.test(c[0]));
     expect(insert).toBeTruthy();
     expect(insert[1]).toContain('EKU9003173C9');
+    expect(insert[1]).toContain('sandbox');
+    expect(insert[0]).toContain('contract_environment');
     expect(insert[0]).toContain("COALESCE(?, 'A')"); // serie defaults preserved
+    expect(conn.commit).toHaveBeenCalled();
+  });
+
+  test('first profile creation preserves an inferred legacy production contract lane', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ locale: 'MX' }]])
+      .mockResolvedValueOnce([[]]);
+    const conn = {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+      query: jest.fn(async (sql) => {
+        if (/SELECT id, locale FROM organizations/.test(sql)) return [[{ id: 5, locale: 'MX' }]];
+        if (/SELECT id FROM organization_mx_profiles/.test(sql)) return [[]];
+        if (/SELECT o\.locale,/.test(sql)) {
+          return [[{ locale: 'MX', contract_environment: 'production', mx_profile_id: null }]];
+        }
+        if (/INSERT INTO organization_mx_profiles/.test(sql)) return [{ insertId: 3 }];
+        if (/SELECT id, organization_id, rfc/.test(sql)) return [[PROFILE_ROW]];
+        return [[]];
+      }),
+    };
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app).put('/api/v1/organizations/5/mx-profile').send(VALID_BODY);
+
+    expect(res.status).toBe(200);
+    const insert = conn.query.mock.calls.find(c => /INSERT INTO organization_mx_profiles/.test(c[0]));
+    expect(insert[1]).toContain('production');
+    const effectiveRead = conn.query.mock.calls.find(c => /SELECT o\.locale,/.test(c[0]));
+    expect(effectiveRead[0]).toMatch(/EXISTS[\s\S]*contract_templates_mx/);
+    expect(conn.commit).toHaveBeenCalled();
   });
 
   test('updates in place on subsequent saves (UPDATE path)', async () => {

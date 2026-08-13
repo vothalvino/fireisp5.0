@@ -18,7 +18,7 @@ vi.mock('@/auth/AuthContext', () => ({
     id: 1,
     role: mockRole,
     permissions: mockPermissions,
-    organization_locale: mockLocale,
+          organization_locale: mockLocale,
   } }),
 }));
 
@@ -44,9 +44,12 @@ beforeEach(() => {
     }
     if (path === '/document-templates') {
       return Promise.resolve({
-        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 }] },
+        data: { data: [{ id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, contract_template_mx_environment: 'production', is_active: 1 }] },
         error: undefined,
       });
+    }
+    if (path === '/consumer-protection/contract-environment') {
+      return Promise.resolve({ data: { data: { contract_environment: 'production' } }, error: undefined });
     }
     if (path === '/consumer-protection/contract-templates-mx/77') {
       return Promise.resolve({
@@ -58,6 +61,7 @@ beforeEach(() => {
           version: '2026.1',
           template_body: 'Exact registered terms',
           status: 'registered',
+          environment: 'production',
         } },
         error: undefined,
       });
@@ -113,6 +117,44 @@ describe('NewContractModal', () => {
     expect(api.GET).not.toHaveBeenCalledWith('/consumer-protection/contract-templates-mx');
   });
 
+  it('resolves only the active template from the organization contract environment', async () => {
+    mockLocale = 'MX';
+    (api.GET as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/plans') {
+        return Promise.resolve({ data: { data: [{ id: 3, name: 'Gold 100Mbps' }] }, error: undefined });
+      }
+      if (path === '/consumer-protection/contract-environment') {
+        return Promise.resolve({ data: { data: { contract_environment: 'sandbox' } }, error: undefined });
+      }
+      if (path === '/document-templates') {
+        return Promise.resolve({ data: { data: [
+          { id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, contract_template_mx_environment: 'production', is_active: 1 },
+          { id: 16, template_type: 'activation_contract', contract_template_mx_id: 88, contract_template_mx_environment: 'sandbox', is_active: 1 },
+        ] }, error: undefined });
+      }
+      if (path === '/consumer-protection/contract-templates-mx/88') {
+        return Promise.resolve({ data: { data: {
+          id: 88,
+          template_name: 'Sandbox contract test',
+          ift_registration_number: null,
+          registered_at: null,
+          version: 'sim-1',
+          template_body: 'TEST / SIMULATION',
+          status: 'sandbox_ready',
+          environment: 'sandbox',
+        } }, error: undefined });
+      }
+      return Promise.resolve({ data: { data: [] }, error: undefined });
+    });
+
+    renderModal();
+    const source = await screen.findByRole('option', { name: 'Sandbox contract test' });
+    expect(source).toHaveValue('88');
+    expect(screen.getByTestId('mx-contract-sandbox-banner')).toHaveTextContent(/NO LEGAL EFFECT/);
+    expect(api.GET).toHaveBeenCalledWith('/consumer-protection/contract-templates-mx/88');
+    expect(api.GET).not.toHaveBeenCalledWith('/consumer-protection/contract-templates-mx/77');
+  });
+
   it('warns about ambiguous active sources while leaving final derivation to the create endpoint', async () => {
     mockLocale = 'MX';
     (api.GET as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
@@ -121,15 +163,18 @@ describe('NewContractModal', () => {
       }
       if (path === '/document-templates') {
         return Promise.resolve({ data: { data: [
-          { id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, is_active: 1 },
-          { id: 16, template_type: 'activation_contract', contract_template_mx_id: 88, is_active: 1 },
+          { id: 15, template_type: 'activation_contract', contract_template_mx_id: 77, contract_template_mx_environment: 'production', is_active: 1 },
+          { id: 16, template_type: 'activation_contract', contract_template_mx_id: 88, contract_template_mx_environment: 'production', is_active: 1 },
         ] }, error: undefined });
+      }
+      if (path === '/consumer-protection/contract-environment') {
+        return Promise.resolve({ data: { data: { contract_environment: 'production' } }, error: undefined });
       }
       return Promise.resolve({ data: { data: [] }, error: undefined });
     });
     renderModal();
 
-    expect(await screen.findByText(/reference different registered sources/i)).toBeInTheDocument();
+    expect(await screen.findByText(/reference different sources/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Contract' })).not.toBeDisabled();
     expect(api.GET).not.toHaveBeenCalledWith('/consumer-protection/contract-templates-mx');
     expect(api.POST).not.toHaveBeenCalled();

@@ -64,6 +64,38 @@ async function lockTemplateOrganization(conn, orgId) {
   if (!rows[0]) throw new NotFoundError('Organization');
 }
 
+async function assertActiveLaneSourceConsistency(conn, {
+  orgId, environment, contractTemplateMxId, excludeTemplateId = null,
+}) {
+  if (!environment || !contractTemplateMxId) return;
+  const params = [orgId, environment];
+  let exclude = '';
+  if (excludeTemplateId !== null && excludeTemplateId !== undefined) {
+    exclude = ' AND dt.id <> ?';
+    params.push(excludeTemplateId);
+  }
+  const [activeTemplates] = await conn.query(
+    `SELECT dt.*${mxRegisteredTemplateService.joinedRegistrationColumns('ctm')}
+       FROM document_templates dt
+       LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+      WHERE dt.organization_id = ? AND dt.template_type = 'activation_contract'
+        AND dt.is_active = 1 AND dt.deleted_at IS NULL
+        AND (ctm.id IS NULL OR ctm.environment = ?)${exclude}
+      ORDER BY dt.id FOR UPDATE`,
+    params,
+  );
+  const existing = mxRegisteredTemplateService.assertOneRegisteredSource(
+    activeTemplates,
+    orgId,
+    environment,
+  );
+  if (existing && existing.contractTemplateMxId !== Number(contractTemplateMxId)) {
+    throw new ValidationError(
+      `All active MX activation documents in the ${environment} environment must reference the same contract source`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Templates CRUD
 // ---------------------------------------------------------------------------
@@ -71,9 +103,16 @@ async function lockTemplateOrganization(conn, orgId) {
 templatesRouter.get('/', requirePermission('document_templates.view'), async (req, res, next) => {
   try {
     const params = [];
-    const cond = orgCond(req.orgId, params);
+    const cond = orgCond(req.orgId, params, 'dt.organization_id');
     const [rows] = await db.query(
-      `SELECT * FROM document_templates WHERE ${cond} AND deleted_at IS NULL ORDER BY template_type, id`,
+      `SELECT dt.*,
+              ctm.environment AS contract_template_mx_environment,
+              ctm.status AS contract_template_mx_status
+         FROM document_templates dt
+         LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
+        WHERE ${cond}
+          AND dt.deleted_at IS NULL
+        ORDER BY dt.template_type, dt.id`,
       params,
     );
     res.json({ data: rows });
@@ -85,7 +124,7 @@ templatesRouter.post('/', requirePermission('document_templates.create'), valida
   try {
     await conn.beginTransaction();
     await lockTemplateOrganization(conn, req.orgId);
-    await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
+    const sourceSnapshot = await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
       orgId: req.orgId,
       templateType: req.body.template_type,
       bodyMd: req.body.body_md,
@@ -93,6 +132,13 @@ templatesRouter.post('/', requirePermission('document_templates.create'), valida
       contractTemplateMxId: req.body.contract_template_mx_id ?? null,
       lock: true,
     });
+    if (req.body.template_type === 'activation_contract' && Boolean(req.body.is_active)) {
+      await assertActiveLaneSourceConsistency(conn, {
+        orgId: req.orgId,
+        environment: sourceSnapshot.contractEnvironment,
+        contractTemplateMxId: sourceSnapshot.contractTemplateMxId,
+      });
+    }
     const [ins] = await conn.query(
       `INSERT INTO document_templates
          (organization_id, template_type, name, body_md, contract_template_mx_id, is_active, created_by)
@@ -164,7 +210,7 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
     const allowTerminalSourceForDeactivation = Number(template.is_active) === 1
       && Number(nextTemplate.is_active) === 0
       && changedMaterial.length === 0;
-    await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
+    const sourceSnapshot = await mxRegisteredTemplateService.validateTemplateState(conn.query.bind(conn), {
       orgId: req.orgId,
       templateType: nextTemplate.template_type,
       bodyMd: nextTemplate.body_md,
@@ -173,6 +219,14 @@ templatesRouter.put('/:id', requirePermission('document_templates.update'), vali
       lock: true,
       allowTerminalSourceForDeactivation,
     });
+    if (nextTemplate.template_type === 'activation_contract' && Boolean(nextTemplate.is_active)) {
+      await assertActiveLaneSourceConsistency(conn, {
+        orgId: req.orgId,
+        environment: sourceSnapshot.contractEnvironment,
+        contractTemplateMxId: sourceSnapshot.contractTemplateMxId,
+        excludeTemplateId: template.id,
+      });
+    }
 
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => (f === 'is_active' ? (req.body[f] ? 1 : 0) : req.body[f]));

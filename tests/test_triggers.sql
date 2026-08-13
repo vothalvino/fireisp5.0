@@ -85,6 +85,26 @@ INSERT INTO contract_templates_mx (id, organization_id, template_name, template_
 VALUES (9000, 9001, 'Test Template', 'Contract body text...', 'draft');
 CALL assert_true(ROW_COUNT() = 1, 'A9: contract_templates_mx INSERT succeeds for MX org');
 
+-- Contract classification accepts only a usable source with the exact active
+-- activation document body for the organization's current environment.
+UPDATE contract_templates_mx SET status = 'sandbox_ready' WHERE id = 9000;
+INSERT INTO document_templates
+       (id, organization_id, template_type, name, body_md, contract_template_mx_id, is_active)
+VALUES (9000, 9001, 'activation_contract', 'Test activation contract',
+        'Contract body text...', 9000, TRUE);
+
+-- A separate, externally registered source makes the production lane ready;
+-- switching environments never promotes or rewrites the sandbox artifact.
+INSERT INTO contract_templates_mx
+       (id, organization_id, environment, template_name, ift_registration_number,
+        registered_at, version, template_body, status)
+VALUES (9002, 9001, 'production', 'Registered Test Template', 'PROFECO-TEST-001',
+        '2024-01-15', '1.0', 'Registered contract body text...', 'registered');
+INSERT INTO document_templates
+       (id, organization_id, template_type, name, body_md, contract_template_mx_id, is_active)
+VALUES (9002, 9001, 'activation_contract', 'Registered activation contract',
+        'Registered contract body text...', 9002, TRUE);
+
 -- A10. contract_templates_mx — INSERT for global org should fail
 CALL assert_sql_error('45000', 'INSERT INTO contract_templates_mx (id, organization_id, template_name, template_body, status) VALUES (9001, 9000, ''Test Template 2'', ''Contract body text...'', ''draft'')', 'A10: contract_templates_mx INSERT rejected for global org');
 
@@ -105,12 +125,13 @@ CALL assert_true(ROW_COUNT() = 1, 'A13: ift_statistical_reports INSERT succeeds 
 CALL assert_sql_error('45000', 'INSERT INTO ift_statistical_reports (id, organization_id, report_period, period_start, period_end, status) VALUES (9001, 9000, ''2024-Q2'', ''2024-04-01'', ''2024-06-30'', ''draft'')', 'A14: ift_statistical_reports INSERT rejected for global org');
 
 -- A15. contracts with contract_template_mx_id — MX client should succeed
-INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, contract_template_mx_id, status)
-VALUES (9000, 9001, 9000, '2024-01-01', 'static', 9000, 'pending');
+INSERT INTO contracts (id, organization_id, client_id, plan_id, start_date, connection_type,
+                       contract_template_mx_id, mx_contract_environment, status)
+VALUES (9000, 9001, 9001, 9000, '2024-01-01', 'static', 9000, 'sandbox', 'pending');
 CALL assert_true(ROW_COUNT() = 1, 'A15: contracts INSERT with MX template succeeds for MX client');
 
 -- A16. contracts with contract_template_mx_id — global client should fail
-CALL assert_sql_error('45000', 'INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, contract_template_mx_id, status) VALUES (9001, 9000, 9000, ''2024-01-01'', ''static'', 9000, ''pending'')', 'A16: contracts INSERT with MX template rejected for global client');
+CALL assert_sql_error('45000', 'INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, contract_template_mx_id, mx_contract_environment, status) VALUES (9001, 9000, 9000, ''2024-01-01'', ''static'', 9000, ''sandbox'', ''pending'')', 'A16: contracts INSERT with MX template rejected for global client');
 
 -- A17. contracts without MX template for global client should succeed
 INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, status)
@@ -139,7 +160,36 @@ CALL assert_sql_error('45000', 'UPDATE regulatory_filings SET organization_id = 
 CALL assert_sql_error('45000', 'UPDATE ift_statistical_reports SET organization_id = 9000 WHERE id = 9000', 'A24: ift_statistical_reports UPDATE to global org rejected');
 
 -- A25. contracts — UPDATE to set MX template on global client contract should fail
-CALL assert_sql_error('45000', 'UPDATE contracts SET contract_template_mx_id = 9000 WHERE id = 9002', 'A25: contracts UPDATE with MX template rejected for global client');
+CALL assert_sql_error('45000', 'UPDATE contracts SET contract_template_mx_id = 9000, mx_contract_environment = ''sandbox'' WHERE id = 9002', 'A25: contracts UPDATE with MX template rejected for global client');
+
+-- A26-A29. Once sandbox work is terminalized, production can be selected, but
+-- neither a terminal contract nor an archived pending contract can return to
+-- service with sandbox provenance.
+INSERT INTO contracts (id, organization_id, client_id, plan_id, start_date, connection_type,
+                       contract_template_mx_id, mx_contract_environment, status)
+VALUES (9010, 9001, 9001, 9000, '2024-01-01', 'static', 9000, 'sandbox', 'pending');
+UPDATE contracts SET deleted_at = NOW() WHERE id = 9010;
+UPDATE contracts SET status = 'cancelled' WHERE id = 9000;
+UPDATE organization_mx_profiles SET contract_environment = 'production' WHERE id = 9000;
+CALL assert_true(ROW_COUNT() = 1, 'A26: production switch succeeds after live sandbox contracts are terminal');
+CALL assert_sql_error('45000', 'UPDATE contracts SET status = ''active'' WHERE id = 9000', 'A27: terminal sandbox contract revival rejected in production');
+CALL assert_sql_error('45000', 'UPDATE contracts SET deleted_at = NULL WHERE id = 9010', 'A28: archived pending sandbox contract restore rejected in production');
+UPDATE organization_mx_profiles SET contract_environment = 'sandbox' WHERE id = 9000;
+UPDATE contracts SET deleted_at = NULL WHERE id = 9010;
+UPDATE contracts SET status = 'active' WHERE id = 9000;
+CALL assert_true(ROW_COUNT() = 1, 'A29: sandbox contract activation remains allowed in sandbox');
+
+CALL assert_sql_error('45000', 'INSERT INTO contracts (id, organization_id, client_id, plan_id, start_date, connection_type, status) VALUES (9009, 9001, 9001, 9000, ''2024-01-01'', ''static'', ''pending'')', 'A30: direct MX contract INSERT requires source/environment classification');
+CALL assert_sql_error('45000', 'UPDATE contracts SET contract_template_mx_id = NULL, mx_contract_environment = NULL WHERE id = 9000', 'A31: frozen MX source/environment snapshot cannot be cleared');
+
+-- A32. A historical global contract cannot be revived source-free after its
+-- organization changes jurisdiction to MX.
+INSERT INTO contracts (id, organization_id, client_id, plan_id, start_date, connection_type, status)
+VALUES (9011, 9000, 9000, 9000, '2024-01-01', 'static', 'pending');
+UPDATE contracts SET status = 'cancelled' WHERE id = 9011;
+UPDATE organizations SET locale = 'MX' WHERE id = 9000;
+CALL assert_sql_error('45000', 'UPDATE contracts SET status = ''active'' WHERE id = 9011', 'A32: source-free global history cannot revive after organization becomes MX');
+UPDATE organizations SET locale = 'global' WHERE id = 9000;
 
 -- =========================================================================
 -- B. LOCALE DOWNGRADE GUARD TRIGGERS (migration 088)
@@ -163,8 +213,9 @@ DELETE FROM clients WHERE id = 9002;
 -- =========================================================================
 
 -- C1. Contract facturar=TRUE for MX client should succeed
-INSERT INTO contracts (id, client_id, plan_id, start_date, connection_type, facturar, status)
-VALUES (9003, 9001, 9000, '2024-01-01', 'static', TRUE, 'pending');
+INSERT INTO contracts (id, organization_id, client_id, plan_id, start_date, connection_type,
+                       contract_template_mx_id, mx_contract_environment, facturar, status)
+VALUES (9003, 9001, 9001, 9000, '2024-01-01', 'static', 9000, 'sandbox', TRUE, 'pending');
 CALL assert_true(ROW_COUNT() = 1, 'C1: Contract facturar=TRUE allowed for MX client');
 
 -- C2. Contract facturar=TRUE for global client should fail
@@ -451,7 +502,7 @@ DELETE FROM factura_publica_invoices WHERE id IN (9000, 9001);
 DELETE FROM payment_allocations WHERE id IN (9000, 9001, 9002, 9003);
 DELETE FROM payments WHERE id IN (9000, 9001);
 DELETE FROM invoices WHERE id IN (9000, 9001, 9002, 9003, 9004);
-DELETE FROM contracts WHERE id IN (9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009);
+DELETE FROM contracts WHERE id IN (9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9011);
 DELETE FROM inventory_stock WHERE id = 9000;
 DELETE FROM inventory_items WHERE id = 9000;
 DELETE FROM inventory_transactions WHERE stock_id = 9000;
@@ -459,7 +510,8 @@ DELETE FROM warehouses WHERE id = 9000;
 DELETE FROM ift_statistical_reports WHERE id IN (9000, 9001);
 DELETE FROM regulatory_filings WHERE id IN (9000, 9001);
 DELETE FROM concession_titles WHERE id IN (9000, 9001);
-DELETE FROM contract_templates_mx WHERE id IN (9000, 9001);
+DELETE FROM document_templates WHERE id IN (9000, 9002);
+DELETE FROM contract_templates_mx WHERE id IN (9000, 9001, 9002);
 DELETE FROM cfdi_documents WHERE id IN (9000, 9001);
 DELETE FROM organization_mx_profiles WHERE id IN (9000, 9001);
 DELETE FROM client_mx_profiles WHERE id IN (9000, 9001);

@@ -43,6 +43,17 @@ const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateServi
 const GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID = 0;
 const GLOBAL_ACKNOWLEDGMENT_TYPE = 'service_acknowledgment';
 const GLOBAL_ACKNOWLEDGMENT_TITLE = 'Service installation acknowledgment';
+const SANDBOX_WATERMARK = `> **PRUEBA / SIMULACIÓN — NO REGISTRADO ANTE PROFECO — SIN EFECTOS LEGALES**
+>
+> Este documento fue generado en el entorno de simulación de FireISP. No es un
+> sandbox oficial de PROFECO, no acredita registro y no puede convertirse en
+> un contrato de producción.
+>
+> **TEST / SIMULATION — NOT PROFECO REGISTERED — NO LEGAL EFFECT.** This is a
+> FireISP simulation, not an official PROFECO sandbox or registration, and it
+> cannot be converted into a production contract.
+
+`;
 const GLOBAL_ACKNOWLEDGMENT_BODY = `# Service installation acknowledgment
 
 - Customer: **{{client.name}}**
@@ -146,6 +157,8 @@ async function buildContext(run, { orgId, clientId, contractId, orderId }) {
     contract: {
       id: contract?.id, start_date: contract?.start_date,
       connection_type: contract?.connection_type,
+      contract_template_mx_id: contract?.contract_template_mx_id,
+      mx_contract_environment: contract?.mx_contract_environment,
     },
     plan: { name: plan?.name, download: plan?.download_speed, upload: plan?.upload_speed, price: plan?.price },
     order: { number: order?.order_number, address: order?.address },
@@ -185,12 +198,6 @@ async function generateForOrder(run, {
        FOR UPDATE`,
       [orgId],
     );
-    // Validate the entire active MX set before filtering by requested IDs. An
-    // unlinked legacy contract must not be hidden by a partial backfill call.
-    mxRegisteredTemplateService.assertOneRegisteredSource(
-      templates.filter(template => template.template_type === 'activation_contract'),
-      orgId,
-    );
   } else {
     templates = [{
       id: null,
@@ -201,6 +208,27 @@ async function generateForOrder(run, {
     }];
   }
   if (!templates.length) return [];
+
+  const context = await buildContext(run, { orgId, clientId, contractId, orderId });
+  let mxContractEnvironment = null;
+  if (locale === 'MX') {
+    mxContractEnvironment = mxRegisteredTemplateService.assertEnvironment(
+      context.contract.mx_contract_environment,
+      'contract.mx_contract_environment',
+    );
+    // Both lanes may have active templates. Select only this contract's frozen
+    // lane; retain unlinked active legacy rows so they fail closed below.
+    templates = templates.filter(template => (
+      template.template_type !== 'activation_contract'
+      || !template.mx_id
+      || mxRegisteredTemplateService.contractEnvironment(template) === mxContractEnvironment
+    ));
+    mxRegisteredTemplateService.assertOneRegisteredSource(
+      templates.filter(template => template.template_type === 'activation_contract'),
+      orgId,
+      mxContractEnvironment,
+    );
+  }
 
   let wanted = skipTypes ? templates.filter(t => !skipTypes.has(t.template_type)) : templates;
   // Contract activation preparation backfills templates by ID, not merely by
@@ -215,21 +243,28 @@ async function generateForOrder(run, {
   }
   if (!wanted.length) return [];
 
-  const context = await buildContext(run, { orgId, clientId, contractId, orderId });
   const created = [];
   for (const tpl of wanted) {
-    const body = render(tpl.body_md, context);
+    const rendered = render(tpl.body_md, context);
+    const body = locale === 'MX' && mxContractEnvironment === 'sandbox'
+      ? `${SANDBOX_WATERMARK}${rendered}`
+      : rendered;
     const hash = sha256(body);
     const mxSnapshot = tpl.template_type === 'activation_contract'
-      ? mxRegisteredTemplateService.assertActiveActivationTemplate(tpl, orgId)
+      ? mxRegisteredTemplateService.assertActiveActivationTemplate(
+        tpl,
+        orgId,
+        mxContractEnvironment,
+      )
       : null;
     const [ins] = await run(
       `INSERT INTO signed_documents
          (organization_id, client_id, contract_id, service_order_id, work_order_id,
           template_id, template_type, title, rendered_body, content_sha256,
           contract_template_mx_id, mx_registration_number, mx_registered_at,
-          mx_template_version, mx_source_sha256, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+          mx_template_version, mx_source_sha256, mx_contract_environment,
+          evidence_format_version, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 'pending', ?)`,
       [orgId, clientId, contractId, orderId, workOrderId,
         tpl.id, tpl.template_type, tpl.name, body, hash,
         mxSnapshot?.contractTemplateMxId ?? null,
@@ -237,6 +272,7 @@ async function generateForOrder(run, {
         mxSnapshot?.registeredAt ?? null,
         mxSnapshot?.version ?? null,
         mxSnapshot?.sourceSha256 ?? null,
+        mxSnapshot?.contractEnvironment ?? null,
         createdBy],
     );
     created.push({ id: ins.insertId, template_type: tpl.template_type, title: tpl.name });
@@ -269,8 +305,12 @@ function evidenceDigest(document, {
   capturedBy = document.captured_by,
   communicationChoices = document.communication_choices,
 } = {}) {
+  // v2 predates contract environments. Missing/legacy values must continue to
+  // verify against that exact canonical envelope. New rows explicitly store
+  // v3 and bind the frozen sandbox/production mode into the digest.
+  const formatVersion = Number(document.evidence_format_version) >= 3 ? 3 : 2;
   const canonical = {
-    version: 2,
+    version: formatVersion,
     signing_method: 'assisted_canvas',
     document_id: document.id === null || document.id === undefined ? null : String(document.id),
     organization_id: document.organization_id === null || document.organization_id === undefined
@@ -299,6 +339,9 @@ function evidenceDigest(document, {
     captured_by: capturedBy === null || capturedBy === undefined ? null : String(capturedBy),
     communication_choices: normalizedCommunicationEvidence(communicationChoices),
   };
+  if (formatVersion >= 3) {
+    canonical.mx_contract_environment = document.mx_contract_environment || null;
+  }
   return crypto.createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex');
 }
 
@@ -403,7 +446,8 @@ async function sign(documentId, {
     if (scope.service_order_id !== null && scope.service_order_id !== undefined) {
       const [orders] = await conn.query(
         `SELECT so.id, so.order_type, so.status, so.client_id, so.contract_id,
-                c.status AS contract_status
+                c.status AS contract_status, c.contract_template_mx_id,
+                c.mx_contract_environment
            FROM service_orders so
            LEFT JOIN contracts c ON c.id = so.contract_id
             AND c.organization_id <=> so.organization_id
@@ -449,6 +493,45 @@ async function sign(documentId, {
     const hash = sha256(doc.rendered_body);
     if (hash !== doc.content_sha256) {
       throw new ValidationError('Document integrity check failed — the stored body does not match its generation hash');
+    }
+
+    // Validate the frozen chain, never the organization's current switch. A
+    // switch is allowed only between flows and cannot relabel old contracts or
+    // documents; these checks also detect direct database tampering.
+    const documentEnvironment = mxRegisteredTemplateService.contractEnvironment(doc);
+    if (documentEnvironment) {
+      if (lockedOrder?.mx_contract_environment !== documentEnvironment) {
+        throw new ValidationError(
+          'The document contract environment does not match its frozen installation contract',
+        );
+      }
+      if (doc.template_type === 'activation_contract') {
+        if (Number(lockedOrder?.contract_template_mx_id)
+            !== Number(doc.contract_template_mx_id)) {
+          throw new ValidationError(
+            'The document contract source does not match its frozen installation contract',
+          );
+        }
+        const source = await mxRegisteredTemplateService.loadLinkedRecord(
+          conn.query.bind(conn),
+          {
+            orgId: doc.organization_id,
+            contractTemplateMxId: doc.contract_template_mx_id,
+            lock: true,
+          },
+        );
+        const snapshot = mxRegisteredTemplateService.assertReadyRecord(source, {
+          orgId: doc.organization_id,
+          bodyMd: source?.template_body,
+          context: 'Signing document',
+          expectedEnvironment: documentEnvironment,
+        });
+        if (!mxRegisteredTemplateService.snapshotMatchesRegisteredSource(doc, snapshot)) {
+          throw new ValidationError(
+            'The document no longer matches its frozen MX contract-source evidence',
+          );
+        }
+      }
     }
 
     const isHandoffSignature = ['activation_contract', GLOBAL_ACKNOWLEDGMENT_TYPE]
@@ -524,7 +607,11 @@ async function sign(documentId, {
     // MySQL DATETIME stores whole seconds. Truncate before hashing so a row
     // read back from the database reproduces the exact signing timestamp.
     const signedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
-    const evidenceSha256 = evidenceDigest(doc, {
+    // A pending v2 row has never contributed signed evidence, so upgrade its
+    // envelope at the moment evidence is first captured. Signed historical v2
+    // rows are never touched (they cannot enter this pending-only path).
+    const evidenceDocument = { ...doc, evidence_format_version: 3 };
+    const evidenceSha256 = evidenceDigest(evidenceDocument, {
       signerName: normalizedSignerName,
       signatureImage,
       signedAt,
@@ -546,7 +633,8 @@ async function sign(documentId, {
       `UPDATE signed_documents
           SET status = 'signed', signer_name = ?, signature_image = ?,
               signed_at = ?, signed_ip = ?, captured_by = ?,
-              communication_choices = ?, evidence_sha256 = ?
+              communication_choices = ?, evidence_sha256 = ?,
+              evidence_format_version = 3
         WHERE id = ? AND content_sha256 = ? AND ${updateOrg}
           AND status = 'pending' AND deleted_at IS NULL`,
       updateParams,
@@ -585,7 +673,7 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
   // be blocked by historical Mexican document rows left after a locale change.
   const [orderOrganizations] = await run(
     `SELECT so.organization_id, so.client_id, so.contract_id,
-            c.contract_template_mx_id,
+            c.contract_template_mx_id, c.mx_contract_environment,
             COALESCE(o.locale, 'global') AS locale
        FROM service_orders so
        LEFT JOIN organizations o ON o.id = so.organization_id
@@ -611,14 +699,20 @@ async function pendingGateError(workOrder, target, { runner = db, lock = false }
          LEFT JOIN contract_templates_mx ctm ON ctm.id = dt.contract_template_mx_id
         WHERE dt.organization_id = ? AND dt.template_type = ?
           AND dt.is_active = 1 AND dt.deleted_at IS NULL
+          AND (ctm.id IS NULL OR ctm.environment = ?)
         ORDER BY dt.id${lockSql}`,
-      [orderOrganization.organization_id, gateType],
+      [
+        orderOrganization.organization_id,
+        gateType,
+        orderOrganization.mx_contract_environment,
+      ],
     );
     if (gateType === 'activation_contract' && templates.length) {
       try {
         registeredSource = mxRegisteredTemplateService.assertOneRegisteredSource(
           templates,
           orderOrganization.organization_id,
+          orderOrganization.mx_contract_environment,
         );
       } catch (err) {
         if (err instanceof ValidationError) return err.message;
@@ -688,6 +782,7 @@ module.exports = {
   GLOBAL_ACKNOWLEDGMENT_TEMPLATE_ID,
   GLOBAL_ACKNOWLEDGMENT_TYPE,
   GLOBAL_ACKNOWLEDGMENT_TITLE,
+  SANDBOX_WATERMARK,
   evidenceDigest,
   verifyEvidence,
   signatureEvidenceIsValid,

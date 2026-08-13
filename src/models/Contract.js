@@ -10,6 +10,7 @@ class Contract extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'client_id', 'plan_id', 'contract_template_mx_id',
+      'mx_contract_environment',
       'connection_type', 'start_date', 'end_date', 'billing_day',
       'price_override', 'ip_address', 'status', 'facturar', 'notes',
       'escalation_enabled', 'escalate_on_disconnect',

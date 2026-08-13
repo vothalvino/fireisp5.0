@@ -26,6 +26,8 @@ jest.mock('../src/config/database', () => ({
 jest.mock('../src/models/Organization', () => ({
   getCurrency: jest.fn().mockResolvedValue('MXN'),
   getLocale: jest.fn().mockResolvedValue('MX'),
+  update: jest.fn(),
+  findById: jest.fn(),
 }));
 
 const config = require('../src/config');

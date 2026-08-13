@@ -14,6 +14,7 @@ const provisioningService = require('../services/subscriberProvisioningService')
 const radiusService = require('../services/radiusService');
 const Client = require('../models/Client');
 const { assertPlanSelectable } = require('../services/planAvailability');
+const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
 
 /**
  * Parse CSV string into rows of objects.
@@ -272,6 +273,20 @@ async function insertContractRow(row, orgId) {
       connection_type: connectionType,
       status: 'pending',
     };
+    // Imported rows represent already-live subscribers, but an MX subscriber
+    // still needs durable provenance. Resolve the organization's CURRENT lane
+    // and its exact active source under the import transaction's locks, then
+    // freeze both fields before the insert. This serializes with environment
+    // switching and prevents imports from becoming unclassified active MX
+    // contracts. Global organizations deliberately resolve to null.
+    const mxSource = await mxRegisteredTemplateService.resolveActiveContractSource(
+      conn.query.bind(conn),
+      { orgId, lock: true },
+    );
+    if (mxSource) {
+      contractData.contract_template_mx_id = mxSource.contractTemplateMxId;
+      contractData.mx_contract_environment = mxSource.contractEnvironment;
+    }
     const cols = Object.keys(contractData);
     const [ins] = await conn.query(
       `INSERT INTO contracts (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,

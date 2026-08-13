@@ -139,8 +139,9 @@ describe('Contract Routes — /api/contracts', () => {
         release: jest.fn(),
       };
       conn.query
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
         .mockResolvedValueOnce([[{ id: 5 }]])                       // assertPlanSelectable — plan 5 is live
-        .mockResolvedValueOnce([[{ locale: 'global' }]])            // resolveActiveContractSource — generic org
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // source resolution
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])  // INSERT contracts
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
@@ -178,7 +179,9 @@ describe('Contract Routes — /api/contracts', () => {
     test('global organizations cannot enable the MX-only facturar flag on create', async () => {
       mockAuthUser();
       const conn = {
-        query: jest.fn().mockResolvedValueOnce([[{ locale: 'global' }]]),
+        query: jest.fn().mockResolvedValueOnce([[
+          { locale: 'global', contract_environment: 'sandbox' },
+        ]]),
         beginTransaction: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         rollback: jest.fn().mockResolvedValue(undefined),
@@ -202,7 +205,9 @@ describe('Contract Routes — /api/contracts', () => {
     test('rejects creating a contract on an archived plan with 422 PLAN_ARCHIVED', async () => {
       mockAuthUser();
       const conn = {
-        query: jest.fn().mockResolvedValueOnce([[]]), // assertPlanSelectable — plan archived/missing
+        query: jest.fn()
+          .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
+          .mockResolvedValueOnce([[]]), // assertPlanSelectable — plan archived/missing
         beginTransaction: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         rollback: jest.fn().mockResolvedValue(undefined),
@@ -234,8 +239,9 @@ describe('Contract Routes — /api/contracts', () => {
         release: jest.fn(),
       };
       conn.query
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
         .mockResolvedValueOnce([[{ id: 5 }]])                       // assertPlanSelectable — plan 5 is live and in-org/global
-        .mockResolvedValueOnce([[{ locale: 'global' }]])            // resolveActiveContractSource — generic org
+        .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // source resolution
         .mockResolvedValueOnce([{ insertId: 3, affectedRows: 1 }])  // INSERT contracts
         .mockResolvedValueOnce([[{ name: 'Acme' }]]);               // SELECT client name (seed)
       db.getConnection.mockResolvedValue(conn);
@@ -250,7 +256,7 @@ describe('Contract Routes — /api/contracts', () => {
         .send({ client_id: 10, plan_id: 5, start_date: '2025-01-01' });
 
       expect(res.status).toBe(201);
-      const planQuery = conn.query.mock.calls[0];
+      const planQuery = conn.query.mock.calls.find(([sql]) => /FROM plans/.test(sql));
       expect(planQuery[0]).toContain('organization_id = ?');
       expect(planQuery[0]).toContain('organization_id IS NULL');
       expect(planQuery[1]).toEqual([5, 1]); // [planId, orgId] — authToken's orgId is 1
@@ -263,7 +269,9 @@ describe('Contract Routes — /api/contracts', () => {
         // by a DIFFERENT organization (not archived); assertPlanSelectable
         // can't (and needn't) distinguish the two cases, both correctly
         // reject the create the same way.
-        query: jest.fn().mockResolvedValueOnce([[]]),
+        query: jest.fn()
+          .mockResolvedValueOnce([[{ locale: 'global', contract_environment: 'sandbox' }]]) // organization lock
+          .mockResolvedValueOnce([[]]),
         beginTransaction: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         rollback: jest.fn().mockResolvedValue(undefined),
@@ -278,7 +286,8 @@ describe('Contract Routes — /api/contracts', () => {
 
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('PLAN_ARCHIVED');
-      expect(conn.query.mock.calls[0][1]).toEqual([999, 1]);
+      const planQuery = conn.query.mock.calls.find(([sql]) => /FROM plans/.test(sql));
+      expect(planQuery[1]).toEqual([999, 1]);
     });
   });
 

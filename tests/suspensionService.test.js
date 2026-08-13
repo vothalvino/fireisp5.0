@@ -207,7 +207,7 @@ describe('suspensionService', () => {
       const reset = mockConnection.execute.mock.calls.find(([sql]) => /SET status = 'pending'/.test(sql));
       expect(reset[0]).toMatch(/first_activated_at IS NULL/);
       expect(reset[0]).toMatch(/test_window_cleanup_pending = 1/);
-      expect(reset[0]).not.toMatch(/DATE_SUB|COALESCE/);
+      expect(reset[0]).not.toMatch(/test_window_expires_at\s*=\s*COALESCE|DATE_SUB/);
       const radiusOff = mockConnection.execute.mock.calls.find(([sql]) => /radius SET status = 'inactive'/.test(sql));
       expect(radiusOff).toBeDefined();
       expect(cleanup).toHaveBeenCalledWith(10, {
@@ -229,6 +229,81 @@ describe('suspensionService', () => {
       await expect(suspensionService.reconnectContract(10, 5, 50, { orgId: 42 }))
         .rejects.toThrow(/Only a suspended contract/i);
       expect(mockConnection.rollback).toHaveBeenCalled();
+    });
+
+    test('payment-style reconnect with no orgId cannot revive a frozen sandbox contract in production', async () => {
+      mockConnection.execute.mockImplementation(async (sql, params) => {
+        const s = String(sql).replace(/\s+/g, ' ');
+        if (/UPDATE contracts SET/.test(s)) return [{ affectedRows: 0 }];
+        if (/FROM contracts/.test(s) && /FOR UPDATE/.test(s)) {
+          return [[{
+            status: 'suspended',
+            first_activated_at: new Date('2025-01-01T00:00:00Z'),
+            organization_id: 42,
+            contract_template_mx_id: 71,
+            mx_contract_environment: 'sandbox',
+          }]];
+        }
+        if (/FROM organizations o/.test(s)) {
+          expect(params).toEqual([42]);
+          return [[{
+            locale: 'MX', contract_environment: 'production', mx_profile_id: 4,
+          }]];
+        }
+        return [[]];
+      });
+
+      await expect(suspensionService.reconnectContract(10, 5, 50))
+        .rejects.toThrow(/sandbox.*production|production.*sandbox/i);
+
+      const lockedState = mockConnection.execute.mock.calls.find(([sql]) => (
+        /FROM contracts/.test(String(sql)) && /FOR UPDATE/.test(String(sql))
+      ));
+      expect(lockedState).toBeDefined();
+      expect(lockedState[1]).toEqual([10]);
+      expect(mockConnection.execute.mock.calls.some(([sql]) => /UPDATE radius/.test(String(sql))))
+        .toBe(false);
+      expect(mockConnection.execute.mock.calls.some(([sql]) => /INSERT INTO suspension_logs/.test(String(sql))))
+        .toBe(false);
+      expect(db.query).not.toHaveBeenCalled();
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.commit).not.toHaveBeenCalled();
+      expect(mockConnection.release).toHaveBeenCalled();
+    });
+
+    test('payment-style reconnect rejects source-free history after its organization becomes Mexican', async () => {
+      mockConnection.execute.mockImplementation(async (sql, params) => {
+        const s = String(sql).replace(/\s+/g, ' ');
+        if (/UPDATE contracts SET/.test(s)) return [{ affectedRows: 0 }];
+        if (/FROM contracts/.test(s) && /FOR UPDATE/.test(s)) {
+          return [[{
+            status: 'suspended',
+            first_activated_at: new Date('2025-01-01T00:00:00Z'),
+            organization_id: 42,
+            client_id: 9,
+            contract_template_mx_id: null,
+            mx_contract_environment: null,
+          }]];
+        }
+        if (/FROM organizations o/.test(s)) {
+          expect(params).toEqual([42]);
+          return [[{
+            locale: 'MX', contract_environment: 'sandbox', mx_profile_id: 4,
+          }]];
+        }
+        return [[]];
+      });
+
+      await expect(suspensionService.reconnectContract(10, 5, 50))
+        .rejects.toThrow(/frozen MX contract source.*environment|classified MX contract/i);
+
+      expect(mockConnection.execute.mock.calls.some(([sql]) => /UPDATE radius/.test(String(sql))))
+        .toBe(false);
+      expect(mockConnection.execute.mock.calls.some(([sql]) => /INSERT INTO suspension_logs/.test(String(sql))))
+        .toBe(false);
+      expect(db.query).not.toHaveBeenCalled();
+      expect(mockConnection.rollback).toHaveBeenCalled();
+      expect(mockConnection.commit).not.toHaveBeenCalled();
     });
 
     test('lifts walled garden when an open walled_garden log exists', async () => {

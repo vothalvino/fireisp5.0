@@ -279,6 +279,26 @@ describe('WorkOrders — legal documents panel', () => {
     expect(within(dialog).queryByText('Optional marketing communications')).not.toBeInTheDocument();
   });
 
+  it('marks a sandbox MX document as a FireISP simulation with no legal effect', async () => {
+    mockDocsPaths({
+      docs: [{ id: 12, template_type: 'installation_authorization', title: 'Sandbox authorization', status: 'pending', signer_name: null, signed_at: null }],
+      detail: {
+        ...arrivalDetail,
+        id: 12,
+        title: 'Sandbox authorization',
+        mx_contract_environment: 'sandbox',
+      },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('Installation — SO-000011'));
+    fireEvent.click(await screen.findByText('Read & sign'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign document' });
+
+    expect(await within(dialog).findByTestId('mx-contract-sandbox-banner')).toHaveTextContent(
+      /NOT PROFECO REGISTERED — NO LEGAL EFFECT/,
+    );
+  });
+
   it('does not request or expose document metadata without signed_documents.view', async () => {
     mockRole = 'custom';
     mockPermissions = ['work_orders.view'];
@@ -499,6 +519,7 @@ describe('WorkOrders — install test window', () => {
   function mockWindowPaths({ contract }: { contract: {
     status: string;
     connection_type?: string;
+    mx_contract_environment?: 'sandbox' | 'production';
     test_window_expires_at: string | null;
     test_window_cleanup_pending?: boolean;
   } }) {
@@ -530,6 +551,19 @@ describe('WorkOrders — install test window', () => {
       '/api/v1/work-orders/704/test-window/start',
       expect.objectContaining({ method: 'POST' }),
     ));
+  });
+
+  it('keeps the FireISP sandbox warning visible while commissioning a sandbox contract', async () => {
+    mockWindowPaths({ contract: {
+      status: 'pending',
+      mx_contract_environment: 'sandbox',
+      test_window_expires_at: null,
+    } });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Installation — SO-000011')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Installation — SO-000011'));
+
+    expect(await screen.findByTestId('mx-contract-sandbox-banner')).toHaveTextContent(/NO LEGAL EFFECT/i);
   });
 
   it('shows the open window with its bound and an End action', async () => {

@@ -43,6 +43,12 @@ jest.mock('../src/services/billingService', () => ({
 }));
 jest.mock('../src/models/Organization', () => ({
   getCurrency: jest.fn().mockResolvedValue('MXN'),
+  // organizations.js opts its locale-changing controller into transactional
+  // writes at app-load time.  The CRUD factory validates the model contract,
+  // so this focused invoice test's partial stand-in must expose the two model
+  // methods that controller uses even though no organization route is called.
+  update: jest.fn(),
+  findById: jest.fn(),
 }));
 
 const db = require('../src/config/database');

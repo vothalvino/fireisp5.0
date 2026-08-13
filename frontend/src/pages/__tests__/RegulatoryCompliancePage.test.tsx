@@ -3,6 +3,7 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import RegulatoryCompliancePage from '../RegulatoryCompliancePage';
 
 vi.mock('react-i18next', () => ({
@@ -37,14 +38,23 @@ Object.defineProperty(window, 'localStorage', {
   writable: true,
 });
 
+function renderCompliancePage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RegulatoryCompliancePage />
+    </QueryClientProvider>,
+  );
+}
+
 describe('RegulatoryCompliancePage', () => {
   it('renders the page title', () => {
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     expect(screen.getByText('regulatoryCompliance.title')).toBeDefined();
   });
 
   it('renders all 8 tab buttons', () => {
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     // consent appears in both the button strip and the active tab h2 — use getAllByText
     expect(screen.getAllByText('regulatoryCompliance.tabs.consent').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('regulatoryCompliance.tabs.dsar').length).toBeGreaterThanOrEqual(1);
@@ -57,7 +67,7 @@ describe('RegulatoryCompliancePage', () => {
   });
 
   it('shows consent tab content by default', () => {
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     // Consent tab heading should be rendered (same key as tab button, appears twice —
     // once in the tab strip and once as the h2)
     const matches = screen.getAllByText('regulatoryCompliance.tabs.consent');
@@ -67,7 +77,7 @@ describe('RegulatoryCompliancePage', () => {
   it('hides the MX-gated consumer-protection tab for global-locale orgs', () => {
     mockUser.current = { organization_locale: 'global', role: 'admin' };
     try {
-      render(<RegulatoryCompliancePage />);
+      renderCompliancePage();
       expect(screen.queryByText('regulatoryCompliance.tabs.consumer')).toBeNull();
       expect(screen.getAllByText('regulatoryCompliance.tabs.dsar').length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -100,7 +110,7 @@ describe('DsarTab permission gating', () => {
     vi.mocked(fetch).mockImplementation(() => Promise.resolve({
       ok: true, json: () => Promise.resolve({ data: rows }),
     } as unknown as Response));
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     // Switch off the default consent tab.
     fireEvent.click(screen.getAllByText('regulatoryCompliance.tabs.dsar')[0]);
     await screen.findByText('access');
@@ -168,7 +178,7 @@ describe('ConsentTab permission gating', () => {
     vi.mocked(fetch).mockImplementation(() => Promise.resolve({
       ok: true, json: () => Promise.resolve({ data: [ACTIVE_CONSENT] }),
     } as unknown as Response));
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     // Wait for the row itself, so the withdraw assertions run against a
     // rendered row rather than an empty table.
     await screen.findByText('service_delivery');
@@ -209,10 +219,11 @@ describe('Consumer Protection MX registered-template evidence', () => {
     ift_registration_number: 'CRT-2026-17',
     registered_at: '2026-07-15',
     status: 'registered',
+    environment: 'production',
   };
 
   function openConsumerTab() {
-    render(<RegulatoryCompliancePage />);
+    renderCompliancePage();
     fireEvent.click(screen.getByText('regulatoryCompliance.tabs.consumer'));
   }
 
@@ -226,9 +237,14 @@ describe('Consumer Protection MX registered-template evidence', () => {
   it('lists org-scoped evidence and creates an operator-confirmed registered source with exact text', async () => {
     vi.mocked(fetch).mockImplementation((input, options) => {
       const url = String(input);
-      if (url.endsWith('/consumer-protection/contract-templates-mx') && !options?.method) {
+      if (url.includes('/consumer-protection/contract-templates-mx?') && !options?.method) {
         return Promise.resolve({
           ok: true, json: () => Promise.resolve({ data: [REGISTERED_TEMPLATE] }),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: { contract_environment: 'production' } }),
         } as unknown as Response);
       }
       return Promise.resolve({
@@ -239,6 +255,9 @@ describe('Consumer Protection MX registered-template evidence', () => {
     openConsumerTab();
     expect(await screen.findByText('Contrato 2026')).toBeDefined();
     expect(screen.getByText('regulatoryCompliance.consumer.registry.externalWarning')).toBeDefined();
+    await waitFor(() => expect(screen.getByLabelText(
+      'regulatoryCompliance.consumer.registry.environment.label',
+    )).toHaveValue('production'));
     fireEvent.click(screen.getByText('regulatoryCompliance.consumer.registry.create'));
 
     fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.name'), { target: { value: 'Contrato 2027' } });
@@ -265,9 +284,181 @@ describe('Consumer Protection MX registered-template evidence', () => {
           ift_registration_number: 'CRT-2027-01',
           registered_at: '2027-01-12',
           status: 'registered',
+          environment: 'production',
         }),
       }),
     ));
+  });
+
+  it('creates a clearly separated sandbox-ready source without fabricated registration metadata', async () => {
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: { contract_environment: 'sandbox' } }),
+        } as unknown as Response);
+      }
+      if (url.includes('/consumer-protection/contract-templates-mx?') && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true, json: () => Promise.resolve({ data: options?.method ? {} : [] }),
+      } as unknown as Response);
+    });
+
+    openConsumerTab();
+    await screen.findByText('regulatoryCompliance.consumer.registry.environment.sandboxSummary');
+    fireEvent.click(screen.getByText('regulatoryCompliance.consumer.registry.create'));
+    expect(screen.getByText('regulatoryCompliance.consumer.registry.environment.sandboxSourceWarning')).toBeDefined();
+    expect(screen.queryByLabelText('regulatoryCompliance.consumer.registry.registrationNumber')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.name'), { target: { value: 'Contrato de prueba' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.version'), { target: { value: 'sim-1' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.exactText'), { target: { value: 'Texto de simulación' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.status'), { target: { value: 'sandbox_ready' } });
+    fireEvent.click(screen.getByText('common.save'));
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/consumer-protection/contract-templates-mx',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          template_name: 'Contrato de prueba',
+          template_body: 'Texto de simulación',
+          version: 'sim-1',
+          ift_registration_number: null,
+          registered_at: null,
+          status: 'sandbox_ready',
+          environment: 'sandbox',
+        }),
+      }),
+    ));
+  });
+
+  it('requires an explicit confirmation before switching new contracts to production', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        const environment = options?.method === 'PUT' ? 'production' : 'sandbox';
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: { contract_environment: environment } }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+
+    try {
+      openConsumerTab();
+      const selector = await screen.findByLabelText('regulatoryCompliance.consumer.registry.environment.label');
+      expect(selector).toHaveValue('sandbox');
+      fireEvent.change(selector, { target: { value: 'production' } });
+
+      expect(confirm).toHaveBeenCalledWith(
+        'regulatoryCompliance.consumer.registry.environment.productionConfirmation',
+      );
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+        '/api/v1/consumer-protection/contract-environment',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ contract_environment: 'production' }),
+        }),
+      ));
+      await waitFor(() => expect(selector).toHaveValue('production'));
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it('surfaces a production preflight failure and leaves the selector in sandbox', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-environment') && options?.method === 'PUT') {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          json: () => Promise.resolve({
+            error: { code: 'MX_CONTRACT_PRODUCTION_NOT_READY', message: 'Add an eligible production source and activation template first.' },
+          }),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: { contract_environment: 'sandbox' } }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+
+    try {
+      openConsumerTab();
+      const selector = await screen.findByLabelText('regulatoryCompliance.consumer.registry.environment.label');
+      fireEvent.change(selector, { target: { value: 'production' } });
+
+      expect(await screen.findByText('Add an eligible production source and activation template first.')).toBeDefined();
+      expect(selector).toHaveValue('sandbox');
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it('fails closed instead of claiming sandbox when the active environment cannot be loaded', async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          json: () => Promise.resolve({ error: { message: 'environment unavailable' } }),
+        } as unknown as Response);
+      }
+      if (url.includes('/consumer-protection/contract-templates-mx?')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+
+    openConsumerTab();
+    expect(await screen.findByText('regulatoryCompliance.consumer.registry.environment.loadError')).toBeDefined();
+    expect(screen.queryByLabelText('regulatoryCompliance.consumer.registry.environment.label')).toBeNull();
+    expect(screen.queryByText('regulatoryCompliance.consumer.registry.environment.sandboxSummary')).toBeNull();
+    expect(screen.getByRole('button', { name: 'common.retry' })).toBeDefined();
+  });
+
+  it('paginates the registry so sources after the first 100 remain visible', async () => {
+    const source101 = {
+      ...REGISTERED_TEMPLATE,
+      id: 101,
+      template_name: 'Contrato 101',
+      version: '101.0',
+    };
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith('/consumer-protection/contract-environment')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: { contract_environment: 'sandbox' } }),
+        } as unknown as Response);
+      }
+      if (url.includes('/consumer-protection/contract-templates-mx?')) {
+        const page = new URL(url, 'https://fireisp.test').searchParams.get('page');
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: page === '2' ? [source101] : [REGISTERED_TEMPLATE],
+            meta: { total: 101, page: Number(page), limit: 100, totalPages: 2 },
+          }),
+        } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+
+    openConsumerTab();
+    expect(await screen.findByText('Contrato 2026')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'common.next' }));
+    expect(await screen.findByText('Contrato 101')).toBeDefined();
+    expect(screen.queryByText('Contrato 2026')).toBeNull();
   });
 
   it('keeps frozen registered evidence read-only and surfaces backend immutability errors', async () => {
@@ -280,7 +471,7 @@ describe('Consumer Protection MX registered-template evidence', () => {
           json: () => Promise.resolve({ error: { message: 'Registered MX contract text is permanently immutable; create a new version' } }),
         } as unknown as Response);
       }
-      if (url.endsWith('/consumer-protection/contract-templates-mx')) {
+      if (url.includes('/consumer-protection/contract-templates-mx?')) {
         return Promise.resolve({
           ok: true, json: () => Promise.resolve({ data: [REGISTERED_TEMPLATE] }),
         } as unknown as Response);
@@ -292,6 +483,7 @@ describe('Consumer Protection MX registered-template evidence', () => {
     await screen.findByText('Contrato 2026');
     fireEvent.click(screen.getByText('common.edit'));
     expect(screen.getByLabelText('regulatoryCompliance.consumer.registry.exactText')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('regulatoryCompliance.consumer.registry.environment.sourceEnvironment')).toBeDisabled();
     fireEvent.change(screen.getByLabelText('regulatoryCompliance.consumer.registry.status'), { target: { value: 'expired' } });
     fireEvent.click(screen.getByText('common.save'));
 
@@ -300,7 +492,7 @@ describe('Consumer Protection MX registered-template evidence', () => {
 
   it('shows a localized registry fetch error', async () => {
     vi.mocked(fetch).mockImplementation((input) => {
-      if (String(input).endsWith('/consumer-protection/contract-templates-mx')) {
+      if (String(input).includes('/consumer-protection/contract-templates-mx?')) {
         return Promise.resolve({
           ok: false, status: 500, json: () => Promise.resolve({}),
         } as unknown as Response);

@@ -45,6 +45,7 @@ function registeredTemplate(template) {
     mx_registered_at: '2026-01-15',
     mx_template_version: '1.0',
     mx_template_body: bodyMd,
+    mx_contract_environment: 'production',
     mx_status: 'registered',
     mx_deleted_at: null,
     ...template,
@@ -76,7 +77,14 @@ describe('generateForOrder', () => {
       if (/SELECT locale FROM organizations/.test(s)) return [[{ locale: state.locale ?? 'MX' }]];
       if (/FROM document_templates/.test(s)) return [state.templates.map(registeredTemplate)];
       if (/FROM clients WHERE/.test(s)) return [[{ id: 9, name: 'María', email: 'm@x.mx', address: 'Calle 1', city: 'CDMX' }]];
-      if (/FROM contracts WHERE/.test(s)) return [[{ id: 33, plan_id: 2, connection_type: 'pppoe', start_date: '2026-08-05' }]];
+      if (/FROM contracts WHERE/.test(s)) return [[{
+        id: 33,
+        plan_id: 2,
+        connection_type: 'pppoe',
+        start_date: '2026-08-05',
+        contract_template_mx_id: MX_SOURCE_ID,
+        mx_contract_environment: state.contractEnvironment || 'production',
+      }]];
       if (/FROM plans WHERE/.test(s)) return [[{ id: 2, name: 'Inalambrico 50', price: '400.00' }]];
       if (/FROM service_orders WHERE/.test(s)) return [[{ id: 16, order_number: 'SO-000016', address: 'Calle 1, CDMX' }]];
       if (/FROM organizations WHERE/.test(s)) return [[{ id: 42, name: 'MX ISP', legal_name: 'MX ISP SA' }]];
@@ -136,6 +144,34 @@ describe('generateForOrder', () => {
 
     expect(created).toEqual([{ id: 1, template_type: 'activation_contract', title: 'Nuevo anexo' }]);
     expect(state.inserts).toHaveLength(1);
+  });
+
+  it('watermarks sandbox contracts and snapshots mode without fake official registration data', async () => {
+    const state = {
+      contractEnvironment: 'sandbox',
+      templates: [{
+        id: 8,
+        template_type: 'activation_contract',
+        name: 'Sandbox contract',
+        body_md: 'Test plan for {{client.name}}',
+        mx_contract_environment: 'sandbox',
+        mx_status: 'sandbox_ready',
+        mx_registration_number: null,
+        mx_registered_at: null,
+      }],
+      inserts: [],
+    };
+
+    await svc.generateForOrder(runner(state), {
+      orgId: 42, clientId: 9, contractId: 33, orderId: 16, workOrderId: 13, createdBy: 1,
+    });
+
+    const params = state.insertParams[0];
+    expect(params[8]).toMatch(/^> \*\*PRUEBA \/ SIMULACIÓN — NO REGISTRADO ANTE PROFECO — SIN EFECTOS LEGALES\*\*/);
+    expect(params[8]).toMatch(/not an official PROFECO sandbox or registration/i);
+    expect(params.slice(11, 13)).toEqual([null, null]);
+    expect(params[15]).toBe('sandbox');
+    expect(state.inserts[0]).toMatch(/evidence_format_version[\s\S]*3/);
   });
 
   it('generates one bundled neutral acknowledgment for a global-locale org', async () => {
@@ -256,6 +292,7 @@ describe('POST /signed-documents/:id/sign', () => {
     expect(res.status).toBe(200);
     const upd = db.query.mock.calls.find(([s]) => /SET status = 'signed'/.test(s));
     expect(upd[0]).toMatch(/status = 'pending'/); // guarded — no double-sign race
+    expect(upd[0]).toMatch(/evidence_format_version = 3/);
     expect(upd[1][0]).toBe('María Fiscal Prueba');
   });
 
@@ -600,6 +637,32 @@ describe('POST /signed-documents/:id/sign', () => {
       }),
     })).toBe(false);
   });
+
+  it('keeps historical v2 evidence valid while v3 binds the frozen contract environment', () => {
+    const base = {
+      id: 7, organization_id: 42, client_id: 9, contract_id: 33,
+      service_order_id: 16, work_order_id: 13,
+      template_type: 'activation_contract', title: 'Contract',
+      rendered_body: BODY, content_sha256: HASH,
+      contract_template_mx_id: MX_SOURCE_ID,
+      mx_registration_number: 'IFT-2026-001', mx_registered_at: '2026-01-15',
+      mx_template_version: '1.0', mx_source_sha256: crypto.createHash('sha256').update('Official').digest('hex'),
+      signer_name: 'María', signature_image: SIG, signed_at: '2026-08-11T06:00:00.000Z',
+      signed_ip: '127.0.0.1', captured_by: 1, communication_choices: null,
+    };
+    const legacy = { ...base, evidence_format_version: 2 };
+    legacy.evidence_sha256 = svc.evidenceDigest(legacy);
+    expect(svc.verifyEvidence({ ...legacy, mx_contract_environment: 'sandbox' })).toBe(true);
+
+    const current = {
+      ...base,
+      evidence_format_version: 3,
+      mx_contract_environment: 'sandbox',
+    };
+    current.evidence_sha256 = svc.evidenceDigest(current);
+    expect(svc.verifyEvidence(current)).toBe(true);
+    expect(svc.verifyEvidence({ ...current, mx_contract_environment: 'production' })).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -836,6 +899,86 @@ describe('document-template version integrity', () => {
     expect(res.status).toBe(201);
     const orgLock = conn.query.mock.calls.find(([sql]) => /SELECT id FROM organizations/.test(sql));
     expect(orgLock[0]).toMatch(/FOR UPDATE/);
+    expect(conn.commit).toHaveBeenCalled();
+  });
+
+  it('rejects a second active source in the same contract environment at write time', async () => {
+    authorizeMx();
+    const proposedBody = 'Production source A';
+    const existingBody = 'Production source B';
+    const conn = connection(async (sql) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/FROM contract_templates_mx[\s\S]*WHERE id =/.test(sql)) {
+        return [[{
+          id: 71, organization_id: 42, environment: 'production',
+          template_name: 'Source A', ift_registration_number: 'PROFECO-A',
+          registered_at: '2026-08-01', version: '1', template_body: proposedBody,
+          status: 'registered', deleted_at: null,
+        }]];
+      }
+      if (/FROM document_templates dt/.test(sql)) {
+        return [[registeredTemplate({
+          id: 9, template_type: 'activation_contract',
+          name: 'Existing production contract', body_md: existingBody,
+          contract_template_mx_id: 72, mx_id: 72,
+          mx_template_body: existingBody, mx_registration_number: 'PROFECO-B',
+        })]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        name: 'Production source A', template_type: 'activation_contract',
+        body_md: proposedBody, contract_template_mx_id: 71, is_active: true,
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/same contract source/i);
+    expect(conn.query.mock.calls.some(([sql]) => /INSERT INTO document_templates/.test(sql)))
+      .toBe(false);
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  it('allows active sandbox and production sources to coexist in separate lanes', async () => {
+    authorizeMx();
+    const sandboxBody = 'Sandbox exact text';
+    const conn = connection(async (sql, params) => {
+      if (/SELECT id FROM organizations/.test(sql)) return [[{ id: 42 }]];
+      if (/FROM contract_templates_mx[\s\S]*WHERE id =/.test(sql)) {
+        return [[{
+          id: 81, organization_id: 42, environment: 'sandbox',
+          template_name: 'Simulation source', ift_registration_number: null,
+          registered_at: null, version: 'test-1', template_body: sandboxBody,
+          status: 'sandbox_ready', deleted_at: null,
+        }]];
+      }
+      if (/FROM document_templates dt/.test(sql)) {
+        expect(params).toEqual([42, 'sandbox']);
+        return [[]];
+      }
+      if (/INSERT INTO document_templates/.test(sql)) return [{ insertId: 10 }];
+      if (/SELECT \* FROM document_templates WHERE id/.test(sql)) {
+        return [[{ id: 10, organization_id: 42, is_active: 1 }]];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+
+    const res = await request(app)
+      .post('/api/v1/document-templates')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({
+        name: 'Sandbox simulation', template_type: 'activation_contract',
+        body_md: sandboxBody, contract_template_mx_id: 81, is_active: true,
+      });
+
+    expect(res.status).toBe(201);
+    const laneRead = conn.query.mock.calls.find(([sql]) => /FROM document_templates dt/.test(sql));
+    expect(laneRead[0]).toMatch(/ctm\.environment = \?/);
     expect(conn.commit).toHaveBeenCalled();
   });
 

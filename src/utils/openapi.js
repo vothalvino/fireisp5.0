@@ -2625,6 +2625,30 @@ function generateSpec() {
       // ---- Consumer Protection MX ----
       ...crudPaths('consumer-protection/service-modifications', 'Consumer Protection MX', 'ServiceModificationNotice'),
       ...crudPaths('consumer-protection/contract-templates-mx', 'Consumer Protection MX', 'ContractTemplateMx'),
+      '/consumer-protection/contract-environment': {
+        get: {
+          tags: ['Consumer Protection MX'],
+          summary: "Get the org's MX contract lane (sandbox|production), independent from PAC/CFDI",
+          operationId: 'getMxContractEnvironment',
+          security: [{ bearerAuth: [] }],
+          responses: mxContractEnvironmentResponse(false),
+        },
+        put: {
+          tags: ['Consumer Protection MX'],
+          summary: 'Transactionally switch the MX contract lane after target-source preflight and in-flight safety checks',
+          operationId: 'setMxContractEnvironment',
+          security: [{ bearerAuth: [] }],
+          requestBody: typedJsonBody({
+            type: 'object',
+            required: ['contract_environment'],
+            additionalProperties: false,
+            properties: {
+              contract_environment: { type: 'string', enum: ['sandbox', 'production'] },
+            },
+          }, 'Target MX adhesion-contract environment'),
+          responses: mxContractEnvironmentResponse(true),
+        },
+      },
       '/consumer-protection/service-modifications/{id}/send': {
         put: { tags: ['Consumer Protection MX'], summary: 'Mark service modification notice as sent', operationId: 'sendServiceModificationNotice', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
       },
@@ -3333,6 +3357,34 @@ function testWindowEndResponse() {
 }
 function r200(desc) {
   return { 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } };
+}
+function mxContractEnvironmentResponse(includeActiveSource) {
+  const properties = {
+    contract_environment: { type: 'string', enum: ['sandbox', 'production'] },
+  };
+  if (includeActiveSource) {
+    properties.active_contract_source_id = { type: 'integer', minimum: 1 };
+  }
+  return {
+    200: {
+      description: 'Current MX adhesion-contract environment',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            properties: {
+              data: {
+                type: 'object',
+                required: Object.keys(properties),
+                properties,
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 }
 function r201(desc) {
   return { 201: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } };
