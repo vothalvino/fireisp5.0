@@ -995,8 +995,7 @@ async function renewPreviouslyActivated(contractId, {
     const [renewed] = await conn.query(
       `UPDATE contracts SET ${sets.join(', ')}
         WHERE id = ?${updateScope} AND status = ?
-          AND first_activated_at IS NOT NULL AND deleted_at IS NULL
-          AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
+          AND first_activated_at IS NOT NULL AND deleted_at IS NULL`,
       [
         ...updateParams,
         locked.id,

@@ -857,6 +857,9 @@ describe('completeOrder', () => {
 
     const activation = conn.query.mock.calls.find(([sql]) => /UPDATE contracts[\s\S]*SET status = 'active'/.test(sql));
     expect(activation[1]).toEqual([900]);
+    // MariaDB error 1442 regression: the status trigger itself locks the
+    // organization, so its invoking UPDATE must not also read organizations.
+    expect(activation[0]).not.toMatch(/organizations|mx_resume/);
     expect(billingService.createOneOffInvoice).not.toHaveBeenCalled();
     expect(result.invoice).toBeNull();
     expect(result.order.status).toBe('done');

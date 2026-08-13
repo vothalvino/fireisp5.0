@@ -278,6 +278,10 @@ describe('DocumentTemplates', () => {
 
     const activeToggle = within(dialog).getByRole('checkbox');
     expect(activeToggle).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText(/Select a usable MX contract source/)).toBeInTheDocument();
+    expect(mockApiPut).not.toHaveBeenCalled();
+
     fireEvent.click(activeToggle);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
 
@@ -291,6 +295,74 @@ describe('DocumentTemplates', () => {
         is_active: false,
       },
     })));
+  });
+
+  it('allows an exact active-to-inactive transition for a legacy template without an MX source', async () => {
+    const legacyTemplate = { ...TPL, contract_template_mx_id: null };
+    mockApiGet.mockImplementation((path: string) => Promise.resolve({
+      data: {
+        data: path === '/consumer-protection/contract-environment'
+          ? { contract_environment: 'production' }
+          : path === '/consumer-protection/contract-templates-mx' ? [] : [legacyTemplate],
+      },
+      error: undefined,
+    }));
+
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
+
+    const activeToggle = within(dialog).getByRole('checkbox');
+    expect(activeToggle).toBeChecked();
+    fireEvent.click(activeToggle);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/document-templates/{id}', expect.objectContaining({
+      params: { path: { id: 1 } },
+      body: {
+        name: legacyTemplate.name,
+        template_type: legacyTemplate.template_type,
+        body_md: legacyTemplate.body_md,
+        contract_template_mx_id: null,
+        is_active: false,
+      },
+    })));
+  });
+
+  it('keeps a legacy source attachment inactive and shows the backend reason if it is reactivated', async () => {
+    const legacyTemplate = { ...TPL, contract_template_mx_id: null };
+    mockApiGet.mockImplementation((path: string) => Promise.resolve({
+      data: {
+        data: path === '/consumer-protection/contract-environment'
+          ? { contract_environment: 'production' }
+          : path === '/consumer-protection/contract-templates-mx'
+            ? [REGISTERED_SOURCE]
+            : [legacyTemplate],
+      },
+      error: undefined,
+    }));
+    mockApiPut.mockResolvedValueOnce({
+      data: undefined,
+      error: { error: { message: 'Deactivate this template before changing legal content' } },
+    });
+
+    renderPage();
+    await screen.findByText('Contrato de adhesión');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
+    const sourceSelect = within(dialog).getByLabelText(/MX contract source/);
+    await within(dialog).findByRole('option', { name: /Contrato registrado 2026/ });
+
+    fireEvent.change(sourceSelect, { target: { value: '77' } });
+    const activeToggle = within(dialog).getByRole('checkbox');
+    expect(activeToggle).not.toBeChecked();
+    fireEvent.click(activeToggle);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await within(dialog).findByText('Deactivate this template before changing legal content')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Failed to save the template')).not.toBeInTheDocument();
+    expect(mockApiPut).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a terminal-source activation template strict when it is not being deactivated', async () => {

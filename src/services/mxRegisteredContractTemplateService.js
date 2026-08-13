@@ -328,52 +328,6 @@ async function assertSandboxContractCanResume(run, {
   return organization;
 }
 
-/** SQL WHERE fragment mirroring the database trigger's final-write rules. */
-function sandboxResumeSqlPredicate(alias = 'contracts') {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) {
-    throw new TypeError('SQL alias must be an identifier');
-  }
-  const owningOrganization = `COALESCE(
-    ${alias}.organization_id,
-    (SELECT mx_resume_client.organization_id
-       FROM clients mx_resume_client
-      WHERE mx_resume_client.id = ${alias}.client_id
-      LIMIT 1)
-  )`;
-  return `NOT EXISTS (
-    SELECT 1
-      FROM organizations mx_resume_org
-      LEFT JOIN organization_mx_profiles mx_resume_profile
-        ON mx_resume_profile.organization_id = mx_resume_org.id
-       AND mx_resume_profile.deleted_at IS NULL
-     WHERE mx_resume_org.id = ${owningOrganization}
-       AND (
-         (
-           mx_resume_org.locale = 'MX'
-           AND (
-             ${alias}.contract_template_mx_id IS NULL
-             OR ${alias}.mx_contract_environment IS NULL
-           )
-         )
-         OR (
-           mx_resume_org.locale = 'MX'
-           AND ${alias}.mx_contract_environment = 'sandbox'
-           AND (
-             mx_resume_profile.contract_environment = 'production'
-             OR (
-               mx_resume_profile.id IS NULL
-               AND EXISTS (
-                 SELECT 1 FROM contract_templates_mx mx_resume_legacy_source
-                  WHERE mx_resume_legacy_source.organization_id = mx_resume_org.id
-                    AND mx_resume_legacy_source.environment = 'production'
-               )
-             )
-           )
-         )
-       )
-  )`;
-}
-
 async function validateContractSelection(run, {
   orgId, contractTemplateMxId, contractEnvironment: expectedEnvironment = null,
 }) {
@@ -498,7 +452,6 @@ module.exports = {
   loadLinkedRecord,
   loadOrganizationContractEnvironment,
   assertSandboxContractCanResume,
-  sandboxResumeSqlPredicate,
   validateTemplateState,
   validateContractSelection,
   resolveActiveContractSource,

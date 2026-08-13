@@ -838,8 +838,7 @@ router.post('/:id/renew', requirePermission('contracts.update'), async (req, res
       const [reset] = await db.query(
         `UPDATE contracts SET ${resetSets.join(', ')}
           WHERE id = ? AND organization_id = ? AND status = ?
-            AND first_activated_at IS NULL AND deleted_at IS NULL
-            AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
+            AND first_activated_at IS NULL AND deleted_at IS NULL`,
         [...resetParams, contract.id, req.orgId, contract.status],
       );
       if (reset.affectedRows !== 1) {
