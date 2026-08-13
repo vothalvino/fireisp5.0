@@ -133,6 +133,22 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(refreshCookie).not.toMatch(/Path=\/api\/v1\/auth\/refresh/);
     });
 
+    test('sets a short-lived httpOnly cookie scoped to the exact browser WebSocket path', async () => {
+      authService.login.mockResolvedValueOnce(loginResult);
+
+      const res = await request(app)
+        .post('/api/v1/auth/login')
+        .send(loginPayload);
+
+      const wsCookie = res.headers['set-cookie']
+        .find(c => c.startsWith('fireisp_ws_access='));
+      expect(wsCookie).toBeDefined();
+      expect(wsCookie).toContain('access-jwt');
+      expect(wsCookie).toMatch(/HttpOnly/i);
+      expect(wsCookie).toMatch(/SameSite=Strict/i);
+      expect(wsCookie).toMatch(/Path=\/ws\/firerelay\/browser(?:;|$)/);
+    });
+
     test('still returns tokens in JSON body for API-client backward compat', async () => {
       authService.login.mockResolvedValueOnce(loginResult);
 
@@ -169,6 +185,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
 
       const cookies = res.headers['set-cookie'];
       expect(cookies.find(c => c.startsWith('fireisp_access='))).toBeDefined();
+      expect(cookies.find(c => c.startsWith('fireisp_ws_access='))).toBeDefined();
       expect(cookies.find(c => c.startsWith('fireisp_refresh='))).toBeDefined();
     });
 
@@ -223,7 +240,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(authService.refreshToken).not.toHaveBeenCalled();
     });
 
-    test('rotates both cookies on successful refresh', async () => {
+    test('rotates API, WebSocket, and refresh cookies on successful refresh', async () => {
       authService.refreshToken.mockResolvedValueOnce(refreshResult);
 
       const res = await request(app)
@@ -233,9 +250,11 @@ describe('P3.4 — httpOnly cookie auth', () => {
 
       const cookies = res.headers['set-cookie'];
       const accessCookie = cookies.find(c => c.startsWith('fireisp_access='));
+      const wsCookie = cookies.find(c => c.startsWith('fireisp_ws_access='));
       const refreshCookie = cookies.find(c => c.startsWith('fireisp_refresh='));
 
       expect(accessCookie).toContain('new-access-jwt');
+      expect(wsCookie).toContain('new-access-jwt');
       expect(refreshCookie).toContain('new-refresh-token');
     });
   });
@@ -244,7 +263,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
   // POST /auth/logout — clears cookies
   // =========================================================================
   describe('POST /api/v1/auth/logout', () => {
-    test('clears fireisp_access and fireisp_refresh cookies', async () => {
+    test('clears API access, WebSocket access, and refresh cookies', async () => {
       authService.logout.mockResolvedValueOnce();
 
       const res = await request(app)
@@ -256,11 +275,14 @@ describe('P3.4 — httpOnly cookie auth', () => {
       const cookies = res.headers['set-cookie'];
       // Cleared cookies are set with empty value and a past / zero maxAge
       const accessCleared = cookies.find(c => c.startsWith('fireisp_access='));
+      const wsAccessCleared = cookies.find(c => c.startsWith('fireisp_ws_access='));
       const refreshCleared = cookies.find(c => c.startsWith('fireisp_refresh='));
       expect(accessCleared).toBeDefined();
+      expect(wsAccessCleared).toBeDefined();
       expect(refreshCleared).toBeDefined();
       // Express clearCookie sets Expires in the past
       expect(accessCleared).toMatch(/Expires=/i);
+      expect(wsAccessCleared).toMatch(/Expires=/i);
       expect(refreshCleared).toMatch(/Expires=/i);
     });
 
@@ -332,7 +354,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
       expect(authService.switchOrganization).toHaveBeenCalledWith(1, 7, 'cookie-wins');
     });
 
-    test('rotates both auth cookies on a successful switch', async () => {
+    test('rotates all auth cookies on a successful switch', async () => {
       authService.switchOrganization.mockResolvedValueOnce(switchResult);
 
       const res = await request(app)
@@ -342,6 +364,7 @@ describe('P3.4 — httpOnly cookie auth', () => {
 
       const cookies = res.headers['set-cookie'];
       expect(cookies.find(c => c.startsWith('fireisp_access='))).toContain('switched-access-jwt');
+      expect(cookies.find(c => c.startsWith('fireisp_ws_access='))).toContain('switched-access-jwt');
       expect(cookies.find(c => c.startsWith('fireisp_refresh='))).toContain('switched-refresh-token');
     });
 

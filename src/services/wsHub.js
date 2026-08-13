@@ -1,13 +1,16 @@
 // =============================================================================
 // FireISP 5.0 — WebSocket Hub
 // =============================================================================
-// Real-time push hub for browser clients.  Runs at path /ws on the same HTTP
-// server, separate from the FireRelay agent tunnel (/ws/firerelay).
+// Real-time push hub for browser clients. It lives below the existing
+// /ws/firerelay reverse-proxy tunnel so upgrades work on every installed Nginx
+// configuration, including host-Nginx copies that predate the browser hub.
+// The FireRelay agent itself still uses the distinct exact path /ws/firerelay.
 //
 // Protocol (all messages are JSON):
 //
 //   Client → Server (auth, must arrive within AUTH_TIMEOUT_MS):
 //     { "type": "auth", "token": "<access JWT>" }
+//     { "type": "auth" }  // browser only: exact-path httpOnly cookie + Origin
 //
 //   Server → Client (auth result):
 //     { "type": "auth_ok", "orgId": N }
@@ -38,6 +41,13 @@ const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const logger = require('../utils/logger').child({ service: 'wsHub' });
+const { registerWebSocketRoute } = require('./websocketUpgradeRouter');
+const {
+  BROWSER_WS_PATH,
+  BROWSER_WS_COOKIE,
+  readCookie,
+  isAllowedCookieOrigin,
+} = require('./browserWebSocketAuth');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -46,6 +56,7 @@ const logger = require('../utils/logger').child({ service: 'wsHub' });
 const AUTH_TIMEOUT_MS = 5000;
 const PING_INTERVAL_MS = 30000;
 const PONG_WAIT_MS = 10000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 /** Channel names that a client is allowed to subscribe to (relative names). */
 const SIMPLE_CHANNELS = new Set(['notifications', 'metrics', 'outages']);
@@ -59,6 +70,8 @@ class WsHub {
   constructor() {
     /** @type {WebSocketServer|null} */
     this._wss = null;
+    /** @type {(() => void)|null} */
+    this._unregisterUpgradeRoute = null;
 
     /**
      * channel (full, e.g. "org:1:notifications") → Set<WebSocket>
@@ -71,6 +84,9 @@ class WsHub {
 
     /** ws → NodeJS.Timeout (ping interval) */
     this._pingTimers = new Map();
+
+    /** ws → NodeJS.Timeout (JWT expiry deadline) */
+    this._expiryTimers = new Map();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -84,19 +100,32 @@ class WsHub {
       throw new Error('WsHub already attached');
     }
 
-    this._wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+    // Use the shared exact-path dispatcher rather than
+    // WebSocketServer({ server, path }). The latter installs a catch-all
+    // `upgrade` listener that sends HTTP 400 for a path mismatch; with both the
+    // FireRelay agent tunnel and browser hub on one server, whichever listener
+    // ran first rejected the other's path.
+    this._wss = new WebSocketServer({ noServer: true });
+    const wss = this._wss;
+    this._unregisterUpgradeRoute = registerWebSocketRoute(
+      httpServer,
+      BROWSER_WS_PATH,
+      (req, socket, head) => wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      }),
+    );
 
     this._wss.on('connection', (ws, req) => {
       const remoteIp = req.socket.remoteAddress;
       logger.debug({ remoteIp }, 'WsHub: new connection');
-      this._handleConnection(ws);
+      this._handleConnection(ws, req);
     });
 
     this._wss.on('error', (err) => {
       logger.error({ err }, 'WsHub: server error');
     });
 
-    logger.info('WsHub attached at /ws');
+    logger.info(`WsHub attached at ${BROWSER_WS_PATH}`);
   }
 
   /**
@@ -105,12 +134,19 @@ class WsHub {
    */
   close() {
     return new Promise((resolve) => {
+      this._unregisterUpgradeRoute?.();
+      this._unregisterUpgradeRoute = null;
+
       // Stop all ping timers
       for (const [ws, timer] of this._pingTimers) {
         clearInterval(timer);
         ws.terminate();
       }
       this._pingTimers.clear();
+      for (const timer of this._expiryTimers.values()) {
+        clearTimeout(timer);
+      }
+      this._expiryTimers.clear();
       this._channels.clear();
       this._clientChannels.clear();
 
@@ -154,9 +190,14 @@ class WsHub {
 
   // ── Connection Handling ────────────────────────────────────────────────────
 
-  _handleConnection(ws) {
+  _handleConnection(ws, req) {
     ws._authenticated = false;
     ws._orgId = null;
+    // Keep the ambient credential only until the first auth attempt, and only
+    // when a real browser supplied an explicitly allowed Origin.
+    ws._cookieAccessToken = isAllowedCookieOrigin(req)
+      ? readCookie(req.headers.cookie, BROWSER_WS_COOKIE)
+      : null;
 
     // Require auth within AUTH_TIMEOUT_MS
     const authTimer = setTimeout(() => {
@@ -197,15 +238,27 @@ class WsHub {
   }
 
   _handleAuth(ws, msg, authTimer) {
-    if (msg.type !== 'auth' || typeof msg.token !== 'string') {
-      ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Expected {type:"auth",token:"..."}' }));
+    if (!msg || typeof msg !== 'object' || msg.type !== 'auth' ||
+        (msg.token !== undefined && typeof msg.token !== 'string')) {
+      ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Expected an authentication message' }));
       ws.close(4002, 'Auth protocol error');
+      return;
+    }
+
+    // Explicit credentials take precedence. Browser clients restored through
+    // AuthContext's cookie-first path send no token and use the narrow httpOnly
+    // cookie captured during the same-origin upgrade instead.
+    const token = typeof msg.token === 'string' ? msg.token : ws._cookieAccessToken;
+    ws._cookieAccessToken = null;
+    if (!token) {
+      ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Missing authentication credential' }));
+      ws.close(4003, 'Invalid token');
       return;
     }
 
     let payload;
     try {
-      payload = jwt.verify(msg.token, config.jwt.secret, { algorithms: [config.jwt.algorithm] });
+      payload = jwt.verify(token, config.jwt.secret, { algorithms: [config.jwt.algorithm] });
     } catch (_err) {
       ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Invalid or expired token' }));
       ws.close(4003, 'Invalid token');
@@ -216,6 +269,16 @@ class WsHub {
     if (!orgId) {
       ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Token missing orgId claim' }));
       ws.close(4004, 'Missing orgId');
+      return;
+    }
+
+    // Access JWTs are deliberately short lived. Require the expiry claim and
+    // evict the socket at that exact deadline; verification at connection time
+    // alone would otherwise leave a compromised socket authenticated forever.
+    const expiresAt = Number(payload.exp) * 1000;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      ws.send(JSON.stringify({ type: 'auth_fail', reason: 'Invalid or expired token' }));
+      ws.close(4003, 'Invalid token');
       return;
     }
 
@@ -248,6 +311,29 @@ class WsHub {
     }, PING_INTERVAL_MS);
 
     this._pingTimers.set(ws, pingTimer);
+    this._scheduleExpiry(ws, expiresAt);
+  }
+
+  /**
+   * Close an authenticated socket when its access JWT expires. Re-arm long
+   * deadlines because Node clamps setTimeout values above a signed 32-bit int.
+   */
+  _scheduleExpiry(ws, expiresAt) {
+    const arm = () => {
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        this._expiryTimers.delete(ws);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(4005, 'Access token expired');
+        }
+        return;
+      }
+
+      const timer = setTimeout(arm, Math.min(remaining, MAX_TIMEOUT_MS));
+      this._expiryTimers.set(ws, timer);
+    };
+
+    arm();
   }
 
   _handleClientMessage(ws, msg) {
@@ -313,6 +399,14 @@ class WsHub {
       this._pingTimers.delete(ws);
     }
 
+    const expiryTimer = this._expiryTimers.get(ws);
+    if (expiryTimer) {
+      clearTimeout(expiryTimer);
+      this._expiryTimers.delete(ws);
+    }
+
+    ws._cookieAccessToken = null;
+
     const subs = this._clientChannels.get(ws);
     if (subs) {
       for (const ch of subs) {
@@ -358,4 +452,4 @@ class WsHub {
 
 const wsHub = new WsHub();
 
-module.exports = { WsHub, wsHub };
+module.exports = { WsHub, wsHub, BROWSER_WS_PATH };

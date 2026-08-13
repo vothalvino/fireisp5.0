@@ -34,12 +34,14 @@ const User = require('../src/models/User');
 const { opsAlertRecipients, hasOpsContact } = require('../src/services/opsContact');
 
 const SETTINGS_Q = /FROM settings WHERE setting_key = 'ops_alert_email'/;
+const REOPEN_Q = /UPDATE ops_alert_deliveries[\s\S]*resolved_at IS NOT NULL/;
 const CLAIM_Q = /INSERT IGNORE INTO ops_alert_deliveries/;
 
 /** @param opsEmail '' for unset. @param claimed false when the alert already went out. */
-function wireDb({ opsEmail = '', claimed = true, orgs = [{ id: 1 }, { id: 2 }] } = {}) {
+function wireDb({ opsEmail = '', claimed = true, reopened = false, orgs = [{ id: 1 }, { id: 2 }] } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (SETTINGS_Q.test(sql)) return [opsEmail === null ? [] : [{ setting_value: opsEmail }]];
+    if (REOPEN_Q.test(sql)) return [{ affectedRows: reopened ? 1 : 0 }];
     if (CLAIM_Q.test(sql)) return [{ affectedRows: claimed ? 1 : 0 }];
     if (/FROM organizations/.test(sql)) return [orgs];
     if (/FROM notifications/.test(sql)) return [[]];      // nothing deduped yet
@@ -67,6 +69,8 @@ afterEach(() => { config.appUrl = originalAppUrl; });
 beforeEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
+  emailTransport.sendEmail.mockResolvedValue({ success: true });
+  Notification.create.mockResolvedValue({ id: 1 });
   config.appUrl = 'https://isp.example.com';
   stubPeerCert(7);            // inside the alert threshold
   User.getStaffByEffectiveRole.mockResolvedValue([
@@ -134,12 +138,87 @@ describe('with an ops contact configured', () => {
     expect(emailTransport.sendEmail).not.toHaveBeenCalled();
   });
 
+  it('reopens a resolved claim so the same condition can alert in a later incident', async () => {
+    wireDb({ opsEmail: 'ops@isp.mx', reopened: true });
+
+    await tls().checkTlsExpiry(null);
+
+    expect(emailTransport.sendEmail).toHaveBeenCalledTimes(1);
+    expect(db.query.mock.calls.some(([sql]) => REOPEN_Q.test(sql))).toBe(true);
+    expect(db.query.mock.calls.some(([sql]) => CLAIM_Q.test(sql))).toBe(false);
+  });
+
+  it('does not depend on CLIENT_FOUND_ROWS to distinguish an active claim', async () => {
+    wireDb({ opsEmail: 'ops@isp.mx', claimed: false, reopened: false });
+
+    await tls().checkTlsExpiry(null);
+
+    expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([sql]) => REOPEN_Q.test(sql))).toBe(true);
+    expect(db.query.mock.calls.some(([sql]) => CLAIM_Q.test(sql))).toBe(true);
+  });
+
+  it('does not resolve and resend an active claim for a maximum-length hostname', async () => {
+    const hostname = [
+      'a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61),
+    ].join('.');
+    config.appUrl = `https://${hostname}`;
+    let claim = null;
+    let incorrectlyResolved = 0;
+
+    db.query.mockImplementation(async (sql, params = []) => {
+      if (SETTINGS_Q.test(sql)) return [[{ setting_value: 'ops@isp.mx' }]];
+      if (/UPDATE notifications/.test(sql)) return [{ affectedRows: 0 }];
+      if (/UPDATE ops_alert_deliveries[\s\S]*SET resolved_at = COALESCE/.test(sql)) {
+        if (claim && claim.resolved_at === null && !params.includes(claim.alert_key)) {
+          claim.resolved_at = new Date();
+          incorrectlyResolved += 1;
+          return [{ affectedRows: 1 }];
+        }
+        return [{ affectedRows: 0 }];
+      }
+      if (REOPEN_Q.test(sql)) {
+        if (claim && claim.alert_key === params[1] && claim.resolved_at !== null) {
+          claim.resolved_at = null;
+          return [{ affectedRows: 1 }];
+        }
+        return [{ affectedRows: 0 }];
+      }
+      if (CLAIM_Q.test(sql)) {
+        if (claim) return [{ affectedRows: 0 }];
+        claim = { alert_key: params[0], resolved_at: null };
+        return [{ affectedRows: 1 }];
+      }
+      return [[]];
+    });
+
+    await tls().checkTlsExpiry(null);
+    await tls().checkTlsExpiry(null);
+
+    expect(incorrectlyResolved).toBe(0);
+    expect(emailTransport.sendEmail).toHaveBeenCalledTimes(1);
+    expect(Array.from(claim.alert_key).length).toBeLessThanOrEqual(255);
+    expect(claim.alert_key).toBe(emailTransport.sendEmail.mock.calls[0][0].subject);
+    expect(Notification.create).not.toHaveBeenCalled();
+  });
+
   it('releases the dedupe claim when nothing could be delivered', async () => {
     // Otherwise a transient SMTP outage suppresses the alert FOREVER — the
     // marker would outlive a send that never happened.
     wireDb({ opsEmail: 'ops@isp.mx' });
     emailTransport.sendEmail.mockRejectedValue(new Error('smtp down'));
     await tls().checkTlsExpiry(null);
+    expect(db.query.mock.calls.some(([s]) => /DELETE FROM ops_alert_deliveries/.test(s))).toBe(true);
+  });
+
+  it('releases the claim when email transport reports success false', async () => {
+    // sendEmail logs SMTP failures and normally resolves rather than rejects.
+    // That result must still be treated as an undelivered alert and retried.
+    wireDb({ opsEmail: 'ops@isp.mx' });
+    emailTransport.sendEmail.mockResolvedValue({ success: false, error: 'smtp down' });
+
+    await tls().checkTlsExpiry(null);
+
     expect(db.query.mock.calls.some(([s]) => /DELETE FROM ops_alert_deliveries/.test(s))).toBe(true);
   });
 });

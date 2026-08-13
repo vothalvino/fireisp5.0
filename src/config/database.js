@@ -86,6 +86,18 @@ function withTenantContext(orgId, callback) {
   return tenantContext.run({ orgId }, callback);
 }
 
+/**
+ * Run install-wide work against the primary database even when the caller is
+ * currently inside an isolated tenant's AsyncLocalStorage context.
+ *
+ * This is intentionally explicit: passing `organizationId = null` to a service
+ * does not change database routing by itself. Without resetting the context, a
+ * host-wide manual task mixes tenant-DB queries with host/file side effects.
+ */
+function withPrimaryContext(callback) {
+  return tenantContext.run({ orgId: null }, callback);
+}
+
 function normalizeTenantConfig(row) {
   if (!row || row.isolation_mode !== 'isolated') return null;
   if (!row.db_host || !row.db_name || !row.db_user) {
@@ -281,6 +293,7 @@ module.exports = {
   close,
   baseConnectionConfig,
   withTenantContext,
+  withPrimaryContext,
   getTenantConnectionConfig,
   invalidateTenantDbConfig,
   testTenantConnection,

@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { authedFetch } from '@/api/client';
+import './EmailVerificationBanner.css';
 
 // ---------------------------------------------------------------------------
 // Dismiss key — unique per session (mirrors DrDrillBanner.tsx)
@@ -138,104 +139,39 @@ export function EmailVerificationBanner() {
   const resendDisabled = busy || cooldown;
 
   return (
-    <div role="status" style={styles.bar}>
-      <span style={styles.icon} aria-hidden="true">✉️</span>
-      <span style={styles.text}>
+    <div role="status" className="email-verification-banner">
+      <span className="email-verification-banner__icon" aria-hidden="true">✉️</span>
+      <span className="email-verification-banner__text">
         {sendState === 'sent' ? t('emailVerify.sentConfirm') : t('emailVerify.banner')}
       </span>
       {errorMsg && (sendState === 'rateLimited' || sendState === 'error') && (
-        <span style={styles.errorText}>{errorMsg}</span>
+        <span className="email-verification-banner__error">{errorMsg}</span>
       )}
-      <div style={styles.actions}>
+      <div className="email-verification-banner__actions">
         <button
           type="button"
-          style={{ ...styles.resendBtn, ...(resendDisabled ? styles.btnDisabled : {}) }}
+          className="email-verification-banner__resend"
           disabled={resendDisabled}
           onClick={handleResend}
         >
           {busy ? t('emailVerify.sending') : t('emailVerify.resend')}
         </button>
-        <button type="button" style={styles.linkBtn} onClick={handleAlreadyVerified}>
-          {t('emailVerify.alreadyDone')}
-        </button>
         <button
           type="button"
-          style={styles.dismissBtn}
-          onClick={handleDismiss}
-          aria-label={t('emailVerify.dismiss')}
+          className="email-verification-banner__refresh"
+          onClick={handleAlreadyVerified}
         >
-          ✕
+          {t('emailVerify.alreadyDone')}
         </button>
       </div>
+      <button
+        type="button"
+        className="email-verification-banner__dismiss"
+        onClick={handleDismiss}
+        aria-label={t('emailVerify.dismiss')}
+      >
+        <span aria-hidden="true">✕</span>
+      </button>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const styles = {
-  bar: {
-    display: 'flex' as const,
-    alignItems: 'center' as const,
-    flexWrap: 'wrap' as const,
-    gap: '0.6rem',
-    padding: '0.55rem 1rem',
-    background: 'var(--bg-subtle)',
-    borderBottom: '1px solid var(--border)',
-    fontFamily: 'var(--font-sans)',
-    fontSize: '0.85rem',
-  },
-  icon: {
-    fontSize: '1rem',
-  },
-  text: {
-    color: 'var(--text-secondary)',
-    flex: '1 1 auto',
-  },
-  errorText: {
-    color: '#dc2626',
-    fontSize: '0.8rem',
-  },
-  actions: {
-    display: 'flex' as const,
-    alignItems: 'center' as const,
-    gap: '0.6rem',
-    marginLeft: 'auto',
-  },
-  resendBtn: {
-    padding: '0.3rem 0.75rem',
-    background: 'var(--accent)',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 4,
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-  },
-  btnDisabled: {
-    opacity: 0.6,
-    cursor: 'default' as const,
-  },
-  linkBtn: {
-    background: 'transparent',
-    color: 'var(--accent)',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    padding: 0,
-    whiteSpace: 'nowrap' as const,
-  },
-  dismissBtn: {
-    background: 'transparent',
-    color: 'var(--text-dimmed)',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    padding: '0 0.15rem',
-    lineHeight: 1,
-  },
-};

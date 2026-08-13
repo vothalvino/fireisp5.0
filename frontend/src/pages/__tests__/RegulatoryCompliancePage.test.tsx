@@ -48,9 +48,20 @@ function renderCompliancePage() {
 }
 
 describe('RegulatoryCompliancePage', () => {
-  it('renders the page title', () => {
+  it('renders the Mexico-specific page title for MX organizations', () => {
     renderCompliancePage();
-    expect(screen.getByText('regulatoryCompliance.title')).toBeDefined();
+    expect(screen.getByText('regulatoryCompliance.titleMx')).toBeDefined();
+  });
+
+  it('renders the generic page title for global organizations', () => {
+    mockUser.current = { organization_locale: 'global', role: 'admin' };
+    try {
+      renderCompliancePage();
+      expect(screen.getByText('regulatoryCompliance.title')).toBeDefined();
+      expect(screen.queryByText('regulatoryCompliance.titleMx')).toBeNull();
+    } finally {
+      mockUser.current = { organization_locale: 'MX', role: 'admin' };
+    }
   });
 
   it('renders all 8 tab buttons', () => {

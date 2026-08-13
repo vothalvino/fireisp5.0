@@ -68,6 +68,35 @@ describe('database tenant routing', () => {
     expect(createPool).toHaveBeenCalledTimes(1);
   });
 
+  test('withPrimaryContext overrides an enclosing isolated tenant context', async () => {
+    const primaryPool = makePool();
+    const tenantPool = makePool();
+    primaryPool.execute
+      .mockResolvedValueOnce([[{
+        organization_id: 12,
+        isolation_mode: 'isolated',
+        db_host: 'tenant-db',
+        db_port: 3306,
+        db_name: 'fireisp_org_12',
+        db_user: 'tenant_user',
+        db_password_encrypted: 'secret',
+        ssl_enabled: 0,
+      }], []])
+      .mockResolvedValueOnce([[{ source: 'primary' }], []]);
+    tenantPool.execute.mockResolvedValueOnce([[{ source: 'tenant' }], []]);
+
+    const { db } = loadDatabaseWithPools([primaryPool, tenantPool]);
+
+    const result = await db.withTenantContext(12, async () => {
+      await db.query('SELECT tenant_first', []);
+      return db.withPrimaryContext(() => db.query('SELECT primary_only', []));
+    });
+
+    expect(result[0]).toEqual([{ source: 'primary' }]);
+    expect(primaryPool.execute).toHaveBeenLastCalledWith('SELECT primary_only', []);
+    expect(tenantPool.execute).toHaveBeenCalledWith('SELECT tenant_first', []);
+  });
+
   test('reuses the cached tenant pool across calls for the same org', async () => {
     const primaryPool = makePool();
     const tenantPool = makePool();

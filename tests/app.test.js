@@ -79,6 +79,24 @@ describe('Readiness Probe', () => {
     expect(res.body.status).toBe('not_ready');
     expect(res.body.checks.db.connected).toBe(false);
   });
+
+  test('GET /health/ready reports a ready configured Redis', async () => {
+    const cacheService = require('../src/services/cacheService');
+    const readySpy = jest.spyOn(cacheService, 'isReady').mockReturnValue(true);
+    const previousRedisUrl = process.env.REDIS_URL;
+    process.env.REDIS_URL = 'redis://configured.example:6379';
+    db.query.mockResolvedValueOnce([[]]);
+
+    try {
+      const res = await request(app).get('/health/ready');
+      expect(res.status).toBe(200);
+      expect(res.body.checks.redis).toEqual({ connected: true });
+    } finally {
+      readySpy.mockRestore();
+      if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = previousRedisUrl;
+    }
+  });
 });
 
 describe('404 Handler', () => {

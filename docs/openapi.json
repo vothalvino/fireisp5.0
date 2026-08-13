@@ -19453,6 +19453,66 @@
         }
       }
     },
+    "/scheduled-tasks/{id}/run": {
+      "post": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "Run a scheduled task now (install operator only)",
+        "operationId": "runScheduledTask",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task completed and its result was recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "task_name",
+                        "result"
+                      ],
+                      "properties": {
+                        "task_name": {
+                          "type": "string"
+                        },
+                        "result": {}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Scheduled tasks may only be run by the install operator"
+          },
+          "404": {
+            "description": "Scheduled task not found in the active organization"
+          }
+        }
+      }
+    },
     "/queue-stats": {
       "get": {
         "tags": [

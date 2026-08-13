@@ -22,6 +22,7 @@ const jwt = require('jsonwebtoken');
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), execute: jest.fn(), getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
+  withPrimaryContext: jest.fn((callback) => callback()),
 }));
 jest.mock('../src/services/taskRunner', () => ({
   runTask: jest.fn().mockResolvedValue({ ok: true }),
@@ -36,14 +37,21 @@ const app = require('../src/app');
 const token = () => jwt.sign({ sub: 1, email: 'a@b.c', role: 'admin', orgId: 1 }, config.jwt.secret, { expiresIn: '1h' });
 const auth = (r) => r.set('Authorization', `Bearer ${token()}`);
 const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
-const ADMIN = { id: 1, email: 'a@b.c', role: 'admin', status: 'active', organization_id: 1 };
+const TENANT_ADMIN = {
+  id: 1, email: 'a@b.c', role: 'admin', status: 'active',
+  organization_id: 1, is_install_operator: 0,
+};
+const OPERATOR = { ...TENANT_ADMIN, is_install_operator: 1 };
 
 const OWN = { id: 20, organization_id: 1, task_name: 'my_org_sweep', is_global: 0 };
 const GLOBAL = { id: 3, organization_id: null, task_name: 'data_retention', is_global: 1 };
 
-function wireDb({ rows = [OWN, GLOBAL], targetOrg } = {}) {
+function wireDb({ rows = [OWN, GLOBAL], targetOrg, user = OPERATOR } = {}) {
   db.query.mockImplementation(async (sql) => {
-    if (isUserLookup(sql)) return [[ADMIN]];
+    if (isUserLookup(sql)) return [[user]];
+    if (/SELECT is_install_operator FROM users/.test(sql)) {
+      return [[{ is_install_operator: user.is_install_operator }]];
+    }
     if (/COUNT\(\*\)/.test(sql)) return [[{ total: rows.length }]];
     if (/SELECT organization_id FROM scheduled_tasks WHERE id = \?/.test(sql)) {
       return [targetOrg === undefined ? [] : [{ organization_id: targetOrg }]];
@@ -113,12 +121,59 @@ describe('a global task cannot be changed by one tenant', () => {
 });
 
 describe('running a task', () => {
-  it('a global task IS runnable — running is not editing', async () => {
-    // Forcing a retention sweep on your own install is legitimate.
-    wireDb({ rows: [GLOBAL] });
+  it('lets the install operator run a global task with its actual NULL scope', async () => {
+    wireDb({ rows: [GLOBAL], user: OPERATOR });
     const res = await auth(request(app).post('/api/v1/scheduled-tasks/3/run')).send();
     expect(res.status).toBe(200);
-    expect(taskRunner.runTask).toHaveBeenCalledWith('data_retention', 1);
+    expect(taskRunner.runTask).toHaveBeenCalledWith('data_retention', null);
+    expect(taskRunner.markTaskRun).not.toHaveBeenCalled();
+    expect(db.query.mock.calls).toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        expect.stringMatching(/UPDATE scheduled_tasks SET last_status = \?, last_run_at = NOW\(\) WHERE id = \?/),
+        ['success', 3],
+      ]),
+    ]));
+  });
+
+  it('refuses an install-wide task to an ordinary tenant admin', async () => {
+    wireDb({ rows: [GLOBAL], user: TENANT_ADMIN });
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks/3/run')).send();
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+    expect(taskRunner.runTask).not.toHaveBeenCalled();
+  });
+
+  it("lets the install operator run an org-owned task with the row's organization scope", async () => {
+    wireDb({ rows: [OWN], user: OPERATOR });
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks/20/run')).send();
+    expect(res.status).toBe(200);
+    expect(taskRunner.runTask).toHaveBeenCalledWith('my_org_sweep', 1);
+  });
+
+  it('refuses an org-owned task to a tenant admin so a global handler name cannot bypass the gate', async () => {
+    const spoofed = { ...OWN, task_name: 'data_retention' };
+    wireDb({ rows: [spoofed], user: TENANT_ADMIN });
+
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks/20/run')).send();
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+    expect(taskRunner.runTask).not.toHaveBeenCalled();
+  });
+
+  it('refuses creating an enabled spoofed global handler under an org', async () => {
+    wireDb({ rows: [], user: TENANT_ADMIN });
+
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks')).send({
+      task_name: 'data_retention',
+      task_type: 'radius_sync',
+      cron_expression: '* * * * *',
+      is_enabled: true,
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+    expect(db.query.mock.calls.some(([sql]) => /^INSERT INTO `?scheduled_tasks`?/i.test(sql))).toBe(false);
   });
 
   it("404s another tenant's task instead of running it", async () => {
@@ -161,7 +216,8 @@ describe('#582 follow-up: a tenant task is OWNED, not global', () => {
     // cannot edit their own task.
     wireDb({ rows: [] });
     db.query.mockImplementation(async (sql) => {
-      if (isUserLookup(sql)) return [[ADMIN]];
+      if (isUserLookup(sql)) return [[OPERATOR]];
+      if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 1 }]];
       if (/^INSERT INTO `?scheduled_tasks`?/i.test(sql)) return [{ insertId: 77 }];
       // BaseModel backticks the table name; the hand-written route queries do
       // not. Matching only the unquoted form makes the create read-back return

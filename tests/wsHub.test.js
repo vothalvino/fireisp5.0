@@ -31,14 +31,14 @@ jest.mock('../src/config', () => ({
   log: { level: 'silent' },
 }));
 
-const { WsHub, wsHub: singletonHub } = require('../src/services/wsHub');
+const { WsHub, wsHub: singletonHub, BROWSER_WS_PATH } = require('../src/services/wsHub');
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeToken(orgId = 1, sub = 42) {
-  return jwt.sign({ sub, orgId }, TEST_SECRET, { expiresIn: '1h' });
+function makeToken(orgId = 1, sub = 42, expiresIn = '1h') {
+  return jwt.sign({ sub, orgId }, TEST_SECRET, { expiresIn });
 }
 
 async function createTestServer() {
@@ -50,8 +50,8 @@ async function createTestServer() {
   return { server, hub, port };
 }
 
-function connectWs(port) {
-  return new WebSocket(`ws://127.0.0.1:${port}/ws`);
+function connectWs(port, options) {
+  return new WebSocket(`ws://127.0.0.1:${port}${BROWSER_WS_PATH}`, options);
 }
 
 function waitForMessage(ws, predicate, timeoutMs = 2000) {
@@ -84,7 +84,7 @@ function waitForOpen(ws) {
 
 describe('WsHub', () => {
   describe('lifecycle', () => {
-    it('attaches to an HTTP server at /ws', async () => {
+    it(`attaches to an HTTP server at ${BROWSER_WS_PATH}`, async () => {
       const { server, hub, port } = await createTestServer();
       const ws = connectWs(port);
       await waitForOpen(ws);
@@ -134,6 +134,47 @@ describe('WsHub', () => {
       ws.close();
     });
 
+    it('authenticates a cookie-first browser session with an allowed Origin', async () => {
+      const token = makeToken(8);
+      const ws = connectWs(port, {
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: `unrelated=value; fireisp_ws_access=${encodeURIComponent(token)}`,
+        },
+      });
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth' }));
+
+      const msg = await waitForMessage(ws, m => m.type === 'auth_ok');
+      expect(msg.orgId).toBe(8);
+      ws.close();
+    });
+
+    it('rejects ambient cookie auth without a browser Origin', async () => {
+      const ws = connectWs(port, {
+        headers: { Cookie: `fireisp_ws_access=${makeToken(8)}` },
+      });
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth' }));
+
+      const closeCode = await new Promise(resolve => ws.on('close', (code) => resolve(code)));
+      expect(closeCode).toBe(4003);
+    });
+
+    it('rejects ambient cookie auth from an untrusted Origin', async () => {
+      const ws = connectWs(port, {
+        headers: {
+          Origin: 'https://evil.example',
+          Cookie: `fireisp_ws_access=${makeToken(8)}`,
+        },
+      });
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth' }));
+
+      const closeCode = await new Promise(resolve => ws.on('close', (code) => resolve(code)));
+      expect(closeCode).toBe(4003);
+    });
+
     it('rejects an invalid JWT with auth_fail + close 4003', async () => {
       const ws = connectWs(port);
       await waitForOpen(ws);
@@ -149,6 +190,41 @@ describe('WsHub', () => {
       ws.send(JSON.stringify({ type: 'auth', token }));
       const closeCode = await new Promise(resolve => ws.on('close', (code) => resolve(code)));
       expect(closeCode).toBe(4004);
+    });
+
+    it('rejects a JWT without an expiry claim', async () => {
+      const token = jwt.sign({ sub: 1, orgId: 1 }, TEST_SECRET);
+      const ws = connectWs(port);
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth', token }));
+
+      const closeCode = await new Promise(resolve => ws.on('close', (code) => resolve(code)));
+      expect(closeCode).toBe(4003);
+    });
+
+    it('closes an authenticated socket when its JWT expires and clears the timer', async () => {
+      const ws = connectWs(port);
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth', token: makeToken(1, 42, '2s') }));
+      await waitForMessage(ws, m => m.type === 'auth_ok');
+      expect(hub._expiryTimers.size).toBe(1);
+
+      const closeCode = await new Promise(resolve => ws.on('close', (code) => resolve(code)));
+      expect(closeCode).toBe(4005);
+      expect(hub._expiryTimers.size).toBe(0);
+    });
+
+    it('clears the JWT expiry timer when a client disconnects early', async () => {
+      const ws = connectWs(port);
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ type: 'auth', token: makeToken() }));
+      await waitForMessage(ws, m => m.type === 'auth_ok');
+      expect(hub._expiryTimers.size).toBe(1);
+
+      const closed = new Promise(resolve => ws.on('close', resolve));
+      ws.close();
+      await closed;
+      expect(hub._expiryTimers.size).toBe(0);
     });
 
     it('closes with 4001 if no auth message arrives within timeout', async () => {
