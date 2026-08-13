@@ -856,7 +856,7 @@ describe('cancelActivation', () => {
     }));
   });
 
-  test('cancels an unprepared no-marker PPPoE contract with durable cleanup', async () => {
+  test('cancels an unprepared active legacy PPPoE account with durable cleanup', async () => {
     const conn = tx();
     let orderReads = 0;
     conn.query.mockImplementation(async (sql) => {
@@ -869,7 +869,7 @@ describe('cancelActivation', () => {
       if (/SELECT \* FROM radius/.test(sql)) {
         return [[{
           id: 91, organization_id: 42, contract_id: 33,
-          username: 'pending-user', status: 'inactive', nas_id: null,
+          username: 'pending-user', status: 'active', nas_id: null,
         }]];
       }
       if (/UPDATE radius/.test(sql)) return [{ affectedRows: 1 }];
@@ -903,6 +903,47 @@ describe('cancelActivation', () => {
       service_order_id: null,
       service_order_cancelled: false,
     });
+  });
+
+  test('cancels a pristine unprepared PPPoE contract without a permanent cleanup marker', async () => {
+    const conn = tx();
+    conn.query.mockImplementation(async (sql) => {
+      if (/SELECT so\.id FROM service_orders/.test(sql)) return [[]];
+      if (/SELECT c\.\* FROM contracts c/.test(sql)) return [[CONTRACT]];
+      if (/SELECT \* FROM radius/.test(sql)) {
+        return [[{
+          id: 91, organization_id: 42, contract_id: 33,
+          username: 'pending-user', status: 'inactive', nas_id: null,
+        }]];
+      }
+      if (/AS external_cleanup_required/.test(sql)) {
+        return [[{ external_cleanup_required: 0 }]];
+      }
+      if (/UPDATE contracts/.test(sql) || /UPDATE radius/.test(sql)) {
+        return [{ affectedRows: 1 }];
+      }
+      return [[]];
+    });
+    db.getConnection.mockResolvedValue(conn);
+    radiusService.syncFreeradiusContract.mockResolvedValue({ found: true, enabled: false });
+    wireState({
+      contract: { ...CONTRACT, status: 'cancelled' },
+      order: null,
+      workOrder: null,
+      speedTest: null,
+      radius: 'inactive',
+    });
+
+    const result = await service.cancelActivation(33, { orgId: 42 });
+
+    const contractOff = conn.query.mock.calls.find(([sql]) => /UPDATE contracts/.test(sql));
+    expect(contractOff[0]).toMatch(/test_window_cleanup_pending = 0/);
+    expect(contractOff[0]).toMatch(/test_window_expires_at = NULL/);
+    expect(contractOff[0]).toMatch(/test_window_cleanup_attempted_at = NULL/);
+    // A final best-effort Disconnect remains defense in depth, but its
+    // expected no-target result must not create an unbounded durable marker.
+    expect(suspensionService.sendRadiusDisconnect).toHaveBeenCalledWith(33);
+    expect(result.test_window_cleanup_pending).toBe(false);
   });
 });
 

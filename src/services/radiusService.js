@@ -390,7 +390,8 @@ async function syncFreeradiusContract(contractId, {
        JOIN radius r ON r.contract_id = c.id
        LEFT JOIN plans p ON p.id = c.plan_id
       WHERE c.id = ?${orgScope}
-      ORDER BY (r.deleted_at IS NULL) DESC, r.id DESC
+        AND r.deleted_at IS NULL
+      ORDER BY r.id DESC
       `,
     params,
   );

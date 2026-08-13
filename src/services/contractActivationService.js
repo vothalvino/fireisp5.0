@@ -807,11 +807,19 @@ async function cancelActivation(contractId, {
     orderId = orders[0]?.id || null;
     if (!orderId) {
       const pppoe = ['pppoe', 'pppoe_dual'].includes(contract.connection_type);
-      // A legacy pending PPPoE line may predate test-window markers while an
-      // active local RouterOS secret still exists. Cancellation is a shutdown
-      // boundary, so every PPPoE row gets durable external cleanup, not only
-      // rows that previously opened a bounded window.
-      cleanupMarked = pppoe;
+      if (pppoe) {
+        const [radiusRows] = await conn.query(
+          `SELECT * FROM radius
+            WHERE contract_id = ? AND deleted_at IS NULL
+            ORDER BY id DESC FOR UPDATE`,
+          [contract.id],
+        );
+        cleanupRadius = radiusRows;
+        const testWindowService = require('./testWindowService');
+        cleanupMarked = await testWindowService.requiresExternalCleanup(
+          contract, radiusRows, conn,
+        );
+      }
 
       const [cancelled] = await conn.query(
         cleanupMarked
@@ -831,13 +839,6 @@ async function cancelActivation(contractId, {
       }
 
       if (pppoe) {
-        const [radiusRows] = await conn.query(
-          `SELECT * FROM radius
-            WHERE contract_id = ?
-            ORDER BY (deleted_at IS NULL) DESC, id DESC FOR UPDATE`,
-          [contract.id],
-        );
-        cleanupRadius = radiusRows;
         await conn.query(
           "UPDATE radius SET status = 'inactive' WHERE contract_id = ? AND deleted_at IS NULL",
           [contract.id],

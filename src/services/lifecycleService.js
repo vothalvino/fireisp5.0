@@ -1105,12 +1105,15 @@ async function cancelOrder(orderId, { orgId = null, canCancelContract = true } =
         const pendingPppoe = ['pppoe', 'pppoe_dual'].includes(contract.connection_type);
         const [radiusRows] = await conn.query(
           `SELECT * FROM radius
-            WHERE contract_id = ?
-            ORDER BY (deleted_at IS NULL) DESC, id DESC FOR UPDATE`,
+            WHERE contract_id = ? AND deleted_at IS NULL
+            ORDER BY id DESC FOR UPDATE`,
           [order.contract_id],
         );
         cleanupRadius = radiusRows;
-        if (hasTestWindowState || pendingPppoe) {
+        const testWindowService = require('./testWindowService');
+        const needsExternalCleanup = (hasTestWindowState || pendingPppoe)
+          && await testWindowService.requiresExternalCleanup(contract, radiusRows, conn);
+        if (needsExternalCleanup) {
           // Every pending PPPoE cancellation is a network shutdown, including
           // pre-window legacy rows that may already have a RouterOS local
           // secret. Preserve a NULL expiry for those unbounded rows: unlike a
@@ -1127,7 +1130,11 @@ async function cancelOrder(orderId, { orgId = null, canCancelContract = true } =
           cleanupContractId = order.contract_id;
         } else {
           await conn.query(
-            "UPDATE contracts SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+            `UPDATE contracts
+                SET status = 'cancelled', test_window_cleanup_pending = 0,
+                    test_window_expires_at = NULL,
+                    test_window_cleanup_attempted_at = NULL
+              WHERE id = ? AND status = 'pending'`,
             [order.contract_id],
           );
         }

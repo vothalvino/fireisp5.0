@@ -18,6 +18,7 @@ jest.mock('../src/services/suspensionService', () => ({
 const db = require('../src/config/database');
 const { sendRadiusDisconnect, sendRadiusCoA } = require('../src/services/suspensionService');
 const radiusService = require('../src/services/radiusService');
+const normalize = sql => String(sql).replace(/\s+/g, ' ').trim();
 
 describe('radiusService', () => {
   beforeEach(() => {
@@ -219,6 +220,33 @@ describe('radiusService', () => {
         expect(runner.query).toHaveBeenCalledWith('DELETE FROM radreply WHERE username = ?', [username]);
         expect(runner.query).toHaveBeenCalledWith('DELETE FROM radusergroup WHERE username = ?', [username]);
       }
+    });
+
+    test('selects only live identities so archived usernames are never mutated', async () => {
+      const runner = { query: jest.fn() };
+      runner.query.mockResolvedValueOnce([[
+        {
+          ...account,
+          radius_id: 11,
+          username: 'current-contract-account',
+          radius_status: 'inactive',
+          may_authenticate: 0,
+        },
+      ]]).mockResolvedValue([{ affectedRows: 1 }]);
+
+      await radiusService.syncFreeradiusContract(33, {
+        organizationId: 42, enabled: false, runner,
+      });
+
+      expect(normalize(runner.query.mock.calls[0][0])).toMatch(
+        /WHERE c\.id = \?.*AND r\.deleted_at IS NULL/,
+      );
+      expect(runner.query).not.toHaveBeenCalledWith(
+        'DELETE FROM radcheck WHERE username = ?', ['archived-and-reused'],
+      );
+      expect(runner.query).toHaveBeenCalledWith(
+        'DELETE FROM radcheck WHERE username = ?', ['current-contract-account'],
+      );
     });
   });
 
