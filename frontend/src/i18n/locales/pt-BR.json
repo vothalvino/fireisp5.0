@@ -468,6 +468,17 @@
     "filesTitle": "Arquivos de backup locais",
     "noFiles": "Nenhum arquivo de backup local em disco."
   },
+  "scheduledTasksPage": {
+    "runNow": "▶ Executar agora",
+    "running": "Executando…",
+    "runTitle": "Executar tarefa agendada",
+    "runConfirm": "Executar \"{{name}}\" agora? Esta tarefa começa imediatamente e pode alterar dados reais.",
+    "runConfirmGlobal": "Executar agora a tarefa de toda a instalação \"{{name}}\"? Ela começa imediatamente e pode afetar todas as organizações.",
+    "runConfirmButton": "Executar tarefa",
+    "runSuccess": "A tarefa \"{{name}}\" foi concluída com sucesso.",
+    "runError": "Não foi possível executar \"{{name}}\": {{message}}",
+    "runResult": "Resultado da tarefa"
+  },
   "drDrill": {
     "modalTitle": "Aviso de simulação de DR",
     "neverRun": {
@@ -3761,7 +3772,8 @@
     "predicted": "Assinantes Previstos"
   },
   "regulatoryCompliance": {
-    "title": "Conformidade Regulatoria (Mexico)",
+    "title": "Conformidade regulatória",
+    "titleMx": "Conformidade regulatória (México)",
     "tabs": {
       "consent": "Gestao de Consentimentos",
       "dsar": "Solicitacoes DSAR",

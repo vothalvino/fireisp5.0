@@ -1435,12 +1435,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     entity_id   BIGINT UNSIGNED NULL     COMMENT 'Related entity ID for deep linking',
     is_read     TINYINT(1)      NOT NULL DEFAULT 0,
     read_at     TIMESTAMP       NULL,
+    resolved_at DATETIME        NULL     COMMENT 'When the emitting monitor observed that the underlying condition cleared',
     created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
 
     PRIMARY KEY (id),
     KEY idx_notifications_user_id (user_id),
     KEY idx_notifications_is_read (is_read),
+    KEY idx_notifications_entity_resolution (entity_type, resolved_at, deleted_at),
     KEY idx_notifications_type (type),
     KEY idx_notifications_created_at (created_at),
     KEY idx_notifications_deleted_at (deleted_at),
@@ -14272,9 +14274,11 @@ CREATE TABLE IF NOT EXISTS ops_alert_deliveries (
     alert_key  VARCHAR(255)     NOT NULL COMMENT 'Alert title — carries what makes it distinct',
     channel    VARCHAR(32)      NOT NULL DEFAULT 'email',
     sent_at    TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at DATETIME        NULL COMMENT 'When the infrastructure condition cleared; NULL means the de-duplication claim is active',
 
     PRIMARY KEY (id),
-    UNIQUE KEY uq_ops_alert_key (alert_key)
+    UNIQUE KEY uq_ops_alert_key (alert_key),
+    KEY idx_ops_alert_deliveries_resolved_at (resolved_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tls_monitor_state (

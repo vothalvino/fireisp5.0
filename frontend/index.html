@@ -11,14 +11,6 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function (err) {
-            console.warn('SW registration failed:', err);
-          });
-        });
-      }
-    </script>
+    <script src="/register-service-worker.js" defer></script>
   </body>
 </html>

@@ -31,11 +31,21 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
         },
+        '/ws': {
+          target: apiTarget,
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
     build: {
       outDir: 'dist',
       sourcemap: true,
+      // The production CSP deliberately keeps font-src at 'self'.  Vite's
+      // default 4 KiB threshold turns small @fontsource subsets into data:
+      // URLs, which the browser then (correctly) blocks.  Emit every asset as
+      // a same-origin file instead.
+      assetsInlineLimit: 0,
     },
     test: {
       environment: 'jsdom',

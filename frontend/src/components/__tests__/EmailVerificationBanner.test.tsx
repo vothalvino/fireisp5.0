@@ -3,9 +3,16 @@
 // =============================================================================
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { EmailVerificationBanner } from '../EmailVerificationBanner';
 import * as AuthContextModule from '@/auth/AuthContext';
 import type { AuthUser } from '@/auth/AuthContext';
+
+const bannerStyles = fs.readFileSync(
+  path.resolve(__dirname, '../EmailVerificationBanner.css'),
+  'utf8',
+);
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -88,6 +95,25 @@ describe('EmailVerificationBanner', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.getByText('Please verify your email address.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument();
+  });
+
+  it('keeps the mobile dismiss control independent from wrapping actions', () => {
+    mockUseAuth(unverifiedUser);
+    render(<EmailVerificationBanner />);
+
+    const banner = screen.getByRole('status');
+    const dismiss = screen.getByRole('button', { name: 'Dismiss' });
+    const actions = screen.getByRole('button', { name: 'Resend verification email' }).parentElement;
+
+    expect(banner).toHaveClass('email-verification-banner');
+    expect(actions).toHaveClass('email-verification-banner__actions');
+    expect(dismiss).toHaveClass('email-verification-banner__dismiss');
+    expect(dismiss.parentElement).toBe(banner);
+    expect(actions).not.toContainElement(dismiss);
+    expect(bannerStyles).toMatch(/\.email-verification-banner\s*{[^}]*box-sizing:\s*border-box/s);
+    expect(bannerStyles).toMatch(/\.email-verification-banner__actions\s*{[^}]*flex-wrap:\s*wrap/s);
+    expect(bannerStyles).toMatch(/\.email-verification-banner__dismiss\s*{[^}]*position:\s*absolute/s);
+    expect(bannerStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*\.email-verification-banner__dismiss\s*{[^}]*width:\s*44px[^}]*height:\s*44px/s);
   });
 
   it('resend success shows the persistent sent-confirmation state and disables the button until the cooldown elapses', async () => {

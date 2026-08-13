@@ -142,6 +142,22 @@ describe('i18n — critical pt-BR values', () => {
   });
 });
 
+describe('i18n — regulatory compliance titles follow the organization locale', () => {
+  const locales: Array<[string, Record<string, string>]> = [
+    ['en', enFlat],
+    ['es', esFlat],
+    ['pt-BR', ptBrFlat],
+  ];
+
+  for (const [locale, flat] of locales) {
+    it(`${locale} has separate generic and Mexico-specific titles`, () => {
+      expect(flat['regulatoryCompliance.title']).toBeTruthy();
+      expect(flat['regulatoryCompliance.title']).not.toMatch(/M[eé]xico/i);
+      expect(flat['regulatoryCompliance.titleMx']).toMatch(/M[eé]xico/i);
+    });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 5. Interpolation placeholders are consistent across locales
 // ---------------------------------------------------------------------------

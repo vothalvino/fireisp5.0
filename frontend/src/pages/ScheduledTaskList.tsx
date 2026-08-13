@@ -9,7 +9,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
+import { extractApiError } from '@/components/ClientFormModal';
 import { styles, modalStyles, RequiredMark, capitalize, fmtDate } from './crudStyles';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +30,7 @@ interface ScheduledTask {
   is_enabled: number | boolean;
   last_run_at: string | null;
   last_status: string | null;
+  is_global?: number | boolean;
 }
 
 interface TasksResponse {
@@ -51,6 +56,15 @@ interface UpdateTaskBody {
   priority?: string;
   is_enabled?: boolean;
 }
+
+interface RunTaskResponse {
+  task_name: string;
+  result: unknown;
+}
+
+type RunOutcome =
+  | { kind: 'success'; taskName: string; result: unknown }
+  | { kind: 'error'; taskName: string; message: string };
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -88,6 +102,32 @@ async function updateTask(id: number, body: UpdateTaskBody): Promise<void> {
 async function deleteTask(id: number): Promise<void> {
   const res = await api.DELETE('/scheduled-tasks/{id}', { params: { path: { id } } });
   if (res.error) throw new Error('Failed to delete scheduled task');
+}
+
+async function runScheduledTask(task: ScheduledTask): Promise<RunTaskResponse> {
+  const res = await api.POST('/scheduled-tasks/{id}/run', {
+    params: { path: { id: task.id } },
+  });
+  if (res.error) {
+    throw new Error(extractApiError(res.error, 'Failed to run scheduled task'));
+  }
+
+  const envelope = res.data as { data?: Partial<RunTaskResponse> } | undefined;
+  return {
+    task_name: envelope?.data?.task_name ?? task.task_name,
+    result: envelope?.data?.result,
+  };
+}
+
+function formatTaskResult(result: unknown): string | null {
+  if (result === null || result === undefined) return null;
+  if (typeof result === 'string') return result;
+  if (typeof result === 'number' || typeof result === 'boolean') return String(result);
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,21 +362,45 @@ interface ConfirmDialogProps {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  ariaLabel?: string;
+  busy?: boolean;
+  destructive?: boolean;
 }
 
-function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
+function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel = 'Yes, confirm',
+  cancelLabel = 'No, go back',
+  ariaLabel = 'Confirm action',
+  busy = false,
+  destructive = true,
+}: ConfirmDialogProps) {
   return (
-    <div style={modalStyles.backdrop} onClick={onCancel}>
+    <div style={modalStyles.backdrop} onClick={() => { if (!busy) onCancel(); }}>
       <div
         style={{ ...modalStyles.panel, maxWidth: 380 }}
         onClick={e => e.stopPropagation()}
         role="alertdialog"
-        aria-label="Confirm action"
+        aria-label={ariaLabel}
+        aria-busy={busy}
       >
         <p style={{ margin: '0 0 1.25rem', fontSize: '0.95rem', color: 'var(--text-primary)' }}>{message}</p>
-        <div style={modalStyles.actions}>
-          <button onClick={onCancel} style={styles.btnSecondary}>No, go back</button>
-          <button onClick={onConfirm} style={styles.btnDanger}>Yes, confirm</button>
+        <div style={{ ...modalStyles.actions, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onCancel} style={styles.btnSecondary} disabled={busy}>
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            style={destructive ? styles.btnDanger : styles.btnPrimary}
+            disabled={busy}
+          >
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -348,11 +412,23 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 // ---------------------------------------------------------------------------
 
 export function ScheduledTaskList() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [showNew, setShowNew] = useState(false);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [runCandidate, setRunCandidate] = useState<ScheduledTask | null>(null);
+  const [runOutcome, setRunOutcome] = useState<RunOutcome | null>(null);
+
+  // task_name selects executable backend handlers. Even an org-owned row can
+  // name an install-wide retention/backup/DR handler, so every executable
+  // mutation (manual run or schedule CRUD) is an install-operator action.
+  const canRun = can(user, 'scheduled_tasks.update') && user?.is_install_operator === true;
+  const canCreate = can(user, 'scheduled_tasks.create') && user?.is_install_operator === true;
+  const canUpdate = can(user, 'scheduled_tasks.update') && user?.is_install_operator === true;
+  const canDelete = can(user, 'scheduled_tasks.delete') && user?.is_install_operator === true;
 
   const tasksQ = useQuery({
     queryKey: ['scheduled-tasks', page],
@@ -362,6 +438,19 @@ export function ScheduledTaskList() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteTask(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scheduled-tasks'] }),
+  });
+
+  const runMutation = useMutation({
+    mutationFn: (task: ScheduledTask) => runScheduledTask(task),
+    onSuccess: (data) => {
+      setRunOutcome({ kind: 'success', taskName: data.task_name, result: data.result });
+      setRunCandidate(null);
+      queryClient.invalidateQueries({ queryKey: ['scheduled-tasks'] });
+    },
+    onError: (error: Error, task) => {
+      setRunOutcome({ kind: 'error', taskName: task.task_name, message: error.message });
+      setRunCandidate(null);
+    },
   });
 
   function invalidate() {
@@ -376,15 +465,58 @@ export function ScheduledTaskList() {
       <div style={styles.header}>
         <h1 style={styles.pageTitle}>⏰ Scheduled Tasks</h1>
         {meta && <span style={styles.countBadge}>{meta.total} total</span>}
-        <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
-          + New Task
-        </button>
+        {canCreate && (
+          <button style={{ ...styles.btnPrimary, marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
+            + New Task
+          </button>
+        )}
       </div>
 
       {deleteMutation.isError && (
         <p style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
           Action failed. Please try again.
         </p>
+      )}
+
+      {runOutcome && (
+        <div
+          role={runOutcome.kind === 'success' ? 'status' : 'alert'}
+          aria-live={runOutcome.kind === 'success' ? 'polite' : 'assertive'}
+          style={{
+            border: `1px solid ${runOutcome.kind === 'success' ? '#86efac' : 'var(--danger-border)'}`,
+            background: runOutcome.kind === 'success' ? '#f0fdf4' : 'var(--danger-soft)',
+            color: runOutcome.kind === 'success' ? '#166534' : 'var(--danger)',
+            borderRadius: 6,
+            padding: '0.75rem 1rem',
+            marginBottom: '0.75rem',
+            fontSize: '0.85rem',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          <strong>
+            {runOutcome.kind === 'success'
+              ? t('scheduledTasksPage.runSuccess', { name: runOutcome.taskName })
+              : t('scheduledTasksPage.runError', { name: runOutcome.taskName, message: runOutcome.message })}
+          </strong>
+          {runOutcome.kind === 'success' && formatTaskResult(runOutcome.result) && (
+            <details style={{ marginTop: '0.5rem' }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                {t('scheduledTasksPage.runResult')}
+              </summary>
+              <pre style={{
+                margin: '0.5rem 0 0',
+                maxHeight: 240,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+              }}>
+                {formatTaskResult(runOutcome.result)}
+              </pre>
+            </details>
+          )}
+        </div>
       )}
 
       <div style={styles.tableCard}>
@@ -406,28 +538,51 @@ export function ScheduledTaskList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.map(t => (
-                    <tr key={t.id} style={styles.tr}>
-                      <td style={styles.td}>#{t.id}</td>
-                      <td style={{ ...styles.td, fontWeight: 500 }}>{t.task_name}</td>
-                      <td style={styles.td}>{t.task_type.replace(/_/g, ' ')}</td>
-                      <td style={{ ...styles.td, fontFamily: 'monospace' }}>{t.cron_expression ?? '—'}</td>
-                      <td style={{ ...styles.td, textTransform: 'capitalize' }}>{t.priority}</td>
-                      <td style={styles.td}>{t.is_enabled ? '✅' : '⏸'}</td>
+                  {tasks.map(task => (
+                    <tr key={task.id} style={styles.tr}>
+                      <td style={styles.td}>#{task.id}</td>
+                      <td style={{ ...styles.td, fontWeight: 500 }}>{task.task_name}</td>
+                      <td style={styles.td}>{task.task_type.replace(/_/g, ' ')}</td>
+                      <td style={{ ...styles.td, fontFamily: 'monospace' }}>{task.cron_expression ?? '—'}</td>
+                      <td style={{ ...styles.td, textTransform: 'capitalize' }}>{task.priority}</td>
+                      <td style={styles.td}>{task.is_enabled ? '✅' : '⏸'}</td>
                       <td style={styles.td}>
-                        {t.last_run_at ? fmtDate(t.last_run_at) : '—'} <StatusBadge status={t.last_status} />
+                        {task.last_run_at ? fmtDate(task.last_run_at) : '—'} <StatusBadge status={task.last_status} />
                       </td>
-                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button style={styles.actionBtn} onClick={() => setEditTask(t)} title="Edit this task">
-                          ✏️ Edit
-                        </button>
-                        <button
-                          style={{ ...styles.actionBtn, color: '#991b1b' }}
-                          onClick={() => setDeleteId(t.id)}
-                          title="Delete this task"
-                        >
-                          🗑 Delete
-                        </button>
+                      <td style={styles.td}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.25rem', minWidth: 210 }}>
+                          {canRun && (
+                            <button
+                              type="button"
+                              style={{ ...styles.actionBtn, minHeight: 40, padding: '0.35rem 0.5rem' }}
+                              onClick={() => {
+                                setRunOutcome(null);
+                                runMutation.reset();
+                                setRunCandidate(task);
+                              }}
+                              disabled={runMutation.isPending}
+                              title={t('scheduledTasksPage.runTitle')}
+                            >
+                              {runMutation.isPending && runCandidate?.id === task.id
+                                ? t('scheduledTasksPage.running')
+                                : t('scheduledTasksPage.runNow')}
+                            </button>
+                          )}
+                          {canUpdate && !task.is_global && (
+                            <button style={styles.actionBtn} onClick={() => setEditTask(task)} title="Edit this task">
+                              ✏️ Edit
+                            </button>
+                          )}
+                          {canDelete && !task.is_global && (
+                            <button
+                              style={{ ...styles.actionBtn, color: '#991b1b' }}
+                              onClick={() => setDeleteId(task.id)}
+                              title="Delete this task"
+                            >
+                              🗑 Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -469,6 +624,26 @@ export function ScheduledTaskList() {
             setDeleteId(null);
           }}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+
+      {runCandidate && (
+        <ConfirmDialog
+          ariaLabel={t('scheduledTasksPage.runTitle')}
+          message={t(runCandidate.is_global
+            ? 'scheduledTasksPage.runConfirmGlobal'
+            : 'scheduledTasksPage.runConfirm', { name: runCandidate.task_name })}
+          confirmLabel={runMutation.isPending
+            ? t('scheduledTasksPage.running')
+            : t('scheduledTasksPage.runConfirmButton')}
+          cancelLabel={t('common.cancel')}
+          busy={runMutation.isPending}
+          destructive={false}
+          onConfirm={() => runMutation.mutate(runCandidate)}
+          onCancel={() => {
+            runMutation.reset();
+            setRunCandidate(null);
+          }}
         />
       )}
     </div>

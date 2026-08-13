@@ -19,6 +19,7 @@
 // browser is actually served — not what is sitting on a volume somewhere.
 // =============================================================================
 
+const crypto = require('node:crypto');
 const tls = require('node:tls');
 const config = require('../config');
 const db = require('../config/database');
@@ -41,6 +42,128 @@ const THRESHOLDS = [7, 14, 30];
 const STALE_DAY_MILESTONES = [1, 3, 7, 14, 30];
 
 const CONNECT_TIMEOUT_MS = 10_000;
+const INCIDENT_TITLE_MAX_CHARS = 255;
+
+/**
+ * Keep the displayed title and every persistence/de-duplication key identical.
+ *
+ * Both notifications.title and ops_alert_deliveries.alert_key are VARCHAR(255).
+ * A valid DNS hostname can itself be 253 characters, so blindly slicing only
+ * the ops key makes reconciliation compare the shortened row with a longer
+ * active title and resolve a condition that is still active. Retain the
+ * monitor-recognizable prefix and add a stable digest to avoid collisions when
+ * two long titles share the same first 235 characters.
+ */
+function normalizeIncidentTitle(title) {
+  const value = String(title);
+  const characters = Array.from(value);
+  if (characters.length <= INCIDENT_TITLE_MAX_CHARS) return value;
+
+  const digest = crypto.createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+  const suffix = `… [${digest}]`;
+  const keep = INCIDENT_TITLE_MAX_CHARS - Array.from(suffix).length;
+  return characters.slice(0, keep).join('') + suffix;
+}
+
+function expiryAlertTitle({ hostname, validTo, threshold }) {
+  const validToDay = validTo.toISOString().slice(0, 10);
+  return normalizeIncidentTitle(threshold === 0
+    ? `TLS certificate EXPIRED ${validToDay} — ${hostname}`
+    : `TLS certificate expires ${validToDay} (≤${threshold} days) — ${hostname}`);
+}
+
+function invalidAlertTitle(hostname, reason) {
+  return normalizeIncidentTitle(`TLS certificate is not trusted (${reason}) — ${hostname}`);
+}
+
+function staleAlertTitle(hostname, milestone) {
+  return normalizeIncidentTitle(
+    `TLS expiry check has not succeeded for ${milestone}+ days — ${hostname}`,
+  );
+}
+
+/**
+ * Resolve bell alerts whose condition is no longer present.
+ *
+ * `is_read` records a person's acknowledgment; `resolved_at` records that the
+ * monitor observed the condition clear. Keeping them separate means a user can
+ * read an active warning without being nagged again tomorrow, while a repaired
+ * condition can still open a fresh incident if it later recurs. Only titles
+ * emitted by this monitor are eligible, and a currently-active title remains
+ * unresolved.
+ */
+async function resolveObsoleteNotifications(activeTitles, organizationId) {
+  const activeIncidentTitles = [...new Set(activeTitles.map(normalizeIncidentTitle))];
+  let resolved = 0;
+  try {
+    const params = [];
+    let userScope = '';
+    if (organizationId !== null && organizationId !== undefined) {
+      const User = require('../models/User');
+      const recipients = await User.getStaffByEffectiveRole(organizationId, ['admin', 'manager']);
+      const userIds = [...new Set(recipients.map(recipient => Number(recipient.id)).filter(Number.isInteger))];
+      if (userIds.length === 0) return 0;
+      userScope = `AND user_id IN (${userIds.map(() => '?').join(', ')})`;
+      params.push(...userIds);
+    }
+    const keepActive = activeIncidentTitles.length > 0
+      ? `AND title NOT IN (${activeIncidentTitles.map(() => '?').join(', ')})`
+      : '';
+    params.push(...activeIncidentTitles);
+
+    const [result] = await db.query(
+      `UPDATE notifications
+          SET is_read = 1,
+              read_at = COALESCE(read_at, NOW()),
+              resolved_at = COALESCE(resolved_at, NOW())
+        WHERE entity_type = 'tls_certificate'
+          AND resolved_at IS NULL
+          AND deleted_at IS NULL
+          AND (
+            title LIKE 'TLS certificate expires %'
+            OR title LIKE 'TLS certificate EXPIRED %'
+            OR title LIKE 'TLS certificate is not trusted (%'
+            OR title LIKE 'TLS expiry check has not succeeded for %'
+          )
+          ${userScope}
+          ${keepActive}`,
+      params,
+    );
+    resolved += Number(result?.affectedRows) || 0;
+  } catch (err) {
+    // Reconciliation is useful bookkeeping, but it must never make an otherwise
+    // successful certificate check fail or suppress a current alert.
+    logger.warn({ err: err.message }, 'Could not resolve obsolete TLS bell notifications');
+  }
+
+  // A scoped tenant run must not mutate install-level delivery claims. The
+  // seeded server-TLS task is global, so normal cron/manual runs reconcile both
+  // the bell and the dedicated ops-contact de-duplication marker.
+  if (organizationId === null || organizationId === undefined) {
+    try {
+      const keepActive = activeIncidentTitles.length > 0
+        ? `AND alert_key NOT IN (${activeIncidentTitles.map(() => '?').join(', ')})`
+        : '';
+      const [result] = await db.query(
+        `UPDATE ops_alert_deliveries
+            SET resolved_at = COALESCE(resolved_at, NOW())
+          WHERE resolved_at IS NULL
+            AND (
+              alert_key LIKE 'TLS certificate expires %'
+              OR alert_key LIKE 'TLS certificate EXPIRED %'
+              OR alert_key LIKE 'TLS certificate is not trusted (%'
+              OR alert_key LIKE 'TLS expiry check has not succeeded for %'
+            )
+            ${keepActive}`,
+        activeIncidentTitles,
+      );
+      resolved += Number(result?.affectedRows) || 0;
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Could not resolve obsolete TLS ops alerts');
+    }
+  }
+  return resolved;
+}
 
 /**
  * Read the certificate a TLS client is actually served for `hostname`.
@@ -94,25 +217,41 @@ function fetchPeerCertificate(hostname, port) {
  * Email only, by design: there is no user row to attach a bell notification to,
  * and creating one would drop a host-level message into some tenant's list.
  *
- * Dedupe is an INSERT IGNORE on the UNIQUE alert_key rather than a
- * SELECT-then-INSERT, so two runs racing cannot both decide the alert is new.
- * The row is written FIRST and rolled back if nothing could be delivered — the
- * marker must never outlive a failed send, or the alert is suppressed forever.
+ * Dedupe uses the UNIQUE alert_key in two race-safe steps: conditionally reopen
+ * a resolved row, then INSERT IGNORE only when nothing was reopened. An active
+ * row matches neither claim. This deliberately avoids inferring INSERT/UPSERT
+ * state from mysql2's CLIENT_FOUND_ROWS-sensitive affectedRows semantics.
+ * The row is claimed before delivery and released again if no address could be
+ * reached.
  */
 async function deliverToOps({ opsEmails, title, body }) {
   const emailTransport = require('./emailTransport');
+  const incidentTitle = normalizeIncidentTitle(title);
+  const alertKey = incidentTitle;
 
-  const [claim] = await db.query(
-    'INSERT IGNORE INTO ops_alert_deliveries (alert_key, channel) VALUES (?, ?)',
-    [title.slice(0, 255), 'email'],
+  const [reopen] = await db.query(
+    `UPDATE ops_alert_deliveries
+        SET channel = ?, sent_at = CURRENT_TIMESTAMP, resolved_at = NULL
+      WHERE alert_key = ? AND resolved_at IS NOT NULL`,
+    ['email', alertKey],
   );
-  if (claim.affectedRows === 0) return 0;   // already alerted for this exact title
+  const reopened = Number(reopen?.affectedRows) > 0;
+  if (!reopened) {
+    const [insert] = await db.query(
+      'INSERT IGNORE INTO ops_alert_deliveries (alert_key, channel) VALUES (?, ?)',
+      [alertKey, 'email'],
+    );
+    if (Number(insert?.affectedRows) === 0) return 0; // same incident is active
+  }
 
   let sent = 0;
   for (const to of opsEmails) {
     try {
-      await emailTransport.sendEmail({ to, subject: title, text: body });
-      sent += 1;
+      const delivery = await emailTransport.sendEmail({ to, subject: incidentTitle, text: body });
+      // emailTransport records SMTP failures and resolves with success:false;
+      // it does not reject them. Only retain the de-duplication claim when at
+      // least one address really accepted the message.
+      if (delivery?.success === true) sent += 1;
     } catch (err) {
       logger.warn({ err: err.message, to }, 'Ops alert email failed');
     }
@@ -121,9 +260,16 @@ async function deliverToOps({ opsEmails, title, body }) {
   if (sent === 0) {
     // Nothing went out. Release the claim so the next run retries instead of
     // treating a total delivery failure as "already handled".
-    await db.query('DELETE FROM ops_alert_deliveries WHERE alert_key = ?', [title.slice(0, 255)])
-      .catch(() => {});
-    logger.error({ title }, 'Ops alert could not be delivered to any configured address');
+    if (reopened) {
+      await db.query(
+        'UPDATE ops_alert_deliveries SET resolved_at = NOW() WHERE alert_key = ?',
+        [alertKey],
+      ).catch(() => {});
+    } else {
+      await db.query('DELETE FROM ops_alert_deliveries WHERE alert_key = ?', [alertKey])
+        .catch(() => {});
+    }
+    logger.error({ title: incidentTitle }, 'Ops alert could not be delivered to any configured address');
   }
   return sent;
 }
@@ -132,6 +278,7 @@ async function deliver({ organizationId, type, title, body }) {
   const Notification = require('../models/Notification');
   const User = require('../models/User');
   const emailTransport = require('./emailTransport');
+  const incidentTitle = normalizeIncidentTitle(title);
 
   // A configured ops contact wins. It is addressed by email only — there is no
   // user row to hang a bell notification on, and inventing one would put a
@@ -139,12 +286,12 @@ async function deliver({ organizationId, type, title, body }) {
   const { opsAlertRecipients } = require('./opsContact');
   const opsEmails = await opsAlertRecipients();
   if (opsEmails.length > 0) {
-    return deliverToOps({ opsEmails, title, body });
+    return deliverToOps({ opsEmails, title: incidentTitle, body });
   }
 
   const recipients = await User.getStaffByEffectiveRole(organizationId, ['admin', 'manager']);
   if (recipients.length === 0) {
-    logger.error({ organizationId, title },
+    logger.error({ organizationId, title: incidentTitle },
       'TLS alert has NO recipients — organization has no active admin/manager');
     return 0;
   }
@@ -152,8 +299,12 @@ async function deliver({ organizationId, type, title, body }) {
   let sent = 0;
   for (const r of recipients) {
     const [already] = await db.query(
-      "SELECT id FROM notifications WHERE entity_type = 'tls_certificate' AND title = ? AND user_id = ? LIMIT 1",
-      [title, r.id],
+      `SELECT id FROM notifications
+        WHERE entity_type = 'tls_certificate'
+          AND title = ? AND user_id = ?
+          AND resolved_at IS NULL AND deleted_at IS NULL
+        LIMIT 1`,
+      [incidentTitle, r.id],
     );
     if (already[0]) continue;
 
@@ -162,7 +313,7 @@ async function deliver({ organizationId, type, title, body }) {
     let stored = false;
     try {
       await Notification.create({
-        user_id: r.id, type, title, body,
+        user_id: r.id, type, title: incidentTitle, body,
         entity_type: 'tls_certificate', entity_id: null,
       });
       stored = true;
@@ -171,7 +322,9 @@ async function deliver({ organizationId, type, title, body }) {
     }
 
     if (r.email) {
-      await emailTransport.sendEmail({ to: r.email, subject: title, text: body, organizationId })
+      await emailTransport.sendEmail({
+        to: r.email, subject: incidentTitle, text: body, organizationId,
+      })
         .catch(err => logger.warn({ err: err.message, userId: r.id }, 'TLS alert email failed'));
     }
     if (stored) sent += 1;
@@ -192,9 +345,7 @@ async function notifyTlsExpiry({ hostname, validTo, daysLeft, threshold, organiz
   // The monitor would become a one-shot alarm that silently stops warning: the
   // exact failure this feature exists to prevent. The CSD monitor avoids it the
   // same way, by embedding certificate_number.
-  const title = expired
-    ? `TLS certificate EXPIRED ${validToDay} — ${hostname}`
-    : `TLS certificate expires ${validToDay} (≤${threshold} days) — ${hostname}`;
+  const title = expiryAlertTitle({ hostname, validTo, threshold });
 
   // Remediation is deliberately service-scoped rather than naming a container:
   // `fireisp-certbot` only exists if the compose project happens to be named
@@ -244,7 +395,7 @@ async function notifyTlsInvalid({ hostname, reason, validTo, organizationId }) {
     organizationId,
     type: 'error',
     // reason is in the title so a DIFFERENT failure still alerts.
-    title: `TLS certificate is not trusted (${reason}) — ${hostname}`,
+    title: invalidAlertTitle(hostname, reason),
     body: `The certificate served by ${hostname} fails verification: ${reason}. `
       + `It expires ${validToDay} UTC, so this is not an expiry problem — visitors are seeing a security `
       + 'warning. Check that the renewal wrote the certificate the web server is actually serving.',
@@ -329,7 +480,7 @@ async function notifyTlsCheckStale({ hostname, milestone, lastSuccessAt, consecu
   return deliver({
     organizationId,
     type: 'error',
-    title: `TLS expiry check has not succeeded for ${milestone}+ days — ${hostname}`,
+    title: staleAlertTitle(hostname, milestone),
     body: `The TLS certificate expiry monitor has been unable to read the certificate at ${hostname} `
       + `for ${milestone}+ days (${consecutive} consecutive attempts, no success ${since}). `
       + `Last error: ${reason}. `
@@ -400,7 +551,20 @@ async function checkTlsExpiry(organizationId = null) {
   // issued for a different hostname. Those read as "plenty of days left" and
   // would otherwise be reported healthy. Expiry has its own alert below, so
   // only surface OTHER verification failures here.
-  const expiryError = /EXPIRED|NOT_YET_VALID/i.test(authorizationError || '');
+  // An already-expired certificate is reported by the expiry threshold below,
+  // so avoid sending the same condition twice. A NOT_YET_VALID certificate is
+  // different: its valid_to date may be months away, while browsers reject it
+  // right now, so it must remain a trust alert.
+  const expiryError = /EXPIRED/i.test(authorizationError || '');
+  const activeTitles = [];
+  if (!authorized && authorizationError && !expiryError) {
+    activeTitles.push(invalidAlertTitle(hostname, authorizationError));
+  }
+  if (threshold !== undefined) {
+    activeTitles.push(expiryAlertTitle({ hostname, validTo, threshold }));
+  }
+  result.notifications_resolved = await resolveObsoleteNotifications(activeTitles, organizationId);
+
   if (!authorized && authorizationError && !expiryError) {
     result.notifications_sent += await notifyForAllOrgs(organizationId, (orgId) => notifyTlsInvalid({
       hostname, reason: authorizationError, validTo, organizationId: orgId,

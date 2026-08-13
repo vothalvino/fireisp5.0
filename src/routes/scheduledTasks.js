@@ -13,12 +13,31 @@ const { createScheduledTask, updateScheduledTask } = require('../middleware/sche
 const { quotaCheck } = require('../middleware/checkQuota');
 const taskRunner = require('../services/taskRunner');
 const db = require('../config/database');
+const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
 
 const router = Router();
 const ctrl = crudController(ScheduledTask);
 
+async function requireInstallOperator(req, res, next) {
+  try {
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'INSTALL_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
+    });
+  } catch (err) { return next(err); }
+}
+
 router.use(authenticate);
 router.use(orgScope);
+// Scheduled rows are consumed by the install-level scheduler from the primary
+// database. Keep their API on that same canonical store even when the active
+// organization uses an isolated tenant database.
+router.use((req, _res, next) => {
+  if (typeof db.withPrimaryContext === 'function') {
+    return db.withPrimaryContext(() => next());
+  }
+  return next();
+});
 
 // ---------------------------------------------------------------------------
 // Org scoping (j36)
@@ -141,26 +160,59 @@ router.get('/:id', requirePermission('scheduled_tasks.view'), async (req, res, n
   } catch (err) { next(err); }
 });
 
-router.post('/', requirePermission('scheduled_tasks.create'), quotaCheck('scheduled_tasks'), validate(createScheduledTask), ctrl.create);
-router.put('/:id', requirePermission('scheduled_tasks.update'), blockGlobalTaskWrites, rejectOrgReassignment, validate(updateScheduledTask), ctrl.update);
-router.delete('/:id', requirePermission('scheduled_tasks.delete'), blockGlobalTaskWrites, ctrl.destroy);
+router.post('/', requirePermission('scheduled_tasks.create'), requireInstallOperator, quotaCheck('scheduled_tasks'), validate(createScheduledTask), ctrl.create);
+router.put('/:id', requirePermission('scheduled_tasks.update'), requireInstallOperator, blockGlobalTaskWrites, rejectOrgReassignment, validate(updateScheduledTask), ctrl.update);
+router.delete('/:id', requirePermission('scheduled_tasks.delete'), requireInstallOperator, blockGlobalTaskWrites, ctrl.destroy);
 
 // Manually trigger a task
 router.post('/:id/run', requirePermission('scheduled_tasks.update'), async (req, res, next) => {
   try {
     // findByIdOrFail with no org argument read ANY task by id, so a tenant
-    // could trigger another tenant's job by guessing. Global tasks stay
-    // runnable — running one is not the same as editing it, and an operator
-    // wanting to force a retention sweep on their own install is legitimate.
+    // could trigger another tenant's job by guessing. Keep the scoped lookup
+    // even though manual execution itself is install-operator-only below.
     const [taskRows] = await db.query(
       'SELECT * FROM scheduled_tasks WHERE id = ? AND (organization_id = ? OR organization_id IS NULL) LIMIT 1',
       [req.params.id, req.orgId],
     );
     const task = taskRows[0];
     if (!task) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scheduled task not found' } });
-    const result = await taskRunner.runTask(task.task_name, req.orgId);
-    await taskRunner.markTaskRun(task.task_name);
-    res.json({ data: { task_name: task.task_name, result } });
+
+    // Task names select executable handlers, and an org-owned row can carry the
+    // same name as a global retention, backup, campaign, or DR handler. Gating
+    // only NULL-org rows would therefore be bypassable by creating/renaming an
+    // org row. Manual execution is an operator diagnostic action for every row;
+    // CRUD is operator-only for the same reason (an enabled row is executable).
+    if (!await isInstallOperator(req)) {
+      return res.status(403).json({
+        error: { code: 'INSTALL_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
+      });
+    }
+
+    const execute = async (selectedTask) => {
+      const organizationId = selectedTask.organization_id === null
+        ? null
+        : Number(selectedTask.organization_id);
+      await db.query(
+        'UPDATE scheduled_tasks SET last_status = ?, last_run_at = NOW() WHERE id = ?',
+        ['running', selectedTask.id],
+      );
+      try {
+        const result = await taskRunner.runTask(selectedTask.task_name, organizationId);
+        await db.query(
+          'UPDATE scheduled_tasks SET last_status = ?, last_run_at = NOW() WHERE id = ?',
+          ['success', selectedTask.id],
+        );
+        res.json({ data: { task_name: selectedTask.task_name, result } });
+      } catch (err) {
+        await db.query(
+          'UPDATE scheduled_tasks SET last_status = ? WHERE id = ?',
+          ['failed', selectedTask.id],
+        ).catch(() => {});
+        throw err;
+      }
+    };
+
+    return await execute(task);
   } catch (err) {
     next(err);
   }

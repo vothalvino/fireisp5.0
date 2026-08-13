@@ -14,6 +14,7 @@ const { isInstallOperatorUser } = require('../services/installOperator');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
+const { BROWSER_WS_PATH, BROWSER_WS_COOKIE } = require('../services/browserWebSocketAuth');
 
 const router = Router();
 
@@ -31,6 +32,7 @@ const COOKIE_BASE = {
 /**
  * Set httpOnly SameSite=Strict auth cookies on the response.
  * - fireisp_access        — short-lived JWT (Path=/api, access token lifetime)
+ * - fireisp_ws_access     — same JWT, scoped to the exact browser WebSocket path
  * - fireisp_refresh       — opaque refresh token (Path=/api/v1/auth, refresh token lifetime)
  * - fireisp_csrf_secret   — CSRF secret (httpOnly, server-only, Path=/api)
  * - fireisp_csrf          — CSRF token derived from secret (NOT httpOnly, SPA-readable, Path=/api)
@@ -48,6 +50,14 @@ function setAuthCookies(res, accessToken, refreshToken) {
   res.cookie('fireisp_access', accessToken, {
     ...COOKIE_BASE,
     path: '/api',
+    maxAge: authService.ACCESS_SECONDS * 1000,
+  });
+  // The browser WebSocket API cannot set Authorization headers. Keep a second
+  // copy of the same short-lived JWT in an httpOnly cookie whose Path exposes
+  // it only to the browser hub handshake (never to the rest of /ws).
+  res.cookie(BROWSER_WS_COOKIE, accessToken, {
+    ...COOKIE_BASE,
+    path: BROWSER_WS_PATH,
     maxAge: authService.ACCESS_SECONDS * 1000,
   });
   res.cookie('fireisp_refresh', refreshToken, {
@@ -86,6 +96,7 @@ function setActiveOrgCookie(res, orgId) {
  */
 function clearAuthCookies(res) {
   res.clearCookie('fireisp_access', { ...COOKIE_BASE, path: '/api' });
+  res.clearCookie(BROWSER_WS_COOKIE, { ...COOKIE_BASE, path: BROWSER_WS_PATH });
   res.clearCookie('fireisp_refresh', { ...COOKIE_BASE, path: '/api/v1/auth' });
   res.clearCookie('fireisp_active_org', { ...COOKIE_BASE, path: '/api/v1/auth/refresh' });
   clearCsrfCookie(res);

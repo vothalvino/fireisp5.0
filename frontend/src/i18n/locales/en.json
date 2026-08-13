@@ -468,6 +468,17 @@
     "filesTitle": "Local backup files",
     "noFiles": "No local backup files on disk."
   },
+  "scheduledTasksPage": {
+    "runNow": "▶ Run now",
+    "running": "Running…",
+    "runTitle": "Run scheduled task",
+    "runConfirm": "Run \"{{name}}\" now? This task starts immediately and may change live data.",
+    "runConfirmGlobal": "Run the install-wide task \"{{name}}\" now? It starts immediately and may affect every organization.",
+    "runConfirmButton": "Run task",
+    "runSuccess": "Task \"{{name}}\" finished successfully.",
+    "runError": "Could not run \"{{name}}\": {{message}}",
+    "runResult": "Task result"
+  },
   "drDrill": {
     "modalTitle": "DR Drill Warning",
     "neverRun": {
@@ -3761,7 +3772,8 @@
     "predicted": "Predicted Subscribers"
   },
   "regulatoryCompliance": {
-    "title": "Regulatory Compliance (Mexico)",
+    "title": "Regulatory Compliance",
+    "titleMx": "Regulatory Compliance (Mexico)",
     "tabs": {
       "consent": "Consent Management",
       "dsar": "DSAR Requests",

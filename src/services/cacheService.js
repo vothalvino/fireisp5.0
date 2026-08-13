@@ -71,6 +71,10 @@ class RedisCache {
     this.client = client;
   }
 
+  isReady() {
+    return this.client.status === 'ready';
+  }
+
   async get(key) {
     try {
       const raw = await this.client.get(key);
@@ -139,8 +143,11 @@ function createCache() {
       client.on('connect', () => logger.info('Redis cache connected'));
 
       client.connect().catch(() => {
-        logger.warn('Redis connection failed — falling back to in-memory cache');
-        instance = new MemoryCache();
+        // Keep the Redis client in place. ioredis continues reconnecting via
+        // retryStrategy; replacing it with MemoryCache here made a transient
+        // boot-time outage permanent and kept readiness degraded until the
+        // whole app was restarted.
+        logger.warn('Initial Redis connection failed — waiting for reconnect');
       });
 
       return new RedisCache(client);
@@ -161,6 +168,19 @@ function getCache() {
     instance = createCache();
   }
   return instance;
+}
+
+/**
+ * Report whether the configured Redis cache is ready for traffic.
+ *
+ * Health probes only call this when REDIS_URL is configured.  Keep the
+ * environment check here as well so a failed Redis connection that has fallen
+ * back to MemoryCache cannot be mistaken for a healthy Redis dependency.
+ */
+function isReady() {
+  if (!process.env.REDIS_URL) return true;
+  const cache = getCache();
+  return cache instanceof RedisCache && cache.isReady();
 }
 
 /**
@@ -185,4 +205,5 @@ module.exports = {
   flush: () => getCache().flush(),
   close: () => getCache().close(),
   wrap,
+  isReady,
 };

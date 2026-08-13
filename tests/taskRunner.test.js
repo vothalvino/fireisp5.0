@@ -102,6 +102,7 @@ const paymentPlanService = require('../src/services/paymentPlanService');
 const rolloverService = require('../src/services/rolloverService');
 const cpeSessionLogService = require('../src/services/cpeSessionLogService');
 const speedWindowService = require('../src/services/speedWindowService');
+const retentionService = require('../src/services/retentionService');
 const taskRunner = require('../src/services/taskRunner');
 
 describe('taskRunner', () => {
@@ -283,6 +284,13 @@ describe('taskRunner', () => {
         expect(result.deferred).toBe(true);
         expect(result.message).not.toMatch(/^Unknown task/);
       }
+    });
+
+    test('rejects an install-wide handler attached to an organization-owned row', async () => {
+      await expect(taskRunner.runTask('data_retention', 42)).rejects.toMatchObject({
+        code: 'INSTALL_SCOPE_REQUIRED',
+      });
+      expect(retentionService.runAll).not.toHaveBeenCalled();
     });
 
     test('returns unknown message for unrecognized task', async () => {

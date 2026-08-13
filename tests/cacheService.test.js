@@ -203,4 +203,81 @@ describe('cacheService (MemoryCache fallback)', () => {
       await expect(cacheService.close()).resolves.not.toThrow();
     });
   });
+
+  describe('isReady()', () => {
+    test('returns true for the in-memory cache when Redis is not configured', () => {
+      expect(cacheService.isReady()).toBe(true);
+    });
+  });
+});
+
+describe('cacheService Redis readiness', () => {
+  const originalRedisUrl = process.env.REDIS_URL;
+
+  afterEach(() => {
+    jest.resetModules();
+    jest.dontMock('ioredis');
+    if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
+    else process.env.REDIS_URL = originalRedisUrl;
+  });
+
+  test('tracks the ioredis ready state', async () => {
+    let redisClient;
+    class MockRedis {
+      constructor() {
+        redisClient = this;
+        this.status = 'connecting';
+      }
+      on() {}
+      connect() { return Promise.resolve(); }
+      quit() { return Promise.resolve(); }
+    }
+
+    jest.resetModules();
+    jest.doMock('ioredis', () => MockRedis);
+    process.env.REDIS_URL = 'redis://example.invalid:6379';
+
+    const service = require('../src/services/cacheService');
+    expect(service.isReady()).toBe(false);
+
+    redisClient.status = 'ready';
+    expect(service.isReady()).toBe(true);
+    await service.close();
+  });
+
+  test('recovers readiness after an initial connection failure', async () => {
+    let redisClient;
+    class MockRedis {
+      constructor() {
+        redisClient = this;
+        this.status = 'connecting';
+      }
+      on() {}
+      connect() { return Promise.reject(new Error('boot race')); }
+      quit() { return Promise.resolve(); }
+    }
+
+    jest.resetModules();
+    jest.doMock('ioredis', () => MockRedis);
+    process.env.REDIS_URL = 'redis://example.invalid:6379';
+
+    const service = require('../src/services/cacheService');
+    expect(service.isReady()).toBe(false);
+    await Promise.resolve();
+
+    redisClient.status = 'ready';
+    expect(service.isReady()).toBe(true);
+    await service.close();
+  });
+
+  test('does not report an in-memory fallback as a healthy configured Redis', () => {
+    jest.resetModules();
+    jest.doMock('ioredis', () => {
+      throw new Error('module unavailable');
+    });
+    process.env.REDIS_URL = 'redis://example.invalid:6379';
+
+    const service = require('../src/services/cacheService');
+    expect(service.isReady()).toBe(false);
+  });
 });

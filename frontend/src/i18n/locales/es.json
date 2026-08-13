@@ -468,6 +468,17 @@
     "filesTitle": "Archivos de respaldo locales",
     "noFiles": "No hay archivos de respaldo locales en disco."
   },
+  "scheduledTasksPage": {
+    "runNow": "▶ Ejecutar ahora",
+    "running": "Ejecutando…",
+    "runTitle": "Ejecutar tarea programada",
+    "runConfirm": "¿Ejecutar \"{{name}}\" ahora? Esta tarea comienza inmediatamente y puede modificar datos reales.",
+    "runConfirmGlobal": "¿Ejecutar ahora la tarea de toda la instalación \"{{name}}\"? Comenzará de inmediato y puede afectar a todas las organizaciones.",
+    "runConfirmButton": "Ejecutar tarea",
+    "runSuccess": "La tarea \"{{name}}\" finalizó correctamente.",
+    "runError": "No se pudo ejecutar \"{{name}}\": {{message}}",
+    "runResult": "Resultado de la tarea"
+  },
   "drDrill": {
     "modalTitle": "Advertencia de simulacro de DR",
     "neverRun": {
@@ -3761,7 +3772,8 @@
     "predicted": "Suscriptores Proyectados"
   },
   "regulatoryCompliance": {
-    "title": "Cumplimiento Regulatorio (Mexico)",
+    "title": "Cumplimiento regulatorio",
+    "titleMx": "Cumplimiento regulatorio (México)",
     "tabs": {
       "consent": "Gestion de Consentimientos",
       "dsar": "Solicitudes DSAR",

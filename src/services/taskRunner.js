@@ -40,6 +40,24 @@ const scheduledReportService = require('./scheduledReportService');
 const emailTemplates = require('../views/emailTemplates');
 const { backup: runBackup } = require('../scripts/backup');
 
+// These handlers do not consume an organization id and therefore operate on
+// install infrastructure or sweep all tenants. Keep the invariant here, at the
+// dispatcher boundary, so it protects cron execution as well as the HTTP Run
+// action (including legacy or direct-SQL org-owned rows).
+const ORGANIZATION_SCOPED_TASK_NAMES = new Set([
+  'auto_generate_invoices', 'auto_suspend_overdue', 'billing_cycle',
+  'radius_sync', 'check_certificate_expiry', 'populate_revenue_summary',
+  'populate_network_health_snapshots', 'csd_expiry_monitor', 'alert_evaluation',
+  'maintenance_window_expiry', 'process_recurring_charges',
+  'retry_failed_charges', 'config_backup_pull', 'follow_up_reminders',
+  'dispatch_satisfaction_surveys', 'auto_escalate_tickets', 'apply_late_fees',
+  'send_payment_reminders', 'nas_health_check', 'kick_duplicate_sessions',
+  'scan_auth_failures', 'sla_breach_check', 'geofence_evaluation',
+  'inventory_low_stock_check', 'data_retention_compliance_check',
+  'anomaly_detection', 'churn_score_computation', 'remediation_evaluation',
+  'ai_support_metrics_rollup', 'rollover_balance_accrue', 'apply_speed_windows',
+]);
+
 /**
  * Get all scheduled tasks, optionally filtered by organization.
  */
@@ -60,6 +78,12 @@ async function listTasks(orgId = null) {
  */
 async function runTask(taskName, organizationId = null) {
   const start = Date.now();
+
+  if (organizationId !== null && organizationId !== undefined && !ORGANIZATION_SCOPED_TASK_NAMES.has(taskName)) {
+    const err = new Error(`Scheduled task "${taskName}" is not approved for organization-scoped execution`);
+    err.code = 'INSTALL_SCOPE_REQUIRED';
+    throw err;
+  }
 
   switch (taskName) {
     case 'auto_generate_invoices':
@@ -789,4 +813,4 @@ async function handleDataRetentionComplianceCheck(organizationId) {
   };
 }
 
-module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck, handleDataRetentionComplianceCheck, runFtthOpticalMetricsCleanup };
+module.exports = { listTasks, runTask, markTaskRun, runAutoInvoice, runAutoSuspend, runSuspensionWarnings, runBillingCycle, runCsdExpiryCheck, handleSlaBreachCheck, handleInventoryLowStockCheck, handleDataRetentionComplianceCheck, runFtthOpticalMetricsCleanup, ORGANIZATION_SCOPED_TASK_NAMES };

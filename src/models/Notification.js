@@ -14,7 +14,7 @@ class Notification extends BaseModel {
   static get fillable() {
     return [
       'user_id', 'type', 'title', 'body', 'entity_type', 'entity_id',
-      'is_read', 'read_at',
+      'is_read', 'read_at', 'resolved_at',
     ];
   }
 

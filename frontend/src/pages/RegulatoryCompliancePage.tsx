@@ -170,7 +170,11 @@ export default function RegulatoryCompliancePage() {
 
   return (
     <div style={{ padding: '20px' }}>
-      <h1 style={{ marginBottom: 16 }}>{t('regulatoryCompliance.title')}</h1>
+      <h1 style={{ marginBottom: 16 }}>
+        {t(user?.organization_locale === 'MX'
+          ? 'regulatoryCompliance.titleMx'
+          : 'regulatoryCompliance.title')}
+      </h1>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         {visibleTabs.map(tab => (
           <button

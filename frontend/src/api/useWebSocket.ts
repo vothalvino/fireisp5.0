@@ -1,9 +1,10 @@
 // =============================================================================
 // FireISP 5.0 — useWebSocket hook
 // =============================================================================
-// React hook that opens a WebSocket to the server's /ws hub, authenticates
-// with the current access token, subscribes to a channel, and exposes the
-// most-recent push event.
+// React hook that opens a WebSocket to the server's browser hub, authenticates
+// with the current access token (or the dedicated httpOnly WebSocket cookie
+// after cookie-first session hydration), subscribes to a channel, and exposes
+// the most-recent push event.
 //
 // Usage:
 //   const { lastMessage, connected } = useWebSocket('notifications');
@@ -42,13 +43,14 @@ interface UseWebSocketResult {
 
 const MIN_RECONNECT_MS = 500;
 const MAX_RECONNECT_MS = 30_000;
+export const BROWSER_WS_PATH = '/ws/firerelay/browser';
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 /**
- * Open a persistent, authenticated WebSocket to /ws and subscribe to
+ * Open a persistent, authenticated WebSocket to the browser hub and subscribe to
  * `channel`.  The hook reconnects automatically with exponential backoff.
  *
  * @param channel - Relative channel name: "notifications" | "metrics" |
@@ -67,19 +69,18 @@ export function useWebSocket(channel: string): UseWebSocketResult {
     if (unmounted.current) return;
 
     const token = tokenStore.getAccess();
-    if (!token) {
-      // No access token yet — retry after minimum delay
-      reconnectTimer.current = setTimeout(connect, MIN_RECONNECT_MS);
-      return;
-    }
-
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+    const ws = new WebSocket(`${proto}//${window.location.host}${BROWSER_WS_PATH}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Authenticate immediately on open
-      ws.send(JSON.stringify({ type: 'auth', token }));
+      // The browser WebSocket API cannot set Authorization headers. Login and
+      // refresh also set an httpOnly JWT cookie scoped to this exact path, so a
+      // cookie-first page reload can authenticate even when the memory-only
+      // tokenStore is empty. Explicit tokens remain supported for API clients.
+      ws.send(JSON.stringify(token
+        ? { type: 'auth', token }
+        : { type: 'auth' }));
     };
 
     ws.onmessage = (ev) => {

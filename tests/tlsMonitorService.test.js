@@ -56,6 +56,8 @@ const originalAppUrl = config.appUrl;
 beforeEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
+  mockNotificationCreate.mockResolvedValue({ id: 1 });
+  mockSendEmail.mockResolvedValue(undefined);
   config.appUrl = 'https://isp.example.com';
   mockGetStaff.mockResolvedValue([{ id: 7, email: 'admin@isp.example.com' }]);
   // default: organizations lookup + "no duplicate notification yet"
@@ -75,6 +77,106 @@ describe('checkTlsExpiry — healthy certificate', () => {
     expect(r.days_left).toBeGreaterThan(60);
     expect(r.notifications_sent).toBe(0);
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('resolves stale monitor alerts after renewal without deleting their history', async () => {
+    mockQuery.mockImplementation(async (sql) => {
+      if (/UPDATE notifications/i.test(sql)) return [{ affectedRows: 3 }];
+      if (/FROM organizations/i.test(sql)) return [[{ id: 1 }]];
+      if (/FROM notifications/i.test(sql)) return [[]];
+      return [[]];
+    });
+    stubPeerCert(90);
+
+    const r = await svc.checkTlsExpiry(null);
+
+    expect(r.notifications_resolved).toBe(3);
+    const resolution = mockQuery.mock.calls.find(([sql]) => /UPDATE notifications/i.test(sql));
+    expect(resolution).toBeDefined();
+    expect(resolution[0]).toMatch(/SET is_read = 1,[\s\S]*read_at = COALESCE\(read_at, NOW\(\)\),[\s\S]*resolved_at = COALESCE\(resolved_at, NOW\(\)\)/);
+    expect(resolution[0]).toMatch(/entity_type = 'tls_certificate'/);
+    expect(resolution[0]).toMatch(/resolved_at IS NULL/);
+    expect(resolution[0]).toMatch(/deleted_at IS NULL/);
+    expect(resolution[0]).toMatch(/title LIKE 'TLS certificate expires %'/);
+    expect(resolution[0]).not.toMatch(/DELETE FROM notifications/i);
+    expect(resolution[1]).toEqual([]);
+  });
+
+  it('keeps reconciliation best-effort so it cannot turn a healthy check into a failure', async () => {
+    mockQuery.mockImplementation(async (sql) => {
+      if (/UPDATE notifications/i.test(sql)) throw new Error('notifications unavailable');
+      return [[]];
+    });
+    stubPeerCert(90);
+
+    const r = await svc.checkTlsExpiry(null);
+
+    expect(r.checked).toBe(true);
+    expect(r.notifications_resolved).toBe(0);
+  });
+
+  it('opens a fresh unread incident when the same failure returns after resolution', async () => {
+    let phase = 'broken';
+    let row = null;
+    jest.spyOn(tls, 'connect').mockImplementation((_options, cb) => {
+      const validTo = new Date(Date.now() + 90 * 86_400_000);
+      const broken = phase === 'broken';
+      const socket = {
+        getPeerCertificate: () => ({ valid_to: validTo.toUTCString(), issuer: { O: "Let's Encrypt" } }),
+        authorized: !broken,
+        authorizationError: broken ? 'ERR_TLS_CERT_ALTNAME_INVALID' : null,
+        end: jest.fn(), destroy: jest.fn(), on: jest.fn(),
+      };
+      setImmediate(cb);
+      return socket;
+    });
+    mockNotificationCreate.mockImplementation(async (data) => {
+      row = { id: (row?.id || 0) + 1, title: data.title, resolved_at: null };
+      return row;
+    });
+    mockQuery.mockImplementation(async (sql, params = []) => {
+      if (/UPDATE notifications/i.test(sql)) {
+        const activeTitles = params.filter(value => typeof value === 'string');
+        if (row && row.resolved_at === null && !activeTitles.includes(row.title)) {
+          row.resolved_at = new Date();
+          return [{ affectedRows: 1 }];
+        }
+        return [{ affectedRows: 0 }];
+      }
+      if (/UPDATE ops_alert_deliveries/i.test(sql)) return [{ affectedRows: 0 }];
+      if (/FROM organizations/i.test(sql)) return [[{ id: 1 }]];
+      if (/FROM notifications/i.test(sql)) {
+        const [title] = params;
+        return [[row && row.title === title && row.resolved_at === null ? { id: row.id } : null].filter(Boolean)];
+      }
+      return [[]];
+    });
+
+    await svc.checkTlsExpiry(null); // first incident
+    expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+
+    phase = 'healthy';
+    await svc.checkTlsExpiry(null); // auto-resolves it
+    expect(row.resolved_at).toBeInstanceOf(Date);
+
+    phase = 'broken';
+    await svc.checkTlsExpiry(null); // same title, new incident
+    expect(mockNotificationCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('limits a tenant-scoped run to that organization\'s effective staff', async () => {
+    mockGetStaff.mockResolvedValue([
+      { id: 7, email: 'admin@isp.example.com' },
+      { id: 8, email: 'manager@isp.example.com' },
+    ]);
+    stubPeerCert(90);
+
+    await svc.checkTlsExpiry(42);
+
+    const resolution = mockQuery.mock.calls.find(([sql]) => /UPDATE notifications/i.test(sql));
+    expect(resolution[0]).toMatch(/user_id IN \(\?, \?\)/);
+    expect(resolution[1]).toEqual([7, 8]);
+    expect(mockGetStaff).toHaveBeenCalledWith(42, ['admin', 'manager']);
   });
 });
 
@@ -105,6 +207,28 @@ describe('checkTlsExpiry — alert thresholds', () => {
     expect(mockSendEmail).toHaveBeenCalledTimes(1);
     expect(mockSendEmail.mock.calls[0][0].to).toBe('admin@isp.example.com');
   });
+
+  it('uses one storable incident title for a maximum-length hostname', async () => {
+    const hostname = [
+      'a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61),
+    ].join('.');
+    expect(hostname).toHaveLength(253);
+    config.appUrl = `https://${hostname}`;
+    stubPeerCert(5);
+
+    await svc.checkTlsExpiry(null);
+
+    const storedTitle = mockNotificationCreate.mock.calls[0][0].title;
+    expect(Array.from(storedTitle).length).toBeLessThanOrEqual(255);
+    expect(storedTitle).toMatch(/^TLS certificate expires /);
+    expect(storedTitle).toMatch(/… \[[a-f0-9]{16}\]$/);
+
+    const reconciliation = mockQuery.mock.calls.find(([sql]) => /UPDATE notifications/i.test(sql));
+    const duplicateLookup = mockQuery.mock.calls.find(([sql]) => /SELECT id FROM notifications/i.test(sql));
+    expect(reconciliation[1]).toEqual([storedTitle]);
+    expect(duplicateLookup[1][0]).toBe(storedTitle);
+    expect(mockSendEmail.mock.calls[0][0].subject).toBe(storedTitle);
+  });
 });
 
 describe('checkTlsExpiry — does not nag', () => {
@@ -118,6 +242,17 @@ describe('checkTlsExpiry — does not nag', () => {
     const r = await svc.checkTlsExpiry(null);
     expect(r.notifications_sent).toBe(0);
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('resolves old certificate alerts but leaves the current warning unread', async () => {
+    stubPeerCert(6);
+    await svc.checkTlsExpiry(null);
+
+    const resolution = mockQuery.mock.calls.find(([sql]) => /UPDATE notifications/i.test(sql));
+    expect(resolution).toBeDefined();
+    expect(resolution[0]).toMatch(/title NOT IN \(\?\)/);
+    expect(resolution[1]).toHaveLength(1);
+    expect(resolution[1][0]).toMatch(/TLS certificate expires .*\(≤7 days\) — isp\.example\.com/);
   });
 });
 
@@ -235,11 +370,34 @@ describe('a certificate can be untrustworthy without being expired', () => {
     expect(r.notifications_sent).toBe(1);
   });
 
+  it('alerts when a future-dated certificate is not valid yet', async () => {
+    stubPeerCert(90, { authorized: false, authorizationError: 'CERT_NOT_YET_VALID' });
+
+    const r = await svc.checkTlsExpiry(null);
+
+    expect(r.notifications_sent).toBe(1);
+    expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+    expect(mockNotificationCreate.mock.calls[0][0].title)
+      .toMatch(/not trusted \(CERT_NOT_YET_VALID\)/);
+  });
+
   it('a valid, trusted certificate raises nothing', async () => {
     stubPeerCert(60, { authorized: true });
     const r = await svc.checkTlsExpiry(null);
     expect(r.notifications_sent).toBe(0);
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('preserves every alert for conditions that are still active', async () => {
+    stubPeerCert(5, { authorized: false, authorizationError: 'DEPTH_ZERO_SELF_SIGNED_CERT' });
+    await svc.checkTlsExpiry(null);
+
+    const resolution = mockQuery.mock.calls.find(([sql]) => /UPDATE notifications/i.test(sql));
+    expect(resolution[0]).toMatch(/title NOT IN \(\?, \?\)/);
+    expect(resolution[1]).toEqual(expect.arrayContaining([
+      expect.stringMatching(/not trusted \(DEPTH_ZERO_SELF_SIGNED_CERT\)/),
+      expect.stringMatching(/expires .*\(≤7 days\)/),
+    ]));
   });
 });
 

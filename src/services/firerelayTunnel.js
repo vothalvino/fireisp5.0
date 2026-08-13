@@ -30,6 +30,9 @@ const { randomUUID } = require('crypto');
 const db = require('../config/database');
 const relayConfig = require('../config/firerelay');
 const logger = require('../utils/logger').child({ service: 'firerelayTunnel' });
+const { registerWebSocketRoute } = require('./websocketUpgradeRouter');
+
+const FIRERELAY_WS_PATH = '/ws/firerelay';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TunnelServer
@@ -40,6 +43,8 @@ class TunnelServer extends EventEmitter {
     super();
     /** @type {WebSocketServer|null} */
     this._wss = null;
+    /** @type {(() => void)|null} */
+    this._unregisterUpgradeRoute = null;
     /** @type {Map<string, WebSocket>} nodeId → authenticated WebSocket */
     this._agents = new Map();
     /** @type {Map<string, {resolve: Function, reject: Function, timer: NodeJS.Timeout}>} */
@@ -64,7 +69,18 @@ class TunnelServer extends EventEmitter {
       throw new Error('TunnelServer already attached');
     }
 
-    this._wss = new WebSocketServer({ server: httpServer, path: '/ws/firerelay' });
+    // Route upgrades through the shared exact-path dispatcher. The `ws`
+    // `{ server, path }` shortcut rejects every non-matching upgrade and would
+    // prevent the browser hub on this same HTTP server from seeing its path.
+    this._wss = new WebSocketServer({ noServer: true });
+    const wss = this._wss;
+    this._unregisterUpgradeRoute = registerWebSocketRoute(
+      httpServer,
+      FIRERELAY_WS_PATH,
+      (req, socket, head) => wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      }),
+    );
 
     this._wss.on('connection', (ws, req) => {
       const remoteIp = req.socket.remoteAddress;
@@ -76,7 +92,7 @@ class TunnelServer extends EventEmitter {
       logger.error({ err }, 'Tunnel WebSocket server error');
     });
 
-    logger.info('Tunnel WebSocket server attached at /ws/firerelay');
+    logger.info(`Tunnel WebSocket server attached at ${FIRERELAY_WS_PATH}`);
   }
 
   /**
@@ -85,6 +101,9 @@ class TunnelServer extends EventEmitter {
    */
   close() {
     return new Promise((resolve) => {
+      this._unregisterUpgradeRoute?.();
+      this._unregisterUpgradeRoute = null;
+
       // Reject all pending commands
       for (const [id, { reject, timer }] of this._pending) {
         clearTimeout(timer);
@@ -368,4 +387,4 @@ class TunnelServer extends EventEmitter {
 // Export a singleton — the server shares one tunnel instance
 const tunnelServer = new TunnelServer();
 
-module.exports = { TunnelServer, tunnelServer };
+module.exports = { TunnelServer, tunnelServer, FIRERELAY_WS_PATH };
