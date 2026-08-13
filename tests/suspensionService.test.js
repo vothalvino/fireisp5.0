@@ -152,7 +152,20 @@ describe('suspensionService', () => {
   // =========================================================================
   describe('reconnectContract', () => {
     test('reactivates contract and logs unsuspend event', async () => {
-      mockConnection.execute.mockResolvedValue([{ affectedRows: 1 }]);
+      mockConnection.execute.mockImplementation(async (sql) => {
+        const s = String(sql).replace(/\s+/g, ' ');
+        if (/FROM contracts/.test(s) && /FOR UPDATE/.test(s)) {
+          return [[{
+            status: 'suspended', first_activated_at: new Date('2025-01-01T00:00:00Z'),
+            organization_id: 42, client_id: 9,
+            contract_template_mx_id: null, mx_contract_environment: null,
+          }]];
+        }
+        if (/FROM organizations o/.test(s)) {
+          return [[{ locale: 'global', contract_environment: 'sandbox', mx_profile_id: null }]];
+        }
+        return [{ affectedRows: 1 }];
+      });
       // RADIUS lookup returns empty (no RADIUS account)
       db.query.mockResolvedValueOnce([[]]);
       // Open walled-garden suspension_logs lookup: none
@@ -163,15 +176,18 @@ describe('suspensionService', () => {
       expect(mockConnection.beginTransaction).toHaveBeenCalled();
 
       // UPDATE contracts SET status = active
-      expect(mockConnection.execute.mock.calls[0][0]).toContain('UPDATE contracts SET status');
-      expect(mockConnection.execute.mock.calls[0][1]).toEqual(['active', 10]);
+      const contractUpdate = mockConnection.execute.mock.calls
+        .find(([sql]) => sql.includes('UPDATE contracts SET status'));
+      expect(contractUpdate[1]).toEqual(['active', 10]);
+      expect(contractUpdate[0]).not.toMatch(/organizations|mx_resume/);
 
       // Restore the RADIUS account — guarded to only flip a 'suspended' row
       // (Bug 2 — must never resurrect an 'inactive' terminated/cancelled account)
-      expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
-      expect(mockConnection.execute.mock.calls[1][0]).toContain("'active'");
-      expect(mockConnection.execute.mock.calls[1][0]).toContain("status = 'suspended'");
-      expect(mockConnection.execute.mock.calls[1][1]).toEqual([10]);
+      const radiusUpdate = mockConnection.execute.mock.calls
+        .find(([sql]) => sql.includes('UPDATE radius SET status'));
+      expect(radiusUpdate[0]).toContain("'active'");
+      expect(radiusUpdate[0]).toContain("status = 'suspended'");
+      expect(radiusUpdate[1]).toEqual([10]);
 
       // INSERT suspension_logs with the ENUM-legal 'unsuspended' action. (Call [2]
       // is now the SELECT that recovers the original suspended_at — see
@@ -193,6 +209,16 @@ describe('suspensionService', () => {
         contract_id: 10, closed: true, nas_disabled: true,
       });
       mockConnection.execute.mockImplementation(async (sql) => {
+        const s = String(sql).replace(/\s+/g, ' ');
+        if (/FROM contracts/.test(s) && /FOR UPDATE/.test(s)) {
+          return [[{
+            status: 'suspended', first_activated_at: null, organization_id: 42,
+            client_id: 9, contract_template_mx_id: null, mx_contract_environment: null,
+          }]];
+        }
+        if (/FROM organizations o/.test(s)) {
+          return [[{ locale: 'global', contract_environment: 'sandbox', mx_profile_id: null }]];
+        }
         if (/SET status = \?/.test(sql) && /first_activated_at IS NOT NULL/.test(sql)) {
           return [{ affectedRows: 0 }];
         }
@@ -217,14 +243,12 @@ describe('suspensionService', () => {
     });
 
     test('rejects reconnect from any state other than suspended (or proven active soft-suspend)', async () => {
-      mockConnection.execute
-        .mockResolvedValueOnce([{ affectedRows: 0 }])
-        .mockResolvedValueOnce([{ affectedRows: 0 }])
-        .mockResolvedValueOnce([{ affectedRows: 0 }])
-        .mockResolvedValueOnce([{ affectedRows: 0 }])
-        .mockResolvedValueOnce([[
-          { status: 'pending', first_activated_at: null },
-        ]]);
+      mockConnection.execute.mockImplementation(async (sql) => {
+        if (/FROM contracts/.test(String(sql)) && /FOR UPDATE/.test(String(sql))) {
+          return [[{ status: 'pending', first_activated_at: null }]];
+        }
+        return [{ affectedRows: 0 }];
+      });
 
       await expect(suspensionService.reconnectContract(10, 5, 50, { orgId: 42 }))
         .rejects.toThrow(/Only a suspended contract/i);

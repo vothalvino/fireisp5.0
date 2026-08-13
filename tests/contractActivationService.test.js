@@ -1043,6 +1043,7 @@ describe('renewPreviouslyActivated', () => {
       /UPDATE radius SET status = 'active'/.test(String(sql)));
     expect(contractUpdateIndex).toBeGreaterThan(-1);
     expect(radiusUpdateIndex).toBeGreaterThan(contractUpdateIndex);
+    expect(conn.query.mock.calls[contractUpdateIndex][0]).not.toMatch(/organizations|mx_resume/);
     expect(radiusService.syncFreeradiusContract).toHaveBeenCalledWith(33, {
       organizationId: 42, enabled: true, runner: conn,
     });

@@ -25,6 +25,37 @@ jest.mock('dgram', () => {
 const db = require('../src/config/database');
 const suspensionService = require('../src/services/suspensionService');
 
+function mockPreviouslyActivatedGlobalReconnect(connection) {
+  connection.execute.mockImplementation(async (sql) => {
+    const normalized = String(sql).replace(/\s+/g, ' ');
+    if (/FROM contracts/.test(normalized) && /FOR UPDATE/.test(normalized)) {
+      return [[{
+        status: 'suspended',
+        first_activated_at: new Date('2026-01-01T00:00:00Z'),
+        organization_id: 1,
+        client_id: 50,
+        contract_template_mx_id: null,
+        mx_contract_environment: null,
+      }]];
+    }
+    if (/FROM organizations o/.test(normalized)) {
+      return [[{
+        locale: 'global', contract_environment: 'sandbox', mx_profile_id: null,
+      }]];
+    }
+    if (/UPDATE contracts SET status/.test(normalized)) return [{ affectedRows: 1 }];
+    if (/UPDATE radius SET status/.test(normalized)) return [{ affectedRows: 1 }];
+    if (/SELECT suspended_at FROM suspension_logs/.test(normalized)) {
+      return [[{ suspended_at: new Date('2026-02-01T00:00:00Z') }]];
+    }
+    if (/UPDATE suspension_logs SET restored_at/.test(normalized)) {
+      return [{ affectedRows: 1 }];
+    }
+    if (/INSERT INTO suspension_logs/.test(normalized)) return [{ insertId: 2 }];
+    throw new Error(`Unexpected reconnect SQL in fixture: ${normalized}`);
+  });
+}
+
 describe('E2E Workflow: Suspension Lifecycle', () => {
   let mockConnection;
 
@@ -93,10 +124,7 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
     // Mock: no RADIUS account
     db.query.mockResolvedValueOnce([[]]);
 
-    mockConnection.execute
-      .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE contracts → active
-      .mockResolvedValueOnce([{ affectedRows: 1 }])  // UPDATE radius → active (Bug 2, guarded)
-      .mockResolvedValueOnce([{ insertId: 2 }]);      // INSERT suspension_log (unsuspend)
+    mockPreviouslyActivatedGlobalReconnect(mockConnection);
 
     // Walled-garden check after transaction (no open walled garden)
     db.query.mockResolvedValueOnce([[]]);
@@ -107,8 +135,10 @@ describe('E2E Workflow: Suspension Lifecycle', () => {
     // UPDATE contracts, UPDATE radius, SELECT the original suspended_at (NOT NULL
     // on the reconnect row too), INSERT the 'unsuspended' log, close the open
     // suspension row.
-    expect(mockConnection.execute).toHaveBeenCalledTimes(5);
-    expect(mockConnection.execute.mock.calls[1][0]).toContain('UPDATE radius SET status');
+    expect(mockConnection.execute).toHaveBeenCalledTimes(7);
+    const radiusUpdate = mockConnection.execute.mock.calls
+      .find(([sql]) => sql.includes('UPDATE radius SET status'));
+    expect(radiusUpdate).toBeDefined();
     expect(mockConnection.commit).toHaveBeenCalled();
   });
 
@@ -162,10 +192,7 @@ describe('E2E Workflow: Full Suspension → Reconnect cycle', () => {
 
     // Phase 3: Reconnect (no RADIUS account → graceful skip)
     db.query.mockResolvedValueOnce([[]]);  // sendRadiusCoA — no RADIUS rows
-    mockConnection.execute
-      .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE contracts → active
-      .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE radius → active (Bug 2, guarded)
-      .mockResolvedValueOnce([{ insertId: 2 }]);       // INSERT suspension_log
+    mockPreviouslyActivatedGlobalReconnect(mockConnection);
     db.query.mockResolvedValueOnce([[]]);              // walled-garden check — no open restriction
 
     await suspensionService.reconnectContract(100, 999, 500);

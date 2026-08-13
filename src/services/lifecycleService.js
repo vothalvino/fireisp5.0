@@ -925,8 +925,7 @@ async function completeOrder(orderId, {
                 test_window_cleanup_pending = 0
           WHERE id = ? AND status = 'pending'
             AND test_window_expires_at IS NULL
-            AND test_window_cleanup_pending = 0
-            AND ${mxRegisteredTemplateService.sandboxResumeSqlPredicate('contracts')}`,
+            AND test_window_cleanup_pending = 0`,
         [order.contract_id],
       );
       if (activation.affectedRows !== 1) {

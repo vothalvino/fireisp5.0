@@ -23,6 +23,7 @@ import {
   type MxContractSourceEvidence,
   type MxContractSourceStatus,
 } from '@/components/MxContractEnvironment';
+import { extractApiError } from '@/components/ClientFormModal';
 import { styles, modalStyles } from './crudStyles';
 
 interface DocumentTemplate {
@@ -152,6 +153,17 @@ function TemplateModal({ initial, onClose, onSaved }: {
       && name === initial.name
       && body === initial.body_md,
   );
+  const isExactLegacyUnlinkedDeactivation = Boolean(
+    initial
+      && initial.template_type === 'activation_contract'
+      && Boolean(initial.is_active)
+      && initial.contract_template_mx_id === null
+      && type === initial.template_type
+      && !active
+      && registeredSourceId === null
+      && name === initial.name
+      && body === initial.body_md,
+  );
 
   // The registered row is the evidence source. Never let a second, subtly
   // different copy be typed into document_templates: copy both fields exactly
@@ -181,7 +193,7 @@ function TemplateModal({ initial, onClose, onSaved }: {
         ? (api.PUT as unknown as (p: string, o: unknown) => Promise<{ error?: unknown }>)('/document-templates/{id}', { params: { path: { id: initial.id } }, body: payload })
         : (api.POST as unknown as (p: string, o: unknown) => Promise<{ error?: unknown }>)('/document-templates', { body: payload });
       const res = await call;
-      if (res.error) throw new Error('Failed to save the template');
+      if (res.error) throw new Error(extractApiError(res.error, 'Failed to save the template'));
     },
     onSuccess: () => { onSaved(); onClose(); },
     onError: (e: unknown) => setErr(e instanceof Error ? e.message : 'Failed to save the template'),
@@ -189,7 +201,10 @@ function TemplateModal({ initial, onClose, onSaved }: {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (isActivationContract && !selectedSourceIsEligible && !isExactTerminalSourceDeactivation) {
+    if (isActivationContract
+      && !selectedSourceIsEligible
+      && !isExactTerminalSourceDeactivation
+      && !isExactLegacyUnlinkedDeactivation) {
       setErr(t('documentTemplates.registeredSourceRequired'));
       return;
     }
@@ -315,7 +330,7 @@ function TemplateModal({ initial, onClose, onSaved }: {
               checked={active}
               onChange={e => setActive(e.target.checked)}
               disabled={isActivationContract && !active && !selectedSourceIsEligible
-                && !isExactTerminalSourceDeactivation}
+                && !isExactTerminalSourceDeactivation && !isExactLegacyUnlinkedDeactivation}
             />
             {t('documentTemplates.activeToggle')}
           </label>
