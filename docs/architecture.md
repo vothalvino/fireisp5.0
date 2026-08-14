@@ -615,63 +615,28 @@ queue for background processing).
 
 ## Data Retention Architecture
 
-```
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                       scheduler (cron)                              │
-  │                  data_retention job — daily                         │
-  └──────────────────────────┬──────────────────────────────────────────┘
-                             │
-                             ▼
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                   retentionService.runAll()                         │
-  │                                                                     │
-  │  For each data type:                                                │
-  │  1. Read TTL from env var (with defaults)                           │
-  │  2. SELECT ids WHERE created_at < NOW() - INTERVAL <TTL>           │
-  │  3. DELETE in batches (1 000 rows per batch)                        │
-  │  4. Sleep between batches to avoid long locks                       │
-  │  5. Log rows deleted per type                                       │
-  └──────────────────────────┬──────────────────────────────────────────┘
-                             │
-                             ▼
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                   Retention Targets                                 │
-  │                                                                     │
-  │  ┌──────────────────────┬────────────────┬────────────────────┐    │
-  │  │  Data Type           │ Default TTL    │ Env Override       │    │
-  │  ├──────────────────────┼────────────────┼────────────────────┤    │
-  │  │  audit_logs          │ 365 days       │ RETENTION_AUDIT    │    │
-  │  │  alert_events        │  90 days       │ RETENTION_ALERTS   │    │
-  │  │  webhook_deliveries  │  90 days       │ RETENTION_WEBHOOKS │    │
-  │  │  email_logs          │ 180 days       │ RETENTION_EMAIL    │    │
-  │  │  sms_logs            │ 180 days       │ RETENTION_SMS      │    │
-  │  │  idempotency_keys    │   7 days       │ RETENTION_IDEMPOT  │    │
-  │  └──────────────────────┴────────────────┴────────────────────┘    │
-  └─────────────────────────────────────────────────────────────────────┘
+The daily `data_retention` task calls `retentionService.runAll()`. The service
+first operates in an explicit primary-database context, then discovers every
+active, non-deleted organization configured for isolated storage and runs the
+same policies in each tenant context. A failure in one table or database scope
+is reported without preventing the remaining scopes from running. Manual secure
+deletion supplies an organization ID; every delete then carries an explicit
+tenant predicate even when database routing falls back to the shared primary.
 
+| Data type | Date column | Default TTL | Environment override |
+|-----------|-------------|-------------|----------------------|
+| `audit_logs` | `created_at` | 365 days | `RETENTION_AUDIT_LOGS_DAYS` |
+| `alert_events` | `created_at` | 90 days | `RETENTION_ALERT_EVENTS_DAYS` |
+| `webhook_deliveries` | `created_at` | 90 days | `RETENTION_WEBHOOK_DELIVERIES_DAYS` |
+| `email_logs` | `created_at` | 180 days | `RETENTION_EMAIL_LOGS_DAYS` |
+| `sms_logs` | `created_at` | 180 days | `RETENTION_SMS_LOGS_DAYS` |
+| `idempotency_keys` | `expires_at` | 7 days | `RETENTION_IDEMPOTENCY_KEYS_DAYS` |
+| `radpostauth` | `authdate` | 90 days | `RETENTION_RADPOSTAUTH_DAYS` |
+| `pppoe_event_logs` | `logged_at` | 90 days | `RETENTION_PPPOE_EVENT_LOGS_DAYS` |
 
-  BATCH DELETION DETAIL
-  ═════════════════════
-
-  retentionService.purgeTable(tableName, ttlDays)
-      │
-      ▼
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  LOOP until no rows remain past TTL:                                │
-  │                                                                     │
-  │    DELETE FROM <table>                                              │
-  │    WHERE created_at < NOW() - INTERVAL <ttlDays> DAY               │
-  │    LIMIT 1000;                                                      │
-  │                                                                     │
-  │    affected = result.affectedRows                                   │
-  │                                                                     │
-  │    ┌─── affected === 0? ───┐                                       │
-  │    │ YES                   │ NO                                     │
-  │    ▼                       ▼                                        │
-  │  break (done)         sleep(RETENTION_BATCH_DELAY_MS || 500)        │
-  │                       continue loop                                 │
-  └─────────────────────────────────────────────────────────────────────┘
-```
+Each policy repeatedly executes a whitelisted `DELETE ... LIMIT 1000` until a
+partial batch is returned. Empty, non-numeric, zero, and negative environment
+values are rejected and the documented default is used instead.
 
 **Retention guarantees:**
 

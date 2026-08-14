@@ -26,10 +26,10 @@ function registerWorkers() {
   // ---- Generic scheduled-task dispatcher ----------------------------------
   jobQueue.process('scheduled-task', async (job) => {
     const taskRunner = require('../services/taskRunner');
-    const { taskName, organizationId = null } = job.data;
-    logger.info({ taskName, organizationId }, 'Worker: running scheduled task');
+    const { taskId, taskName, organizationId = null } = job.data;
+    logger.info({ taskId, taskName, organizationId }, 'Worker: running scheduled task');
     const result = await taskRunner.runTask(taskName, organizationId);
-    await taskRunner.markTaskRun(taskName).catch(() => {});
+    await taskRunner.markTaskRun(taskName, result, { taskId, organizationId }).catch(() => {});
     return result;
   });
 

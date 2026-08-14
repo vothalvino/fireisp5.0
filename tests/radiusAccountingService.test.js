@@ -119,7 +119,7 @@ describe('radiusAccountingService', () => {
 
     test('uses sentinel contractId=0 and clientId=0 when RADIUS account is not found', async () => {
       db.query
-        .mockResolvedValueOnce([[]])  // no RADIUS row
+        .mockResolvedValueOnce([[{ resolved_nas_id: 2, radius_id: null, contract_id: null, client_id: null }]])  // NAS found, no RADIUS row
         .mockResolvedValueOnce([[]])  // no open session
         .mockResolvedValueOnce([{ insertId: 77 }]);
 
@@ -136,6 +136,30 @@ describe('radiusAccountingService', () => {
       const insertCall = db.query.mock.calls[2];
       expect(insertCall[1][1]).toBe(0);  // contractId at index 1 of params
       expect(insertCall[1][2]).toBe(0);  // clientId at index 2 of params
+    });
+
+    test('scopes subscriber and open-session lookups to the NAS organization', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ radius_id: 1, contract_id: 5, client_id: 3, resolved_nas_id: 2 }]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([{ insertId: 78 }]);
+
+      await ingestAccounting({
+        acctStatusType: 'Start',
+        userName: 'duplicate-name',
+        acctSessionId: 'scoped-session',
+        nasIpAddress: '10.0.0.2',
+        nasId: 2,
+        organizationId: 73,
+      });
+
+      const accountLookup = db.query.mock.calls[0];
+      expect(accountLookup[0]).toContain('r.organization_id = n.organization_id');
+      expect(accountLookup[0]).toContain('n.organization_id = ?');
+      expect(accountLookup[1]).toEqual(['duplicate-name', 73, 2]);
+      const openLookup = db.query.mock.calls[1];
+      expect(openLookup[0]).toContain('SELECT id FROM nas WHERE organization_id = ?');
+      expect(openLookup[1]).toEqual(['duplicate-name', 'scoped-session', 73]);
     });
 
     test('includes acctInputOctetsV6, acctOutputOctetsV6, and stack_type=ipv6 in INSERT when IPv6-only', async () => {
@@ -263,6 +287,8 @@ describe('radiusAccountingService', () => {
       // The UPDATE call is the second query; first param array starts with eventType
       const updateParams = db.query.mock.calls[1][1];
       expect(updateParams[0]).toBe('interim-update');
+      expect(db.query.mock.calls[1][0]).toContain('SELECT id FROM nas WHERE organization_id = ?');
+      expect(updateParams[updateParams.length - 1]).toBe(1);
     });
   });
 

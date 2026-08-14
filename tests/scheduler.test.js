@@ -16,12 +16,26 @@ jest.mock('../src/services/taskRunner', () => ({
   markTaskRun: jest.fn(),
 }));
 
+jest.mock('../src/services/jobQueueService', () => ({
+  add: jest.fn(),
+}));
+
 const db = require('../src/config/database');
 const cron = require('node-cron');
+const taskRunner = require('../src/services/taskRunner');
+const jobQueue = require('../src/services/jobQueueService');
 const scheduler = require('../src/services/scheduler');
 
 describe('Scheduler Service', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.REDIS_URL;
+  });
+
+  afterEach(() => {
+    scheduler.stop();
+    delete process.env.REDIS_URL;
+  });
 
   describe('start()', () => {
     test('loads enabled tasks and schedules them', async () => {
@@ -87,6 +101,62 @@ describe('Scheduler Service', () => {
         expect.objectContaining({ task_name: 'task_b' }),
       ]));
       scheduler.stop();
+    });
+  });
+
+  describe('task completion status', () => {
+    test('passes an overlap skip and exact task id to the status writer', async () => {
+      let callback;
+      const task = {
+        id: 455,
+        task_name: 'poll_pppoe_events',
+        cron_expression: '*/5 * * * *',
+        organization_id: null,
+      };
+      db.query.mockResolvedValueOnce([[task]]).mockResolvedValue([{ affectedRows: 1 }]);
+      cron.validate.mockReturnValue(true);
+      cron.schedule.mockImplementation((_expression, handler) => {
+        callback = handler;
+        return { stop: jest.fn() };
+      });
+      const skipped = { skipped: true, reason: 'already_running' };
+      taskRunner.runTask.mockResolvedValueOnce(skipped);
+
+      await scheduler.start();
+      await callback();
+
+      expect(taskRunner.markTaskRun).toHaveBeenCalledWith(
+        'poll_pppoe_events',
+        skipped,
+        { taskId: 455, organizationId: null },
+      );
+    });
+
+    test('includes the exact task id in the BullMQ job payload', async () => {
+      process.env.REDIS_URL = 'redis://test.invalid';
+      let callback;
+      const task = {
+        id: 455,
+        task_name: 'poll_pppoe_events',
+        cron_expression: '*/5 * * * *',
+        organization_id: null,
+      };
+      db.query.mockResolvedValueOnce([[task]]);
+      cron.validate.mockReturnValue(true);
+      cron.schedule.mockImplementation((_expression, handler) => {
+        callback = handler;
+        return { stop: jest.fn() };
+      });
+      jobQueue.add.mockResolvedValueOnce({ id: 'queued' });
+
+      await scheduler.start();
+      await callback();
+
+      expect(jobQueue.add).toHaveBeenCalledWith(
+        'scheduled-task',
+        { taskId: 455, taskName: 'poll_pppoe_events', organizationId: null },
+        expect.objectContaining({ jobId: expect.stringContaining('poll_pppoe_events') }),
+      );
     });
   });
 });

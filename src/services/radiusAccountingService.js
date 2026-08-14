@@ -7,6 +7,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'radiusAccounting' });
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ function deriveStackType(framedIp, framedIpv6) {
  * @param {number|null} attrs.acctInputOctetsV6
  * @param {number|null} attrs.acctOutputOctetsV6
  * @param {number}      attrs.organizationId        - from the ingest caller
+ * @param {number|null} attrs.nasId                  - resolved live NAS id
  * @returns {Promise<{action: 'insert'|'update'|'noop', id: number|null, macMove: boolean}>}
  */
 async function ingestAccounting(attrs) {
@@ -94,7 +96,12 @@ async function ingestAccounting(attrs) {
     acctInputOctetsV6 = null,
     acctOutputOctetsV6 = null,
     organizationId,
+    nasId = null,
   } = attrs;
+
+  if (!Number.isSafeInteger(Number(organizationId)) || Number(organizationId) <= 0) {
+    throw new ValidationError('Accounting ingest requires a tenant-owned NAS');
+  }
 
   logger.info(
     { userName, acctSessionId, acctStatusType, nasIpAddress },
@@ -102,25 +109,40 @@ async function ingestAccounting(attrs) {
   );
 
   // ------------------------------------------------------------------
-  // 1. Look up RADIUS account + resolve NAS
+  // 1. Resolve the live NAS and look up the subscriber inside that same tenant.
+  // Starting from nas (rather than radius) preserves the NAS id for unknown
+  // usernames while preventing a duplicate username in another tenant from
+  // being selected.
   // ------------------------------------------------------------------
+  const nasSelector = nasId ? 'n.id = ?' : 'n.ip_address = ?';
+  const nasSelectorValue = nasId || nasIpAddress;
   const [radiusRows] = await db.query(
-    `SELECT r.id AS radius_id, r.contract_id, r.client_id,
-            n.id AS resolved_nas_id
-     FROM radius r
-     LEFT JOIN nas n ON n.ip_address = ?
-     WHERE r.username = ? AND r.deleted_at IS NULL
-     LIMIT 1`,
-    [nasIpAddress, userName],
+    `SELECT n.id AS resolved_nas_id,
+            r.id AS radius_id, r.contract_id, r.client_id
+       FROM nas n
+       LEFT JOIN radius r
+         ON r.username = ?
+        AND r.organization_id = n.organization_id
+        AND r.deleted_at IS NULL
+      WHERE n.organization_id = ?
+        AND ${nasSelector}
+        AND n.status = 'active'
+        AND n.deleted_at IS NULL
+      LIMIT 2`,
+    [userName, organizationId, nasSelectorValue],
   );
+  if (radiusRows.length !== 1) {
+    throw new ValidationError('Unable to resolve one live NAS for accounting ingest');
+  }
 
-  const acct = radiusRows.length > 0 ? radiusRows[0] : null;
+  const resolved = radiusRows[0];
+  const acct = resolved.radius_id ? resolved : null;
   // connection_logs requires NOT NULL for contract_id and client_id.
   // Use 0 as a sentinel value when the RADIUS username is unknown — this
   // preserves the accounting record even if the subscriber can't be resolved.
   const contractId = acct ? acct.contract_id : 0;
   const clientId = acct ? acct.client_id : 0;
-  const resolvedNasId = acct ? acct.resolved_nas_id : null;
+  const resolvedNasId = resolved.resolved_nas_id;
 
   // ------------------------------------------------------------------
   // 2. Compute byte totals (handle 32-bit Gigawords wraparound)
@@ -153,9 +175,12 @@ async function ingestAccounting(attrs) {
        WHERE username = ?
          AND event_type IN ('start', 'interim-update')
          AND (acct_session_id IS NULL OR acct_session_id != ?)
+         AND nas_id IN (
+           SELECT id FROM nas WHERE organization_id = ?
+         )
        ORDER BY event_at DESC
        LIMIT 1`,
-      [userName, acctSessionId],
+      [userName, acctSessionId, organizationId],
     );
 
     if (openRows.length > 0) {
@@ -197,8 +222,11 @@ async function ingestAccounting(attrs) {
                   'stop', NOW(),
                   bytes_in, bytes_out, session_duration, 'Session-Moved'
            FROM connection_logs
-           WHERE id = ?`,
-          [open.id],
+           WHERE id = ?
+             AND nas_id IN (
+               SELECT id FROM nas WHERE organization_id = ?
+             )`,
+          [open.id, organizationId],
         );
 
         // Record the MAC move event (mac_move_events has old_mac/new_mac columns)
@@ -207,7 +235,7 @@ async function ingestAccounting(attrs) {
              (organization_id, username, old_mac, new_mac, old_nas_id, new_nas_id, detected_at)
            VALUES (?, ?, ?, ?, ?, ?, NOW())`,
           [
-            organizationId || null,
+            organizationId,
             userName,
             open.calling_station_id,
             callingStationId,
@@ -277,6 +305,9 @@ async function ingestAccounting(attrs) {
      WHERE username = ?
        AND acct_session_id = ?
        AND event_type != 'stop'
+       AND nas_id IN (
+         SELECT id FROM nas WHERE organization_id = ?
+       )
      ORDER BY event_at DESC
      LIMIT 1`,
     [
@@ -292,6 +323,7 @@ async function ingestAccounting(attrs) {
       stackType,
       userName,
       acctSessionId,
+      organizationId,
     ],
   );
 

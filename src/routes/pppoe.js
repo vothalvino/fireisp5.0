@@ -7,11 +7,16 @@
 // =============================================================================
 
 const { Router } = require('express');
+const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
+const { validatePppoeEvent } = require('../middleware/validatePppoeEvent');
 const pppoeDiagnosticsService = require('../services/pppoeDiagnosticsService');
+const pppoeReadinessService = require('../services/pppoeReadinessService');
+const { deriveEventIdentity } = require('../services/pppoeEventCollector');
+const { ValidationError } = require('../utils/errors');
 const PppoeEventLog = require('../models/PppoeEventLog');
 
 const router = Router();
@@ -29,47 +34,77 @@ function verifyEventsSecret(req) {
   if (!secret) return false;
 
   const headerSecret = req.headers['x-pppoe-secret'];
-  if (headerSecret && headerSecret === secret) return true;
-
   const authHeader = req.headers['authorization'];
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    if (token === secret) return true;
-  }
+  const expectedBuffer = Buffer.from(String(secret));
+  const candidates = [
+    headerSecret,
+    authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null,
+  ];
+  return candidates.some((candidate) => {
+    if (!candidate) return false;
+    const providedBuffer = Buffer.from(String(candidate));
+    return expectedBuffer.length === providedBuffer.length
+      && crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+  });
+}
 
-  return false;
+function requireEventsSecret(req, res, next) {
+  if (!verifyEventsSecret(req)) {
+    return res.status(401).json({ error: 'Invalid or missing X-Pppoe-Secret' });
+  }
+  next();
 }
 
 // ---------------------------------------------------------------------------
 // POST /pppoe/events — M2M event log ingest (no JWT required)
 // ---------------------------------------------------------------------------
 
-router.post('/events', async (req, res, next) => {
+router.post('/events', requireEventsSecret, validatePppoeEvent, async (req, res, next) => {
   try {
-    if (!verifyEventsSecret(req)) {
-      return res.status(401).json({ error: 'Invalid or missing X-Pppoe-Secret' });
+    const { nas_id: nasId } = req.body;
+    const [nasRows] = await db.query(
+      `SELECT n.id, n.organization_id
+         FROM nas n
+        WHERE n.id = ?
+          AND n.status = 'active'
+          AND n.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM organization_database_configs odc
+             WHERE odc.organization_id = n.organization_id
+               AND odc.isolation_mode = 'isolated'
+          )
+        LIMIT 1`,
+      [nasId],
+    );
+    const nas = nasRows[0];
+    if (!nas || nas.organization_id === null) {
+      throw new ValidationError('Validation failed', [
+        { field: 'nas_id', message: 'nas_id does not identify an active tenant-owned NAS record' },
+      ]);
     }
 
-    const {
-      organization_id, nas_id, username, mac, stage, severity,
-      message, reason_code, logged_at,
-    } = req.body;
-
-    if (!message) {
-      return res.status(422).json({ error: 'message is required' });
-    }
-
-    const record = await PppoeEventLog.create({
-      organization_id: organization_id || null,
-      nas_id: nas_id || null,
-      username: username || null,
-      mac: mac || null,
-      stage: stage || 'OTHER',
-      severity: severity || 'info',
+    const message = req.body.line || req.body.message;
+    const parsed = pppoeDiagnosticsService.parseRouterOsLogLine(message);
+    const identity = deriveEventIdentity(message);
+    const data = {
+      // Never accept organization_id from the M2M caller. NAS ownership is the
+      // only tenant authority for this unauthenticated-by-JWT endpoint.
+      organization_id: nas.organization_id,
+      nas_id: nas.id,
+      username: req.body.username || identity.username || null,
+      mac: req.body.mac || identity.mac || null,
+      stage: req.body.stage || parsed?.stage || 'OTHER',
+      severity: req.body.severity || parsed?.severity || 'info',
       message,
-      reason_code: reason_code || null,
-      logged_at: logged_at || null,
-    });
+      reason_code: req.body.reason_code || parsed?.reason_code || null,
+    };
+    // Omit the column entirely when the caller supplies no timestamp so the DB
+    // DEFAULT CURRENT_TIMESTAMP is used. Explicit NULL violates the NOT NULL
+    // column and bypasses the intended default.
+    if (req.body.logged_at !== undefined) data.logged_at = req.body.logged_at;
+
+    const record = await PppoeEventLog.create(data);
 
     return res.status(201).json({ data: record });
   } catch (err) {
@@ -146,6 +181,15 @@ router.get('/diagnostics/mtu-issues', requirePermission('pppoe.diagnostics'), as
   try {
     const result = await pppoeDiagnosticsService.detectMtuIssues(req.orgId);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /pppoe/diagnostics/readiness — telemetry source health for the UI banner
+router.get('/diagnostics/readiness', requirePermission('pppoe.diagnostics'), async (req, res, next) => {
+  try {
+    res.json({ data: await pppoeReadinessService.getReadiness(req.orgId) });
   } catch (err) {
     next(err);
   }

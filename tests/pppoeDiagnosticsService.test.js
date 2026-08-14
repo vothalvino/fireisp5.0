@@ -4,6 +4,8 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  withPrimaryContext: jest.fn(callback => callback()),
+  withTenantContext: jest.fn((_organizationId, callback) => callback()),
 }));
 
 jest.mock('../src/utils/logger', () => ({
@@ -27,7 +29,11 @@ const {
   detectMtuIssues,
 } = require('../src/services/pppoeDiagnosticsService');
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  db.withPrimaryContext.mockImplementation(callback => callback());
+  db.withTenantContext.mockImplementation((_organizationId, callback) => callback());
+});
 
 // ---------------------------------------------------------------------------
 // 1. RouterOS log line parser
@@ -141,17 +147,21 @@ describe('parseRouterOsLogLine', () => {
 // ---------------------------------------------------------------------------
 
 describe('classifyAuthFailures', () => {
-  function setupAuthFailureMock({ rejectedRows, radcheckRows }) {
+  function setupAuthFailureMock({ rejectedRows, radcheckRows, radiusRows }) {
     db.query.mockImplementation((sql) => {
       // radpostauth rejection query
       if (sql.includes('FROM radpostauth')) {
         return Promise.resolve([rejectedRows || []]);
       }
-      // radcheck known-user lookup
-      if (sql.includes('FROM radcheck')) {
-        return Promise.resolve([radcheckRows || []]);
+      // Same-tenant subscriber lookup for legacy rows.  radcheck has no
+      // organization_id and must not be used for this inference.
+      if (sql.includes('FROM radius')) {
+        const inferredRows = (radcheckRows || []).map(row => ({
+          username: row.username,
+          organization_id: row.organization_id ?? null,
+        }));
+        return Promise.resolve([radiusRows || inferredRows]);
       }
-      // radius org-scope subquery (included inline, handled by radpostauth query above)
       return Promise.resolve([[{ affectedRows: 0 }]]);
     });
   }
@@ -237,6 +247,87 @@ describe('classifyAuthFailures', () => {
     expect(result.total).toBe(0);
     expect(result.failures).toHaveLength(0);
   });
+
+  test('filters on radpostauth.organization_id with bound tenant/time/user parameters', async () => {
+    db.query.mockResolvedValue([[]]);
+    const since = new Date('2026-08-13T00:00:00.000Z');
+    const until = new Date('2026-08-14T00:00:00.000Z');
+
+    await classifyAuthFailures(42, since, until, 'shared-login');
+
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toMatch(/AND rpa\.organization_id = \?/);
+    expect(sql).not.toMatch(/rpa\.username IN\s*\(\s*SELECT/i);
+    expect(params).toEqual([42, since, until, 'shared-login']);
+  });
+
+  test('explicit reason_code wins over legacy username inference', async () => {
+    setupAuthFailureMock({
+      rejectedRows: [{
+        organization_id: 7,
+        username: 'same-name',
+        authdate: new Date(),
+        nas_ip_address: '10.0.0.7',
+        calling_station_id: null,
+        reply: 'Access-Reject',
+        reason_code: '  UNKNOWN_OR_INACTIVE_USER  ',
+      }],
+      // If consulted, this would have produced bad_password under the legacy
+      // heuristic. Explicit telemetry must be authoritative.
+      radiusRows: [{ username: 'same-name', organization_id: 7 }],
+    });
+
+    const result = await classifyAuthFailures(7, null, null, null);
+
+    expect(result.failures[0]).toMatchObject({
+      reason: 'unknown_user',
+      reason_code: 'unknown_or_inactive_user',
+      organization_id: 7,
+    });
+    expect(db.query.mock.calls.some(([sql]) => sql.includes('FROM radius'))).toBe(false);
+  });
+
+  test.each([
+    'missing_username',
+    'password_not_configured',
+    'unsupported_auth_method',
+  ])('classifies explicit %s as other instead of falsely calling it a bad password', async (reasonCode) => {
+    setupAuthFailureMock({
+      rejectedRows: [{
+        organization_id: 9,
+        username: 'known',
+        authdate: new Date(),
+        reply: 'Access-Reject',
+        reason_code: reasonCode,
+      }],
+      radiusRows: [{ username: 'known', organization_id: 9 }],
+    });
+
+    const result = await classifyAuthFailures(9, null, null, null);
+
+    expect(result.failures[0].reason).toBe('other');
+    expect(result.failures[0].reason_code).toBe(reasonCode);
+  });
+
+  test('legacy known-user inference requires the same organization', async () => {
+    setupAuthFailureMock({
+      rejectedRows: [{
+        organization_id: 1,
+        username: 'duplicate',
+        authdate: new Date(),
+        reply: 'Access-Reject',
+        reason_code: null,
+      }],
+      radiusRows: [{ username: 'duplicate', organization_id: 2 }],
+    });
+
+    const result = await classifyAuthFailures(1, null, null, null);
+
+    expect(result.failures[0].reason).toBe('unknown_user');
+    const subscriberLookup = db.query.mock.calls.find(([sql]) => sql.includes('FROM radius'));
+    expect(subscriberLookup[0]).toMatch(/AND organization_id = \?/);
+    expect(subscriberLookup[1]).toEqual([1, 'duplicate']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -311,6 +402,22 @@ describe('detectMtuIssues', () => {
     expect(mismatch).toBeDefined();
     expect(mismatch.username).toBe('user1@isp.net');
     expect(mismatch.mtu).toBe(1480);
+
+    const lcpQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM pppoe_event_logs'));
+    expect(lcpQuery[0]).toMatch(/AND organization_id = \?/);
+    expect(lcpQuery[0]).toMatch(/GROUP BY organization_id, username/);
+    expect(lcpQuery[1]).toEqual([10]);
+
+    const radiusQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM radius r'));
+    expect(radiusQuery[0]).toMatch(/ip\.organization_id <=> r\.organization_id/);
+    expect(radiusQuery[0]).toMatch(/AND r\.organization_id = \?/);
+    expect(radiusQuery[1]).toEqual(['user1@isp.net', 10]);
+
+    const profileQuery = db.query.mock.calls.find(([sql]) => (
+      sql.includes('FROM pppoe_service_profiles') && sql.includes('WHERE id IN')
+    ));
+    expect(profileQuery[0]).toMatch(/AND organization_id = \?/);
+    expect(profileQuery[1]).toEqual([2, 10]);
   });
 });
 
@@ -318,17 +425,16 @@ describe('detectMtuIssues', () => {
 // 5. scanAuthFailures — per-org thresholds on a GLOBAL scan (j56)
 // ---------------------------------------------------------------------------
 // The scheduled task is seeded with organization_id NULL (migration 240), so
-// every real run calls scanAuthFailures(null). Resolving the threshold from
-// the caller's orgId alone therefore read nobody's setting: the per-org
-// control was editable, validated and stored — and never consulted. These
-// tests pin the resolution path that makes it real, and the org stamped on the
-// emitted event (null org = the notification cannot be routed).
+// every real run calls scanAuthFailures(null). Migration 455 stamps each
+// radpostauth row with its owning org, which is the authority for threshold
+// selection and also prevents identical usernames in different tenants from
+// being combined.
 
 describe('scanAuthFailures — org resolution and per-org thresholds', () => {
   const { scanAuthFailures } = require('../src/services/pppoeDiagnosticsService');
 
   /**
-   * @param owners     username -> organization_id (the radius table)
+   * @param owners     username -> organization_id (the radpostauth owner)
    * @param thresholds organization_id -> threshold value (organization_settings)
    */
   function wire({ failures, owners = {}, thresholds = {} }) {
@@ -336,15 +442,14 @@ describe('scanAuthFailures — org resolution and per-org thresholds', () => {
       if (sql.includes('FROM radpostauth')) {
         return Promise.resolve([failures.map((f) => ({
           username: f.username, authdate: new Date(), nas_ip_address: '10.0.0.1',
-          calling_station_id: null, reply: 'Access-Reject',
+          calling_station_id: null, reply: 'Access-Reject', reason_code: null,
+          organization_id: f.organization_id ?? owners[f.username] ?? null,
         }))]);
       }
-      // Every username is a known account, so failures classify as bad_password.
-      if (sql.includes('FROM radcheck')) {
-        return Promise.resolve([failures.map((f) => ({ username: f.username }))]);
-      }
       if (sql.includes('FROM radius')) {
-        return Promise.resolve([Object.entries(owners).map(([username, organization_id]) => ({ username, organization_id }))]);
+        return Promise.resolve([Object.entries(owners).map(([username, organization_id]) => ({
+          username, organization_id,
+        }))]);
       }
       if (sql.includes('FROM organization_settings')) {
         return Promise.resolve([Object.entries(thresholds).map(([organization_id, setting_value]) => ({
@@ -384,24 +489,186 @@ describe('scanAuthFailures — org resolution and per-org thresholds', () => {
     expect(payload.organizationId).toBe(7);
   });
 
-  test('falls back to the default threshold for an unowned username', async () => {
-    wire({ failures: fails('orphan@nowhere.net', 4) });
+  test('does not emit a tenant notification for unowned legacy rows', async () => {
+    wire({ failures: fails('orphan@nowhere.net', 7) });
     await scanAuthFailures(null);
-    // 4 < default 5 → nothing emitted.
     expect(eventBus.emit.mock.calls.filter(([e]) => e === 'pppoe.auth_failures')).toHaveLength(0);
   });
 
-  test('expands IN-list placeholders — a bare IN (?) never binds under execute', async () => {
+  test('does not combine the same username across tenant boundaries', async () => {
     wire({
-      failures: [...fails('a@isp.net', 6), ...fails('b@isp.net', 6)],
-      owners: { 'a@isp.net': 1, 'b@isp.net': 1 },
+      failures: [
+        ...fails('shared', 3).map(f => ({ ...f, organization_id: 1 })),
+        ...fails('shared', 3).map(f => ({ ...f, organization_id: 2 })),
+      ],
+      thresholds: { 1: '5', 2: '5' },
     });
 
     await scanAuthFailures(null);
 
-    const ownerQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM radius') && sql.includes('IN ('));
-    expect(ownerQuery).toBeDefined();
-    expect(ownerQuery[0]).toContain('IN (?, ?)');
-    expect(ownerQuery[1]).toEqual(['a@isp.net', 'b@isp.net']);
+    // Six global failures would exceed the default threshold if grouped only
+    // by username; each tenant actually has three and must remain below it.
+    expect(eventBus.emit.mock.calls.filter(([event]) => event === 'pppoe.auth_failures')).toHaveLength(0);
+    const settingQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM organization_settings'));
+    expect(settingQuery[0]).toContain('IN (?, ?)');
+    expect(settingQuery[1]).toEqual([1, 2]);
+  });
+
+  test('a global scan covers shared-primary and active isolated database scopes exactly once', async () => {
+    let databaseScope = null;
+    db.withPrimaryContext.mockImplementation(async (callback) => {
+      const previous = databaseScope;
+      databaseScope = 'primary';
+      try {
+        return await callback();
+      } finally {
+        databaseScope = previous;
+      }
+    });
+    db.withTenantContext.mockImplementation(async (organizationId, callback) => {
+      const previous = databaseScope;
+      databaseScope = organizationId;
+      try {
+        return await callback();
+      } finally {
+        databaseScope = previous;
+      }
+    });
+
+    const rejected = (organizationId, username) => Array.from({ length: 5 }, () => ({
+      organization_id: organizationId,
+      username,
+      authdate: new Date(),
+      nas_ip_address: '10.0.0.1',
+      calling_station_id: null,
+      reply: 'Access-Reject',
+      reason_code: 'bad_password',
+    }));
+
+    db.query.mockImplementation((sql) => {
+      if (sql.includes('SELECT odc.organization_id')) {
+        return Promise.resolve([[{ organization_id: 91 }]]);
+      }
+      if (sql.includes('FROM radpostauth')) {
+        if (databaseScope === 'primary') return Promise.resolve([rejected(1, 'same-name')]);
+        if (databaseScope === 91) return Promise.resolve([rejected(91, 'same-name')]);
+      }
+      if (sql.includes('FROM organization_settings')) return Promise.resolve([[]]);
+      return Promise.resolve([[]]);
+    });
+
+    const result = await scanAuthFailures(null);
+
+    expect(result).toMatchObject({
+      scanned: 10,
+      database_scopes_total: 2,
+      database_scopes_succeeded: 2,
+      database_scopes_failed: 0,
+      failures: [],
+    });
+    expect(db.withTenantContext).toHaveBeenCalledWith(91, expect.any(Function));
+
+    const discoveryQuery = db.query.mock.calls.find(([sql]) => (
+      sql.includes('SELECT odc.organization_id')
+    ));
+    expect(discoveryQuery[0]).toMatch(/JOIN organizations o/);
+    expect(discoveryQuery[0]).toMatch(/o\.status = 'active'/);
+    expect(discoveryQuery[0]).toMatch(/o\.deleted_at IS NULL/);
+
+    const authQueries = db.query.mock.calls.filter(([sql]) => sql.includes('FROM radpostauth'));
+    expect(authQueries).toHaveLength(2);
+    expect(authQueries[0][0]).toMatch(/NOT EXISTS[\s\S]*organization_database_configs/);
+    expect(authQueries[1][0]).not.toMatch(/NOT EXISTS[\s\S]*organization_database_configs/);
+    expect(authQueries[1][0]).toContain('rpa.organization_id = ?');
+    expect(authQueries[1][1][0]).toBe(91);
+
+    const emitted = eventBus.emit.mock.calls.filter(([event]) => event === 'pppoe.auth_failures');
+    expect(emitted).toHaveLength(2);
+    expect(emitted.map(([, payload]) => payload)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ organizationId: 1, username: 'same-name', failureCount: 5 }),
+      expect.objectContaining({ organizationId: 91, username: 'same-name', failureCount: 5 }),
+    ]));
+  });
+
+  test('continues other database scopes when one isolated tenant scan fails', async () => {
+    let databaseScope = null;
+    db.withPrimaryContext.mockImplementation(async (callback) => {
+      const previous = databaseScope;
+      databaseScope = 'primary';
+      try {
+        return await callback();
+      } finally {
+        databaseScope = previous;
+      }
+    });
+    db.withTenantContext.mockImplementation(async (organizationId, callback) => {
+      const previous = databaseScope;
+      databaseScope = organizationId;
+      try {
+        return await callback();
+      } finally {
+        databaseScope = previous;
+      }
+    });
+
+    db.query.mockImplementation((sql) => {
+      if (sql.includes('SELECT odc.organization_id')) {
+        return Promise.resolve([[{ organization_id: 91 }, { organization_id: 92 }]]);
+      }
+      if (sql.includes('FROM radpostauth') && databaseScope === 91) {
+        return Promise.reject(new Error('tenant database unavailable'));
+      }
+      if (sql.includes('FROM radpostauth') && databaseScope === 92) {
+        return Promise.resolve([Array.from({ length: 5 }, () => ({
+          organization_id: 92,
+          username: 'reachable',
+          authdate: new Date(),
+          reply: 'Access-Reject',
+          reason_code: 'bad_password',
+        }))]);
+      }
+      if (sql.includes('FROM organization_settings')) return Promise.resolve([[]]);
+      return Promise.resolve([[]]);
+    });
+
+    const result = await scanAuthFailures(null);
+
+    expect(result).toMatchObject({
+      scanned: 5,
+      database_scopes_total: 3,
+      database_scopes_succeeded: 2,
+      database_scopes_failed: 1,
+      failures: [{ organizationId: 91, message: 'tenant database unavailable' }],
+    });
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'pppoe.auth_failures',
+      expect.objectContaining({ organizationId: 92, username: 'reachable', failureCount: 5 }),
+    );
+  });
+
+  test('an organization-scoped scan uses that tenant context without global discovery', async () => {
+    db.query.mockImplementation((sql) => {
+      if (sql.includes('FROM radpostauth')) {
+        return Promise.resolve([Array.from({ length: 5 }, () => ({
+          organization_id: 44,
+          username: 'tenant-only',
+          authdate: new Date(),
+          reply: 'Access-Reject',
+          reason_code: 'bad_password',
+        }))]);
+      }
+      if (sql.includes('FROM organization_settings')) return Promise.resolve([[]]);
+      return Promise.resolve([[]]);
+    });
+
+    const result = await scanAuthFailures(44);
+
+    expect(result).toEqual({ scanned: 5, window_minutes: 15 });
+    expect(db.withTenantContext).toHaveBeenCalledWith(44, expect.any(Function));
+    expect(db.withPrimaryContext).not.toHaveBeenCalled();
+    const authQuery = db.query.mock.calls.find(([sql]) => sql.includes('FROM radpostauth'));
+    expect(authQuery[0]).toContain('rpa.organization_id = ?');
+    expect(authQuery[0]).not.toContain('organization_database_configs');
+    expect(authQuery[1][0]).toBe(44);
   });
 });

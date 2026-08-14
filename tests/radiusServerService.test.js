@@ -47,13 +47,37 @@ function mockDbDefault() {
 }
 
 /** Build a real Access-Request packet (PAP) for username/password. */
-function buildPapRequest({ username = 'bob', password = 's3cret', id = 7, reqAuth, secret = SECRET } = {}) {
+function buildPapRequest({
+  username = 'bob', password = 's3cret', id = 7, reqAuth, secret = SECRET,
+  omitUsername = false, nasIpAddress = null, callingStationId = null,
+} = {}) {
   reqAuth = reqAuth || crypto.randomBytes(16);
-  const attrs = coa.encodeAttributes([
-    coa.encodeUserName(username),
+  const attrList = [
     { type: codec.ATTR.USER_PASSWORD, value: codec.encodePapPassword(password, secret, reqAuth) },
-  ]);
+  ];
+  if (!omitUsername) attrList.unshift(coa.encodeUserName(username));
+  if (nasIpAddress) {
+    attrList.push({
+      type: codec.ATTR.NAS_IP_ADDRESS,
+      value: Buffer.from(nasIpAddress.split('.').map(Number)),
+    });
+  }
+  if (callingStationId) {
+    attrList.push({ type: codec.ATTR.CALLING_STATION_ID, value: callingStationId });
+  }
+  const attrs = coa.encodeAttributes(attrList);
   return { pkt: coa.buildRadiusPacket(codec.CODE.ACCESS_REQUEST, id, reqAuth, attrs), reqAuth };
+}
+
+/** Build an Access-Request with a username but no PAP or CHAP credential. */
+function buildUnsupportedAuthRequest({ username = 'bob', id = 12, reqAuth } = {}) {
+  reqAuth = reqAuth || crypto.randomBytes(16);
+  const attrs = coa.encodeAttributes([coa.encodeUserName(username)]);
+  return { pkt: coa.buildRadiusPacket(codec.CODE.ACCESS_REQUEST, id, reqAuth, attrs), reqAuth };
+}
+
+function findPostAuthInsert() {
+  return db.query.mock.calls.find(([sql]) => /INSERT INTO radpostauth/.test(sql));
 }
 
 /** Build a real Access-Request packet using CHAP-Password. */
@@ -243,6 +267,126 @@ describe('radiusServerService — embedded RADIUS server', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Best-effort post-auth telemetry
+  // ---------------------------------------------------------------------------
+  describe('handleAuth() — radpostauth outcome logging', () => {
+    test('persists an attributed accept with NAS/calling-station metadata and no password', async () => {
+      const { pkt } = buildPapRequest({
+        nasIpAddress: '192.0.2.44',
+        callingStationId: 'AA:BB:CC:DD:EE:FF',
+      });
+      let captured = null;
+
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, (buf) => { captured = buf; });
+
+      expect(codec.decodePacket(captured).code).toBe(codec.CODE.ACCESS_ACCEPT);
+      const insert = findPostAuthInsert();
+      expect(insert).toBeDefined();
+      expect(insert[0]).toMatch(/organization_id, nas_id, username, reply, nas_ip_address/);
+      expect(insert[0]).not.toMatch(/\bpass(?:word)?\b/i);
+      expect(insert[1]).toEqual([
+        NAS_ROW.organization_id,
+        NAS_ROW.id,
+        'bob',
+        'Access-Accept',
+        '192.0.2.44',
+        'AA:BB:CC:DD:EE:FF',
+        'accepted',
+      ]);
+      expect(insert[1]).not.toContain('s3cret');
+    });
+
+    test.each([
+      {
+        label: 'missing username',
+        reasonCode: 'missing_username',
+        build: () => buildPapRequest({ omitUsername: true, id: 21 }),
+      },
+      {
+        label: 'unknown or inactive subscriber',
+        reasonCode: 'unknown_or_inactive_user',
+        setup: () => db.query.mockImplementation((sql) => {
+          if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+          if (/FROM radius/.test(sql)) return Promise.resolve([[]]);
+          return Promise.resolve([[]]);
+        }),
+        build: () => buildPapRequest({ id: 22 }),
+      },
+      {
+        label: 'blank stored password',
+        reasonCode: 'password_not_configured',
+        setup: () => db.query.mockImplementation((sql) => {
+          if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+          if (/FROM radius/.test(sql)) return Promise.resolve([[{ ...SUBSCRIBER_ROW, password: '' }]]);
+          return Promise.resolve([[]]);
+        }),
+        build: () => buildPapRequest({ id: 23 }),
+      },
+      {
+        label: 'unsupported authentication method',
+        reasonCode: 'unsupported_auth_method',
+        build: () => buildUnsupportedAuthRequest({ id: 24 }),
+      },
+      {
+        label: 'bad password',
+        reasonCode: 'bad_password',
+        build: () => buildPapRequest({ password: 'wrongpw', id: 25 }),
+      },
+    ])('records the explicit reason for $label', async ({ setup, build, reasonCode }) => {
+      if (setup) setup();
+      const { pkt } = build();
+      let captured = null;
+
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, (buf) => { captured = buf; });
+
+      expect(codec.decodePacket(captured).code).toBe(codec.CODE.ACCESS_REJECT);
+      const insert = findPostAuthInsert();
+      expect(insert).toBeDefined();
+      expect(insert[1][3]).toBe('Access-Reject');
+      expect(insert[1][6]).toBe(reasonCode);
+      expect(insert[1]).not.toContain('s3cret');
+      expect(insert[1]).not.toContain('wrongpw');
+    });
+
+    test('a rejected post-auth INSERT cannot change or delay the RADIUS response', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+        if (/FROM radius/.test(sql)) return Promise.resolve([[SUBSCRIBER_ROW]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[PLAN_ROW]]);
+        if (/INSERT INTO radpostauth/.test(sql)) return Promise.reject(new Error('telemetry database unavailable'));
+        return Promise.resolve([[]]);
+      });
+      const { pkt } = buildPapRequest({ id: 26 });
+      const respond = jest.fn();
+
+      await expect(svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, respond)).resolves.toBeUndefined();
+
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(codec.decodePacket(respond.mock.calls[0][0]).code).toBe(codec.CODE.ACCESS_ACCEPT);
+      // Let the deliberately detached rejection handler run; it must not become
+      // an unhandled rejection after handleAuth has already completed.
+      await Promise.resolve();
+    });
+
+    test('a synchronous logging-driver error is also contained after responding', async () => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM nas/.test(sql)) return Promise.resolve([[NAS_ROW]]);
+        if (/FROM radius/.test(sql)) return Promise.resolve([[SUBSCRIBER_ROW]]);
+        if (/FROM plans/.test(sql)) return Promise.resolve([[PLAN_ROW]]);
+        if (/INSERT INTO radpostauth/.test(sql)) throw new Error('pool closed');
+        return Promise.resolve([[]]);
+      });
+      const { pkt } = buildPapRequest({ id: 27 });
+      const respond = jest.fn();
+
+      await expect(svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, respond)).resolves.toBeUndefined();
+
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(codec.decodePacket(respond.mock.calls[0][0]).code).toBe(codec.CODE.ACCESS_ACCEPT);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Access-Request → Access-Accept (CHAP)
   // ---------------------------------------------------------------------------
   describe('handleAuth() — CHAP Access-Accept', () => {
@@ -265,6 +409,41 @@ describe('radiusServerService — embedded RADIUS server', () => {
   // Access-Request from an UNKNOWN NAS → silently dropped (RFC 2865)
   // ---------------------------------------------------------------------------
   describe('handleAuth() — unknown NAS', () => {
+    test.each([
+      ['inactive', { ...NAS_ROW, status: 'inactive' }],
+      ['unowned', { ...NAS_ROW, organization_id: null, status: 'active' }],
+      ['isolated-tenant primary copy', { ...NAS_ROW, status: 'active', isolation_mode: 'isolated' }],
+    ])('%s NAS is not trusted for authentication', async (_label, disallowedNas) => {
+      db.query.mockImplementation((sql) => {
+        if (/FROM nas/.test(sql)) {
+          // Model the database predicates: a query missing either guard would
+          // return the otherwise matching source-IP row.
+          const requiresActive = /n\.status = 'active'/.test(sql);
+          const requiresOwned = /n\.organization_id IS NOT NULL/.test(sql);
+          const excludesIsolated = /organization_database_configs/.test(sql)
+            && /odc\.isolation_mode = 'isolated'/.test(sql);
+          const excluded = (requiresActive && disallowedNas.status !== 'active')
+            || (requiresOwned && disallowedNas.organization_id === null)
+            || (excludesIsolated && disallowedNas.isolation_mode === 'isolated');
+          return Promise.resolve([excluded ? [] : [disallowedNas]]);
+        }
+        return Promise.resolve([[]]);
+      });
+      config.radiusServer.secret = '';
+
+      const { pkt } = buildPapRequest();
+      const respond = jest.fn();
+      await svc.handleAuth(pkt, { address: NAS_IP, port: 1812 }, respond);
+
+      expect(respond).not.toHaveBeenCalled();
+      expect(svc._counters.authDropped).toBe(1);
+      const nasLookup = db.query.mock.calls.find(([sql]) => /FROM nas/.test(sql));
+      expect(nasLookup[0]).toMatch(/n\.status = 'active'/);
+      expect(nasLookup[0]).toMatch(/n\.organization_id IS NOT NULL/);
+      expect(nasLookup[0]).toMatch(/organization_database_configs[\s\S]*isolation_mode = 'isolated'/);
+      expect(nasLookup[1]).toEqual([NAS_IP]);
+    });
+
     test('no NAS row and no configured fallback secret: respond NOT called, authDropped++', async () => {
       // NAS lookup returns no row, and no global fallback secret is configured.
       db.query.mockImplementation((sql) => {
@@ -312,6 +491,7 @@ describe('radiusServerService — embedded RADIUS server', () => {
       expect(arg.acctSessionId).toBe(sessionId);
       expect(arg.acctInputOctets).toBe(123456);
       expect(arg.organizationId).toBe(1);
+      expect(arg.nasId).toBe(NAS_ROW.id);
 
       // Reply is an Accounting-Response.
       expect(captured).not.toBeNull();

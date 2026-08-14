@@ -89,7 +89,7 @@ function schedule(task) {
       const jobId = `${task.task_name}${orgSuffix}-${minuteSlot}`;
       await jobQueue.add(
         'scheduled-task',
-        { taskName: task.task_name, organizationId },
+        { taskId: task.id, taskName: task.task_name, organizationId },
         {
           jobId,
           attempts: 2,
@@ -114,8 +114,11 @@ function schedule(task) {
         ['running', task.id],
       );
 
-      await taskRunner.runTask(task.task_name, task.organization_id);
-      await taskRunner.markTaskRun(task.task_name);
+      const result = await taskRunner.runTask(task.task_name, task.organization_id);
+      await taskRunner.markTaskRun(task.task_name, result, {
+        taskId: task.id,
+        organizationId: task.organization_id,
+      });
     } catch (err) {
       logger.error({ err, taskName: task.task_name }, 'Scheduler error on task');
       await db.query(

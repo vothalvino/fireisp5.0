@@ -203,7 +203,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/subscriber-certificates', labelKey: 'nav.subscriberCertificates', section: 'network', guard: 'technician', card: 'radiusAaa', roles: ['technician'] },
   { path: '/mac-move-events', labelKey: 'nav.macMoveEvents', section: 'network', guard: 'technician', card: 'radiusAaa', roles: ['technician'] },
   { path: '/pppoe-service-profiles', labelKey: 'nav.pppoeServiceProfiles', section: 'network', guard: 'technician', card: 'radiusAaa', roles: ['technician'] },
-  { path: '/pppoe-diagnostics', labelKey: 'nav.pppoeDiagnostics', section: 'network', guard: 'technician', card: 'radiusAaa', roles: ['technician'] },
+  { path: '/pppoe-diagnostics', labelKey: 'nav.pppoeDiagnostics', section: 'network', guard: 'any', card: 'radiusAaa', rail: true, roles: ['technician', 'support', 'readonly'] },
   { path: '/ip-assignments', labelKey: 'nav.ipAssignments', section: 'network', guard: 'technician', card: 'ipam', roles: ['technician'] },
   { path: '/vlans', labelKey: 'nav.vlans', section: 'network', guard: 'technician', card: 'ipam', roles: ['technician'] },
   { path: '/dhcp-servers', labelKey: 'nav.dhcpServers', section: 'network', guard: 'technician', card: 'ipam', roles: ['technician'] },

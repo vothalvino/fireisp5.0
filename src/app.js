@@ -580,6 +580,10 @@ v1.use('/plans', planRoutes);
 v1.use('/contracts', contractRoutes);
 v1.use('/devices', deviceRoutes);
 v1.use('/nas', nasRoutes);
+// Machine-to-machine accounting must be mounted before radiusRoutes: that
+// router installs JWT authentication at its root and would otherwise intercept
+// POST /radius/accounting before its shared-secret handler can run.
+v1.use('/radius', requireFeature('radius'), radiusAccountingRoutes);
 v1.use('/radius', requireFeature('radius'), radiusRoutes);
 v1.use('/invoices', invoiceRoutes);
 v1.use('/payments', paymentRoutes);
@@ -694,7 +698,6 @@ v1.use('/billing-disputes', billingDisputeRoutes);
 v1.use('/chargebacks', chargebackRoutes);
 v1.use('/billing-adjustments', billingAdjustmentRoutes);
 v1.use('/subscriber-certificates', requireFeature('radius'), subscriberCertificateRoutes);
-v1.use('/radius', requireFeature('radius'), radiusAccountingRoutes);
 v1.use('/dr-drill', adminIpAllowlist, drDrillRoutes);
 v1.use('/backup-settings', adminIpAllowlist, backupSettingsRoutes);
 v1.use('/dsar', adminIpAllowlist, dsarRoutes);

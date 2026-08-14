@@ -9,7 +9,10 @@
 // =============================================================================
 
 const { Router } = require('express');
+const crypto = require('crypto');
+const db = require('../config/database');
 const { ingestAccounting } = require('../services/radiusAccountingService');
+const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'radiusAccountingRoute' });
 
 const router = Router();
@@ -27,8 +30,30 @@ const router = Router();
  * @param {string} camelCase   - e.g. 'acctStatusType'
  * @returns {string|undefined}
  */
+function unwrapRadiusValue(value) {
+  // FreeRADIUS 3 rlm_rest's native `body = 'json'` encoding is:
+  //   "User-Name": { "type": "string", "value": ["alice"] }
+  // Keep accepting the flat form used by hand-written shippers and older
+  // FireISP examples, but consume the real module wire shape directly.
+  if (value && typeof value === 'object' && !Array.isArray(value)
+      && Array.isArray(value.value)) {
+    return value.value[0];
+  }
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 function pick(body, hyphenated, camelCase) {
-  return body[hyphenated] !== undefined ? body[hyphenated] : body[camelCase];
+  const raw = body[hyphenated] !== undefined ? body[hyphenated] : body[camelCase];
+  return unwrapRadiusValue(raw);
+}
+
+function secretMatches(expected, provided) {
+  if (typeof provided !== 'string') return false;
+  const expectedBuffer = Buffer.from(String(expected));
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length
+    && crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 /**
@@ -58,10 +83,8 @@ function pickInt(body, hyphenated, camelCase, defaultValue = null) {
  *   — OR —
  *   X-Radius-Secret: <RADIUS_ACCOUNTING_SECRET>
  *
- * The organizationId is resolved from the NAS IP address inside
- * ingestAccounting; for now we pass 0 and let the service resolve it.
- * If your deployment has a single-org FreeRADIUS, set a fixed org via the
- * RADIUS_ACCOUNTING_ORG_ID env var.
+ * Tenant ownership is resolved from the live NAS row. A caller can never name
+ * or override organizationId in the JSON body.
  */
 router.post('/accounting', async (req, res, next) => {
   try {
@@ -74,7 +97,7 @@ router.post('/accounting', async (req, res, next) => {
     const provided = req.headers['x-radius-secret']
       || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
 
-    if (provided !== secret) {
+    if (!secretMatches(secret, provided)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -103,21 +126,25 @@ router.post('/accounting', async (req, res, next) => {
     const acctTerminateCause = pick(body, 'Acct-Terminate-Cause', 'acctTerminateCause') || null;
 
     // ------------------------------------------------------------------
-    // Validate required fields
+    // Validate the status first, then no-op infrastructure events. Real
+    // Accounting-On/Off packets commonly omit subscriber/session attributes.
     // ------------------------------------------------------------------
-    if (!acctStatusType || !userName || !acctSessionId || !nasIpAddress) {
-      return res.status(400).json({
-        error: 'Missing required attributes: Acct-Status-Type, User-Name, Acct-Session-Id, NAS-IP-Address',
-      });
+    if (!acctStatusType) {
+      return res.status(400).json({ error: 'Missing required attribute: Acct-Status-Type' });
     }
-
-    // ------------------------------------------------------------------
-    // No-op for infrastructure events
-    // ------------------------------------------------------------------
     const normalised = String(acctStatusType).trim();
     if (normalised === 'Accounting-On' || normalised === 'Accounting-Off') {
       logger.info({ acctStatusType: normalised, nasIpAddress }, 'Accounting-On/Off received — no-op');
       return res.status(200).json({ ok: true, action: 'noop', reason: acctStatusType });
+    }
+
+    // ------------------------------------------------------------------
+    // Subscriber accounting records require an attributable NAS/session.
+    // ------------------------------------------------------------------
+    if (!userName || !acctSessionId || !nasIpAddress) {
+      return res.status(400).json({
+        error: 'Missing required attributes: User-Name, Acct-Session-Id, NAS-IP-Address',
+      });
     }
 
     // ------------------------------------------------------------------
@@ -129,10 +156,36 @@ router.post('/accounting', async (req, res, next) => {
       return res.status(200).json({ ok: true, action: 'noop', reason: `Unrecognised status type: ${normalised}` });
     }
 
-    // ------------------------------------------------------------------
-    // Resolve organizationId from env (single-org) or via NAS lookup
-    // ------------------------------------------------------------------
-    const organizationId = parseInt(process.env.RADIUS_ACCOUNTING_ORG_ID || '0', 10);
+    // Resolve tenant ownership before any subscriber/session lookup. NAS-IP is
+    // not globally trustworthy when private addresses are reused, so an
+    // unknown or ambiguous address is rejected instead of being attributed to
+    // whichever tenant happens to have a matching username.
+    const [nasRows] = await db.query(
+      `SELECT n.id, n.organization_id
+         FROM nas n
+        WHERE n.ip_address = ?
+          AND n.status = 'active'
+          AND n.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM organization_database_configs odc
+             WHERE odc.organization_id = n.organization_id
+               AND odc.isolation_mode = 'isolated'
+          )
+        LIMIT 2`,
+      [nasIpAddress],
+    );
+    if (nasRows.length !== 1 || nasRows[0].organization_id === null) {
+      throw new ValidationError('Unable to attribute accounting record to a NAS tenant', [
+        {
+          field: 'NAS-IP-Address',
+          message: nasRows.length > 1
+            ? 'NAS-IP-Address is ambiguous across active NAS records'
+            : 'NAS-IP-Address does not identify one active tenant-owned NAS',
+        },
+      ]);
+    }
+    const nas = nasRows[0];
 
     const result = await ingestAccounting({
       acctStatusType: normalised,
@@ -153,7 +206,8 @@ router.post('/accounting', async (req, res, next) => {
       acctTerminateCause,
       acctInputOctetsV6,
       acctOutputOctetsV6,
-      organizationId,
+      organizationId: nas.organization_id,
+      nasId: nas.id,
     });
 
     res.status(200).json({ ok: true, action: result.action, id: result.id, macMove: result.macMove });
