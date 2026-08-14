@@ -6,8 +6,10 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: (callback) => callback(),
   close: jest.fn(),
   pool: { end: jest.fn() },
+  baseConnectionConfig: { database: 'fireisp_test' },
 }));
 
 jest.mock('../src/services/billingService', () => ({
@@ -54,6 +56,10 @@ jest.mock('../src/services/speedWindowService', () => ({
   applySpeedWindows: jest.fn(),
   getActiveWindow: jest.fn(),
   windowEffectivePlan: jest.fn(),
+}));
+
+jest.mock('../src/services/pppoeEventCollector', () => ({
+  collectPppoeEvents: jest.fn(),
 }));
 
 jest.mock('../src/services/emailTransport', () => ({
@@ -103,7 +109,23 @@ const rolloverService = require('../src/services/rolloverService');
 const cpeSessionLogService = require('../src/services/cpeSessionLogService');
 const speedWindowService = require('../src/services/speedWindowService');
 const retentionService = require('../src/services/retentionService');
+const pppoeEventCollector = require('../src/services/pppoeEventCollector');
 const taskRunner = require('../src/services/taskRunner');
+
+function mockAdvisoryConnection({ acquired = 1, released = 1, releaseError = null } = {}) {
+  return {
+    query: jest.fn().mockImplementation((sql) => {
+      if (/GET_LOCK/.test(sql)) return Promise.resolve([[{ acquired }]]);
+      if (/RELEASE_LOCK/.test(sql)) {
+        if (releaseError) return Promise.reject(releaseError);
+        return Promise.resolve([[{ released }]]);
+      }
+      return Promise.resolve([[]]);
+    }),
+    release: jest.fn(),
+    destroy: jest.fn(),
+  };
+}
 
 describe('taskRunner', () => {
   beforeEach(() => {
@@ -165,6 +187,100 @@ describe('taskRunner', () => {
       const result = await taskRunner.runTask('radius_sync');
       expect(result).toHaveProperty('synced', 0);
       expect(result).toHaveProperty('total', 0);
+    });
+
+    test('dispatches organization-scoped poll_pppoe_events task', async () => {
+      const connection = mockAdvisoryConnection();
+      db.getConnection.mockResolvedValueOnce(connection);
+      pppoeEventCollector.collectPppoeEvents.mockResolvedValueOnce({ inserted: 2 });
+      const result = await taskRunner.runTask('poll_pppoe_events', 42);
+      expect(result).toEqual({ inserted: 2 });
+      expect(pppoeEventCollector.collectPppoeEvents).toHaveBeenCalledWith(42);
+      expect(taskRunner.ORGANIZATION_SCOPED_TASK_NAMES.has('poll_pppoe_events')).toBe(true);
+      expect(connection.query).toHaveBeenCalledWith(
+        'SELECT GET_LOCK(?, 0) AS acquired',
+        [expect.stringContaining('poll_pppoe_events')],
+      );
+      expect(connection.query).toHaveBeenCalledWith(
+        'SELECT RELEASE_LOCK(?) AS released',
+        [expect.stringContaining('poll_pppoe_events')],
+      );
+      expect(connection.release).toHaveBeenCalledTimes(1);
+    });
+
+    test('skips a concurrent fleet sweep and keeps the mutex until the first collector settles', async () => {
+      const ownerConnection = mockAdvisoryConnection({ acquired: 1 });
+      const busyConnection = mockAdvisoryConnection({ acquired: 0 });
+      db.getConnection
+        .mockResolvedValueOnce(ownerConnection)
+        .mockResolvedValueOnce(busyConnection);
+
+      let finishCollector;
+      let collectorStarted;
+      const started = new Promise((resolve) => { collectorStarted = resolve; });
+      const pendingCollector = new Promise((resolve) => { finishCollector = resolve; });
+      pppoeEventCollector.collectPppoeEvents.mockImplementationOnce(() => {
+        collectorStarted();
+        return pendingCollector;
+      });
+
+      const firstRun = taskRunner.runTask('poll_pppoe_events', null);
+      await started;
+      const secondResult = await taskRunner.runTask('poll_pppoe_events', 42);
+
+      expect(secondResult).toEqual({ skipped: true, reason: 'already_running' });
+      expect(pppoeEventCollector.collectPppoeEvents).toHaveBeenCalledTimes(1);
+      expect(ownerConnection.query).not.toHaveBeenCalledWith(
+        'SELECT RELEASE_LOCK(?) AS released',
+        expect.anything(),
+      );
+      expect(ownerConnection.query.mock.calls[0][1]).toEqual(busyConnection.query.mock.calls[0][1]);
+
+      finishCollector({ inserted: 1 });
+      await expect(firstRun).resolves.toEqual({ inserted: 1 });
+      expect(ownerConnection.query).toHaveBeenCalledWith(
+        'SELECT RELEASE_LOCK(?) AS released',
+        ownerConnection.query.mock.calls[0][1],
+      );
+      expect(ownerConnection.release).toHaveBeenCalledTimes(1);
+      expect(busyConnection.release).toHaveBeenCalledTimes(1);
+    });
+
+    test('releases the advisory mutex when the collector fails', async () => {
+      const connection = mockAdvisoryConnection();
+      db.getConnection.mockResolvedValueOnce(connection);
+      pppoeEventCollector.collectPppoeEvents.mockRejectedValueOnce(new Error('router failure'));
+
+      await expect(taskRunner.runTask('poll_pppoe_events')).rejects.toThrow('router failure');
+
+      expect(connection.query).toHaveBeenCalledWith(
+        'SELECT RELEASE_LOCK(?) AS released',
+        [expect.stringContaining('poll_pppoe_events')],
+      );
+      expect(connection.release).toHaveBeenCalledTimes(1);
+    });
+
+    test('fails closed when MySQL cannot evaluate the advisory lock', async () => {
+      const connection = mockAdvisoryConnection({ acquired: null });
+      db.getConnection.mockResolvedValueOnce(connection);
+
+      await expect(taskRunner.runTask('poll_pppoe_events')).rejects.toThrow(
+        'could not acquire the PPPoE event collector mutex',
+      );
+
+      expect(pppoeEventCollector.collectPppoeEvents).not.toHaveBeenCalled();
+      expect(connection.release).toHaveBeenCalledTimes(1);
+    });
+
+    test('destroys rather than pools a connection when mutex release is uncertain', async () => {
+      const connection = mockAdvisoryConnection({ releaseError: new Error('connection lost') });
+      db.getConnection.mockResolvedValueOnce(connection);
+      pppoeEventCollector.collectPppoeEvents.mockResolvedValueOnce({ inserted: 0 });
+
+      await expect(taskRunner.runTask('poll_pppoe_events')).resolves.toEqual({ inserted: 0 });
+
+      expect(connection.destroy).toHaveBeenCalledTimes(1);
+      expect(connection.release).not.toHaveBeenCalled();
     });
 
     // These two used to assert `result.message` contained 'Revenue' /
@@ -471,6 +587,36 @@ describe('taskRunner', () => {
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE scheduled_tasks SET last_run_at = NOW(), last_status = ?'),
         ['success', 'auto_generate_invoices'],
+      );
+    });
+
+    test('records an overlap result as skipped on only the selected task row', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await taskRunner.markTaskRun(
+        'poll_pppoe_events',
+        { skipped: true, reason: 'already_running' },
+        { taskId: 455, organizationId: null },
+      );
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringMatching(/WHERE id = \? AND task_name = \?/),
+        ['skipped', 455, 'poll_pppoe_events'],
+      );
+    });
+
+    test('keeps non-overlap results on the existing success status', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await taskRunner.markTaskRun(
+        'poll_pppoe_events',
+        { inserted: 3 },
+        { taskId: 455, organizationId: null },
+      );
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringMatching(/WHERE id = \? AND task_name = \?/),
+        ['success', 455, 'poll_pppoe_events'],
       );
     });
   });

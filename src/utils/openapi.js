@@ -713,7 +713,17 @@ function generateSpec() {
       '/radius/accounting': { post: { tags: ['RADIUS'], summary: 'Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth', operationId: 'ingestRadiusAccounting', responses: r200('Ingest result') } },
       '/radius/cdr': { get: { tags: ['RADIUS'], summary: 'Export CDR session records from connection_logs', operationId: 'exportRadiusCdr', security: [{ bearerAuth: [] }], parameters: [{ name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'username', in: 'query', schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: r200('CDR rows or CSV') } },
       '/radius/coa': { post: { tags: ['RADIUS'], summary: 'Send dynamic CoA-Request to NAS for a subscriber', operationId: 'sendDynamicCoA', security: [{ bearerAuth: [] }], requestBody: jsonBody('Dynamic CoA request'), responses: r200('CoA result') } },
-      '/radius/mac-move-events': { get: { tags: ['RADIUS'], summary: 'List MAC move events detected during accounting ingest', operationId: 'listMacMoveEvents', security: [{ bearerAuth: [] }], responses: r200('MacMoveEvent[]') } },
+      '/radius/mac-move-events': { get: {
+        tags: ['RADIUS'],
+        summary: 'List MAC move events detected during accounting ingest',
+        operationId: 'listMacMoveEvents',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+        ],
+        responses: macMoveEventsResponse(),
+      } },
       '/radius/sessions/disconnect-batch': { post: { tags: ['RADIUS'], summary: 'Batch force-disconnect PPPoE sessions by sessions [{acct_session_id, nas_ip_address}], bare session ID, or username — bare ids colliding across NASes are rejected as ambiguous', operationId: 'batchDisconnectSessions', security: [{ bearerAuth: [] }], requestBody: jsonBody('BatchDisconnect request'), responses: r200('BatchDisconnect result') } },
 
       // ---- Subscriber Certificates ----
@@ -1437,7 +1447,16 @@ function generateSpec() {
             { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'End datetime filter' },
             { name: 'username', in: 'query', schema: { type: 'string' }, description: 'Filter by username' },
           ],
-          responses: r200('PppoeAuthFailures'),
+          responses: pppoeAuthFailuresResponse(),
+        },
+      },
+      '/pppoe/diagnostics/readiness': {
+        get: {
+          tags: ['PPPoE'],
+          summary: 'Report whether each PPPoE diagnostics telemetry source is configured and receiving data',
+          operationId: 'getPppoeDiagnosticsReadiness',
+          security: [{ bearerAuth: [] }],
+          responses: pppoeReadinessResponse(),
         },
       },
       '/pppoe/diagnostics/mtu-issues': {
@@ -1446,7 +1465,7 @@ function generateSpec() {
           summary: 'Detect MTU misconfiguration advisories',
           operationId: 'getPppoeMtuIssues',
           security: [{ bearerAuth: [] }],
-          responses: r200('PppoeMtuAdvisories'),
+          responses: pppoeMtuAdvisoriesResponse(),
         },
       },
       '/pppoe/events': {
@@ -1465,15 +1484,26 @@ function generateSpec() {
             { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
             { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
           ],
-          responses: r200('PppoeEventLog[]'),
+          responses: pppoeEventsResponse(),
         },
         post: {
           tags: ['PPPoE'],
-          summary: 'Ingest PPPoE event log entry (machine-to-machine, no JWT)',
+          summary: 'Ingest a raw or structured PPPoE event for a registered NAS (machine-to-machine, no JWT)',
           operationId: 'ingestPppoeEvent',
           security: [],
-          requestBody: jsonBody('PPPoE event payload'),
-          responses: { 201: { description: 'Accepted', content: { 'application/json': { schema: { type: 'object' } } } }, 401: { description: 'Invalid or missing X-Pppoe-Secret' } },
+          parameters: [{
+            name: 'X-Pppoe-Secret',
+            in: 'header',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Shared ingest secret; Authorization: Bearer is also accepted',
+          }],
+          requestBody: pppoeEventIngestBody(),
+          responses: {
+            ...pppoeEventIngestResponse(),
+            401: { description: 'Invalid or missing ingest secret' },
+            422: { description: 'Invalid raw or structured event payload' },
+          },
         },
       },
 
@@ -3389,6 +3419,324 @@ function testWindowEndResponse() {
     },
   };
 }
+
+function pppoeEventSchema() {
+  return {
+    type: 'object',
+    required: [
+      'id', 'organization_id', 'nas_id', 'source_key', 'username', 'mac',
+      'stage', 'severity', 'message', 'reason_code', 'logged_at',
+    ],
+    additionalProperties: false,
+    properties: {
+      id: { type: 'integer' },
+      organization_id: { type: ['integer', 'null'] },
+      nas_id: { type: ['integer', 'null'] },
+      source_key: { type: ['string', 'null'], pattern: '^[0-9a-f]{64}$' },
+      username: { type: ['string', 'null'] },
+      mac: { type: ['string', 'null'] },
+      stage: { type: 'string', enum: ['PADI', 'PADO', 'PADR', 'PADS', 'PADT', 'LCP', 'IPCP', 'IPV6CP', 'AUTH', 'OTHER'] },
+      severity: { type: 'string', enum: ['info', 'warning', 'error'] },
+      message: { type: 'string' },
+      reason_code: { type: ['string', 'null'] },
+      logged_at: { type: 'string', format: 'date-time' },
+    },
+  };
+}
+
+function pppoeAuthFailuresResponse() {
+  const countProperties = {
+    bad_password: { type: 'integer', minimum: 0 },
+    unknown_user: { type: 'integer', minimum: 0 },
+    session_limit: { type: 'integer', minimum: 0 },
+    no_pool: { type: 'integer', minimum: 0 },
+    other: { type: 'integer', minimum: 0 },
+  };
+  return {
+    200: {
+      description: 'Tenant-scoped PPPoE authentication failures and reason counts',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            additionalProperties: false,
+            properties: {
+              data: {
+                type: 'object',
+                required: ['failures', 'counts', 'total'],
+                additionalProperties: false,
+                properties: {
+                  failures: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: [
+                        'username', 'organization_id', 'nas_id', 'authdate',
+                        'nas_ip_address', 'calling_station_id', 'reason',
+                        'reason_code', 'reply',
+                      ],
+                      additionalProperties: false,
+                      properties: {
+                        username: { type: 'string' },
+                        organization_id: { type: ['integer', 'null'] },
+                        nas_id: { type: ['integer', 'null'] },
+                        authdate: { type: 'string', format: 'date-time' },
+                        nas_ip_address: { type: ['string', 'null'] },
+                        calling_station_id: { type: ['string', 'null'] },
+                        reason: { type: 'string' },
+                        reason_code: { type: ['string', 'null'] },
+                        reply: { type: 'string' },
+                      },
+                    },
+                  },
+                  counts: {
+                    type: 'object',
+                    required: Object.keys(countProperties),
+                    properties: countProperties,
+                    additionalProperties: { type: 'integer', minimum: 0 },
+                  },
+                  total: { type: 'integer', minimum: 0 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function pppoeMtuAdvisoriesResponse() {
+  return {
+    200: {
+      description: 'Tenant-scoped PPPoE MTU advisories',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            additionalProperties: false,
+            properties: {
+              data: {
+                type: 'object',
+                required: ['advisories'],
+                additionalProperties: false,
+                properties: {
+                  advisories: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['type', 'profile_id', 'profile_name', 'mtu', 'description'],
+                      additionalProperties: false,
+                      properties: {
+                        type: { type: 'string' },
+                        profile_id: { type: ['integer', 'null'] },
+                        profile_name: { type: ['string', 'null'] },
+                        username: { type: ['string', 'null'] },
+                        mtu: { type: 'integer' },
+                        description: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function pppoeEventsResponse() {
+  return {
+    200: {
+      description: 'Paginated tenant-scoped PPPoE event log',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data', 'meta'],
+            additionalProperties: false,
+            properties: {
+              data: { type: 'array', items: pppoeEventSchema() },
+              meta: {
+                type: 'object',
+                required: ['total', 'page', 'limit'],
+                additionalProperties: true,
+                properties: {
+                  total: { type: 'integer', minimum: 0 },
+                  page: { type: 'integer', minimum: 1 },
+                  limit: { type: 'integer', minimum: 1, maximum: 100 },
+                  totalPages: { type: 'integer', minimum: 0 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function macMoveEventsResponse() {
+  return {
+    200: {
+      description: 'Paginated tenant-scoped MAC move events',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data', 'meta'],
+            additionalProperties: false,
+            properties: {
+              data: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: [
+                    'id', 'organization_id', 'username', 'old_mac', 'new_mac',
+                    'old_nas_id', 'new_nas_id', 'detected_at',
+                  ],
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'integer' },
+                    organization_id: { type: ['integer', 'null'] },
+                    username: { type: 'string' },
+                    old_mac: { type: ['string', 'null'] },
+                    new_mac: { type: ['string', 'null'] },
+                    old_nas_id: { type: ['integer', 'null'] },
+                    new_nas_id: { type: ['integer', 'null'] },
+                    detected_at: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+              meta: {
+                type: 'object',
+                required: ['total', 'page', 'limit'],
+                additionalProperties: false,
+                properties: {
+                  total: { type: 'integer', minimum: 0 },
+                  page: { type: 'integer', minimum: 1 },
+                  limit: { type: 'integer', minimum: 1, maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function pppoeReadinessSourceSchema(extraProperties = {}) {
+  return {
+    type: 'object',
+    required: ['status', 'lastReceivedAt', 'events24h', 'detail', ...Object.keys(extraProperties)],
+    additionalProperties: false,
+    properties: {
+      status: { type: 'string', enum: ['ready', 'waiting', 'not_configured', 'error'] },
+      lastReceivedAt: { type: ['string', 'null'], format: 'date-time' },
+      events24h: { type: 'integer', minimum: 0 },
+      detail: { type: 'string' },
+      ...extraProperties,
+    },
+  };
+}
+
+function pppoeReadinessResponse() {
+  return {
+    200: {
+      description: 'Readiness of authentication, RouterOS-event, and accounting telemetry',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            additionalProperties: false,
+            properties: {
+              data: {
+                type: 'object',
+                required: ['overall', 'sources'],
+                additionalProperties: false,
+                properties: {
+                  overall: { type: 'string', enum: ['ready', 'partial', 'not_configured'] },
+                  sources: {
+                    type: 'object',
+                    required: ['authentication', 'routerEvents', 'accounting'],
+                    additionalProperties: false,
+                    properties: {
+                      authentication: pppoeReadinessSourceSchema(),
+                      routerEvents: pppoeReadinessSourceSchema({
+                        coveredNas: { type: 'integer', minimum: 0 },
+                        totalNas: { type: 'integer', minimum: 0 },
+                      }),
+                      accounting: pppoeReadinessSourceSchema(),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function pppoeEventIngestBody() {
+  const common = {
+    nas_id: { type: 'integer', minimum: 1 },
+    logged_at: { type: 'string', format: 'date-time' },
+  };
+  return typedJsonBody({
+    oneOf: [
+      {
+        type: 'object',
+        required: ['nas_id', 'line'],
+        additionalProperties: false,
+        properties: {
+          ...common,
+          line: { type: 'string', minLength: 1, maxLength: 8192 },
+        },
+      },
+      {
+        type: 'object',
+        required: ['nas_id', 'message'],
+        additionalProperties: false,
+        properties: {
+          ...common,
+          username: { type: 'string', minLength: 1, maxLength: 64 },
+          mac: { type: 'string', pattern: '^[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}$' },
+          stage: { type: 'string', enum: ['PADI', 'PADO', 'PADR', 'PADS', 'PADT', 'LCP', 'IPCP', 'IPV6CP', 'AUTH', 'OTHER'] },
+          severity: { type: 'string', enum: ['info', 'warning', 'error'] },
+          message: { type: 'string', minLength: 1, maxLength: 8192 },
+          reason_code: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[A-Za-z0-9_.:-]+$' },
+        },
+      },
+    ],
+  }, 'Raw RouterOS line or structured PPPoE event. Tenant ownership is derived from nas_id.');
+}
+
+function pppoeEventIngestResponse() {
+  return {
+    201: {
+      description: 'Validated event accepted',
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['data'],
+            additionalProperties: false,
+            properties: { data: pppoeEventSchema() },
+          },
+        },
+      },
+    },
+  };
+}
+
 function r200(desc) {
   return { 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } };
 }

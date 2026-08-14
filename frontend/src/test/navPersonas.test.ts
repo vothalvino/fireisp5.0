@@ -78,6 +78,7 @@ describe('technician', () => {
       '/communication-campaigns',
     ]);
     expect(nav.network.items).toContain('/noc-dashboard');
+    expect(nav.network.items).toContain('/pppoe-diagnostics');
   });
   it('gets the full field kit', () => {
     expect(nav.fieldops.items).toEqual([
@@ -154,8 +155,8 @@ describe('support', () => {
       '/satisfaction-surveys',
     ]);
   });
-  it('gets the "is it down?" network subset — not the device map (no devices.view — audit)', () => {
-    expect(nav.network.items).toEqual(['/network-health', '/outages', '/wg-tunnels']);
+  it('gets the support-safe network subset and PPPoE diagnostics — not the device map (no devices.view — audit)', () => {
+    expect(nav.network.items).toEqual(['/network-health', '/outages', '/wg-tunnels', '/pppoe-diagnostics']);
     expect(nav.network.hub).toBe(false);
   });
 });

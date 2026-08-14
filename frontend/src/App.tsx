@@ -255,6 +255,9 @@ export function App() {
                     migration 377) */}
                 <Route path="outages" element={<OutageList />} />
                 <Route path="network-health" element={<NetworkHealthList />} />
+                {/* Backend pppoe.diagnostics / MAC-move permissions determine
+                    which datasets each authenticated role may read. */}
+                <Route path="pppoe-diagnostics" element={<PppoeDiagnostics />} />
               </Route>
             </Route>
 
@@ -279,7 +282,6 @@ export function App() {
                 <Route path="nas/:id" element={<NasDetail />} />
                 <Route path="mac-move-events" element={<MacMoveEvents />} />
                 <Route path="pppoe-service-profiles" element={<PppoeServiceProfileList />} />
-                <Route path="pppoe-diagnostics" element={<PppoeDiagnostics />} />
                 <Route path="ip-pools" element={<IpPoolList />} />
                 <Route path="ip-assignments" element={<IpAssignmentList />} />
                 <Route path="vlans" element={<VlanList />} />

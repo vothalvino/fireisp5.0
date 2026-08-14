@@ -6,6 +6,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const crypto = require('crypto');
 const logger = require('../utils/logger').child({ service: 'taskRunner' });
 const automationService = require('./automationService');
 const tlsMonitorService = require('./tlsMonitorService');
@@ -56,7 +57,76 @@ const ORGANIZATION_SCOPED_TASK_NAMES = new Set([
   'inventory_low_stock_check', 'data_retention_compliance_check',
   'anomaly_detection', 'churn_score_computation', 'remediation_evaluation',
   'ai_support_metrics_rollup', 'rollover_balance_accrue', 'apply_speed_windows',
+  'poll_pppoe_events',
 ]);
+
+const PPPoE_EVENT_POLL_TASK = 'poll_pppoe_events';
+const lockDatabaseName = db.baseConnectionConfig?.database || process.env.DB_NAME || 'fireisp';
+const PPPoE_EVENT_POLL_LOCK = `fireisp:${crypto.createHash('sha256').update(lockDatabaseName).digest('hex').slice(0, 16)}:${PPPoE_EVENT_POLL_TASK}`;
+
+/**
+ * Acquire an install-wide MySQL advisory mutex on one dedicated primary-pool
+ * connection and retain that same connection until the collector settles.
+ * This serializes inline cron, BullMQ workers, and manual runs without an
+ * expiring lease that could overlap a still-running RouterOS operation.
+ */
+async function runPppoeEventPoll(organizationId) {
+  const getConnection = () => db.getConnection();
+  const connection = typeof db.withPrimaryContext === 'function'
+    ? await db.withPrimaryContext(getConnection)
+    : await getConnection();
+  let acquired = false;
+  let discardConnection = false;
+
+  try {
+    const [rows] = await connection.query('SELECT GET_LOCK(?, 0) AS acquired', [PPPoE_EVENT_POLL_LOCK]);
+    const lockResult = rows[0]?.acquired;
+    acquired = Number(lockResult) === 1;
+    if (lockResult !== null && lockResult !== undefined && Number(lockResult) === 0) {
+      logger.info(
+        { taskName: PPPoE_EVENT_POLL_TASK, organizationId },
+        'Skipping overlapping PPPoE event collector sweep',
+      );
+      return { skipped: true, reason: 'already_running' };
+    }
+    if (!acquired) {
+      throw new Error('MySQL could not acquire the PPPoE event collector mutex');
+    }
+
+    return await require('./pppoeEventCollector').collectPppoeEvents(organizationId);
+  } finally {
+    if (acquired) {
+      try {
+        const [rows] = await connection.query(
+          'SELECT RELEASE_LOCK(?) AS released',
+          [PPPoE_EVENT_POLL_LOCK],
+        );
+        if (Number(rows[0]?.released) !== 1) {
+          discardConnection = true;
+          logger.error(
+            { taskName: PPPoE_EVENT_POLL_TASK },
+            'MySQL did not confirm release of the PPPoE event collector mutex',
+          );
+        }
+      } catch (err) {
+        // Never return a possibly lock-owning session to the pool.
+        discardConnection = true;
+        logger.error(
+          { err: err.message, taskName: PPPoE_EVENT_POLL_TASK },
+          'Could not release the PPPoE event collector mutex',
+        );
+      }
+    }
+
+    if (discardConnection) {
+      // mysql2 pooled connections provide destroy(); if a test double or future
+      // driver does not, leaking this one session is safer than pooling a lock.
+      if (typeof connection.destroy === 'function') connection.destroy();
+    } else {
+      connection.release();
+    }
+  }
+}
 
 /**
  * Get all scheduled tasks, optionally filtered by organization.
@@ -215,6 +285,8 @@ async function runTask(taskName, organizationId = null) {
       const pppoeDiagnosticsService = require('./pppoeDiagnosticsService');
       return pppoeDiagnosticsService.scanAuthFailures(organizationId);
     }
+    case 'poll_pppoe_events':
+      return runPppoeEventPoll(organizationId);
     case 'sla_breach_check':
       return handleSlaBreachCheck(organizationId);
     case 'geofence_evaluation': {
@@ -693,15 +765,43 @@ async function notifyCsdExpiry(cert, threshold, daysLeft = 0) {
   return true;
 }
 
+/** Return the persisted completion status for a successfully dispatched task. */
+function completionStatus(result) {
+  return result?.skipped === true && result?.reason === 'already_running'
+    ? 'skipped'
+    : 'success';
+}
+
 /**
- * Update last_run_at after task execution.
+ * Update last_run_at after task execution. Callers that know the scheduled row
+ * id pass it so a same-name task owned by another organization is untouched.
+ * The legacy one-argument form remains available for unrelated callers.
  */
-async function markTaskRun(taskName) {
+async function markTaskRun(taskName, result = null, options = {}) {
   // Column is `last_status` ENUM('success','failed','running','skipped','timed_out')
   // — there is no `status` column and no 'completed' value (database/schema.sql).
+  const status = completionStatus(result);
+  if (options.taskId !== undefined && options.taskId !== null) {
+    await db.query(
+      `UPDATE scheduled_tasks
+          SET last_run_at = NOW(), last_status = ?
+        WHERE id = ? AND task_name = ?`,
+      [status, options.taskId, taskName],
+    );
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(options, 'organizationId')) {
+    await db.query(
+      `UPDATE scheduled_tasks
+          SET last_run_at = NOW(), last_status = ?
+        WHERE task_name = ? AND organization_id <=> ?`,
+      [status, taskName, options.organizationId],
+    );
+    return;
+  }
   await db.query(
     'UPDATE scheduled_tasks SET last_run_at = NOW(), last_status = ? WHERE task_name = ?',
-    ['success', taskName],
+    [status, taskName],
   );
 }
 

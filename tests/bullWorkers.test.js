@@ -11,6 +11,10 @@ jest.mock('../src/utils/logger', () => ({
 }));
 
 jest.mock('../src/config/database', () => ({ query: jest.fn() }));
+jest.mock('../src/services/taskRunner', () => ({
+  runTask: jest.fn(),
+  markTaskRun: jest.fn(),
+}));
 jest.mock('http', () => ({ request: jest.fn() }));
 jest.mock('https', () => ({ request: jest.fn() }));
 
@@ -18,6 +22,7 @@ jest.mock('https', () => ({ request: jest.fn() }));
 delete process.env.REDIS_URL;
 
 const db = require('../src/config/database');
+const taskRunner = require('../src/services/taskRunner');
 const http = require('http');
 const jobQueue = require('../src/services/jobQueueService');
 const webhookService = require('../src/services/webhookService');
@@ -80,6 +85,30 @@ describe('workers/index.js — registerWorkers()', () => {
     workers.registerWorkers();
     workers.registerWorkers();
     expect(processSpy).toHaveBeenCalledTimes(8);
+  });
+
+  test('scheduled-task worker preserves overlap as skipped on the exact row', async () => {
+    const processSpy = jest.spyOn(jobQueue, 'process');
+    workers.registerWorkers();
+    const handler = processSpy.mock.calls.find(([name]) => name === 'scheduled-task')[1];
+    const skipped = { skipped: true, reason: 'already_running' };
+    taskRunner.runTask.mockResolvedValueOnce(skipped);
+    taskRunner.markTaskRun.mockResolvedValueOnce(undefined);
+
+    const result = await handler({
+      data: {
+        taskId: 455,
+        taskName: 'poll_pppoe_events',
+        organizationId: null,
+      },
+    });
+
+    expect(result).toEqual(skipped);
+    expect(taskRunner.markTaskRun).toHaveBeenCalledWith(
+      'poll_pppoe_events',
+      skipped,
+      { taskId: 455, organizationId: null },
+    );
   });
 });
 

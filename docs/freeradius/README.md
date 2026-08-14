@@ -77,16 +77,19 @@ The key settings are:
 | `dialect` | `mysql` |
 | `server` | FireISP DB host |
 | `port` | 3306 |
-| `login` | DB user (read-only is sufficient for auth) |
+| `login` | DB user (`SELECT` for auth; writes on `radacct`/`radpostauth` when those feeds are enabled) |
 | `password` | DB password |
 | `radius_db` | FireISP database name |
 
 ---
 
-## Step 3: Enable SQL in authorize and accounting sections
+## Step 3: Enable SQL in authorize and post-auth sections
 
 Edit `/etc/freeradius/3.0/sites-available/default` and ensure `sql` appears in the
-`authorize {}` and `accounting {}` sections:
+`authorize {}` and `post-auth {}` sections. The `accounting {}` SQL call is
+optional and requires the `radacct` table described in the bundled `sql.conf`;
+FireISP's Diagnostics feed itself is populated by the REST accounting module
+configured later in this guide.
 
 ```
 authorize {
@@ -107,11 +110,102 @@ authorize {
 accounting {
     detail
     unix
-    sql          # <-- add this
+    sql          # optional: only when a radacct table is installed
     exec
     attr_filter.accounting_response
 }
+
+post-auth {
+    sql          # Access-Accept diagnostics
+
+    Post-Auth-Type REJECT {
+        sql      # change the stock "-sql" entry to "sql"
+        attr_filter.access_reject
+        eap
+        remove_reply_message_if_eap
+    }
+}
 ```
+
+Calling `sql` in `authorize` does **not** write authentication outcomes. The
+top-level `post-auth` call records successful authentication. FreeRADIUS 3.x
+routes rejected requests through the nested `Post-Auth-Type REJECT` block, so
+its stock fail-soft `-sql` entry must also be enabled as `sql`; otherwise the
+Auth Failures tab can show accepts while silently missing rejects. Apply both
+entries to `sites-available/inner-tunnel` as well when PEAP/TTLS inner
+authentication is in use.
+
+### Tenant-attributing post-auth query (required)
+
+FireISP intentionally ignores legacy `radpostauth` rows whose tenant is NULL.
+Replace the stock MySQL post-auth query in
+`/etc/freeradius/3.0/mods-config/sql/main/mysql/queries.conf` with this
+`INSERT ... SELECT` form so the live NAS row supplies both `organization_id`
+and `nas_id`:
+
+First set `auto_escape = yes` inside the `sql {}` block in
+`/etc/freeradius/3.0/mods-available/sql` (the bundled `sql.conf` already does
+this). This makes the MySQL driver escape network-derived values used by the
+query below.
+
+```apacheconf
+post-auth {
+    query = "\
+        INSERT INTO ${..postauth_table} \
+          (username, pass, reply, authdate, nas_ip_address, \
+           calling_station_id, organization_id, nas_id, reason_code) \
+        SELECT \
+          '%{SQL-User-Name}', \
+          '', \
+          '%{reply:Packet-Type}', \
+          NOW(), \
+          n.ip_address, \
+          '%{Calling-Station-Id}', \
+          n.organization_id, \
+          n.id, \
+          NULL \
+        FROM nas n \
+        WHERE n.ip_address = '%{%{NAS-IP-Address}:-%{Packet-Src-IP-Address}}' \
+          AND n.status = 'active' \
+          AND n.deleted_at IS NULL \
+          AND (SELECT COUNT(*) \
+                 FROM nas n2 \
+                WHERE n2.ip_address = n.ip_address \
+                  AND n2.status = 'active' \
+                  AND n2.deleted_at IS NULL) = 1"
+}
+```
+
+This follows the SQL module's normal escaped expansions: use
+`%{SQL-User-Name}` (not a raw `User-Name` substitution), and keep the NAS
+address sourced from the typed `NAS-IP-Address` / `Packet-Src-IP-Address`
+attributes. Do not build this query in an `exec` script or concatenate raw
+request text. The password is deliberately stored as an empty string; FireISP
+does not need or retain the attempted credential.
+
+If no single live NAS matches the request address, the `SELECT` produces zero
+rows. That fail-closed behavior is intentional: the event cannot be assigned to
+a tenant safely, and the readiness banner remains waiting/not configured until
+correct NAS addressing is in place. Ensure every NAS reaches FreeRADIUS from its
+registered routable or WireGuard address.
+
+### Organizations with isolated tenant databases
+
+For an organization configured with database isolation, point that tenant's
+FreeRADIUS SQL module (or a tenant-specific virtual server/module instance) at
+the isolated database—not the FireISP primary database. This is required for
+both authorization tables and tenant-owned `radpostauth` diagnostics rows.
+The global `scan_auth_failures` task scans shared tenants in the primary
+database and then fans out through every active isolated tenant context. Its
+primary pass excludes historical rows belonging to isolated organizations, so
+the same rejection cannot raise an alert from both database copies.
+
+The install-wide embedded UDP RADIUS listener and the shared-secret HTTP
+`/radius/accounting` endpoint resolve NAS source addresses only in the primary
+database, so they are not supported ingest paths for isolated tenants. Use
+tenant-local external FreeRADIUS for authentication. Accounting/MAC-move
+diagnostics remain `not_configured` unless a tenant-local integration writes
+the isolated database's `connection_logs` with its trusted `nas_id`.
 
 ---
 
@@ -332,6 +426,90 @@ preferred over the MikroTik address-list approach.
 
 ---
 
+## PPPoE RouterOS event diagnostics
+
+The **Network → PPPoE Diagnostics → Event Log** source is collected
+automatically. The seeded `poll_pppoe_events` task normally runs every five
+minutes and polls each active `type=mikrotik` NAS that has RouterOS API
+credentials. It issues the read-only `/log/print` command, asks RouterOS for
+only `.id,time,topics,message`, and parses recognized PADI/PADS/LCP/IPCP/AUTH/
+PADT messages locally.
+
+Polling is deliberately conservative:
+
+- An install-scoped MySQL advisory mutex covers cron, queue-worker, and manual
+  triggers. If a previous fleet sweep is still running, the next trigger is
+  skipped; a crashed worker releases the mutex with its database connection.
+- NAS devices are contacted sequentially, so a scheduler tick does not open a
+  burst of API connections across the fleet.
+- Only the newest `PPPOE_EVENT_POLL_LIMIT` returned log records per NAS are
+  considered (default 500; clamped to 50–1,000).
+- Every event is fingerprinted from NAS id + RouterOS log id/time/topics/message
+  with SHA-256. `INSERT IGNORE` makes repeated polls idempotent.
+- One unreachable/misconfigured NAS is reported in the task summary and does
+  not stop other NAS devices from being collected. Every opened API connection
+  is closed after its poll.
+- A NATed NAS is polled only when its non-deleted WireGuard tunnel is in an
+  active/manual state and the server-side peer has been synced.
+
+Give the RouterOS API user read access only; this collector never changes router
+configuration. Prefer API-SSL or a WireGuard management path.
+
+### Optional raw/structured event ingest
+
+A syslog connector can also send events to:
+
+```text
+POST /api/v1/pppoe/events
+X-Pppoe-Secret: <PPPOE_EVENTS_SECRET>
+Content-Type: application/json
+```
+
+Use a dedicated `PPPOE_EVENTS_SECRET`; when absent, FireISP falls back to
+`RADIUS_ACCOUNTING_SECRET`. The endpoint fails closed when neither is set.
+
+Raw-line payload (FireISP parses stage/severity/reason and derives username/MAC
+when present):
+
+```json
+{
+  "nas_id": 12,
+  "line": "<alice@example.net>: LCP negotiation failed",
+  "logged_at": "2026-08-14T12:34:56Z"
+}
+```
+
+Structured payload:
+
+```json
+{
+  "nas_id": 12,
+  "message": "subscriber peer stopped responding",
+  "stage": "PADT",
+  "severity": "warning",
+  "reason_code": "peer_timeout",
+  "username": "alice@example.net",
+  "mac": "AA:BB:CC:DD:EE:FF"
+}
+```
+
+`nas_id` is required. The server loads that NAS and stamps its
+`organization_id`; callers cannot supply tenant ownership. Payload shapes are
+strict, timestamps/enums/MACs are validated, and an omitted timestamp uses the
+database's `CURRENT_TIMESTAMP` default.
+
+`GET /api/v1/pppoe/diagnostics/readiness` drives the readiness banner. It reports
+tenant-safe last-received/count data for authentication, RouterOS events, and
+accounting, plus configured RouterOS NAS coverage. An empty diagnostic list is
+trustworthy only when its source is `ready`; `waiting`/`not_configured` means
+the feed may be incomplete. The global RouterOS collector fans out through
+isolated tenant database contexts, as does the scheduled authentication-failure
+alert scan; the optional shared-secret `/pppoe/events`
+endpoint, like the accounting endpoint, resolves NAS IDs only in the primary
+database and is not an isolated-tenant ingest path.
+
+---
+
 ## RADIUS Accounting ingest (rlm_rest)
 
 FireISP exposes a machine-to-machine endpoint that FreeRADIUS can POST accounting records to:
@@ -345,8 +523,14 @@ The endpoint requires no JWT token. Authentication uses a shared secret sent in 
 - `X-Radius-Secret: <secret>` header, or
 - `Authorization: Bearer <secret>` header
 
-Set the shared secret in `RADIUS_ACCOUNTING_SECRET` (backend env var). Leave it unset to disable
-authentication checks (not recommended in production).
+Set the shared secret in `RADIUS_ACCOUNTING_SECRET` (backend env var). The endpoint fails closed
+with HTTP 503 when it is unset.
+
+The endpoint resolves one active NAS from `NAS-IP-Address` before doing any
+subscriber or session lookup. Its `organization_id` is authoritative; no
+environment variable or request field can override tenant ownership. Unknown
+or ambiguous NAS addresses are rejected with HTTP 422, so ensure FreeRADIUS
+sends the registered routable/WireGuard NAS address.
 
 ### FreeRADIUS rlm_rest configuration
 
@@ -362,6 +546,9 @@ rest {
         uri = "${..connect_uri}/api/v1/radius/accounting"
         method = 'post'
         body = 'json'
+        # FireISP returns an acknowledgement object, not RADIUS attributes.
+        force_to = 'plain'
+        do_xlat = no
         tls = ${..tls}
 
         header {
@@ -384,14 +571,15 @@ ln -s ../mods-available/rest rest
 
 ### Accounting section
 
-In `/etc/freeradius/3.0/sites-available/default`, add `rest` to the accounting section
-(after `sql` so SQL always runs even if the REST call fails):
+In `/etc/freeradius/3.0/sites-available/default`, add `rest` to the accounting
+section. Keep it after `sql` if you also maintain the optional `radacct` table,
+so SQL accounting still runs if the REST call fails:
 
 ```apacheconf
 accounting {
     detail
     unix
-    sql
+    sql     # optional: requires radacct
     rest
     -ldap
     exec
@@ -401,9 +589,12 @@ accounting {
 
 ### JSON payload format
 
-FreeRADIUS sends attributes using their standard hyphenated names. FireISP accepts both
-hyphenated (`Acct-Status-Type`) and camelCase (`AcctStatusType`) forms. The minimum required
-fields for each status type are:
+With `body = 'json'`, FreeRADIUS 3's `rlm_rest` module sends each standard
+hyphenated attribute in an envelope such as
+`"User-Name":{"type":"string","value":["alice"]}`. FireISP consumes that
+native format directly. It also accepts flat hyphenated
+(`"Acct-Status-Type":"Start"`) and camelCase (`"acctStatusType":"Start"`)
+forms for custom shippers. The minimum required fields for each status type are:
 
 | Status-Type | Required attributes |
 |-------------|---------------------|
@@ -447,9 +638,12 @@ than the retention window in batches of 1 000 rows to avoid long table-lock even
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `RADIUS_ACCOUNTING_SECRET` | _(unset — auth disabled)_ | Shared secret for accounting ingest |
-| `RADIUS_ACCOUNTING_ORG_ID` | `0` | Organization ID to tag ingested records with |
+| `RADIUS_ACCOUNTING_SECRET` | _(unset — endpoint disabled)_ | Shared secret for accounting ingest |
 | `RADIUS_ACCOUNTING_RETENTION_MONTHS` | `12` | Months of accounting data to retain |
+| `PPPOE_EVENTS_SECRET` | falls back to `RADIUS_ACCOUNTING_SECRET` | Shared secret for optional PPPoE event ingest |
+| `PPPOE_EVENT_POLL_LIMIT` | `500` | Newest RouterOS log records considered per NAS poll (clamped 50–1,000) |
+| `RETENTION_RADPOSTAUTH_DAYS` | `90` | Days to retain post-authentication diagnostics (`radpostauth.authdate`) |
+| `RETENTION_PPPOE_EVENT_LOGS_DAYS` | `90` | Days to retain RouterOS/ingested PPPoE events (`pppoe_event_logs.logged_at`) |
 
 ---
 

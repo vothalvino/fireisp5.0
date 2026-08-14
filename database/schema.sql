@@ -3938,7 +3938,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     retry_count       TINYINT UNSIGNED NOT NULL DEFAULT 0
                                        COMMENT 'Current consecutive failure count; reset to 0 on success',
     timeout_seconds   INT UNSIGNED     NOT NULL DEFAULT 300
-                                       COMMENT 'Maximum allowed runtime in seconds; exceeded tasks are considered stuck',
+                                       COMMENT 'Runtime/stuck threshold metadata in seconds; enforcement is handler-specific',
     last_run_at       TIMESTAMP        NULL,
     next_run_at       TIMESTAMP        NULL,
     last_status       ENUM('success', 'failed', 'running', 'skipped', 'timed_out') NULL,
@@ -9416,35 +9416,45 @@ CREATE TABLE IF NOT EXISTS pppoe_service_profiles (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- Table: radpostauth (migration 238 — §4 PPPoE Phase B)
+-- Table: radpostauth (migrations 238, 455 — §4 PPPoE Phase B)
 -- Purpose: FreeRADIUS post-authentication log. Written directly by FreeRADIUS
 --          via rlm_sql; read by FireISP for auth-failure diagnostics.
---          NO foreign keys — loose coupling for FreeRADIUS direct write access.
+--          Ownership and explicit outcome metadata make diagnostics tenant-safe.
+--          NO foreign keys — auth logging must not block authentication when an
+--          org or NAS is concurrently retired.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS radpostauth (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NULL COMMENT 'Owning organization resolved from the source NAS',
+  nas_id BIGINT UNSIGNED NULL COMMENT 'Source NAS; intentionally a loose reference',
   username VARCHAR(64) NOT NULL DEFAULT '',
   pass VARCHAR(64) NOT NULL DEFAULT '',
   reply VARCHAR(32) NOT NULL DEFAULT '',
+  reason_code VARCHAR(50) NULL COMMENT 'Explicit non-secret authentication outcome classification',
   authdate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   nas_ip_address VARCHAR(45) NULL,
   calling_station_id VARCHAR(100) NULL,
   PRIMARY KEY (id),
+  KEY idx_radpostauth_org_authdate (organization_id, authdate),
+  KEY idx_radpostauth_nas_id (nas_id),
   KEY idx_radpostauth_username (username),
   KEY idx_radpostauth_authdate (authdate),
-  KEY idx_radpostauth_reply (reply)
+  KEY idx_radpostauth_reply (reply),
+  KEY idx_radpostauth_reason_code (reason_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Table: pppoe_event_logs (migration 239 — §4 PPPoE Phase B)
--- Purpose: PPPoE stage event log. Written by a syslog shipper; read by
+-- Table: pppoe_event_logs (migrations 239, 455 — §4 PPPoE Phase B)
+-- Purpose: PPPoE stage event log. Written by the RouterOS poller or a syslog shipper; read by
 --          FireISP for MTU diagnostics and LCP failure detection.
+--          source_key provides per-NAS at-least-once ingestion deduplication.
 --          NO FK on organization_id or nas_id — loose coupling intentional.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pppoe_event_logs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   organization_id BIGINT UNSIGNED NULL,
   nas_id BIGINT UNSIGNED NULL,
+  source_key CHAR(64) NULL COMMENT 'SHA-256 source-record fingerprint used for polling dedupe',
   username VARCHAR(64) NULL,
   mac VARCHAR(17) NULL,
   stage ENUM('PADI','PADO','PADR','PADS','PADT','LCP','IPCP','IPV6CP','AUTH','OTHER') NOT NULL DEFAULT 'OTHER',
@@ -9453,11 +9463,35 @@ CREATE TABLE IF NOT EXISTS pppoe_event_logs (
   reason_code VARCHAR(50) NULL,
   logged_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_pppoe_event_logs_nas_source (nas_id, source_key),
+  KEY idx_pppoe_event_logs_org_logged_at (organization_id, logged_at),
   KEY idx_pppoe_event_logs_org (organization_id),
   KEY idx_pppoe_event_logs_username (username),
   KEY idx_pppoe_event_logs_logged_at (logged_at),
   KEY idx_pppoe_event_logs_severity (severity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Global RouterOS PPPoE event collector (migration 455).  NULL tenant rows do
+-- not collide in MySQL unique keys, so use an explicit existence guard.  The
+-- one-hour timeout is operational metadata, not a hard runner deadline.
+INSERT INTO scheduled_tasks
+  (organization_id, task_name, task_type, description, cron_expression,
+   is_enabled, priority, timeout_seconds)
+SELECT
+  NULL,
+  'poll_pppoe_events',
+  'other',
+  'Poll RouterOS PPPoE logs into the tenant-scoped diagnostics event stream',
+  '*/5 * * * *',
+  1,
+  'normal',
+  3600
+FROM DUAL
+WHERE NOT EXISTS (
+  SELECT 1 FROM scheduled_tasks
+   WHERE task_name = 'poll_pppoe_events'
+     AND organization_id IS NULL
+);
 
 -- ---------------------------------------------------------------------------
 -- Table: dhcp_servers (migration 241 — §5.1 DHCP Integration)

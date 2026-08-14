@@ -12,6 +12,12 @@ const logger = require('../utils/logger').child({ service: 'pppoeDiagnostics' })
 // Default threshold for auth failure alerting (per-org setting overrides this)
 const DEFAULT_AUTH_FAILURE_THRESHOLD = 5;
 
+function normalizePostAuthReason(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
 // ---------------------------------------------------------------------------
 // RouterOS log line parser
 // ---------------------------------------------------------------------------
@@ -99,33 +105,59 @@ function parseRouterOsLogLine(line) {
 /**
  * Classify auth failures from radpostauth for a given organization and time window.
  *
- * Subscriber scoping: radpostauth has no organization_id, and neither does the
- * `radius` subscriber table (single-tenant deployment per ISP). When orgId is
- * provided, we restrict to records whose username belongs to a live (non-deleted)
- * subscriber in the `radius` table, filtering out noise from stale/unknown logins.
+ * Tenant scoping is performed directly on radpostauth.organization_id.  A
+ * username-only correlation is unsafe because separate organizations may use
+ * the same subscriber name.  Rows written before migration 455 have NULL
+ * ownership and are therefore visible only to an unscoped/global scan.
  *
  * Failure reasons:
- *   bad_password   — username exists in radcheck (known user, wrong cred)
- *   unknown_user   — username absent from radcheck
+ *   bad_password   — explicit embedded-server reason, or a legacy rejection for
+ *                    a live subscriber in the same organization
+ *   unknown_user   — explicit unknown/inactive reason, or a legacy rejection
+ *                    without a same-organization live subscriber
  *   session_limit  — reply contains 'simultaneous' (case-insensitive)
  *   no_pool        — reply contains 'no free' or 'no pool' heuristic
- *   other          — everything else
+ *   other          — malformed/unsupported/not-configured and unknown reasons
  *
  * @param {number|null} orgId
  * @param {Date|string|null} since
  * @param {Date|string|null} until
  * @param {string|null} [username]
+ * @param {{ excludeIsolatedTenants?: boolean }} [options]
  * @returns {Promise<{ failures: object[], counts: object, total: number }>}
  */
-async function classifyAuthFailures(orgId, since, until, username) {
-  // Build radpostauth rejection query
+async function classifyAuthFailures(orgId, since, until, username, options = {}) {
+  const { excludeIsolatedTenants = false } = options;
   let sql = `
-    SELECT rpa.username, rpa.authdate, rpa.nas_ip_address, rpa.calling_station_id, rpa.reply
+    SELECT rpa.organization_id, rpa.nas_id, rpa.username, rpa.authdate,
+           rpa.nas_ip_address, rpa.calling_station_id, rpa.reply,
+           rpa.reason_code
     FROM radpostauth rpa
-    WHERE rpa.reply NOT LIKE 'Access-Accept%'
+    WHERE (
+      (NULLIF(TRIM(rpa.reason_code), '') IS NULL
+       AND rpa.reply NOT LIKE 'Access-Accept%')
+      OR
+      (NULLIF(TRIM(rpa.reason_code), '') IS NOT NULL
+       AND LOWER(TRIM(rpa.reason_code)) <> 'accepted')
+    )
   `;
   const params = [];
 
+  if (orgId !== null && orgId !== undefined) {
+    sql += ' AND rpa.organization_id = ?';
+    params.push(orgId);
+  }
+  if (excludeIsolatedTenants) {
+    // A tenant's historical rows can remain in the primary database after it
+    // switches to an isolated database. The global primary sweep must leave
+    // those rows to the isolated-database pass or it could alert twice.
+    sql += ` AND NOT EXISTS (
+      SELECT 1
+        FROM organization_database_configs odc
+       WHERE odc.organization_id = rpa.organization_id
+         AND odc.isolation_mode = 'isolated'
+    )`;
+  }
   if (since) {
     sql += ' AND rpa.authdate >= ?';
     params.push(since);
@@ -137,15 +169,6 @@ async function classifyAuthFailures(orgId, since, until, username) {
   if (username) {
     sql += ' AND rpa.username = ?';
     params.push(username);
-  }
-
-  // Subscriber scoping: the radius table has no organization_id (single-tenant
-  // per ISP), so restrict to usernames that exist as live subscribers there.
-  if (orgId) {
-    sql += ` AND rpa.username IN (
-      SELECT r2.username FROM radius r2
-      WHERE r2.deleted_at IS NULL
-    )`;
   }
 
   sql += ' ORDER BY rpa.authdate DESC LIMIT 1000';
@@ -160,26 +183,58 @@ async function classifyAuthFailures(orgId, since, until, username) {
     };
   }
 
-  // Load known usernames from radcheck (batch lookup for efficiency)
-  const uniqueUsernames = [...new Set(rejectedRows.map(r => r.username))];
-  const placeholders = uniqueUsernames.map(() => '?').join(',');
-  const [radcheckRows] = await db.query(
-    `SELECT DISTINCT username FROM radcheck WHERE username IN (${placeholders})`,
-    uniqueUsernames,
-  );
-  const knownUsers = new Set(radcheckRows.map(r => r.username));
+  // Only legacy rows need subscriber inference.  Match both organization and
+  // username; using radcheck here would reintroduce a username-only tenant
+  // collision because the standard FreeRADIUS table has no organization_id.
+  const legacyUsernames = [...new Set(rejectedRows
+    .filter(row => !normalizePostAuthReason(row.reason_code) && row.username)
+    .map(row => row.username))];
+  const knownUsers = new Set();
+  if (legacyUsernames.length > 0) {
+    let subscriberSql = `
+      SELECT DISTINCT username, organization_id
+        FROM radius
+       WHERE deleted_at IS NULL
+         AND status = 'active'
+    `;
+    const subscriberParams = [];
+    if (orgId !== null && orgId !== undefined) {
+      subscriberSql += ' AND organization_id = ?';
+      subscriberParams.push(orgId);
+    }
+    subscriberSql += ` AND username IN (${legacyUsernames.map(() => '?').join(', ')})`;
+    subscriberParams.push(...legacyUsernames);
+
+    const [subscriberRows] = await db.query(subscriberSql, subscriberParams);
+    for (const row of subscriberRows) {
+      knownUsers.add(`${row.organization_id ?? 'null'}\u0000${row.username}`);
+    }
+  }
 
   const counts = { bad_password: 0, unknown_user: 0, session_limit: 0, no_pool: 0, other: 0 };
   const failures = [];
 
   for (const row of rejectedRows) {
     let reason;
+    const explicitReason = normalizePostAuthReason(row.reason_code);
 
-    if (/simultaneous/i.test(row.reply)) {
+    if (explicitReason === 'bad_password') {
+      reason = 'bad_password';
+    } else if (explicitReason === 'unknown_or_inactive_user') {
+      reason = 'unknown_user';
+    } else if (explicitReason === 'session_limit') {
       reason = 'session_limit';
-    } else if (/no free|no pool/i.test(row.reply)) {
+    } else if (explicitReason === 'no_pool') {
       reason = 'no_pool';
-    } else if (knownUsers.has(row.username)) {
+    } else if (explicitReason) {
+      // missing_username, password_not_configured,
+      // unsupported_auth_method, or a future producer-specific code.
+      reason = 'other';
+    } else if (/simultaneous/i.test(row.reply || '')) {
+      reason = 'session_limit';
+    } else if (/no free|no pool/i.test(row.reply || '')) {
+      reason = 'no_pool';
+    } else if (knownUsers.has(`${row.organization_id ?? 'null'}\u0000${row.username}`)) {
       reason = 'bad_password';
     } else {
       reason = 'unknown_user';
@@ -188,10 +243,13 @@ async function classifyAuthFailures(orgId, since, until, username) {
     counts[reason]++;
     failures.push({
       username: row.username,
+      organization_id: row.organization_id ?? null,
+      nas_id: row.nas_id ?? null,
       authdate: row.authdate,
       nas_ip_address: row.nas_ip_address,
       calling_station_id: row.calling_station_id,
       reason,
+      reason_code: explicitReason,
       reply: row.reply,
     });
   }
@@ -229,7 +287,7 @@ async function detectMtuIssues(orgId) {
       AND mtu > 1492
   `;
   const profileParams = [];
-  if (orgId) {
+  if (orgId !== null && orgId !== undefined) {
     profileSql += ' AND organization_id = ?';
     profileParams.push(orgId);
   }
@@ -248,7 +306,7 @@ async function detectMtuIssues(orgId) {
   // --- Type 2: LCP failures correlated with non-1492 MTU profiles ---
   // Find usernames with ≥3 LCP errors in the last 24 hours
   let lcpSql = `
-    SELECT username, COUNT(*) AS failure_count
+    SELECT organization_id, username, COUNT(*) AS failure_count
     FROM pppoe_event_logs
     WHERE stage = 'LCP'
       AND severity = 'error'
@@ -256,33 +314,41 @@ async function detectMtuIssues(orgId) {
       AND username IS NOT NULL
   `;
   const lcpParams = [];
-  if (orgId) {
+  if (orgId !== null && orgId !== undefined) {
     lcpSql += ' AND organization_id = ?';
     lcpParams.push(orgId);
   }
-  lcpSql += ' GROUP BY username HAVING COUNT(*) >= 3';
+  lcpSql += ' GROUP BY organization_id, username HAVING COUNT(*) >= 3';
 
   const [lcpFailures] = await db.query(lcpSql, lcpParams);
 
   if (lcpFailures.length > 0) {
-    const lcpUsernames = lcpFailures.map(r => r.username);
+    const lcpUsernames = [...new Set(lcpFailures.map(r => r.username))];
     const placeholders = lcpUsernames.map(() => '?').join(',');
 
     // Get effective profile for these usernames (account-level wins over pool-level)
-    const [radiusRows] = await db.query(
-      `SELECT r.username,
-              COALESCE(r.service_profile_id, ip.service_profile_id) AS effective_profile_id
-       FROM radius r
-       LEFT JOIN ip_pools ip ON ip.id = r.ipv4_pool_id
+    let radiusSql = `
+      SELECT r.organization_id, r.username,
+             COALESCE(r.service_profile_id, ip.service_profile_id) AS effective_profile_id
+        FROM radius r
+        LEFT JOIN ip_pools ip
+          ON ip.id = r.ipv4_pool_id
+         AND ip.organization_id <=> r.organization_id
        WHERE r.username IN (${placeholders})
-         AND r.deleted_at IS NULL`,
-      lcpUsernames,
-    );
+         AND r.deleted_at IS NULL
+    `;
+    const radiusParams = [...lcpUsernames];
+    if (orgId !== null && orgId !== undefined) {
+      radiusSql += ' AND r.organization_id = ?';
+      radiusParams.push(orgId);
+    }
+    const [radiusRows] = await db.query(radiusSql, radiusParams);
 
     const profileIdsByUsername = new Map();
     for (const row of radiusRows) {
       if (row.effective_profile_id) {
-        profileIdsByUsername.set(row.username, row.effective_profile_id);
+        const rowOrgId = row.organization_id ?? orgId ?? null;
+        profileIdsByUsername.set(`${rowOrgId ?? 'null'}\u0000${row.username}`, row.effective_profile_id);
       }
     }
 
@@ -290,17 +356,26 @@ async function detectMtuIssues(orgId) {
     const profileIds = [...new Set([...profileIdsByUsername.values()])];
     if (profileIds.length > 0) {
       const ppPlaceholders = profileIds.map(() => '?').join(',');
-      const [profiles] = await db.query(
-        `SELECT id, name, mtu FROM pppoe_service_profiles WHERE id IN (${ppPlaceholders})`,
-        profileIds,
-      );
+      let referencedProfileSql = `
+        SELECT id, organization_id, name, mtu
+          FROM pppoe_service_profiles
+         WHERE id IN (${ppPlaceholders})
+      `;
+      const referencedProfileParams = [...profileIds];
+      if (orgId !== null && orgId !== undefined) {
+        referencedProfileSql += ' AND organization_id = ?';
+        referencedProfileParams.push(orgId);
+      }
+      const [profiles] = await db.query(referencedProfileSql, referencedProfileParams);
       const profileMap = new Map(profiles.map(p => [p.id, p]));
 
       for (const lcpRow of lcpFailures) {
-        const profileId = profileIdsByUsername.get(lcpRow.username);
+        const rowOrgId = lcpRow.organization_id ?? orgId ?? null;
+        const profileId = profileIdsByUsername.get(`${rowOrgId ?? 'null'}\u0000${lcpRow.username}`);
         if (!profileId) continue;
         const profile = profileMap.get(profileId);
-        if (!profile || profile.mtu === 1492) continue;
+        const profileOrgId = profile?.organization_id ?? orgId ?? null;
+        if (!profile || profileOrgId !== rowOrgId || profile.mtu === 1492) continue;
 
         advisories.push({
           type: 'lcp_failure_mtu_mismatch',
@@ -323,10 +398,87 @@ async function detectMtuIssues(orgId) {
 // Scheduled scan: scan last 15 minutes of auth failures
 // ---------------------------------------------------------------------------
 
+/** Scan one selected database context and emit tenant-owned threshold events. */
+async function scanCurrentDatabase(orgId, since, excludeIsolatedTenants = false) {
+  const windowMinutes = 15;
+  const { failures } = await classifyAuthFailures(
+    orgId,
+    since,
+    null,
+    null,
+    { excludeIsolatedTenants },
+  );
+
+  // Group failures by tenant + username.  Subscriber names are not globally
+  // unique and a global scheduled scan must never combine two ISPs' counts.
+  const byUsername = new Map();
+  for (const f of failures) {
+    const resolvedOrgId = f.organization_id ?? orgId ?? null;
+    // Legacy rows without tenant ownership cannot be routed safely to an
+    // organization notification channel. They remain available to an
+    // explicitly unscoped diagnostic inspection, but never raise alerts.
+    if (resolvedOrgId === null || resolvedOrgId === undefined) continue;
+    const tenantUsername = `${resolvedOrgId ?? 'null'}\u0000${f.username}`;
+    if (!byUsername.has(tenantUsername)) {
+      byUsername.set(tenantUsername, {
+        username: f.username,
+        count: 0,
+        reasons: new Set(),
+        organizationId: resolvedOrgId,
+      });
+    }
+    const entry = byUsername.get(tenantUsername);
+    entry.count++;
+    entry.reasons.add(f.reason);
+  }
+
+  // One query for every org in play, rather than one per username.
+  const thresholdByOrg = new Map();
+  const orgsInPlay = [...new Set([...byUsername.values()]
+    .map(entry => entry.organizationId)
+    .filter(organizationId => organizationId !== null && organizationId !== undefined))];
+  if (orgsInPlay.length > 0) {
+    try {
+      const [settingRows] = await db.query(
+        `SELECT organization_id, setting_value FROM organization_settings
+          WHERE setting_key = 'pppoe_auth_failure_threshold'
+            AND organization_id IN (${orgsInPlay.map(() => '?').join(', ')})`,
+        orgsInPlay,
+      );
+      for (const row of settingRows) {
+        const parsed = parseInt(row.setting_value, 10);
+        if (!isNaN(parsed) && parsed > 0) thresholdByOrg.set(row.organization_id, parsed);
+      }
+    } catch (_err) {
+      // fall back to the default for every org
+    }
+  }
+
+  // Emit events for usernames exceeding THEIR org's threshold. The event
+  // contract is unchanged so downstream alert/webhook dedupe remains stable.
+  for (const entry of byUsername.values()) {
+    const threshold = thresholdByOrg.get(entry.organizationId) ?? DEFAULT_AUTH_FAILURE_THRESHOLD;
+    if (entry.count >= threshold) {
+      eventBus.emit('pppoe.auth_failures', {
+        organizationId: entry.organizationId,
+        username: entry.username,
+        failureCount: entry.count,
+        window_minutes: windowMinutes,
+        reasons: [...entry.reasons],
+      });
+    }
+  }
+
+  logger.info({ orgId, scanned: failures.length, windowMinutes }, 'PPPoE auth failure database scan complete');
+  return { scanned: failures.length, window_minutes: windowMinutes };
+}
+
 /**
- * Called by the scheduler (task: scan_auth_failures) every 15 minutes.
- * Scans the last 15 minutes of radpostauth for accounts exceeding the
- * auth failure threshold and emits pppoe.auth_failures events.
+ * Called by the scheduler (task: scan_auth_failures) every 15 minutes. Scans
+ * the requested tenant or fans a global task out over every supported database
+ * context. Shared tenants are scanned together on the primary DB; each active
+ * isolated tenant is then scanned in its own context. A failed database scope
+ * is recorded without preventing the remaining scopes.
  *
  * Org threshold setting key: pppoe_auth_failure_threshold (default: 5).
  *
@@ -336,91 +488,78 @@ async function scanAuthFailures(orgId) {
   const windowMinutes = 15;
   const since = new Date(Date.now() - windowMinutes * 60 * 1000);
 
+  if (orgId !== null && orgId !== undefined) {
+    try {
+      return await db.withTenantContext(
+        orgId,
+        () => scanCurrentDatabase(orgId, since),
+      );
+    } catch (err) {
+      logger.error({ err, orgId }, 'PPPoE auth failure scan error');
+      throw err;
+    }
+  }
+
+  let isolatedOrganizationIds;
   try {
-    const { failures } = await classifyAuthFailures(orgId, since, null, null);
-
-    // Group failures by username
-    const byUsername = new Map();
-    for (const f of failures) {
-      if (!byUsername.has(f.username)) {
-        byUsername.set(f.username, { count: 0, reasons: new Set(), organizationId: null });
-      }
-      const entry = byUsername.get(f.username);
-      entry.count++;
-      entry.reasons.add(f.reason);
-    }
-
-    // Resolve each username's OWNING org, then apply that org's threshold.
-    //
-    // This scan is seeded as a GLOBAL task (migration 240 inserts it with
-    // organization_id NULL), so orgId is null on every scheduled run. Reading
-    // the threshold from `orgId` alone therefore never read anyone's setting:
-    // the per-org control would have been editable in the UI, validated on
-    // write, stored — and completely ignored by the only thing that consumes
-    // it. radius.organization_id exists (migration 426), so the org is
-    // resolvable per username; that also stamps the emitted event with a real
-    // organizationId instead of null, which is what routes the notification.
-    const usernames = [...byUsername.keys()];
-    const orgByUsername = new Map();
-    if (usernames.length > 0) {
-      try {
-        // Placeholders are expanded explicitly: IN (?) does not expand under
-        // the execute-backed db.query.
-        const [ownerRows] = await db.query(
-          `SELECT username, organization_id FROM radius
-            WHERE username IN (${usernames.map(() => '?').join(', ')})
-              AND deleted_at IS NULL`,
-          usernames,
-        );
-        for (const row of ownerRows) {
-          if (row.organization_id !== null) orgByUsername.set(row.username, row.organization_id);
-        }
-      } catch (_err) {
-        // Fall through: every username keeps the caller-supplied org.
-      }
-    }
-
-    // One query for every org in play, rather than one per username.
-    const thresholdByOrg = new Map();
-    const orgsInPlay = [...new Set([...orgByUsername.values(), ...(orgId ? [orgId] : [])])];
-    if (orgsInPlay.length > 0) {
-      try {
-        const [settingRows] = await db.query(
-          `SELECT organization_id, setting_value FROM organization_settings
-            WHERE setting_key = 'pppoe_auth_failure_threshold'
-              AND organization_id IN (${orgsInPlay.map(() => '?').join(', ')})`,
-          orgsInPlay,
-        );
-        for (const row of settingRows) {
-          const parsed = parseInt(row.setting_value, 10);
-          if (!isNaN(parsed) && parsed > 0) thresholdByOrg.set(row.organization_id, parsed);
-        }
-      } catch (_err) {
-        // fall back to the default for every org
-      }
-    }
-
-    // Emit events for usernames exceeding THEIR org's threshold
-    for (const [username, entry] of byUsername) {
-      const resolvedOrgId = orgByUsername.get(username) ?? orgId;
-      const threshold = thresholdByOrg.get(resolvedOrgId) ?? DEFAULT_AUTH_FAILURE_THRESHOLD;
-      if (entry.count >= threshold) {
-        eventBus.emit('pppoe.auth_failures', {
-          organizationId: resolvedOrgId,
-          username,
-          failureCount: entry.count,
-          window_minutes: windowMinutes,
-          reasons: [...entry.reasons],
-        });
-      }
-    }
-
-    logger.info({ orgId, scanned: failures.length, windowMinutes }, 'PPPoE auth failure scan complete');
-    return { scanned: failures.length, window_minutes: windowMinutes };
+    isolatedOrganizationIds = await db.withPrimaryContext(async () => {
+      const [rows] = await db.query(
+        `SELECT odc.organization_id
+           FROM organization_database_configs odc
+           JOIN organizations o ON o.id = odc.organization_id
+          WHERE odc.isolation_mode = 'isolated'
+            AND o.status = 'active'
+            AND o.deleted_at IS NULL
+          ORDER BY odc.organization_id`,
+      );
+      return rows.map(row => row.organization_id);
+    });
   } catch (err) {
-    logger.error({ err, orgId }, 'PPPoE auth failure scan error');
+    logger.error({ err, orgId: null }, 'PPPoE auth failure database-scope discovery failed');
     throw err;
   }
+
+  const summary = {
+    scanned: 0,
+    window_minutes: windowMinutes,
+    database_scopes_total: 1 + isolatedOrganizationIds.length,
+    database_scopes_succeeded: 0,
+    database_scopes_failed: 0,
+    failures: [],
+  };
+
+  try {
+    const primary = await db.withPrimaryContext(
+      () => scanCurrentDatabase(null, since, true),
+    );
+    summary.scanned += primary.scanned;
+    summary.database_scopes_succeeded += 1;
+  } catch (err) {
+    summary.database_scopes_failed += 1;
+    summary.failures.push({ organizationId: null, message: err.message });
+    logger.warn({ err: err.message }, 'Primary PPPoE auth failure sweep failed; continuing with isolated tenants');
+  }
+
+  for (const isolatedOrganizationId of isolatedOrganizationIds) {
+    try {
+      const tenant = await db.withTenantContext(
+        isolatedOrganizationId,
+        () => scanCurrentDatabase(isolatedOrganizationId, since),
+      );
+      summary.scanned += tenant.scanned;
+      summary.database_scopes_succeeded += 1;
+    } catch (err) {
+      summary.database_scopes_failed += 1;
+      summary.failures.push({ organizationId: isolatedOrganizationId, message: err.message });
+      logger.warn(
+        { err: err.message, organizationId: isolatedOrganizationId },
+        'Isolated-tenant PPPoE auth failure sweep failed; continuing',
+      );
+    }
+  }
+
+  logger.info(summary, 'Global PPPoE auth failure scan complete');
+  return summary;
 }
 
 module.exports = {

@@ -8,6 +8,8 @@ jest.mock('../src/config/database', () => ({
   queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withTenantContext: jest.fn((_organizationId, callback) => callback()),
+  withPrimaryContext: jest.fn(callback => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));

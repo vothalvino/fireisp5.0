@@ -39,6 +39,7 @@ describe('securityService.runSecureDeletion', () => {
     expect(result.total_deleted).toBe(5);
     expect(result.logged).toBe(true);
     expect(result.tables).toHaveLength(1);
+    expect(retentionService.runAll).toHaveBeenCalledWith({ organizationId: 1 });
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO secure_deletion_log'),
       expect.any(Array),

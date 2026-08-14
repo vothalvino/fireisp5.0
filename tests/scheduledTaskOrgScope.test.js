@@ -135,6 +135,30 @@ describe('running a task', () => {
     ]));
   });
 
+  it('records a manually triggered overlap as skipped instead of success', async () => {
+    const pollTask = { ...GLOBAL, task_name: 'poll_pppoe_events' };
+    const skipped = { skipped: true, reason: 'already_running' };
+    taskRunner.runTask.mockResolvedValueOnce(skipped);
+    wireDb({ rows: [pollTask], user: OPERATOR });
+
+    const res = await auth(request(app).post('/api/v1/scheduled-tasks/3/run')).send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.result).toEqual(skipped);
+    expect(db.query.mock.calls).toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        expect.stringMatching(/UPDATE scheduled_tasks SET last_status = \?, last_run_at = NOW\(\) WHERE id = \?/),
+        ['skipped', 3],
+      ]),
+    ]));
+    expect(db.query.mock.calls).not.toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        expect.stringMatching(/UPDATE scheduled_tasks SET last_status = \?, last_run_at = NOW\(\) WHERE id = \?/),
+        ['success', 3],
+      ]),
+    ]));
+  });
+
   it('refuses an install-wide task to an ordinary tenant admin', async () => {
     wireDb({ rows: [GLOBAL], user: TENANT_ADMIN });
     const res = await auth(request(app).post('/api/v1/scheduled-tasks/3/run')).send();

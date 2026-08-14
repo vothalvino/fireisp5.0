@@ -26,6 +26,15 @@ const speedWindowService = require('./speedWindowService');
 
 const { CODE, ATTR, ACCT_STATUS } = codec;
 
+const AUTH_REASON = Object.freeze({
+  ACCEPTED: 'accepted',
+  MISSING_USERNAME: 'missing_username',
+  UNKNOWN_OR_INACTIVE_USER: 'unknown_or_inactive_user',
+  PASSWORD_NOT_CONFIGURED: 'password_not_configured',
+  UNSUPPORTED_AUTH_METHOD: 'unsupported_auth_method',
+  BAD_PASSWORD: 'bad_password',
+});
+
 let authSocket = null;
 let acctSocket = null;
 
@@ -41,7 +50,19 @@ const counters = {
 /** Resolve the NAS (and its RADIUS shared secret) by source IP. */
 async function findNasByIp(ip) {
   const [rows] = await db.query(
-    'SELECT id, organization_id, secret FROM nas WHERE ip_address = ? AND deleted_at IS NULL LIMIT 1',
+    `SELECT n.id, n.organization_id, n.secret
+       FROM nas n
+      WHERE n.ip_address = ?
+        AND n.status = 'active'
+        AND n.organization_id IS NOT NULL
+        AND n.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+            FROM organization_database_configs odc
+           WHERE odc.organization_id = n.organization_id
+             AND odc.isolation_mode = 'isolated'
+        )
+      LIMIT 1`,
     [ip],
   );
   return rows[0] || null;
@@ -108,6 +129,48 @@ function isIpv4(value) {
   if (typeof value !== 'string') return false;
   const parts = value.split('.');
   return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
+
+/**
+ * Persist an authentication outcome without putting the authentication reply
+ * on the database write path.  The UDP response is sent before this function is
+ * called; synchronous driver errors and asynchronous query failures are both
+ * contained here.  In particular, no supplied or stored password is accepted
+ * by this function or named in its INSERT.
+ */
+function persistAuthOutcome({
+  nas, username, nasIpAddress, callingStationId, reply, reasonCode,
+}) {
+  const values = [
+    nas.organization_id ?? null,
+    nas.id,
+    typeof username === 'string' ? username.slice(0, 64) : '',
+    reply,
+    typeof nasIpAddress === 'string' ? nasIpAddress.slice(0, 45) : null,
+    typeof callingStationId === 'string' ? callingStationId.slice(0, 100) : null,
+    reasonCode,
+  ];
+
+  try {
+    const pending = db.query(
+      `INSERT INTO radpostauth
+         (organization_id, nas_id, username, reply, nas_ip_address,
+          calling_station_id, reason_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      values,
+    );
+    Promise.resolve(pending).catch((err) => {
+      logger.warn(
+        { err: err.message, nasId: nas.id, reasonCode },
+        'RADIUS: post-auth outcome logging failed',
+      );
+    });
+  } catch (err) {
+    logger.warn(
+      { err: err.message, nasId: nas.id, reasonCode },
+      'RADIUS: post-auth outcome logging failed',
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,12 +249,21 @@ async function handleAuth(msg, rinfo, respond) {
   const withMessageAuth = !!codec.getAttr(pkt.attributes, ATTR.MESSAGE_AUTHENTICATOR);
 
   const username = codec.getString(pkt.attributes, ATTR.USER_NAME);
+  const nasIpAddress = codec.getIp(pkt.attributes, ATTR.NAS_IP_ADDRESS) || rinfo.address;
+  const callingStationId = codec.getString(pkt.attributes, ATTR.CALLING_STATION_ID);
   let accept = false;
   let subscriber = null;
-  if (username) {
+  let reasonCode;
+  if (!username) {
+    reasonCode = AUTH_REASON.MISSING_USERNAME;
+  } else {
     subscriber = await findSubscriber(username, nas.organization_id);
-    // Require a non-empty stored password — never authenticate a blank credential.
-    if (subscriber && subscriber.password) {
+    if (!subscriber) {
+      reasonCode = AUTH_REASON.UNKNOWN_OR_INACTIVE_USER;
+    } else if (!subscriber.password) {
+      // Require a non-empty stored password — never authenticate a blank credential.
+      reasonCode = AUTH_REASON.PASSWORD_NOT_CONFIGURED;
+    } else {
       const userPw = codec.getAttr(pkt.attributes, ATTR.USER_PASSWORD);
       const chapPw = codec.getAttr(pkt.attributes, ATTR.CHAP_PASSWORD);
       if (userPw) {
@@ -200,6 +272,12 @@ async function handleAuth(msg, rinfo, respond) {
       } else if (chapPw) {
         const challenge = codec.getAttr(pkt.attributes, ATTR.CHAP_CHALLENGE) || pkt.authenticator;
         accept = codec.verifyChap(chapPw, challenge, subscriber.password);
+      } else {
+        reasonCode = AUTH_REASON.UNSUPPORTED_AUTH_METHOD;
+      }
+
+      if (!reasonCode) {
+        reasonCode = accept ? AUTH_REASON.ACCEPTED : AUTH_REASON.BAD_PASSWORD;
       }
     }
   }
@@ -239,6 +317,15 @@ async function handleAuth(msg, rinfo, respond) {
   const packet = coa.buildRadiusPacket(code, pkt.identifier, Buffer.alloc(16), attrsBuf);
   codec.signResponse(packet, pkt.authenticator, secret, withMessageAuth);
   respond(packet);
+  // Best effort only, deliberately after the response is handed to the socket.
+  persistAuthOutcome({
+    nas,
+    username,
+    nasIpAddress,
+    callingStationId,
+    reply: accept ? 'Access-Accept' : 'Access-Reject',
+    reasonCode,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +377,7 @@ async function handleAcct(msg, rinfo, respond) {
         acctSessionTime: codec.getInt(pkt.attributes, ATTR.ACCT_SESSION_TIME),
         acctTerminateCause: codec.getString(pkt.attributes, ATTR.ACCT_TERMINATE_CAUSE),
         organizationId: nas ? nas.organization_id : null,
+        nasId: nas ? nas.id : null,
       });
       counters.acctIngested++;
     } catch (err) {

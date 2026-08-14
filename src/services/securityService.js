@@ -10,8 +10,8 @@ const logger = require('../utils/logger').child({ service: 'security' });
 
 /**
  * Run secure deletion of expired retention data for an organization.
- * Calls retentionService.runAll() to purge expired records, then logs
- * the operation to secure_deletion_log.
+ * Calls retentionService.runAll() with an explicit tenant scope to purge
+ * expired records, then logs the operation to secure_deletion_log.
  *
  * @param {number} organizationId
  * @returns {{ total_deleted: number, tables: Array, logged: boolean }}
@@ -19,7 +19,7 @@ const logger = require('../utils/logger').child({ service: 'security' });
 async function runSecureDeletion(organizationId) {
   logger.info({ organizationId }, 'Starting secure deletion run');
 
-  const retentionResults = await retentionService.runAll();
+  const retentionResults = await retentionService.runAll({ organizationId });
   const { total_deleted, tables } = retentionResults;
 
   // Log each table purge to secure_deletion_log

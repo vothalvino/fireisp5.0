@@ -42,6 +42,7 @@ describe('buildPaletteIndex — role/locale visibility mirrors the sidebar', () 
     const paths = indexFor('support').map(e => e.path);
     expect(paths).toContain('/tickets');
     expect(paths).toContain('/outages');
+    expect(paths).toContain('/pppoe-diagnostics');
     expect(paths).not.toContain('/vlans');
     expect(paths).not.toContain('/devices'); // no devices.view — audited
     expect(paths).not.toContain('/network'); // no hub access
