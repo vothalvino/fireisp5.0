@@ -11,6 +11,9 @@ import { PppoeDiagnostics } from '../PppoeDiagnostics';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_key: string, fallback: string, values?: Record<string, string | number>) => {
+      if (_key === 'pppoe_diagnostics.readiness.details.router_waiting_no_events') {
+        return `Localized RouterOS readiness: ${values?.coveredNas} of ${values?.totalNas}`;
+      }
       if (!values) return fallback;
       return Object.entries(values).reduce(
         (message, [key, value]) => message.split(`{{${key}}}`).join(String(value)),
@@ -340,9 +343,41 @@ describe('PppoeDiagnostics page', () => {
     await waitFor(() => expect(screen.getByText('Diagnostics partially ready')).toBeInTheDocument());
     expect(screen.getByText(/Empty results may be incomplete/)).toBeInTheDocument();
     expect(screen.getAllByText('Never')).toHaveLength(2);
-    expect(screen.getByText('NAS configured for polling')).toBeInTheDocument();
+    expect(screen.getByText('NAS configured for RouterOS PPPoE polling')).toBeInTheDocument();
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
     expect(screen.getByText('No RouterOS PPPoE events have been received yet.')).toBeInTheDocument();
+  });
+
+  it('uses stable detail codes and reports NAS excluded by maintenance mode', async () => {
+    const maintenanceReadiness = {
+      overall: 'partial',
+      sources: {
+        authentication: readyReadiness.sources.authentication,
+        routerEvents: {
+          status: 'waiting',
+          lastReceivedAt: null,
+          events24h: 0,
+          detail: 'English server fallback that should not be shown.',
+          detailCode: 'router_waiting_no_events',
+          detailParams: { coveredNas: 1, totalNas: 2, maintenanceNas: 1 },
+          coveredNas: 1,
+          totalNas: 2,
+          maintenanceNas: 1,
+        },
+        accounting: readyReadiness.sources.accounting,
+      },
+    };
+    mockApiGet.mockImplementation((path: string) => Promise.resolve(
+      path === '/pppoe/diagnostics/readiness'
+        ? { data: { data: maintenanceReadiness }, error: undefined }
+        : defaultApiResponse(path),
+    ));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Localized RouterOS readiness: 1 of 2')).toBeInTheDocument());
+    expect(screen.queryByText('English server fallback that should not be shown.')).not.toBeInTheDocument();
+    expect(screen.getByText('NAS excluded: 1')).toBeInTheDocument();
+    expect(screen.getByText('NAS in maintenance mode are excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage.')).toBeInTheDocument();
   });
 
   it('keeps an all-ready banner compact and can reveal source details', async () => {
@@ -351,7 +386,7 @@ describe('PppoeDiagnostics page', () => {
 
     await waitFor(() => expect(screen.getByText('Diagnostics ready')).toBeInTheDocument());
     expect(screen.queryByText('Events (24h)')).not.toBeInTheDocument();
-    expect(screen.getByText('2 / 2 NAS configured for polling')).toBeInTheDocument();
+    expect(screen.getByText('2 / 2 NAS configured for RouterOS PPPoE polling')).toBeInTheDocument();
 
     await user.click(screen.getByText('Show source details'));
     expect(screen.getAllByText('Events (24h)')).toHaveLength(3);

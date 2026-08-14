@@ -246,6 +246,31 @@ describe('POST /api/nas — access_mode=direct (existing behavior)', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.ip_address).toBe('10.1.0.1');
   });
+
+  test('accepts maintenance mode at creation without making the NAS inactive', async () => {
+    mockAdminUser();
+    Nas.createOrRestore.mockResolvedValue({
+      ...mockDirectNas,
+      maintenance_mode: 1,
+    });
+
+    const res = await request(app)
+      .post('/api/nas')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({
+        name: 'Direct-RB',
+        ip_address: '10.1.0.1',
+        secret: 'radsecret',
+        maintenance_mode: true,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ status: 'active', maintenance_mode: 1 });
+    expect(Nas.createOrRestore).toHaveBeenCalledWith(expect.objectContaining({
+      maintenance_mode: true,
+    }));
+  });
 });
 
 // =============================================================================
@@ -343,5 +368,28 @@ describe('PUT /api/nas/:id — access_mode is immutable', () => {
 
     expect(res.status).toBe(200);
     expect(Nas.update).toHaveBeenCalled();
+  });
+
+  test('allows maintenance mode to change without changing active status', async () => {
+    mockAdminUser();
+    Nas.findByIdOrFail.mockResolvedValue({ ...mockDirectNas, maintenance_mode: 0 });
+    Nas.update.mockResolvedValue({
+      ...mockDirectNas,
+      maintenance_mode: 1,
+    });
+
+    const res = await request(app)
+      .put('/api/nas/10')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Org-Id', '1')
+      .send({ maintenance_mode: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ status: 'active', maintenance_mode: 1 });
+    expect(Nas.update).toHaveBeenCalledWith(
+      '10',
+      { maintenance_mode: true },
+      1,
+    );
   });
 });

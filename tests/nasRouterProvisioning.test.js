@@ -99,6 +99,35 @@ describe('POST /api/nas/:id/test-connection', () => {
     );
   });
 
+  test('maintenance mode does not block manual connection tests or seeding', async () => {
+    mockAuthUser();
+    const maintainedNas = { ...mockNas, maintenance_mode: 1 };
+    db.query
+      .mockResolvedValueOnce([[maintainedNas]])
+      .mockResolvedValueOnce([[maintainedNas]]);
+    routerProvisioningService.testConnection.mockResolvedValue({ ok: true });
+    routerProvisioningService.seedDevice.mockResolvedValue({
+      ok: true,
+      steps: [{ step: 'ppp-aaa', status: 'updated' }],
+    });
+
+    const connection = await request(app)
+      .post('/api/nas/7/test-connection')
+      .set('Authorization', `Bearer ${authToken}`);
+    const seed = await request(app)
+      .post('/api/nas/7/seed')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ radiusAddress: '203.0.113.10' });
+
+    expect(connection.status).toBe(200);
+    expect(seed.status).toBe(200);
+    expect(routerProvisioningService.testConnection).toHaveBeenCalledWith(maintainedNas);
+    expect(routerProvisioningService.seedDevice).toHaveBeenCalledWith(
+      maintainedNas,
+      expect.objectContaining({ radiusAddress: '203.0.113.10' }),
+    );
+  });
+
   test('returns 502 ROUTER_UNREACHABLE when the router errors', async () => {
     mockAuthUser();
     db.query.mockResolvedValueOnce([[mockNas]]); // Nas.findByIdOrFail

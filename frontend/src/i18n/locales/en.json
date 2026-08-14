@@ -2110,9 +2110,12 @@
       "never_received": "Never",
       "unknown_time": "Unknown",
       "events_24h": "Events (24h)",
-      "nas_coverage": "NAS configured for polling",
+      "nas_coverage": "NAS configured for RouterOS PPPoE polling",
       "coverage_short": "{{covered}} / {{total}}",
-      "coverage_value": "{{covered}} / {{total}} NAS configured for polling",
+      "coverage_value": "{{covered}} / {{total}} NAS configured for RouterOS PPPoE polling",
+      "maintenance_label": "Maintenance mode",
+      "maintenance_count": "NAS excluded: {{count}}",
+      "maintenance_excluded": "NAS in maintenance mode are excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage.",
       "overall": {
         "ready_title": "Diagnostics ready",
         "ready_summary": "All telemetry sources are reporting. Empty results mean no matching issues were observed.",
@@ -2131,6 +2134,28 @@
         "waiting": "Waiting",
         "not_configured": "Not configured",
         "error": "Error"
+      },
+      "details": {
+        "authentication_embedded_not_running": "Embedded RADIUS is enabled but is not running.",
+        "authentication_recent_isolated": "Post-authentication events were received in the last 24 hours. This organization uses an isolated database; use tenant-local external FreeRADIUS telemetry instead of the install-wide embedded listener.",
+        "authentication_recent_external": "Post-authentication events were received in the last 24 hours. Embedded RADIUS is disabled; an external FreeRADIUS post-auth feed may be used.",
+        "authentication_recent_embedded": "Post-authentication events were received in the last 24 hours. Embedded RADIUS is running on authentication port {{authPort}}.",
+        "authentication_waiting_isolated": "Authentication logging is available, but no events were received in the last 24 hours. This organization uses an isolated database; use tenant-local external FreeRADIUS telemetry.",
+        "authentication_waiting_external": "Authentication logging is available, but no events were received in the last 24 hours. Embedded RADIUS is disabled; an external FreeRADIUS post-auth feed may be used.",
+        "authentication_waiting_embedded": "Authentication logging is available, but no events were received in the last 24 hours. Embedded RADIUS is running on authentication port {{authPort}}.",
+        "authentication_not_configured_isolated": "No authentication events have been received in this isolated database. Point a tenant-local external FreeRADIUS post-auth SQL feed at this database.",
+        "authentication_not_configured": "No authentication events have been received. Enable embedded RADIUS or configure FreeRADIUS post-auth SQL logging.",
+        "router_none_active": "No active MikroTik NAS devices are eligible for automated RouterOS PPPoE diagnostics polling.",
+        "router_all_maintenance": "Active MikroTik NAS in maintenance mode: {{maintenanceNas}}. This count is excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage.",
+        "router_none_covered": "None of the {{totalNas}} eligible active RouterOS NAS devices is configured for RouterOS PPPoE polling with API credentials and, when required, an active management tunnel.",
+        "router_ready_all": "RouterOS events were received in the last 24 hours; all {{totalNas}} eligible active NAS devices are configured for RouterOS PPPoE polling. Coverage does not prove that every NAS succeeded in the latest poll.",
+        "router_partial_coverage": "RouterOS events are arriving, but only {{coveredNas}} of {{totalNas}} eligible active NAS devices is configured for RouterOS PPPoE polling.",
+        "router_waiting_no_events": "{{coveredNas}} of {{totalNas}} eligible active NAS devices is configured for RouterOS PPPoE polling; no RouterOS PPPoE event was received in the last 24 hours.",
+        "accounting_recent": "RADIUS accounting records were received in the last 24 hours.",
+        "accounting_embedded_not_running": "Embedded RADIUS accounting is enabled but the server is not running.",
+        "accounting_waiting": "Accounting ingest is configured, but no records were received in the last 24 hours.",
+        "accounting_not_configured_isolated": "No accounting records have reached this isolated database. Use a tenant-local accounting feed.",
+        "accounting_not_configured": "No accounting feed is configured. Enable embedded RADIUS or configure the shared-secret FreeRADIUS accounting endpoint."
       }
     },
     "reasons": {
@@ -2144,6 +2169,9 @@
       "mtu_exceeds_pppoe_ceiling": "MTU exceeds PPPoE ceiling (>1492)",
       "lcp_failure_mtu_mismatch": "LCP failures with non-1492 MTU profile"
     }
+  },
+  "mac_move_events": {
+    "empty": "No MAC move events found."
   },
   "dhcp_servers": {
     "title": "DHCP Servers",
@@ -4453,7 +4481,13 @@
       "lastHealthCheckAt": "Last Health Check",
       "apiPort": "API Port",
       "apiUsername": "API Username",
-      "apiUseTls": "Use TLS"
+      "apiUseTls": "Use TLS",
+      "maintenanceMode": "Maintenance mode"
+    },
+    "maintenanceMode": {
+      "enabled": "Maintenance mode",
+      "disabled": "Off",
+      "hint": "This NAS remains active for subscriber service, but automated RouterOS PPPoE diagnostics polling and readiness coverage ignore it."
     },
     "tabs": {
       "overview": "Overview",
@@ -4731,7 +4765,14 @@
     },
     "ipAddressLabel": "IP Address (IPv4)",
     "ipAddressPlaceholder": "e.g. 10.0.0.1",
-    "natedHint": "FireISP will assign a WireGuard tunnel address as the device IP. After saving, open the WG tab, copy the bootstrap config, paste it into the router, then run Seed / Test."
+    "natedHint": "FireISP will assign a WireGuard tunnel address as the device IP. After saving, open the WG tab, copy the bootstrap config, paste it into the router, then run Seed / Test.",
+    "maintenanceMode": {
+      "label": "Maintenance mode",
+      "hint": "Keep this NAS active for subscriber service, but exclude it from automated RouterOS PPPoE diagnostics polling and readiness coverage.",
+      "column": "Maintenance",
+      "badge": "Maintenance",
+      "badgeHint": "Excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage"
+    }
   },
   "serviceOrders": {
     "title": "Service Orders",

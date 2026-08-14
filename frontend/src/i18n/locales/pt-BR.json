@@ -2110,9 +2110,12 @@
       "never_received": "Nunca",
       "unknown_time": "Desconhecido",
       "events_24h": "Eventos (24 h)",
-      "nas_coverage": "NAS configurados para coleta periódica",
+      "nas_coverage": "NAS configurados para coleta PPPoE do RouterOS",
       "coverage_short": "{{covered}} / {{total}}",
-      "coverage_value": "{{covered}} / {{total}} NAS configurados para coleta periódica",
+      "coverage_value": "{{covered}} / {{total}} NAS configurados para coleta PPPoE do RouterOS",
+      "maintenance_label": "Modo de manutenção",
+      "maintenance_count": "NAS excluídos: {{count}}",
+      "maintenance_excluded": "NAS em modo de manutenção são excluídos da coleta automática de diagnósticos PPPoE do RouterOS e da cobertura de prontidão.",
       "overall": {
         "ready_title": "Diagnósticos prontos",
         "ready_summary": "Todas as fontes de telemetria estão reportando. Resultados vazios significam que nenhum problema correspondente foi observado.",
@@ -2131,6 +2134,28 @@
         "waiting": "Aguardando",
         "not_configured": "Sem configuração",
         "error": "Erro"
+      },
+      "details": {
+        "authentication_embedded_not_running": "O RADIUS integrado está habilitado, mas não está em execução.",
+        "authentication_recent_isolated": "Eventos de pós-autenticação foram recebidos nas últimas 24 horas. Esta organização usa um banco de dados isolado; use telemetria FreeRADIUS externa e local do tenant em vez do listener integrado de toda a instalação.",
+        "authentication_recent_external": "Eventos de pós-autenticação foram recebidos nas últimas 24 horas. O RADIUS integrado está desabilitado; um feed externo de pós-autenticação do FreeRADIUS pode ser usado.",
+        "authentication_recent_embedded": "Eventos de pós-autenticação foram recebidos nas últimas 24 horas. O RADIUS integrado está em execução na porta de autenticação {{authPort}}.",
+        "authentication_waiting_isolated": "O registro de autenticação está disponível, mas nenhum evento foi recebido nas últimas 24 horas. Esta organização usa um banco de dados isolado; use telemetria FreeRADIUS externa e local do tenant.",
+        "authentication_waiting_external": "O registro de autenticação está disponível, mas nenhum evento foi recebido nas últimas 24 horas. O RADIUS integrado está desabilitado; um feed externo de pós-autenticação do FreeRADIUS pode ser usado.",
+        "authentication_waiting_embedded": "O registro de autenticação está disponível, mas nenhum evento foi recebido nas últimas 24 horas. O RADIUS integrado está em execução na porta de autenticação {{authPort}}.",
+        "authentication_not_configured_isolated": "Nenhum evento de autenticação foi recebido neste banco de dados isolado. Direcione para este banco um feed SQL externo e local do tenant de pós-autenticação do FreeRADIUS.",
+        "authentication_not_configured": "Nenhum evento de autenticação foi recebido. Habilite o RADIUS integrado ou configure o registro SQL de pós-autenticação do FreeRADIUS.",
+        "router_none_active": "Não há dispositivos NAS MikroTik ativos elegíveis para a coleta automática de diagnósticos PPPoE do RouterOS.",
+        "router_all_maintenance": "NAS MikroTik ativos em modo de manutenção: {{maintenanceNas}}. Essa quantidade é excluída da coleta automática de diagnósticos PPPoE do RouterOS e da cobertura de prontidão.",
+        "router_none_covered": "Nenhum dos {{totalNas}} dispositivos NAS RouterOS ativos e elegíveis está configurado para coleta PPPoE do RouterOS com credenciais de API e, quando necessário, um túnel de gerenciamento ativo.",
+        "router_ready_all": "Eventos do RouterOS foram recebidos nas últimas 24 horas; todos os {{totalNas}} dispositivos NAS ativos e elegíveis estão configurados para coleta PPPoE do RouterOS. A cobertura não comprova que todos os NAS responderam com sucesso à coleta mais recente.",
+        "router_partial_coverage": "Eventos do RouterOS estão chegando. Cobertura da coleta PPPoE do RouterOS: {{coveredNas}} de {{totalNas}} dispositivos NAS ativos e elegíveis.",
+        "router_waiting_no_events": "Cobertura da coleta PPPoE do RouterOS: {{coveredNas}} de {{totalNas}} dispositivos NAS ativos e elegíveis; nenhum evento PPPoE do RouterOS foi recebido nas últimas 24 horas.",
+        "accounting_recent": "Registros de contabilização RADIUS foram recebidos nas últimas 24 horas.",
+        "accounting_embedded_not_running": "A contabilização RADIUS integrada está habilitada, mas o servidor não está em execução.",
+        "accounting_waiting": "A ingestão de contabilização está configurada, mas nenhum registro foi recebido nas últimas 24 horas.",
+        "accounting_not_configured_isolated": "Nenhum registro de contabilização chegou a este banco de dados isolado. Use um feed de contabilização local do tenant.",
+        "accounting_not_configured": "Nenhum feed de contabilização está configurado. Habilite o RADIUS integrado ou configure o endpoint de contabilização FreeRADIUS com segredo compartilhado."
       }
     },
     "reasons": {
@@ -2144,6 +2169,9 @@
       "mtu_exceeds_pppoe_ceiling": "MTU excede o limite PPPoE (>1492)",
       "lcp_failure_mtu_mismatch": "Falhas LCP com perfil MTU diferente de 1492"
     }
+  },
+  "mac_move_events": {
+    "empty": "Nenhum evento de mudança de MAC encontrado."
   },
   "dhcp_servers": {
     "title": "Servidores DHCP",
@@ -4453,7 +4481,13 @@
       "lastHealthCheckAt": "Última Verificação",
       "apiPort": "Porta API",
       "apiUsername": "Usuário API",
-      "apiUseTls": "Usar TLS"
+      "apiUseTls": "Usar TLS",
+      "maintenanceMode": "Modo de manutenção"
+    },
+    "maintenanceMode": {
+      "enabled": "Modo de manutenção",
+      "disabled": "Desativado",
+      "hint": "Este NAS permanece ativo para o serviço dos assinantes, mas é ignorado pela coleta automática de diagnósticos PPPoE do RouterOS e pela cobertura de prontidão."
     },
     "tabs": {
       "overview": "Visão Geral",
@@ -4731,7 +4765,14 @@
     },
     "ipAddressLabel": "Endereço IP (IPv4)",
     "ipAddressPlaceholder": "ex.: 10.0.0.1",
-    "natedHint": "O FireISP atribuirá um endereço de túnel WireGuard como IP do dispositivo. Após salvar, abra a aba WG, copie a configuração bootstrap, cole-a no roteador e execute Seed / Test."
+    "natedHint": "O FireISP atribuirá um endereço de túnel WireGuard como IP do dispositivo. Após salvar, abra a aba WG, copie a configuração bootstrap, cole-a no roteador e execute Seed / Test.",
+    "maintenanceMode": {
+      "label": "Modo de manutenção",
+      "hint": "Mantenha este NAS ativo para o serviço dos assinantes, mas exclua-o da coleta automática de diagnósticos PPPoE do RouterOS e da cobertura de prontidão.",
+      "column": "Manutenção",
+      "badge": "Manutenção",
+      "badgeHint": "Excluído da coleta automática de diagnósticos PPPoE do RouterOS e da cobertura de prontidão"
+    }
   },
   "serviceOrders": {
     "title": "Ordens de servico",

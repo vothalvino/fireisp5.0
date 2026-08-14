@@ -82,6 +82,29 @@ describe('OpenAPI spec generation', () => {
     expect(Object.keys(spec.components.schemas).length).toBeGreaterThan(0);
   });
 
+  test('documents NAS maintenance mode and localized PPPoE readiness metadata', () => {
+    const spec = generateSpec();
+
+    expect(spec.components.schemas.nas_createNas.properties.maintenance_mode).toEqual({
+      type: 'boolean',
+    });
+    expect(spec.components.schemas.nas_updateNas.properties.maintenance_mode).toEqual({
+      type: 'boolean',
+    });
+
+    const readiness = spec.paths['/pppoe/diagnostics/readiness']
+      .get.responses[200].content['application/json'].schema
+      .properties.data.properties.sources.properties;
+    for (const source of ['authentication', 'routerEvents', 'accounting']) {
+      expect(readiness[source].required).toEqual(expect.arrayContaining([
+        'detail', 'detailCode', 'detailParams',
+      ]));
+    }
+    expect(readiness.routerEvents.required).toEqual(expect.arrayContaining([
+      'coveredNas', 'totalNas', 'maintenanceNas',
+    ]));
+  });
+
   test('convertSchemaToOpenApi converts FireISP schema to OpenAPI', () => {
     const schema = {
       name: { type: 'string', required: true, min: 1, max: 100 },

@@ -18,6 +18,9 @@ class Nas extends BaseModel {
       'api_port', 'api_username', 'api_password_encrypted', 'api_use_tls',
       // Per-NAS connectivity mode (migration 371)
       'access_mode',
+      // Keep an operational NAS active while pausing automated PPPoE
+      // diagnostics collection/readiness coverage (migration 456).
+      'maintenance_mode',
     ];
   }
 

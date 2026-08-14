@@ -95,11 +95,16 @@ interface ReadinessSource {
   lastReceivedAt: string | null;
   events24h: number;
   detail: string;
+  /** Stable localization key supplied by newer servers; `detail` remains the fallback. */
+  detailCode?: string;
+  detailParams?: Record<string, string | number>;
 }
 
 interface RouterEventsReadinessSource extends ReadinessSource {
   coveredNas: number;
   totalNas: number;
+  /** Active NAS intentionally excluded from automated RouterOS PPPoE diagnostics polling/readiness. */
+  maintenanceNas?: number;
 }
 
 interface ReadinessResponse {
@@ -233,14 +238,20 @@ function isReadinessSource(value: unknown): value is ReadinessSource {
     && READINESS_STATUSES.has(value.status as ReadinessStatus)
     && isStringOrNull(value.lastReceivedAt)
     && typeof value.events24h === 'number'
-    && typeof value.detail === 'string';
+    && typeof value.detail === 'string'
+    && (value.detailCode === undefined || typeof value.detailCode === 'string')
+    && (value.detailParams === undefined || (
+      isRecord(value.detailParams)
+      && Object.values(value.detailParams).every(param => typeof param === 'string' || typeof param === 'number')
+    ));
 }
 
 function isRouterEventsReadinessSource(value: unknown): value is RouterEventsReadinessSource {
   return isRecord(value)
     && isReadinessSource(value)
     && typeof value.coveredNas === 'number'
-    && typeof value.totalNas === 'number';
+    && typeof value.totalNas === 'number'
+    && (value.maintenanceNas === undefined || typeof value.maintenanceNas === 'number');
 }
 
 function isReadinessResponse(value: unknown): value is ReadinessResponse {
@@ -403,6 +414,14 @@ function ReadinessBanner() {
       : parsed.toLocaleString();
   };
 
+  const formatDetail = (source: ReadinessSource) => source.detailCode
+    ? t(
+      `pppoe_diagnostics.readiness.details.${source.detailCode}`,
+      source.detail,
+      source.detailParams,
+    )
+    : source.detail;
+
   if (q.isPending) {
     return (
       <section
@@ -491,11 +510,18 @@ function ReadinessBanner() {
             </span>
           ))}
           <span>
-            {t('pppoe_diagnostics.readiness.coverage_value', '{{covered}} / {{total}} NAS configured for polling', {
+            {t('pppoe_diagnostics.readiness.coverage_value', '{{covered}} / {{total}} NAS configured for RouterOS PPPoE polling', {
               covered: readiness.sources.routerEvents.coveredNas,
               total: readiness.sources.routerEvents.totalNas,
             })}
           </span>
+          {Boolean(readiness.sources.routerEvents.maintenanceNas) && (
+            <span>
+              {t('pppoe_diagnostics.readiness.maintenance_count', 'NAS excluded: {{count}}', {
+                count: readiness.sources.routerEvents.maintenanceNas ?? 0,
+              })}
+            </span>
+          )}
         </div>
       )}
 
@@ -514,17 +540,32 @@ function ReadinessBanner() {
                 <dd style={{ margin: 0, textAlign: 'right' }}>{source.events24h}</dd>
                 {key === 'router_events' && (
                   <>
-                    <dt style={{ color: '#6b7280' }}>{t('pppoe_diagnostics.readiness.nas_coverage', 'NAS configured for polling')}</dt>
+                    <dt style={{ color: '#6b7280' }}>{t('pppoe_diagnostics.readiness.nas_coverage', 'NAS configured for RouterOS PPPoE polling')}</dt>
                     <dd style={{ margin: 0, textAlign: 'right' }}>
                       {t('pppoe_diagnostics.readiness.coverage_short', '{{covered}} / {{total}}', {
                         covered: (source as RouterEventsReadinessSource).coveredNas,
                         total: (source as RouterEventsReadinessSource).totalNas,
                       })}
                     </dd>
+                    {Boolean((source as RouterEventsReadinessSource).maintenanceNas) && (
+                      <>
+                        <dt style={{ color: '#6b7280' }}>{t('pppoe_diagnostics.readiness.maintenance_label', 'Maintenance mode')}</dt>
+                        <dd style={{ margin: 0, textAlign: 'right' }}>
+                          {t('pppoe_diagnostics.readiness.maintenance_count', 'NAS excluded: {{count}}', {
+                            count: (source as RouterEventsReadinessSource).maintenanceNas ?? 0,
+                          })}
+                        </dd>
+                      </>
+                    )}
                   </>
                 )}
               </dl>
-              {source.detail && <p style={{ margin: '0.45rem 0 0', fontSize: '0.72rem', lineHeight: 1.35, color: '#4b5563' }}>{source.detail}</p>}
+              {key === 'router_events' && Boolean((source as RouterEventsReadinessSource).maintenanceNas) && (
+                <p style={{ margin: '0.45rem 0 0', fontSize: '0.7rem', lineHeight: 1.35, color: '#6b7280' }}>
+                  {t('pppoe_diagnostics.readiness.maintenance_excluded', 'NAS in maintenance mode are excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage.')}
+                </p>
+              )}
+              {source.detail && <p style={{ margin: '0.45rem 0 0', fontSize: '0.72rem', lineHeight: 1.35, color: '#4b5563' }}>{formatDetail(source)}</p>}
             </div>
           ))}
         </div>

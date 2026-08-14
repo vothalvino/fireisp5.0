@@ -142,6 +142,59 @@ describe('i18n — critical pt-BR values', () => {
   });
 });
 
+describe('i18n — PPPoE diagnostics operational messages', () => {
+  const readinessDetailCodes = [
+    'authentication_embedded_not_running',
+    'authentication_recent_isolated',
+    'authentication_recent_external',
+    'authentication_recent_embedded',
+    'authentication_waiting_isolated',
+    'authentication_waiting_external',
+    'authentication_waiting_embedded',
+    'authentication_not_configured_isolated',
+    'authentication_not_configured',
+    'router_none_active',
+    'router_all_maintenance',
+    'router_none_covered',
+    'router_ready_all',
+    'router_partial_coverage',
+    'router_waiting_no_events',
+    'accounting_recent',
+    'accounting_embedded_not_running',
+    'accounting_waiting',
+    'accounting_not_configured_isolated',
+    'accounting_not_configured',
+  ];
+
+  for (const code of readinessDetailCodes) {
+    const key = `pppoe_diagnostics.readiness.details.${code}`;
+    it(`localizes readiness detail ${code} in Spanish and Portuguese`, () => {
+      expect(enFlat[key]).toBeTruthy();
+      expect(esFlat[key]).toBeTruthy();
+      expect(ptBrFlat[key]).toBeTruthy();
+      expect(esFlat[key]).not.toBe(enFlat[key]);
+      expect(ptBrFlat[key]).not.toBe(enFlat[key]);
+    });
+  }
+
+  it('localizes the MAC-move empty state in all supported locales', () => {
+    expect(enFlat['mac_move_events.empty']).toBe('No MAC move events found.');
+    expect(esFlat['mac_move_events.empty']).toBe('No se encontraron eventos de movimiento MAC.');
+    expect(ptBrFlat['mac_move_events.empty']).toBe('Nenhum evento de mudança de MAC encontrado.');
+  });
+
+  it.each([1, 3])('uses count-neutral maintenance coverage wording for %i NAS', (count) => {
+    expect(esFlat['pppoe_diagnostics.readiness.maintenance_count'].replace('{{count}}', String(count)))
+      .toBe(`NAS excluidos: ${count}`);
+    expect(ptBrFlat['pppoe_diagnostics.readiness.maintenance_count'].replace('{{count}}', String(count)))
+      .toBe(`NAS excluídos: ${count}`);
+    expect(esFlat['pppoe_diagnostics.readiness.details.router_all_maintenance'].replace('{{maintenanceNas}}', String(count)))
+      .toContain(`modo de mantenimiento: ${count}`);
+    expect(ptBrFlat['pppoe_diagnostics.readiness.details.router_all_maintenance'].replace('{{maintenanceNas}}', String(count)))
+      .toContain(`modo de manutenção: ${count}`);
+  });
+});
+
 describe('i18n — regulatory compliance titles follow the organization locale', () => {
   const locales: Array<[string, Record<string, string>]> = [
     ['en', enFlat],

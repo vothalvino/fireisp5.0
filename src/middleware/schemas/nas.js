@@ -29,6 +29,9 @@ const createNas = {
   api_use_tls: { type: 'boolean' },
   // Per-NAS connectivity mode (migration 371)
   access_mode: { type: 'string', enum: ['direct', 'nated'] },
+  // Maintenance mode leaves the NAS active and available for manual actions,
+  // but excludes it from automated PPPoE diagnostics polling/readiness.
+  maintenance_mode: { type: 'boolean' },
 };
 
 const updateNas = {
@@ -54,6 +57,7 @@ const updateNas = {
   api_use_tls: { type: 'boolean' },
   // Per-NAS connectivity mode (migration 371)
   access_mode: { type: 'string', enum: ['direct', 'nated'] },
+  maintenance_mode: { type: 'boolean' },
 };
 
 // Seed (one-click bootstrap) parameters for POST /nas/:id/seed. Flat scalars so

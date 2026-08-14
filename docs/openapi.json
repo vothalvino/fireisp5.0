@@ -26923,7 +26923,9 @@
                                 "status",
                                 "lastReceivedAt",
                                 "events24h",
-                                "detail"
+                                "detail",
+                                "detailCode",
+                                "detailParams"
                               ],
                               "additionalProperties": false,
                               "properties": {
@@ -26949,6 +26951,24 @@
                                 },
                                 "detail": {
                                   "type": "string"
+                                },
+                                "detailCode": {
+                                  "type": "string",
+                                  "description": "Stable localization key for detail; clients may fall back to the English detail string."
+                                },
+                                "detailParams": {
+                                  "type": "object",
+                                  "description": "Interpolation values for detailCode (for example authPort, coveredNas, or totalNas).",
+                                  "additionalProperties": {
+                                    "oneOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  }
                                 }
                               }
                             },
@@ -26959,8 +26979,11 @@
                                 "lastReceivedAt",
                                 "events24h",
                                 "detail",
+                                "detailCode",
+                                "detailParams",
                                 "coveredNas",
-                                "totalNas"
+                                "totalNas",
+                                "maintenanceNas"
                               ],
                               "additionalProperties": false,
                               "properties": {
@@ -26987,6 +27010,24 @@
                                 "detail": {
                                   "type": "string"
                                 },
+                                "detailCode": {
+                                  "type": "string",
+                                  "description": "Stable localization key for detail; clients may fall back to the English detail string."
+                                },
+                                "detailParams": {
+                                  "type": "object",
+                                  "description": "Interpolation values for detailCode (for example authPort, coveredNas, or totalNas).",
+                                  "additionalProperties": {
+                                    "oneOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  }
+                                },
                                 "coveredNas": {
                                   "type": "integer",
                                   "minimum": 0
@@ -26994,6 +27035,11 @@
                                 "totalNas": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "maintenanceNas": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "Active MikroTik NAS devices excluded from automated RouterOS PPPoE diagnostics polling/readiness by maintenance mode."
                                 }
                               }
                             },
@@ -27003,7 +27049,9 @@
                                 "status",
                                 "lastReceivedAt",
                                 "events24h",
-                                "detail"
+                                "detail",
+                                "detailCode",
+                                "detailParams"
                               ],
                               "additionalProperties": false,
                               "properties": {
@@ -27029,6 +27077,24 @@
                                 },
                                 "detail": {
                                   "type": "string"
+                                },
+                                "detailCode": {
+                                  "type": "string",
+                                  "description": "Stable localization key for detail; clients may fall back to the English detail string."
+                                },
+                                "detailParams": {
+                                  "type": "object",
+                                  "description": "Interpolation values for detailCode (for example authPort, coveredNas, or totalNas).",
+                                  "additionalProperties": {
+                                    "oneOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  }
                                 }
                               }
                             }
@@ -63192,6 +63258,9 @@
               "direct",
               "nated"
             ]
+          },
+          "maintenance_mode": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -63286,6 +63355,9 @@
               "direct",
               "nated"
             ]
+          },
+          "maintenance_mode": {
+            "type": "boolean"
           }
         }
       },

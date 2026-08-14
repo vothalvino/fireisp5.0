@@ -96,6 +96,7 @@ describe('pppoeEventCollector', () => {
     expect(client.close).toHaveBeenCalledTimes(1);
     expect(db.query.mock.calls[0][0]).toContain("wg.state IN ('active', 'manual')");
     expect(db.query.mock.calls[0][0]).toContain('wg.server_peer_synced = 1');
+    expect(db.query.mock.calls[0][0]).toContain('n.maintenance_mode = 0');
     expect(db.query.mock.calls[0][1]).toEqual([42]);
     const insertCall = db.query.mock.calls[1];
     expect(insertCall[0]).toContain('INSERT IGNORE INTO pppoe_event_logs');

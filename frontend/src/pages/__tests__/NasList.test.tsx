@@ -6,14 +6,16 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { NasList } from '../NasList';
+import { NasList, NasModal } from '../NasList';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
+const mockApiPut = vi.fn();
 vi.mock('@/api/client', () => ({
   api: {
     GET: (...args: unknown[]) => mockApiGet(...args),
     POST: (...args: unknown[]) => mockApiPost(...args),
+    PUT: (...args: unknown[]) => mockApiPut(...args),
   },
   tokenStore: {
     getAccess: () => 'tok',
@@ -38,6 +40,7 @@ const nas1 = {
   last_health_check_at: '2026-06-01T08:00:00.000Z',
   description: null,
   status: 'active',
+  maintenance_mode: false,
 };
 
 const nasDown = {
@@ -70,6 +73,8 @@ function renderNasList() {
 describe('NasList page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiPost.mockResolvedValue({ data: { data: { ...nas1, id: 3 } }, error: undefined });
+    mockApiPut.mockResolvedValue({ data: { data: nas1 }, error: undefined });
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/nas')
         return Promise.resolve({
@@ -181,6 +186,72 @@ describe('NasList page', () => {
     expect(coaInput).toBeInTheDocument();
     // Default value is 3799
     expect(coaInput).toHaveValue(3799);
+  });
+
+  it('creates an active NAS in maintenance mode and sends the boolean field', async () => {
+    const user = userEvent.setup();
+    renderNasList();
+    await waitFor(() => expect(screen.getByText('NAS Devices')).toBeInTheDocument());
+    await user.click(screen.getByText('+ New NAS'));
+
+    await user.type(screen.getByLabelText(/Name/), 'Lab-Router');
+    await user.type(screen.getByLabelText(/IP Address \(IPv4\)/), '10.0.0.9');
+    await user.type(screen.getByLabelText(/RADIUS Shared Secret/), 'test-secret');
+    const maintenance = screen.getByRole('checkbox', { name: /Maintenance mode/ });
+    expect(maintenance).not.toBeChecked();
+    await user.click(maintenance);
+    await user.click(screen.getByRole('button', { name: 'Create NAS' }));
+
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith(
+      '/nas',
+      expect.objectContaining({
+        body: expect.objectContaining({
+          name: 'Lab-Router',
+          status: 'active',
+          maintenance_mode: true,
+        }),
+      }),
+    ));
+  });
+
+  it('round-trips maintenance mode when editing an existing NAS', async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <NasModal
+            nas={{ ...nas1, maintenance_mode: 1 }}
+            onClose={vi.fn()}
+            onSaved={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const maintenance = screen.getByRole('checkbox', { name: /Maintenance mode/ });
+    expect(maintenance).toBeChecked();
+    await user.click(maintenance);
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith(
+      '/nas/{id}',
+      expect.objectContaining({
+        params: { path: { id: 1 } },
+        body: expect.objectContaining({ maintenance_mode: false }),
+      }),
+    ));
+  });
+
+  it('marks maintained NAS devices in the list while keeping their active status', async () => {
+    mockApiGet.mockImplementation((path: string) => Promise.resolve(path === '/nas'
+      ? { data: { data: [{ ...nas1, maintenance_mode: true }], meta: { total: 1, page: 1, limit: 25, totalPages: 1 } }, error: undefined }
+      : { data: { data: [] }, error: undefined }));
+    renderNasList();
+
+    await waitFor(() => expect(screen.getByText('Core-Router')).toBeInTheDocument());
+    expect(screen.getByText('active')).toBeInTheDocument();
+    expect(screen.getByTitle('Excluded from automated RouterOS PPPoE diagnostics polling and readiness coverage')).toHaveTextContent('Maintenance');
   });
 
   // -------------------------------------------------------------------------
