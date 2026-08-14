@@ -3633,13 +3633,27 @@ function macMoveEventsResponse() {
 function pppoeReadinessSourceSchema(extraProperties = {}) {
   return {
     type: 'object',
-    required: ['status', 'lastReceivedAt', 'events24h', 'detail', ...Object.keys(extraProperties)],
+    required: [
+      'status', 'lastReceivedAt', 'events24h', 'detail', 'detailCode',
+      'detailParams', ...Object.keys(extraProperties),
+    ],
     additionalProperties: false,
     properties: {
       status: { type: 'string', enum: ['ready', 'waiting', 'not_configured', 'error'] },
       lastReceivedAt: { type: ['string', 'null'], format: 'date-time' },
       events24h: { type: 'integer', minimum: 0 },
       detail: { type: 'string' },
+      detailCode: {
+        type: 'string',
+        description: 'Stable localization key for detail; clients may fall back to the English detail string.',
+      },
+      detailParams: {
+        type: 'object',
+        description: 'Interpolation values for detailCode (for example authPort, coveredNas, or totalNas).',
+        additionalProperties: {
+          oneOf: [{ type: 'string' }, { type: 'number' }],
+        },
+      },
       ...extraProperties,
     },
   };
@@ -3671,6 +3685,11 @@ function pppoeReadinessResponse() {
                       routerEvents: pppoeReadinessSourceSchema({
                         coveredNas: { type: 'integer', minimum: 0 },
                         totalNas: { type: 'integer', minimum: 0 },
+                        maintenanceNas: {
+                          type: 'integer',
+                          minimum: 0,
+                          description: 'Active MikroTik NAS devices excluded from automated RouterOS PPPoE diagnostics polling/readiness by maintenance mode.',
+                        },
                       }),
                       accounting: pppoeReadinessSourceSchema(),
                     },

@@ -40,6 +40,8 @@ export interface Nas {
   api_username?: string | null;
   api_use_tls?: boolean | null;
   access_mode?: 'direct' | 'nated';
+  /** Keep the NAS active while excluding it from automated RouterOS PPPoE diagnostics polling/readiness. */
+  maintenance_mode?: boolean | number;
 }
 
 interface NasResponse {
@@ -64,6 +66,7 @@ interface NasBody {
   api_password?: string;
   api_use_tls?: boolean;
   access_mode?: 'direct' | 'nated';
+  maintenance_mode?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +263,8 @@ export function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
     // and the server's strict-boolean validator rejects the edit with a 422
     // ("api_use_tls must be a boolean"). Coerce to a real boolean on load.
     api_use_tls: Boolean(nas?.api_use_tls),
+    // MySQL may serialize this boolean as 0/1, just like api_use_tls.
+    maintenance_mode: Boolean(nas?.maintenance_mode),
   });
   const isNated = form.access_mode === 'nated';
   const [error, setError] = useState('');
@@ -274,6 +279,7 @@ export function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
         name: form.name.trim(),
         access_mode: form.access_mode,
         status: form.status,
+        maintenance_mode: Boolean(form.maintenance_mode),
       };
       // ip_address is only sent for direct mode; for nated the server allocates
       // the WireGuard tunnel address and uses it as ip_address.
@@ -498,6 +504,24 @@ export function NasModal({ nas, onClose, onSaved, onCreated }: NasModalProps) {
             >
               {STATUSES.map(s => <option key={s} value={s}>{capitalize(s)}</option>)}
             </select>
+          </label>
+
+          <label style={{ ...modalStyles.label, flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.maintenance_mode}
+              onChange={e => setField('maintenance_mode', e.target.checked)}
+              aria-describedby="nas-maintenance-mode-hint"
+            />
+            <span>
+              <span style={{ display: 'block' }}>{t('nasList.maintenanceMode.label')}</span>
+              <span
+                id="nas-maintenance-mode-hint"
+                style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}
+              >
+                {t('nasList.maintenanceMode.hint')}
+              </span>
+            </span>
           </label>
 
           <label style={modalStyles.label}>
@@ -1055,6 +1079,7 @@ export function SeedModal({ nas, onClose, defaultRadiusAddress }: SeedModalProps
 // ---------------------------------------------------------------------------
 
 export function NasList() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
@@ -1120,7 +1145,7 @@ export function NasList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'Name', 'IP Address', 'Type', 'Ports', 'CoA Port', 'Health', 'Last Check', 'Status', 'Actions'].map(
+                    {['ID', 'Name', 'IP Address', 'Type', 'Ports', 'CoA Port', 'Health', 'Last Check', 'Status', t('nasList.maintenanceMode.column'), 'Actions'].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
@@ -1141,6 +1166,24 @@ export function NasList() {
                           : '—'}
                       </td>
                       <td style={styles.td}><StatusBadge status={n.status} /></td>
+                      <td style={styles.td}>
+                        {Boolean(n.maintenance_mode) ? (
+                          <span
+                            title={t('nasList.maintenanceMode.badgeHint')}
+                            style={{
+                              background: '#e0e7ff',
+                              color: '#3730a3',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {t('nasList.maintenanceMode.badge')}
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                         <Link
                           to={`/nas/${n.id}`}

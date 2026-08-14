@@ -449,6 +449,10 @@ Polling is deliberately conservative:
 - One unreachable/misconfigured NAS is reported in the task summary and does
   not stop other NAS devices from being collected. Every opened API connection
   is closed after its poll.
+- A NAS in **maintenance mode** remains active for RADIUS and manual management,
+  but is excluded from automatic PPPoE event polling and readiness coverage.
+  Toggle maintenance mode from the NAS edit form; the readiness banner reports
+  maintained devices separately from the eligible polling total.
 - A NATed NAS is polled only when its non-deleted WireGuard tunnel is in an
   active/manual state and the server-side peer has been synced.
 

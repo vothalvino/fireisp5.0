@@ -55,6 +55,7 @@ const nas = {
   api_port: 8728,
   api_username: 'admin',
   api_use_tls: false,
+  maintenance_mode: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -117,6 +118,17 @@ describe('NasDetail page', () => {
     );
     expect(screen.getByText('10.0.0.1')).toBeInTheDocument();
     expect(screen.getByText('Datacenter A')).toBeInTheDocument();
+  });
+
+  it('explains maintenance mode without presenting the NAS as inactive', async () => {
+    mockApiGet.mockImplementation((path: string) => Promise.resolve(path === '/nas/{id}'
+      ? { data: { data: { ...nas, maintenance_mode: true } }, error: undefined }
+      : { data: { data: [] }, error: undefined }));
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core-Router' })).toBeInTheDocument());
+    expect(screen.getByText('active')).toBeInTheDocument();
+    expect(screen.getByText(/automated RouterOS PPPoE diagnostics polling and readiness coverage ignore it/i)).toBeInTheDocument();
   });
 
   it('shows a link to the associated site', async () => {

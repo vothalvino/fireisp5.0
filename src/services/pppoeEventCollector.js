@@ -236,6 +236,7 @@ async function collectCurrentDatabase(organizationId, excludeIsolatedTenants = f
                LEFT JOIN nas_wg_tunnels wg
                  ON wg.nas_id = n.id AND wg.deleted_at IS NULL
               WHERE n.status = 'active'
+                AND n.maintenance_mode = 0
                 AND n.deleted_at IS NULL
                 AND n.organization_id IS NOT NULL
                 AND LOWER(n.type) = 'mikrotik'

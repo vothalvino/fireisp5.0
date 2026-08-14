@@ -141,9 +141,20 @@ describe('PPPoE routes', () => {
     const data = {
       overall: 'partial',
       sources: {
-        authentication: { status: 'ready', lastReceivedAt: null, events24h: 1, detail: 'ok' },
-        routerEvents: { status: 'waiting', lastReceivedAt: null, events24h: 0, detail: 'wait', coveredNas: 1, totalNas: 1 },
-        accounting: { status: 'waiting', lastReceivedAt: null, events24h: 0, detail: 'wait' },
+        authentication: {
+          status: 'ready', lastReceivedAt: null, events24h: 1, detail: 'ok',
+          detailCode: 'authentication_recent_external', detailParams: {},
+        },
+        routerEvents: {
+          status: 'waiting', lastReceivedAt: null, events24h: 0, detail: 'wait',
+          detailCode: 'router_waiting_no_events',
+          detailParams: { coveredNas: 1, totalNas: 1 },
+          coveredNas: 1, totalNas: 1, maintenanceNas: 0,
+        },
+        accounting: {
+          status: 'waiting', lastReceivedAt: null, events24h: 0, detail: 'wait',
+          detailCode: 'accounting_waiting', detailParams: {},
+        },
       },
     };
     readiness.getReadiness.mockResolvedValueOnce(data);

@@ -363,7 +363,29 @@ export function NasDetail() {
           <InfoRow label={t('nasDetail.fields.apiPort')}           value={nas.api_port != null ? String(nas.api_port) : null} />
           <InfoRow label={t('nasDetail.fields.apiUsername')}       value={nas.api_username}                         />
           <InfoRow label={t('nasDetail.fields.apiUseTls')}         value={nas.api_use_tls != null ? (nas.api_use_tls ? 'Yes' : 'No') : null} />
+          <InfoRow
+            label={t('nasDetail.fields.maintenanceMode')}
+            value={Boolean(nas.maintenance_mode)
+              ? t('nasDetail.maintenanceMode.enabled')
+              : t('nasDetail.maintenanceMode.disabled')}
+          />
         </div>
+
+        {Boolean(nas.maintenance_mode) && (
+          <p style={{
+            margin: '0 0 1rem',
+            padding: '0.65rem 0.8rem',
+            border: '1px solid #c7d2fe',
+            borderRadius: 7,
+            background: '#eef2ff',
+            color: '#3730a3',
+            fontSize: '0.82rem',
+            lineHeight: 1.45,
+          }}>
+            <strong>{t('nasDetail.maintenanceMode.enabled')}:</strong>{' '}
+            {t('nasDetail.maintenanceMode.hint')}
+          </p>
+        )}
         {nas.site_id && (
           <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
             <Link to={`/sites/${nas.site_id}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
