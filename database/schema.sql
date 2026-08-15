@@ -14796,7 +14796,7 @@ CREATE TABLE IF NOT EXISTS radius_accounting_events (
     KEY idx_radius_events_integrity (organization_id, integrity_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Application-appended normalized RADIUS lifecycle evidence; 24-month default retention'
-PARTITION BY RANGE (UNIX_TIMESTAMP(event_at)) (
+PARTITION BY RANGE (FLOOR(UNIX_TIMESTAMP(event_at))) (
     PARTITION p2026_08 VALUES LESS THAN (UNIX_TIMESTAMP('2026-09-01')),
     PARTITION p2026_09 VALUES LESS THAN (UNIX_TIMESTAMP('2026-10-01')),
     PARTITION p2026_10 VALUES LESS THAN (UNIX_TIMESTAMP('2026-11-01')),

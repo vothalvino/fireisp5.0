@@ -75,6 +75,20 @@ describe('migration 457 connection logging contract', () => {
     expect(migration).toMatch(/evt_subscriber_logging_partition_maintenance[\s\S]*STARTS \(CURRENT_DATE \+ INTERVAL 1 DAY \+ INTERVAL 3 HOUR\)[\s\S]*ON COMPLETION PRESERVE/);
   });
 
+  test('coerces fractional RADIUS timestamps to an integer partition expression', () => {
+    for (const source of [migration, schema]) {
+      const table = source.match(
+        /CREATE TABLE IF NOT EXISTS radius_accounting_events \([\s\S]*?PARTITION p_future\s+VALUES LESS THAN MAXVALUE\s*\n\);/,
+      )?.[0];
+      expect(table).toBeDefined();
+      expect(table).toContain('event_at               TIMESTAMP(3)');
+      expect(table).toContain('PRIMARY KEY (id, event_at)');
+      expect(table).toContain('PARTITION BY RANGE (FLOOR(UNIX_TIMESTAMP(event_at)))');
+      expect(table).not.toContain('PARTITION BY RANGE (UNIX_TIMESTAMP(event_at))');
+      expect(source).toMatch(/CREATE PROCEDURE subscriber_logging_maintain_partitions\(\)[\s\S]*v_next_ts = UNIX_TIMESTAMP/);
+    }
+  });
+
   test('adds bounded usage/provenance storage and indexable retention timestamps', () => {
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS radius_accounting_usage_daily');
     expect(migration).toContain('KEY idx_radius_usage_date (usage_date)');
