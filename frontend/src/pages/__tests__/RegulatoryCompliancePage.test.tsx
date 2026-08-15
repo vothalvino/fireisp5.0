@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import RegulatoryCompliancePage from '../RegulatoryCompliancePage';
 import { LEGAL_DOCUMENT_PLACEHOLDER_HELP } from '@/legalDocumentPlaceholders';
 
@@ -15,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 // The consumer-protection tab is MX-locale-gated; default the mocked org to MX
-// so the full 8-tab layout renders, and flip per-test for the global case.
+// so the full 9-tab layout renders, and flip per-test for the global case.
 type MockUser = { organization_locale?: string; role?: string; permissions?: string[] };
 const mockUser = vi.hoisted(() => ({ current: { organization_locale: 'MX', role: 'admin' } as MockUser }));
 vi.mock('@/auth/AuthContext', () => ({
@@ -43,7 +44,9 @@ function renderCompliancePage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RegulatoryCompliancePage />
+      <MemoryRouter>
+        <RegulatoryCompliancePage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -65,11 +68,12 @@ describe('RegulatoryCompliancePage', () => {
     }
   });
 
-  it('renders all 8 tab buttons', () => {
+  it('renders all 9 tab buttons for an authorized admin', () => {
     renderCompliancePage();
     // consent appears in both the button strip and the active tab h2 — use getAllByText
     expect(screen.getAllByText('regulatoryCompliance.tabs.consent').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('regulatoryCompliance.tabs.dsar').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('regulatoryCompliance.tabs.government').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('regulatoryCompliance.tabs.identity').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('regulatoryCompliance.tabs.numbering').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('regulatoryCompliance.tabs.uso').length).toBeGreaterThanOrEqual(1);
@@ -96,13 +100,263 @@ describe('RegulatoryCompliancePage', () => {
       mockUser.current = { organization_locale: 'MX', role: 'admin' };
     }
   });
+
+  it('shows an empty-safe access state and makes no API calls when no tab is permitted', () => {
+    mockUser.current = { organization_locale: 'MX', role: 'support', permissions: [] };
+    vi.mocked(fetch).mockClear();
+    try {
+      renderCompliancePage();
+      expect(screen.getByRole('alert')).toHaveTextContent('regulatoryCompliance.accessDenied');
+      expect(screen.queryByText('regulatoryCompliance.tabs.consent')).toBeNull();
+      expect(screen.queryByText('regulatoryCompliance.tabs.government')).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      mockUser.current = { organization_locale: 'MX', role: 'admin' };
+    }
+  });
+});
+
+describe('GovernmentRequestsTab — case-bound IP attribution gate', () => {
+  const RECEIVED_CASE = {
+    id: 73,
+    authority_name: 'Fiscalía Estatal',
+    authority_ref: 'OF-2026-73',
+    request_type: 'ip_traceability',
+    client_id: 7,
+    contract_id: 9,
+    ip_address: '198.51.100.8',
+    public_port: 62001,
+    protocol: 'tcp',
+    observed_at: '2026-08-14T10:15:01.000Z',
+    legal_basis: 'Oficio judicial autorizado',
+    notes: 'Responder únicamente con evidencia de atribución de IP.',
+    status: 'received',
+    created_at: '2026-08-14T09:00:00.000Z',
+  };
+
+  function installGovernmentApi(row = RECEIVED_CASE) {
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.includes('/regulatory-compliance/gov-data-requests?') && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [row] }) } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [], id: 99 }) } as unknown as Response);
+    });
+  }
+
+  async function openGovernment() {
+    renderCompliancePage();
+    fireEvent.click(screen.getByText('regulatoryCompliance.tabs.government'));
+    await screen.findByText('Fiscalía Estatal');
+  }
+
+  afterEach(() => {
+    mockUser.current = { organization_locale: 'MX', role: 'admin' };
+    vi.mocked(fetch).mockClear();
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ data: [] }),
+    } as unknown as Response));
+  });
+
+  it('hides the tab without the government-request view permission', () => {
+    mockUser.current = { organization_locale: 'MX', role: 'billing', permissions: ['dsar_requests.view'] };
+    renderCompliancePage();
+    expect(screen.queryByText('regulatoryCompliance.tabs.government')).toBeNull();
+  });
+
+  it('opens the only permitted tab for a custom legal-response principal', async () => {
+    mockUser.current = {
+      organization_locale: 'MX', role: 'support', permissions: ['gov_data_requests.view'],
+    };
+    installGovernmentApi();
+    renderCompliancePage();
+
+    expect(await screen.findByText('Fiscalía Estatal')).toBeInTheDocument();
+    expect(screen.getAllByText('regulatoryCompliance.tabs.government')).toHaveLength(2);
+    expect(screen.queryByText('regulatoryCompliance.tabs.consent')).toBeNull();
+  });
+
+  it('creates an exact CGNAT traceability case without broad network-history fields', async () => {
+    installGovernmentApi();
+    await openGovernment();
+
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.authority'), { target: { value: 'Fiscalía Estatal' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.officialReference'), { target: { value: 'OF-2026-99' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.legalBasis'), { target: { value: 'Orden judicial 99' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.publicIpv4'), { target: { value: '198.51.100.9' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.publicPort'), { target: { value: '62002' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.protocol'), { target: { value: 'tcp' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.exactTimestamp'), { target: { value: '2026-08-14T10:15:01' } });
+    fireEvent.click(screen.getByText('regulatoryCompliance.government.create'));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([input, options]) =>
+        String(input).endsWith('/regulatory-compliance/gov-data-requests') && options?.method === 'POST');
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        authority_name: 'Fiscalía Estatal',
+        authority_ref: 'OF-2026-99',
+        request_type: 'ip_traceability',
+        legal_basis: 'Orden judicial 99',
+        ip_address: '198.51.100.9',
+        public_port: 62002,
+        protocol: 'tcp',
+        observed_at: new Date('2026-08-14T10:15:01').toISOString(),
+      });
+    });
+  });
+
+  it('creates a direct-public traceability case without inventing port or protocol', async () => {
+    installGovernmentApi();
+    await openGovernment();
+
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.authority'), { target: { value: 'Fiscalía Estatal' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.officialReference'), { target: { value: 'OF-2026-100' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.legalBasis'), { target: { value: 'Orden judicial 100' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.assignmentMode'), { target: { value: 'direct' } });
+    expect(screen.queryByLabelText('regulatoryCompliance.government.publicPort')).toBeNull();
+    expect(screen.queryByLabelText('regulatoryCompliance.government.protocol')).toBeNull();
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.publicIpv4'), { target: { value: '203.0.113.20' } });
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.exactTimestamp'), { target: { value: '2026-08-14T10:15:01' } });
+    fireEvent.click(screen.getByText('regulatoryCompliance.government.create'));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([input, options]) =>
+        String(input).endsWith('/regulatory-compliance/gov-data-requests') && options?.method === 'POST');
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+        request_type: 'ip_traceability',
+        ip_address: '203.0.113.20',
+        public_port: null,
+        protocol: null,
+        observed_at: new Date('2026-08-14T10:15:01').toISOString(),
+      });
+    });
+  });
+
+  it('requires validation/start-processing before exposing the exact lookup link', async () => {
+    let status = 'received';
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.includes('/regulatory-compliance/gov-data-requests?') && !options?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [{ ...RECEIVED_CASE, status }] }),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/gov-data-requests/73/process')) status = 'processing';
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) } as unknown as Response);
+    });
+    await openGovernment();
+    expect(screen.getByRole('note')).toHaveTextContent('regulatoryCompliance.government.workflowHelp');
+    const caseRow = screen.getByText('Fiscalía Estatal').closest('tr');
+    expect(caseRow).not.toBeNull();
+    expect(caseRow).toHaveTextContent('Oficio judicial autorizado');
+    expect(caseRow).toHaveTextContent('regulatoryCompliance.government.subjectClient');
+    expect(caseRow).toHaveTextContent('regulatoryCompliance.government.subjectContract');
+    expect(caseRow).toHaveTextContent('regulatoryCompliance.government.caseNotes');
+    expect(caseRow).toHaveTextContent('198.51.100.8:62001 TCP');
+    expect(caseRow).toHaveTextContent('2026-08-14T10:15:01.000Z');
+    expect(screen.queryByText('regulatoryCompliance.government.openLookup')).toBeNull();
+    fireEvent.click(screen.getByText('regulatoryCompliance.government.startProcessing'));
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/regulatory-compliance/gov-data-requests/73/process',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+
+    expect(await screen.findByText('regulatoryCompliance.government.openLookup')).toHaveAttribute('href', '/connection-logs');
+  });
+
+  it('lets a manager close a processing case before releasing its evidence hold', async () => {
+    let status = 'processing';
+    vi.mocked(fetch).mockImplementation((input, options) => {
+      const url = String(input);
+      if (url.includes('/regulatory-compliance/gov-data-requests?') && !options?.method) {
+        return Promise.resolve({
+          ok: true, json: () => Promise.resolve({ data: [{ ...RECEIVED_CASE, status }] }),
+        } as unknown as Response);
+      }
+      if (url.endsWith('/gov-data-requests/73/fulfill')) status = 'fulfilled';
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) } as unknown as Response);
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openGovernment();
+    fireEvent.click(screen.getByText('regulatoryCompliance.government.fulfill'));
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/regulatory-compliance/gov-data-requests/73/fulfill',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+    expect(await screen.findByLabelText('regulatoryCompliance.government.releaseReason')).toBeInTheDocument();
+    expect(confirm).toHaveBeenCalledWith('regulatoryCompliance.government.fulfillConfirm');
+    confirm.mockRestore();
+  });
+
+  it('requires and submits an audited reason when rejecting a case', async () => {
+    installGovernmentApi({ ...RECEIVED_CASE, status: 'processing' });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openGovernment();
+
+    const reject = screen.getByText('regulatoryCompliance.government.reject');
+    expect(reject).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.rejectReason'), {
+      target: { value: 'Authority withdrew request OF-2026-73.' },
+    });
+    expect(reject).toBeEnabled();
+    fireEvent.click(reject);
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/regulatory-compliance/gov-data-requests/73/reject',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ reason: 'Authority withdrew request OF-2026-73.' }),
+      }),
+    ));
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
+  });
+
+  it('releases a terminal case evidence hold only with manage permission, a reason, and confirmation', async () => {
+    installGovernmentApi({ ...RECEIVED_CASE, status: 'fulfilled' });
+    await openGovernment();
+
+    const release = screen.getByText('regulatoryCompliance.government.releaseEvidenceHold');
+    expect(release).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('regulatoryCompliance.government.releaseReason'), {
+      target: { value: 'Final response delivered; normal retention may resume.' },
+    });
+    expect(release).toBeEnabled();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(release);
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/api/v1/regulatory-compliance/gov-data-requests/73/release-evidence-hold',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ reason: 'Final response delivered; normal retention may resume.' }),
+      }),
+    ));
+    expect(await screen.findByText('regulatoryCompliance.government.releaseRecorded')).toBeInTheDocument();
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
+  });
+
+  it('does not expose evidence-hold release to a view-only legal responder', async () => {
+    mockUser.current = {
+      organization_locale: 'MX', role: 'support', permissions: ['gov_data_requests.view'],
+    };
+    installGovernmentApi({ ...RECEIVED_CASE, status: 'rejected' });
+    renderCompliancePage();
+    await screen.findByText('Fiscalía Estatal');
+
+    expect(screen.queryByText('regulatoryCompliance.government.releaseEvidenceHold')).toBeNull();
+    expect(screen.queryByLabelText('regulatoryCompliance.government.releaseReason')).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Consent tab — the controls must not render for roles the backend will 403.
-// PrivateRoute lets readonly and technician onto this page as well as billing,
-// and migration 321 grants those two only subscriber_consents.view. Withdraw
-// needs .manage, which ONLY admin has.
+// The route accepts any authenticated principal; tab and action visibility
+// must therefore follow the resolved permission set exactly.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

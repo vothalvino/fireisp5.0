@@ -38,6 +38,33 @@ describe('usageService', () => {
       expect(result.sessions).toBe(5);
     });
 
+    test('marks a summary incomplete when a pre-period unverified lifecycle overlaps', async () => {
+      db.query.mockResolvedValueOnce([[
+        {
+          session_count: 1,
+          total_bytes_in: 1,
+          total_bytes_out: 1,
+          total_bytes: 2,
+          total_duration_seconds: 1,
+          observed_rows: 1,
+          incomplete_rows: 0,
+          unverifiable_session_rows: 1,
+          period_start: '2026-03-01',
+          period_end: '2026-03-31',
+        },
+      ]]);
+
+      const result = await usageService.getClientUsage(1, {
+        organizationId: 7,
+        from: '2026-03-01',
+        to: '2026-03-31',
+      });
+
+      expect(result.usage_complete).toBe(false);
+      expect(result.unverifiable_session_rows).toBe(1);
+      expect(db.query.mock.calls[0][0]).toMatch(/last_accounting_received_at[\s\S]*INTERVAL 60 MINUTE/);
+    });
+
     test('applies date filters', async () => {
       db.query.mockResolvedValueOnce([[{
         session_count: 0,
@@ -51,8 +78,8 @@ describe('usageService', () => {
 
       await usageService.getClientUsage(1, { from: '2026-03-01', to: '2026-03-31' });
       const [sql, params] = db.query.mock.calls[0];
-      expect(sql).toContain('event_at >= ?');
-      expect(sql).toContain('event_at <= ?');
+      expect(sql).toContain('usage_date >= ?');
+      expect(sql).toContain('usage_date <= ?');
       expect(params).toContain('2026-03-01');
       expect(params).toContain('2026-03-31');
     });
@@ -70,6 +97,20 @@ describe('usageService', () => {
       expect(result[0].download_gb).toBe(1);
       expect(result[1].download_gb).toBe(2);
     });
+
+    test('marks a day incomplete when an unverified session overlaps it', async () => {
+      db.query.mockResolvedValueOnce([[
+        {
+          date: '2026-03-15', bytes_in: 1, bytes_out: 1, bytes_total: 2,
+          sessions: 1, duration_seconds: 1, incomplete_rows: 0,
+          unverifiable_session_rows: 1,
+        },
+      ]]);
+
+      const [row] = await usageService.getDailyUsage(1, { organizationId: 7 });
+      expect(row.usage_complete).toBe(false);
+      expect(row.unverifiable_session_rows).toBe(1);
+    });
   });
 
   describe('getTopUsers()', () => {
@@ -82,6 +123,21 @@ describe('usageService', () => {
       const result = await usageService.getTopUsers(1);
       expect(result).toHaveLength(2);
       expect(result[0].total_gb).toBe(15);
+    });
+
+    test('does not call a top-consumer row complete when legacy accounting overlaps', async () => {
+      db.query.mockResolvedValueOnce([[
+        {
+          contract_id: 1, client_id: 10, bytes_in: 1, bytes_out: 1,
+          bytes_total: 2, incomplete_rows: 0, unverifiable_session_rows: 1,
+        },
+      ]]);
+
+      const [row] = await usageService.getTopUsers(7, {
+        from: '2026-03-01', to: '2026-03-31',
+      });
+      expect(row.usage_complete).toBe(false);
+      expect(row.unverifiable_session_rows).toBe(1);
     });
 
     test('respects limit parameter', async () => {
@@ -101,6 +157,9 @@ describe('usageService', () => {
         client_id: 10,
         data_cap_gb: 100,
         bytes_used: 161061273600, // 150 GB
+        observed_rows: 1,
+        incomplete_rows: 0,
+        unverifiable_session_rows: 0,
       }]]);
 
       const result = await usageService.checkDataCaps(1);

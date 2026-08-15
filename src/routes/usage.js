@@ -16,6 +16,7 @@ router.use(orgScope);
 router.get('/client/:clientId', requirePermission('clients.view'), async (req, res, next) => {
   try {
     const data = await usageService.getClientUsage(req.params.clientId, {
+      organizationId: req.orgId,
       from: req.query.from,
       to: req.query.to,
     });
@@ -27,6 +28,7 @@ router.get('/client/:clientId', requirePermission('clients.view'), async (req, r
 router.get('/contract/:contractId/daily', requirePermission('clients.view'), async (req, res, next) => {
   try {
     const data = await usageService.getDailyUsage(req.params.contractId, {
+      organizationId: req.orgId,
       from: req.query.from,
       to: req.query.to,
     });

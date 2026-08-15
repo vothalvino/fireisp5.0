@@ -407,16 +407,32 @@ describe('is_install_operator on GET /auth/me', () => {
 describe('/system/* refuses API tokens outright', () => {
   const TOKEN_ROW = {
     id: 900, user_id: OPERATOR.id, email: OPERATOR.email, role: 'admin',
-    status: 'active', organization_id: 1, scopes: '["clients.view"]',
+    status: 'active', token_organization_id: 1, user_home_organization_id: 1,
+    is_install_operator: 1, scopes: '["clients.view"]', scopes_sql_null: 0,
+    rate_limit_policy_id: null,
   };
 
   function wireToken() {
+    db.withPrimaryContext = jest.fn((callback) => callback());
     db.query.mockImplementation(async (sql) => {
       if (/FROM api_tokens/.test(sql)) return [[TOKEN_ROW]];
+      if (/FROM organizations\s+WHERE id = \?/.test(sql)) {
+        return [[{ id: OPERATOR.organization_id, name: 'Test ISP' }]];
+      }
+      if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
+        return [[{ membership_role: OPERATOR.role }]];
+      }
+      if (/FROM users u/.test(sql)) {
+        return [[{ ...OPERATOR, authority_persona: OPERATOR.role }]];
+      }
       if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 1 }]];
       return [[{ affectedRows: 1 }]];
     });
   }
+
+  afterEach(() => {
+    delete db.withPrimaryContext;
+  });
 
   it('404s a narrowed token on the deploy trigger, even one owned by the operator', async () => {
     wireToken();

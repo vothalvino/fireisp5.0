@@ -8,7 +8,7 @@
 // =============================================================================
 
 const { ForbiddenError } = require('../utils/errors');
-const { tenantApiLimiter } = require('./rateLimit');
+const { tenantApiLimiter, isCollectorPath } = require('./rateLimit');
 const db = require('../config/database');
 
 /**
@@ -31,9 +31,11 @@ function orgScope(req, res, next) {
 
   // Apply per-tenant rate limiting now that req.orgId is set
   if (typeof db.withTenantContext === 'function') {
-    return db.withTenantContext(orgId, () => tenantApiLimiter(req, res, next));
+    return db.withTenantContext(orgId, () => (isCollectorPath(req)
+      ? next()
+      : tenantApiLimiter(req, res, next)));
   }
-  return tenantApiLimiter(req, res, next);
+  return isCollectorPath(req) ? next() : tenantApiLimiter(req, res, next);
 }
 
 module.exports = { orgScope };

@@ -17,7 +17,7 @@
 #   MYSQL_DATABASE — default: fireisp_test
 #
 # Prerequisites:
-#   1. MySQL 8.0+ or MariaDB 10.6+ running
+#   1. MySQL 8.0.29+ or MariaDB 10.6+ running
 #   2. Database created:  CREATE DATABASE fireisp_test;
 #   3. Schema applied:    mysql -u root fireisp_test < database/schema.sql
 # =============================================================================

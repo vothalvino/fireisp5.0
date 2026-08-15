@@ -15,9 +15,16 @@ const {
   updatePasswordPolicy,
   createAdminIpAllowlist,
 } = require('../middleware/schemas/security');
-const { ValidationError, NotFoundError } = require('../utils/errors');
+const { ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
 
 const router = Router();
+
+function requireInteractiveJwt(req, _res, next) {
+  if (req.user?.apiTokenId) {
+    return next(new ForbiddenError('API token rate-policy changes require an interactive user session'));
+  }
+  return next();
+}
 
 router.use(authenticate);
 router.use(orgScope);
@@ -229,13 +236,43 @@ router.put('/password-policy', requirePermission('password_policy.update'), vali
 // API Key Rate Limits
 // ---------------------------------------------------------------------------
 
+const UINT32_MAX = 0xFFFFFFFF;
+const UINT16_MAX = 0xFFFF;
+const UINT64_MAX = 18446744073709551615n;
+
+function apiTokenIdParam(value) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw new ValidationError('Invalid API token ID', [{ field: 'tokenId', message: 'tokenId must be a positive integer' }]);
+  }
+  try {
+    if (BigInt(value) > UINT64_MAX) throw new Error('out of range');
+  } catch (_err) {
+    throw new ValidationError('Invalid API token ID', [{ field: 'tokenId', message: 'tokenId is outside the database ID range' }]);
+  }
+  return value;
+}
+
+function optionalRateLimit(body, field, max) {
+  const value = body[field];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > max) {
+    throw new ValidationError('Invalid API token rate limit', [{
+      field,
+      message: `${field} must be a positive integer no greater than ${max}`,
+    }]);
+  }
+  return value;
+}
+
 // GET /api-key-rate-limits — list
 router.get('/api-key-rate-limits', requirePermission('api_key_rate_limits.view'), async (req, res, next) => {
   try {
-    const [rows] = await db.query(
+    // API tokens and their policies are control-plane data, including when the
+    // current organization routes subscriber data to an isolated database.
+    const [rows] = await db.withPrimaryContext(() => db.query(
       'SELECT * FROM api_key_rate_limits WHERE organization_id = ? ORDER BY id DESC',
       [req.orgId],
-    );
+    ));
     res.json({ data: rows });
   } catch (err) {
     next(err);
@@ -243,30 +280,56 @@ router.get('/api-key-rate-limits', requirePermission('api_key_rate_limits.view')
 });
 
 // PUT /api-key-rate-limits/:tokenId — set rate limit for token
-router.put('/api-key-rate-limits/:tokenId', requirePermission('api_key_rate_limits.update'), async (req, res, next) => {
+router.put('/api-key-rate-limits/:tokenId', requireInteractiveJwt, requirePermission('api_key_rate_limits.update'), async (req, res, next) => {
   try {
-    const { requests_per_minute, requests_per_hour, requests_per_day, burst_size } = req.body;
-    const tokenId = req.params.tokenId;
+    const body = req.body || {};
+    const tokenId = apiTokenIdParam(req.params.tokenId);
+    const requestsPerMinute = optionalRateLimit(body, 'requests_per_minute', UINT32_MAX);
+    const requestsPerHour = optionalRateLimit(body, 'requests_per_hour', UINT32_MAX);
+    const requestsPerDay = optionalRateLimit(body, 'requests_per_day', UINT32_MAX);
+    const burstSize = optionalRateLimit(body, 'burst_size', UINT16_MAX);
+    if (body.is_active !== undefined && typeof body.is_active !== 'boolean') {
+      throw new ValidationError('Invalid API token rate limit', [{ field: 'is_active', message: 'is_active must be a boolean' }]);
+    }
+    const insertActive = body.is_active === undefined ? 1 : (body.is_active ? 1 : 0);
+    const updateActive = body.is_active === undefined ? null : 1;
 
-    await db.query(
-      `INSERT INTO api_key_rate_limits
-        (organization_id, api_token_id, requests_per_minute, requests_per_hour, requests_per_day, burst_size)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         requests_per_minute = VALUES(requests_per_minute),
-         requests_per_hour = VALUES(requests_per_hour),
-         requests_per_day = VALUES(requests_per_day),
-         burst_size = VALUES(burst_size),
-         updated_at = NOW()`,
-      [
-        req.orgId,
-        tokenId,
-        requests_per_minute || null,
-        requests_per_hour || null,
-        requests_per_day || null,
-        burst_size || null,
-      ],
-    );
+    await db.withPrimaryContext(async () => {
+      // Never trust the path ID alone: api_token_id is globally unique and an
+      // unchecked upsert let one tenant create or alter another tenant's row.
+      const [tokens] = await db.query(
+        `SELECT id FROM api_tokens
+          WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+          LIMIT 2`,
+        [tokenId, req.orgId],
+      );
+      if (!Array.isArray(tokens) || tokens.length !== 1) throw new NotFoundError('API token');
+
+      await db.query(
+        `INSERT INTO api_key_rate_limits
+          (organization_id, api_token_id, requests_per_minute, requests_per_hour,
+           requests_per_day, burst_size, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           organization_id = VALUES(organization_id),
+           requests_per_minute = VALUES(requests_per_minute),
+           requests_per_hour = VALUES(requests_per_hour),
+           requests_per_day = VALUES(requests_per_day),
+           burst_size = VALUES(burst_size),
+           is_active = IF(? IS NULL, is_active, VALUES(is_active)),
+           updated_at = NOW()`,
+        [
+          req.orgId,
+          tokenId,
+          requestsPerMinute,
+          requestsPerHour,
+          requestsPerDay,
+          burstSize,
+          insertActive,
+          updateActive,
+        ],
+      );
+    });
 
     res.json({ success: true });
   } catch (err) {

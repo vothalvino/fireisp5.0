@@ -44,7 +44,16 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (req, res, next) => next(),
   sseLimiter: (req, res, next) => next(),
   webhookLimiter: (req, res, next) => next(),
+  collectorIngressLimiter: (req, res, next) => next(),
+  apiTokenConfiguredLimiter: (req, res, next) => next(),
+  isCollectorPath: () => false,
   uploadLimiter: (req, res, next) => next(),
+  CacheStore: class {
+    init() {}
+    async increment() { return { totalHits: 1, resetTime: new Date(Date.now() + 60000) }; }
+    async decrement() {}
+    async resetKey() {}
+  },
 }));
 
 jest.mock('../src/services/llmProviderService', () => ({
@@ -606,6 +615,65 @@ describe('supportBillingModule', () => {
     const ctx = { customer: { id: 10 }, billing: { balance: 50, nextDueDate: '2026-07-01' }, connection: null, alerts: [] };
     const result = await billingModule.handle('billing', ctx, 'cuando es mi proximo pago', 1);
     expect(result.actionType).toBe('next_due_date');
+  });
+
+  test('data usage reports a complete tenant-scoped accounting rollup', async () => {
+    db.query.mockResolvedValueOnce([[{
+      observed_rows: 3,
+      incomplete_rows: 0,
+      unverifiable_session_rows: 0,
+      usage_gb: '1.25',
+    }], undefined]);
+
+    const result = await billingModule.handle('billing', mockCtx, 'cuanto uso de datos llevo', 1);
+
+    expect(result.actionType).toBe('data_usage');
+    expect(result.response).toContain('1.25 GB');
+    expect(result.actionData).toMatchObject({
+      available: true,
+      usageComplete: true,
+      observedRows: 3,
+      incompleteRows: 0,
+      usageGb: 1.25,
+    });
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE u.organization_id = ?'),
+      [1, 10, 1, 10],
+    );
+  });
+
+  test.each([
+    [{ observed_rows: 0, incomplete_rows: 0, unverifiable_session_rows: 0, usage_gb: '0.00' }, /no hay datos/i],
+    [{ observed_rows: 2, incomplete_rows: 1, unverifiable_session_rows: 0, usage_gb: '1.25' }, /está incompleto/i],
+    [{ observed_rows: 2, incomplete_rows: 0, unverifiable_session_rows: 1, usage_gb: '1.25' }, /está incompleto/i],
+  ])('data usage refuses a numeric claim when accounting is absent or incomplete', async (row, expectedMessage) => {
+    db.query.mockResolvedValueOnce([[row], undefined]);
+
+    const result = await billingModule.handle('billing', mockCtx, 'cuanto consumo llevo', 1);
+
+    expect(result.actionType).toBe('data_usage');
+    expect(result.response).toMatch(expectedMessage);
+    expect(result.response).not.toMatch(/\d+(?:\.\d+)? GB/);
+    expect(result.actionData).toMatchObject({ available: false, usageComplete: false });
+  });
+
+  test('data usage ignores an unqualified value preloaded in conversation context', async () => {
+    db.query.mockResolvedValueOnce([[{
+      observed_rows: 0,
+      incomplete_rows: 0,
+      unverifiable_session_rows: 0,
+      usage_gb: '0.00',
+    }], undefined]);
+    const contextWithLegacyUsage = {
+      ...mockCtx,
+      billing: { ...mockCtx.billing, dataUsage: 999 },
+    };
+
+    const result = await billingModule.handle('billing', contextWithLegacyUsage, 'mi uso de datos', 1);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(result.response).not.toContain('999');
+    expect(result.actionData.available).toBe(false);
   });
 
   test('handle returns fallback on unrecognized billing message', async () => {

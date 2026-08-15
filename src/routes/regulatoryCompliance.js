@@ -5,19 +5,58 @@
 // =============================================================================
 
 const { Router } = require('express');
-const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createConsent, createDsarRequest, resolveDsarRequest } = require('../middleware/schemas/regulatoryCompliance');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const { NotFoundError, ValidationError, ForbiddenError, ConflictError } = require('../utils/errors');
+const auditLog = require('../services/auditLog');
+const { isGloballyRoutableIpv4, normalizeProtocol } = require('../services/cgnatAttributionService');
+const {
+  governmentRequestRowHash,
+  governmentRequestRowHashMatches,
+} = require('../utils/govDataRequestIntegrity');
 
 const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
+
+function requireInteractiveUser(req, _res, next) {
+  if (req.user?.apiTokenId) return next(new ForbiddenError('Government request decisions require an interactive user session'));
+  return next();
+}
+
+function nonblank(value, field, maximum) {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > maximum) {
+    throw new ValidationError(`Invalid ${field}`, [{ field, message: `${field} must be a non-empty string of at most ${maximum} characters` }]);
+  }
+  return value.trim();
+}
+
+function exactTimestamp(value, field) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)
+      || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new ValidationError(`Invalid ${field}`, [{ field, message: `${field} must be an ISO 8601 date-time with a timezone` }]);
+  }
+  const parsed = new Date(value);
+  if (parsed.getTime() > Date.now() || parsed.getTime() < Date.UTC(1970, 0, 1)
+      || parsed.getTime() > Date.UTC(2038, 0, 19, 3, 14, 7)) {
+    throw new ValidationError(`Invalid ${field}`, [{ field, message: `${field} must be a past or present supported timestamp` }]);
+  }
+  return parsed;
+}
+
+function positiveId(value, field, { nullable = true } = {}) {
+  if (value === undefined || value === null || value === '') {
+    if (nullable) return null;
+    throw new ValidationError(`${field} is required`);
+  }
+  if (!Number.isSafeInteger(value) || value <= 0) throw new ValidationError(`Invalid ${field}`);
+  return value;
+}
 
 // ---------------------------------------------------------------------------
 // CURP validation helper
@@ -420,12 +459,21 @@ router.get('/gov-data-requests', requirePermission('gov_data_requests.view'), as
     const conditions = ['organization_id = ?'];
     const params = [req.orgId];
 
-    if (status) { conditions.push('status = ?'); params.push(status); }
-    if (request_type) { conditions.push('request_type = ?'); params.push(request_type); }
+    const statuses = ['received', 'processing', 'fulfilled', 'rejected', 'pending_legal_review'];
+    const types = ['ip_traceability', 'cdr_export', 'subscriber_data', 'other'];
+    if (status) {
+      if (!statuses.includes(status)) throw new ValidationError('Invalid status filter');
+      conditions.push('status = ?'); params.push(status);
+    }
+    if (request_type) {
+      if (!types.includes(request_type)) throw new ValidationError('Invalid request_type filter');
+      conditions.push('request_type = ?'); params.push(request_type);
+    }
 
     const where = conditions.join(' AND ');
-    const safeLimit = Math.max(1, parseInt(limit, 10) || 50);
-    const safeOffset = Math.max(0, (parseInt(page, 10) - 1) * safeLimit);
+    const safePage = Math.max(1, Number.parseInt(page, 10) || 1);
+    const safeLimit = Math.min(200, Math.max(1, Number.parseInt(limit, 10) || 50));
+    const safeOffset = (safePage - 1) * safeLimit;
 
     const [rows] = await db.query(
       `SELECT * FROM gov_data_requests WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
@@ -436,32 +484,163 @@ router.get('/gov-data-requests', requirePermission('gov_data_requests.view'), as
       params,
     );
 
-    res.json({ data: rows, meta: { total: countResult[0].total, page: parseInt(page, 10), limit: parseInt(limit, 10) } });
+    res.json({ data: rows, meta: { total: countResult[0].total, page: safePage, limit: safeLimit } });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/gov-data-requests', requirePermission('gov_data_requests.create'), async (req, res, next) => {
+router.post('/gov-data-requests', requireInteractiveUser, requirePermission('gov_data_requests.create'), async (req, res, next) => {
   try {
-    const { authority_name, authority_ref, request_type, client_id, ip_address, date_from, date_to, legal_basis, notes } = req.body;
+    const allowed = new Set(['authority_name', 'authority_ref', 'request_type', 'client_id',
+      'contract_id', 'ip_address', 'public_port', 'protocol', 'observed_at',
+      'date_from', 'date_to', 'legal_basis', 'notes']);
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) throw new ValidationError('Invalid request body');
+    const unknown = Object.keys(req.body).filter(key => !allowed.has(key));
+    if (unknown.length) throw new ValidationError('Unknown government request fields', unknown.map(field => ({ field, message: 'field is not allowed' })));
+    const authority_name = nonblank(req.body.authority_name, 'authority_name', 255);
+    const authority_ref = nonblank(req.body.authority_ref, 'authority_ref', 100);
+    const legal_basis = nonblank(req.body.legal_basis, 'legal_basis', 5000);
+    const request_type = nonblank(req.body.request_type, 'request_type', 50);
+    if (request_type === 'traffic_mirror') {
+      throw new ValidationError('traffic_mirror requests are not supported by the IP-attribution response workflow');
+    }
+    if (!['ip_traceability', 'cdr_export', 'subscriber_data', 'other'].includes(request_type)) {
+      throw new ValidationError('Invalid request_type');
+    }
+    const client_id = positiveId(req.body.client_id, 'client_id');
+    const contract_id = positiveId(req.body.contract_id, 'contract_id');
+    if (client_id) {
+      const [clients] = await db.query('SELECT id FROM clients WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1', [client_id, req.orgId]);
+      if (clients.length !== 1) throw new ValidationError('client_id does not belong to this organization');
+    }
+    if (contract_id) {
+      const [contracts] = await db.query('SELECT id, client_id FROM contracts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1', [contract_id, req.orgId]);
+      if (contracts.length !== 1 || (client_id && Number(contracts[0].client_id) !== client_id)) {
+        throw new ValidationError('contract_id does not belong to this organization/client');
+      }
+    }
 
-    const createdAt = new Date().toISOString();
-    const row_hash = crypto.createHash('sha256')
-      .update((authority_name || '') + (authority_ref || '') + (request_type || '') + createdAt)
-      .digest('hex');
+    const ip_address = req.body.ip_address || null;
+    let public_port = null;
+    let protocol = null;
+    let observed_at = null;
+    if (request_type === 'ip_traceability') {
+      if (typeof ip_address !== 'string' || !isGloballyRoutableIpv4(ip_address)) {
+        throw new ValidationError('ip_address must be a globally routable IPv4 address');
+      }
+      const hasPort = req.body.public_port !== undefined && req.body.public_port !== null && req.body.public_port !== '';
+      const hasProtocol = req.body.protocol !== undefined && req.body.protocol !== null && req.body.protocol !== '';
+      if (hasPort !== hasProtocol) throw new ValidationError('public_port and protocol must be supplied together or both omitted');
+      if (hasPort) {
+        public_port = positiveId(req.body.public_port, 'public_port', { nullable: false });
+        if (public_port > 65535) throw new ValidationError('public_port must be from 1 to 65535');
+        const protocolNumber = normalizeProtocol(req.body.protocol);
+        protocol = protocolNumber === 6 ? 'tcp' : 'udp';
+      }
+      observed_at = exactTimestamp(req.body.observed_at, 'observed_at');
+    } else if (req.body.observed_at !== undefined || req.body.public_port !== undefined || req.body.protocol !== undefined) {
+      throw new ValidationError('Exact IP tuple/time fields are only valid for ip_traceability requests');
+    }
+
+    const notes = req.body.notes === undefined || req.body.notes === null
+      ? null : nonblank(req.body.notes, 'notes', 10000);
+    const date_from = req.body.date_from || null;
+    const date_to = req.body.date_to || null;
+
+    // gov_data_requests.created_at is TIMESTAMP(0); hash exactly the precision
+    // persisted by MySQL/MariaDB so a stored-row verification is reproducible.
+    const createdAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const row_hash = governmentRequestRowHash({
+      organization_id: req.orgId, authority_name, authority_ref,
+      request_type, client_id, contract_id, ip_address, public_port, protocol,
+      observed_at, legal_basis, created_at: createdAt,
+    });
 
     const [result] = await db.query(
-      `INSERT INTO gov_data_requests (organization_id, authority_name, authority_ref, request_type, client_id, ip_address, date_from, date_to, legal_basis, notes, row_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.orgId, authority_name, authority_ref, request_type, client_id || null, ip_address || null, date_from || null, date_to || null, legal_basis || null, notes || null, row_hash],
+      `INSERT INTO gov_data_requests
+        (organization_id, authority_name, authority_ref, request_type, client_id,
+         contract_id, ip_address, public_port, protocol, observed_at, date_from,
+         date_to, status, legal_basis, notes, row_hash, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_legal_review', ?, ?, ?, ?, ?)`,
+      [req.orgId, authority_name, authority_ref, request_type, client_id,
+        contract_id, ip_address, public_port, protocol, observed_at, date_from,
+        date_to, legal_basis, notes, row_hash, req.user.id, createdAt],
     );
-
+    await auditLog.log({ userId: req.user.id, organizationId: req.orgId,
+      action: 'create', tableName: 'gov_data_requests', recordId: result.insertId,
+      newValues: { request_type, authority_ref, status: 'pending_legal_review', row_hash } });
     res.status(201).json({ id: result.insertId, row_hash });
   } catch (err) {
     next(err);
   }
 });
+
+router.put('/gov-data-requests/:id/process', requireInteractiveUser,
+  requirePermission('gov_data_requests.manage'), async (req, res, next) => {
+    try {
+      const id = positiveId(Number(req.params.id), 'id', { nullable: false });
+      const connection = await db.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [rows] = await connection.execute(
+          'SELECT * FROM gov_data_requests WHERE id = ? AND organization_id = ? LIMIT 1 FOR UPDATE',
+          [id, req.orgId],
+        );
+        const row = rows[0];
+        if (!row) throw new NotFoundError('Government data request');
+        if (!['received', 'pending_legal_review'].includes(row.status)) throw new ConflictError('Only received or pending-review requests can enter processing');
+        if (!String(row.authority_name || '').trim()
+            || !String(row.authority_ref || '').trim()
+            || !String(row.legal_basis || '').trim()) {
+          throw new ValidationError('Government request has incomplete authority reference or legal basis');
+        }
+        if (!governmentRequestRowHashMatches(row)) {
+          throw new ConflictError('Government request consistency marker does not match the stored request');
+        }
+        let reviewedClient = null;
+        if (row.client_id !== null) {
+          const [clients] = await connection.execute(
+            `SELECT id FROM clients WHERE id = ? AND organization_id = ?
+              AND deleted_at IS NULL LIMIT 2`, [row.client_id, req.orgId],
+          );
+          if (clients.length !== 1) throw new ValidationError('Government request client is not owned by this organization');
+          reviewedClient = Number(clients[0].id);
+        }
+        if (row.contract_id !== null) {
+          const [contracts] = await connection.execute(
+            `SELECT id, client_id FROM contracts WHERE id = ? AND organization_id = ?
+              AND deleted_at IS NULL LIMIT 2`, [row.contract_id, req.orgId],
+          );
+          if (contracts.length !== 1
+              || (reviewedClient !== null && Number(contracts[0].client_id) !== reviewedClient)) {
+            throw new ValidationError('Government request contract is not owned by this organization or subject');
+          }
+        }
+        if (row.request_type === 'traffic_mirror') throw new ValidationError('traffic_mirror is not supported by this workflow');
+        if (row.request_type === 'ip_traceability'
+            && (!isGloballyRoutableIpv4(row.ip_address) || !row.observed_at || !row.row_hash
+              || ((row.public_port === null) !== (row.protocol === null)))) {
+          throw new ValidationError('IP traceability request has incomplete exact-tuple scope');
+        }
+        if (row.request_type === 'ip_traceability' && row.protocol !== null) normalizeProtocol(row.protocol);
+        const [updated] = await connection.execute(
+          `UPDATE gov_data_requests SET status = 'processing', legal_reviewed_at = NOW(3),
+              legal_reviewed_by = ? WHERE id = ? AND organization_id = ?
+              AND status IN ('received','pending_legal_review')`,
+          [req.user.id, id, req.orgId],
+        );
+        if (Number(updated.affectedRows) !== 1) throw new ConflictError('Government request status changed during review');
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback(); throw error;
+      } finally { connection.release(); }
+      await auditLog.log({ userId: req.user.id, organizationId: req.orgId,
+        action: 'approve_processing', tableName: 'gov_data_requests', recordId: id,
+        newValues: { status: 'processing' } });
+      res.json({ success: true, status: 'processing' });
+    } catch (err) { next(err); }
+  });
 
 router.get('/gov-data-requests/:id', requirePermission('gov_data_requests.view'), async (req, res, next) => {
   try {
@@ -479,34 +658,68 @@ router.get('/gov-data-requests/:id', requirePermission('gov_data_requests.view')
   }
 });
 
-router.put('/gov-data-requests/:id/fulfill', requirePermission('gov_data_requests.manage'), async (req, res, next) => {
+router.put('/gov-data-requests/:id/fulfill', requireInteractiveUser, requirePermission('gov_data_requests.manage'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    await db.query(
-      'UPDATE gov_data_requests SET status = \'fulfilled\', fulfilled_at = NOW(), fulfilled_by = ? WHERE id = ? AND organization_id = ?',
+    const [result] = await db.query(
+      `UPDATE gov_data_requests SET status = 'fulfilled', fulfilled_at = NOW(), fulfilled_by = ?
+        WHERE id = ? AND organization_id = ? AND status = 'processing'`,
       [req.user.id, id, req.orgId],
     );
-
+    if (Number(result.affectedRows) !== 1) throw new ConflictError('Only a processing request can be fulfilled');
+    await auditLog.log({ userId: req.user.id, organizationId: req.orgId,
+      action: 'fulfill', tableName: 'gov_data_requests', recordId: Number(id),
+      newValues: { status: 'fulfilled' } });
     res.json({ success: true });
   } catch (err) {
     next(err);
   }
 });
 
-router.put('/gov-data-requests/:id/reject', requirePermission('gov_data_requests.manage'), async (req, res, next) => {
+router.put('/gov-data-requests/:id/reject', requireInteractiveUser, requirePermission('gov_data_requests.manage'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    await db.query(
-      'UPDATE gov_data_requests SET status = \'rejected\' WHERE id = ? AND organization_id = ?',
-      [id, req.orgId],
+    const reason = nonblank(req.body?.reason, 'reason', 500);
+    const [result] = await db.query(
+      `UPDATE gov_data_requests SET status = 'rejected', rejected_at = NOW(3),
+          rejected_by = ?, rejection_reason = ? WHERE id = ? AND organization_id = ?
+        AND status NOT IN ('fulfilled','rejected')`,
+      [req.user.id, reason, id, req.orgId],
     );
-
+    if (Number(result.affectedRows) !== 1) throw new ConflictError('Request was not found or is already terminal');
+    await auditLog.log({ userId: req.user.id, organizationId: req.orgId,
+      action: 'reject', tableName: 'gov_data_requests', recordId: Number(id),
+      newValues: { status: 'rejected', reason } });
     res.json({ success: true });
   } catch (err) {
     next(err);
   }
 });
+
+router.put('/gov-data-requests/:id/release-evidence-hold', requireInteractiveUser,
+  requirePermission('gov_data_requests.manage'), async (req, res, next) => {
+    try {
+      const id = positiveId(Number(req.params.id), 'id', { nullable: false });
+      const reason = nonblank(req.body?.reason, 'reason', 500);
+      const [[request]] = await db.query(
+        'SELECT status FROM gov_data_requests WHERE id = ? AND organization_id = ? LIMIT 1',
+        [id, req.orgId],
+      );
+      if (!request) throw new NotFoundError('Government data request');
+      if (!['fulfilled', 'rejected'].includes(request.status)) throw new ConflictError('Evidence holds can be released only after the case is terminal');
+      const [result] = await db.query(
+        `UPDATE ip_attribution_case_evidence SET hold_released_at = NOW(3),
+            hold_released_by = ?, hold_release_reason = ?
+          WHERE organization_id = ? AND gov_data_request_id = ? AND hold_released_at IS NULL`,
+        [req.user.id, reason, req.orgId, id],
+      );
+      await auditLog.log({ userId: req.user.id, organizationId: req.orgId,
+        action: 'release_evidence_hold', tableName: 'gov_data_requests', recordId: id,
+        newValues: { released_evidence_rows: Number(result.affectedRows), reason } });
+      res.json({ success: true, released_evidence_rows: Number(result.affectedRows) });
+    } catch (err) { next(err); }
+  });
 
 module.exports = router;

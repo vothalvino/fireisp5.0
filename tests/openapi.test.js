@@ -105,6 +105,60 @@ describe('OpenAPI spec generation', () => {
     ]));
   });
 
+  test('documents the exact subscriber session, IP-attribution, readiness, and tenant-ingest contracts', () => {
+    const spec = generateSpec();
+
+    for (const path of [
+      '/connection-logs', '/connection-logs/export',
+      '/connection-logs/cgnat-attribution/bindings/ingest',
+      '/connection-logs/cgnat-attribution/exporters',
+      '/connection-logs/ip-attribution/lookup', '/connection-logs/ip-attribution/export',
+      '/connection-logs/readiness', '/radius/accounting/tenant',
+    ]) expect(spec.paths[path]).toBeDefined();
+
+    const exportParameters = spec.paths['/connection-logs/export'].get.parameters;
+    expect(exportParameters.find(parameter => parameter.name === 'date_from').required).toBe(true);
+    expect(exportParameters.find(parameter => parameter.name === 'date_to').required).toBe(true);
+    const bindingParameters = spec.paths['/connection-logs/binding-report'].get.parameters;
+    expect(bindingParameters.find(parameter => parameter.name === 'from').required).toBe(true);
+    expect(bindingParameters.find(parameter => parameter.name === 'to').required).toBe(true);
+    expect(bindingParameters.find(parameter => parameter.name === 'format').schema.enum).toEqual(['json', 'csv']);
+
+    const session = spec.components.schemas.ConnectionSession;
+    expect(session.additionalProperties).toBe(false);
+    expect(session.properties.record_kind.enum).toEqual(['session', 'legacy_event']);
+    expect(session.properties).toHaveProperty('acct_input_octets_v6');
+    expect(session.properties).toHaveProperty('acct_output_octets_v6');
+
+    const bindingInput = spec.components.schemas.CgnatBindingInput;
+    expect(bindingInput.additionalProperties).toBe(false);
+    expect(bindingInput.required).toContain('session_instance_id');
+    expect(bindingInput.properties.protocol.oneOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'integer', enum: [6, 17] }),
+    ]));
+    expect(bindingInput.properties).not.toHaveProperty('destination_ip');
+    const exporter = spec.components.schemas.CgnatExporterConfig;
+    expect(exporter.additionalProperties).toBe(false);
+    expect(exporter).not.toHaveProperty('allOf');
+    expect(exporter.properties).toHaveProperty('coverage_horizon_at');
+    const lookup = spec.components.schemas.IpAttributionLookupResult;
+    expect(lookup.properties.attribution.oneOf).toEqual([
+      { $ref: '#/components/schemas/DirectPublicAttribution' },
+      { $ref: '#/components/schemas/CgnatAttribution' },
+    ]);
+    expect(spec.components.schemas.DirectPublicAttribution.additionalProperties).toBe(false);
+    expect(spec.components.schemas.CgnatAttribution.additionalProperties).toBe(false);
+
+    const readiness = spec.components.schemas.ConnectionLoggingReadiness.properties;
+    expect(readiness.session_logger.properties).toHaveProperty('lifecycle_evidence_24h');
+    expect(readiness.session_logger.properties).toHaveProperty('source_coverage_complete');
+    expect(readiness.cgnat_attribution.oneOf[1].properties).toHaveProperty('coverage_horizon_at');
+    expect(readiness.retention.properties).toHaveProperty('effective_policies');
+    expect(readiness.retention.properties).toHaveProperty('event_scheduler_status');
+    expect(spec.paths['/reports/interception-readiness'].get.summary).toBe('Operational connection-logging readiness');
+    expect(spec.paths['/reports/interception-readiness'].get.description).toMatch(/not a legal-compliance certification/i);
+  });
+
   test('convertSchemaToOpenApi converts FireISP schema to OpenAPI', () => {
     const schema = {
       name: { type: 'string', required: true, min: 1, max: 100 },

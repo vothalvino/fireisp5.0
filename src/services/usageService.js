@@ -1,33 +1,46 @@
 // =============================================================================
 // FireISP 5.0 — Data Usage / Bandwidth Metering Service
 // =============================================================================
-// Aggregates connection_logs data into per-client / per-contract usage
-// summaries. Supports data caps, usage alerts, and metered billing.
+// Aggregates application-ingested monotonic deltas. Mutable connection_logs
+// projections and legacy cumulative Interim rows are deliberately not summed.
 // =============================================================================
 
 const db = require('../config/database');
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 
 /**
  * Get data usage summary for a specific client across all contracts.
  */
-async function getClientUsage(clientId, { from, to } = {}) {
+async function getClientUsage(clientId, { organizationId, from, to } = {}) {
+  const overlapStartSql = from ? 'DATE(?)' : "TIMESTAMP('1970-01-01 00:00:00')";
+  const overlapEndSql = to ? 'DATE_ADD(DATE(?), INTERVAL 1 DAY)' : 'UTC_TIMESTAMP(3)';
+  const overlapParams = [organizationId, clientId];
+  if (from) overlapParams.push(from);
+  if (to) overlapParams.push(to);
   let sql = `
     SELECT
       client_id,
-      COUNT(DISTINCT session_id) AS session_count,
-      COALESCE(SUM(bytes_in), 0) AS total_bytes_in,
-      COALESCE(SUM(bytes_out), 0) AS total_bytes_out,
-      COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
-      COALESCE(SUM(session_duration), 0) AS total_duration_seconds,
-      MIN(event_at) AS period_start,
-      MAX(event_at) AS period_end
-    FROM connection_logs
-    WHERE client_id = ? AND event_type IN ('stop', 'interim-update')
+      COUNT(DISTINCT session_instance_id) AS session_count,
+      COALESCE(SUM(bytes_in_delta), 0) AS total_bytes_in,
+      COALESCE(SUM(bytes_out_delta), 0) AS total_bytes_out,
+      COALESCE(SUM(bytes_in_delta + bytes_out_delta), 0) AS total_bytes,
+      COALESCE(SUM(duration_delta), 0) AS total_duration_seconds,
+      COALESCE(SUM(is_complete = 0), 0) AS incomplete_rows,
+      COUNT(*) AS observed_rows,
+      MIN(usage_date) AS period_start,
+      MAX(usage_date) AS period_end,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = ? AND unverifiable.client_id = ?
+          AND ${buildUnverifiableSessionOverlap(
+    'unverifiable', overlapStartSql, overlapEndSql,
+  )}) AS unverifiable_session_rows
+    FROM radius_accounting_usage_daily
+    WHERE organization_id = ? AND client_id = ?
   `;
-  const params = [clientId];
+  const params = [...overlapParams, organizationId, clientId];
 
-  if (from) { sql += ' AND event_at >= ?'; params.push(from); }
-  if (to) { sql += ' AND event_at <= ?'; params.push(to); }
+  if (from) { sql += ' AND usage_date >= ?'; params.push(from); }
+  if (to) { sql += ' AND usage_date <= ?'; params.push(to); }
 
   const [rows] = await db.query(sql, params);
   const r = rows[0];
@@ -43,30 +56,40 @@ async function getClientUsage(clientId, { from, to } = {}) {
     upload_gb: parseFloat((r.total_bytes_out / 1073741824).toFixed(3)),
     total_gb: parseFloat((r.total_bytes / 1073741824).toFixed(3)),
     duration_seconds: r.total_duration_seconds,
+    unverifiable_session_rows: Number(r.unverifiable_session_rows || 0),
+    usage_complete: Number(r.observed_rows || 0) > 0
+      && Number(r.incomplete_rows || 0) === 0
+      && Number(r.unverifiable_session_rows || 0) === 0,
   };
 }
 
 /**
  * Get daily usage breakdown for a contract.
  */
-async function getDailyUsage(contractId, { from, to } = {}) {
+async function getDailyUsage(contractId, { organizationId, from, to } = {}) {
   let sql = `
     SELECT
-      DATE(event_at) AS date,
-      COALESCE(SUM(bytes_in), 0) AS bytes_in,
-      COALESCE(SUM(bytes_out), 0) AS bytes_out,
-      COALESCE(SUM(bytes_in + bytes_out), 0) AS bytes_total,
-      COUNT(DISTINCT session_id) AS sessions,
-      COALESCE(SUM(session_duration), 0) AS duration_seconds
-    FROM connection_logs
-    WHERE contract_id = ? AND event_type IN ('stop', 'interim-update')
+      u.usage_date AS date,
+      COALESCE(SUM(u.bytes_in_delta), 0) AS bytes_in,
+      COALESCE(SUM(u.bytes_out_delta), 0) AS bytes_out,
+      COALESCE(SUM(u.bytes_in_delta + u.bytes_out_delta), 0) AS bytes_total,
+      COUNT(DISTINCT u.session_instance_id) AS sessions,
+      COALESCE(SUM(u.duration_delta), 0) AS duration_seconds,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = ? AND unverifiable.contract_id = ?
+          AND ${buildUnverifiableSessionOverlap(
+    'unverifiable', 'u.usage_date', 'DATE_ADD(u.usage_date, INTERVAL 1 DAY)',
+  )}) AS unverifiable_session_rows
+    FROM radius_accounting_usage_daily u
+    WHERE u.organization_id = ? AND u.contract_id = ?
   `;
-  const params = [contractId];
+  const params = [organizationId, contractId, organizationId, contractId];
 
-  if (from) { sql += ' AND event_at >= ?'; params.push(from); }
-  if (to) { sql += ' AND event_at <= ?'; params.push(to); }
+  if (from) { sql += ' AND u.usage_date >= ?'; params.push(from); }
+  if (to) { sql += ' AND u.usage_date <= ?'; params.push(to); }
 
-  sql += ' GROUP BY DATE(event_at) ORDER BY date DESC LIMIT 90';
+  sql += ' GROUP BY u.usage_date ORDER BY date DESC LIMIT 90';
   const [rows] = await db.query(sql, params);
 
   return rows.map(r => ({
@@ -79,6 +102,9 @@ async function getDailyUsage(contractId, { from, to } = {}) {
     total_gb: parseFloat((r.bytes_total / 1073741824).toFixed(3)),
     sessions: r.sessions,
     duration_seconds: r.duration_seconds,
+    unverifiable_session_rows: Number(r.unverifiable_session_rows || 0),
+    usage_complete: Number(r.incomplete_rows || 0) === 0
+      && Number(r.unverifiable_session_rows || 0) === 0,
   }));
 }
 
@@ -87,24 +113,35 @@ async function getDailyUsage(contractId, { from, to } = {}) {
  */
 async function getTopUsers(organizationId, { from, to, limit = 20 } = {}) {
   const safeLimit = Math.max(1, parseInt(limit, 10) || 20);
+  const overlapStartSql = from ? 'DATE(?)' : "TIMESTAMP('1970-01-01 00:00:00')";
+  const overlapEndSql = to ? 'DATE_ADD(DATE(?), INTERVAL 1 DAY)' : 'UTC_TIMESTAMP(3)';
+  const overlapParams = [];
+  if (from) overlapParams.push(from);
+  if (to) overlapParams.push(to);
   let sql = `
     SELECT
-      cl.contract_id,
-      cl.client_id,
-      COALESCE(SUM(cl.bytes_in), 0) AS bytes_in,
-      COALESCE(SUM(cl.bytes_out), 0) AS bytes_out,
-      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_total
-    FROM connection_logs cl
-    JOIN contracts c ON c.id = cl.contract_id
-    WHERE c.organization_id = ?
-      AND cl.event_type IN ('stop', 'interim-update')
+      u.contract_id,
+      u.client_id,
+      COALESCE(SUM(u.bytes_in_delta), 0) AS bytes_in,
+      COALESCE(SUM(u.bytes_out_delta), 0) AS bytes_out,
+      COALESCE(SUM(u.bytes_in_delta + u.bytes_out_delta), 0) AS bytes_total,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = u.organization_id
+          AND unverifiable.contract_id <=> u.contract_id
+          AND unverifiable.client_id <=> u.client_id
+          AND ${buildUnverifiableSessionOverlap(
+    'unverifiable', overlapStartSql, overlapEndSql,
+  )}) AS unverifiable_session_rows
+    FROM radius_accounting_usage_daily u
+    WHERE u.organization_id = ?
   `;
-  const params = [organizationId];
+  const params = [...overlapParams, organizationId];
 
-  if (from) { sql += ' AND cl.event_at >= ?'; params.push(from); }
-  if (to) { sql += ' AND cl.event_at <= ?'; params.push(to); }
+  if (from) { sql += ' AND u.usage_date >= ?'; params.push(from); }
+  if (to) { sql += ' AND u.usage_date <= ?'; params.push(to); }
 
-  sql += ` GROUP BY cl.contract_id, cl.client_id ORDER BY bytes_total DESC LIMIT ${safeLimit}`;
+  sql += ` GROUP BY u.organization_id, u.contract_id, u.client_id ORDER BY bytes_total DESC LIMIT ${safeLimit}`;
 
   const [rows] = await db.query(sql, params);
   return rows.map(r => ({
@@ -113,6 +150,9 @@ async function getTopUsers(organizationId, { from, to, limit = 20 } = {}) {
     download_gb: parseFloat((r.bytes_in / 1073741824).toFixed(3)),
     upload_gb: parseFloat((r.bytes_out / 1073741824).toFixed(3)),
     total_gb: parseFloat((r.bytes_total / 1073741824).toFixed(3)),
+    unverifiable_session_rows: Number(r.unverifiable_session_rows || 0),
+    usage_complete: Number(r.incomplete_rows || 0) === 0
+      && Number(r.unverifiable_session_rows || 0) === 0,
   }));
 }
 
@@ -129,19 +169,26 @@ async function checkDataCaps(organizationId) {
       c.id AS contract_id,
       c.client_id,
       p.data_cap_gb,
-      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_used
+      COALESCE(SUM(CASE WHEN u.is_complete = 1 THEN u.bytes_in_delta + u.bytes_out_delta ELSE 0 END), 0) AS bytes_used,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+      COUNT(u.id) AS observed_rows,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = c.organization_id
+          AND unverifiable.contract_id = c.id
+          AND ${buildUnverifiableSessionOverlap('unverifiable', '?', 'UTC_TIMESTAMP(3)')}) AS unverifiable_session_rows
     FROM contracts c
     JOIN plans p ON p.id = c.plan_id
-    LEFT JOIN connection_logs cl ON cl.contract_id = c.id
-      AND cl.event_type IN ('stop', 'interim-update')
-      AND cl.event_at >= ?
+    LEFT JOIN radius_accounting_usage_daily u ON u.contract_id = c.id
+      AND u.organization_id = c.organization_id
+      AND u.usage_date >= ?
     WHERE c.organization_id = ?
       AND c.status = 'active'
       AND p.data_cap_gb IS NOT NULL
       AND p.data_cap_gb > 0
     GROUP BY c.id, c.client_id, p.data_cap_gb
-    HAVING bytes_used > (p.data_cap_gb * 1073741824)
-  `, [firstOfMonth, organizationId]);
+    HAVING observed_rows > 0 AND incomplete_rows = 0 AND unverifiable_session_rows = 0
+       AND bytes_used > (p.data_cap_gb * 1073741824)
+  `, [firstOfMonth, firstOfMonth, organizationId]);
 
   return rows.map(r => ({
     contract_id: r.contract_id,
@@ -170,24 +217,32 @@ async function checkFupThresholds(organizationId) {
       p.fup_threshold_percent,
       p.fup_download_speed_mbps,
       p.fup_upload_speed_mbps,
-      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_used
+      COALESCE(SUM(CASE WHEN u.is_complete = 1 THEN u.bytes_in_delta + u.bytes_out_delta ELSE 0 END), 0) AS bytes_used,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+      COUNT(u.id) AS observed_rows,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = c.organization_id
+          AND unverifiable.contract_id = c.id
+          AND ${buildUnverifiableSessionOverlap('unverifiable', '?', 'UTC_TIMESTAMP(3)')}) AS unverifiable_session_rows
     FROM contracts c
     JOIN plans p ON p.id = c.plan_id
-    LEFT JOIN connection_logs cl ON cl.contract_id = c.id
-      AND cl.event_type IN ('stop', 'interim-update')
-      AND cl.event_at >= ?
+    LEFT JOIN radius_accounting_usage_daily u ON u.contract_id = c.id
+      AND u.organization_id = c.organization_id
+      AND u.usage_date >= ?
     WHERE c.organization_id = ?
       AND c.status = 'active'
       AND (p.fup_threshold_gb IS NOT NULL OR p.fup_threshold_percent IS NOT NULL)
       AND (p.fup_download_speed_mbps IS NOT NULL OR p.fup_upload_speed_mbps IS NOT NULL)
     GROUP BY c.id, c.client_id, p.data_cap_gb, p.fup_threshold_gb, p.fup_threshold_percent,
              p.fup_download_speed_mbps, p.fup_upload_speed_mbps
-  `, [firstOfMonth, organizationId]);
+  `, [firstOfMonth, firstOfMonth, organizationId]);
 
   const BYTES_PER_GB = 1073741824;
 
   return rows
     .filter(r => {
+      if (Number(r.observed_rows || 0) === 0 || Number(r.incomplete_rows || 0) > 0
+          || Number(r.unverifiable_session_rows || 0) > 0) return false;
       const usedGb = r.bytes_used / BYTES_PER_GB;
       // Calculate threshold in GB
       let thresholdGb = r.fup_threshold_gb;

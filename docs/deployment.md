@@ -480,7 +480,7 @@ clean heap OOM instead of taking the host down with it.
 ## Prerequisites
 
 - **Node.js** 18+ (LTS recommended)
-- **MySQL** 8.0+ or MariaDB 10.6+ with Event Scheduler enabled
+- **MySQL** 8.0.29+ (8.4 LTS recommended) or MariaDB 10.6+ with Event Scheduler enabled
 - **RAM**: 2 GB minimum (4 GB recommended for >5,000 clients)
 - **Disk**: 20 GB minimum (SSD recommended for SNMP metrics tables)
 

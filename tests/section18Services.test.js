@@ -36,7 +36,16 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter:(_q, _r, next) => next(),
   sseLimiter:   (_q, _r, next) => next(),
   webhookLimiter:(_q, _r, next) => next(),
+  collectorIngressLimiter:(_q, _r, next) => next(),
+  apiTokenConfiguredLimiter:(_q, _r, next) => next(),
+  isCollectorPath: () => false,
   uploadLimiter:(_q, _r, next) => next(),
+  CacheStore: class {
+    init() {}
+    async increment() { return { totalHits: 1, resetTime: new Date(Date.now() + 60000) }; }
+    async decrement() {}
+    async resetKey() {}
+  },
 }));
 jest.mock('../src/middleware/checkQuota', () => ({ quotaCheck: () => (_q, _r, next) => next() }));
 jest.mock('../src/middleware/ipAllowlist', () => ({

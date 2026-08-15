@@ -56,7 +56,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - SAT CFDI 4.0 Mexican e-invoicing — PAC stamping (Finkok, SW Sapien, FacturAPI, etc.), CSD certificate management with expiry monitoring, Complemento de Pago 2.0, cancellation workflow, factura pública aggregation (venta al público en general)
 - Payment gateway integrations (Stripe, Conekta, OpenPay, MercadoPago, PayPal) with recurring autopay profiles and stored card tokens
 - Network device monitoring with SNMP metrics collection
-- Connection logging for regulatory compliance and per-contract data usage (RADIUS accounting)
+- Tenant-scoped RADIUS session/usage evidence plus privacy-minimal, case-gated CGNAT source-tuple attribution; these are operator controls, not automatic legal certification
 - Inventory and warehouse management — track spare equipment across multiple storage locations
 - User and role management with RBAC (roles, permissions, role_permissions) — default roles and permissions seeded on install
 - IP address management (IPAM) with IPv4, IPv6, and dual-stack support
@@ -78,7 +78,7 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Circuit breaker pattern for external service resilience (RADIUS, payment gateways, PAC stamping)
 - Geographic service areas and coverage zones with WGS 84 boundary polygons
 - Speed test recording from client portal, technician tools, automated probes, and external services
-- IFT/CRT regulatory compliance — concession titles, periodic filings, statistical reports, and registered contract templates (Carta de Adhesión)
+- IFT/CRT regulatory-support records — concession titles, periodic filings, statistical reports, and operator-entered adhesion-contract registration metadata; see the [legal register](docs/legal-regulatory-register.md) for applicability and validation boundaries
 - Customer lifecycle management — a guided lead → installation order → pending contract handoff, assigned installation visit, bounded technician PPPoE test window, recorded speed result, automatic test shutoff, field acceptance, explicit optional Email/SMS/WhatsApp choices, and customer signature before permanent service; MX organizations can rehearse with permanently watermarked FireISP-only sandbox evidence before switching new contracts to an exact externally registered production source, while global organizations sign a neutral service-installation acknowledgment
 - Customer interaction tracking — unified per-client activity timeline (calls, emails, tickets, payments, visits), manual interaction logging, follow-up reminders with automated due notifications, NPS/CSAT satisfaction surveys (auto-dispatched on ticket resolution) with aggregate metrics, and ticket escalation management with auto-escalation of stale unresolved tickets
 - Internationalization (i18n) — English, Spanish, and Brazilian Portuguese locale support
@@ -88,11 +88,11 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 - Real-time event hub (WebSocket + SSE dual-broadcast) — live Dashboard device-status indicator, live TicketDetail comment stream, and a useWebSocket React hook for all frontend consumers
 - httpOnly SameSite=Strict cookie authentication — access token in memory, refresh token in httpOnly cookie, Origin-based CSRF guard; eliminates localStorage token exposure
 - Dark mode — CSS custom-property token system, per-user preference persisted in localStorage, toggle in Layout and PortalLayout
-- PROFECO complaint management — complaint register for ISPs subject to CONCILIANET obligations: intake, lifecycle tracking, staff attribution, quarterly export for regulatory filing
+- PROFECO complaint-support workflow — internal intake, lifecycle tracking, staff attribution, and generic export; applicability, protection, official format, submission, and acceptance remain operator responsibilities
 - Spec-driven development — `spec:check` drift scanner detects route/schema gaps against the OpenAPI spec in CI; `spec:gen` scaffolds new route stubs from the spec
 - Schema-truth enforcement — `sql:check` statically verifies that every `INSERT`/`UPDATE` in the backend names columns that actually exist on that table in `database/schema.sql`, and that every literal written to an `ENUM` column is one of its values. The Jest suite mocks the database, so this is the only gate that catches a mistyped column before it becomes a permanent 500 in production
 - OWASP ZAP DAST scan in CI — automated active scan against a live test instance on every push; ZAP HTML report uploaded as a workflow artifact
-- WCAG 2.1 AA accessibility — jest-axe audit on all major pages; aria-label fixes across TicketList, UserList, and other interactive components
+- Accessibility engineering — jest-axe coverage for selected page/component states plus aria-label fixes; this is not a complete WCAG 2.1 AA conformance audit
 - AI Reply Assistant — topology-aware LLM chatbot that drafts (and optionally auto-sends) professional answers to inbound support tickets; pluggable provider registry (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, custom); phrase library with forbidden-term guard; PII redaction before prompt dispatch; per-org master on/off switch and per-channel toggles; optional RAG via ChromaDB; full audit log. **Emergency kill switch:** `PUT /api/v1/ai/policy` `{"enabled":false}` or untick the master switch in Settings → AI Assistant → General.
 - In-app changelog panel — paginated, filterable release history surfaced in the admin sidebar for operators who need to track what changed without leaving the UI
 - Kubernetes-ready health probes — `/health/live` (liveness), `/health/ready` (readiness with DB + Redis checks), `/health?detail=true` (detailed)
@@ -109,8 +109,8 @@ All generated credentials are saved to `/opt/fireisp/.env.prod` (mode `600`).
 ```
 fireisp5.0/
 ├── database/                # Database schema and migrations
-│   ├── schema.sql           # Combined schema (all 341 tables + column additions)
-│   └── migrations/          # Individual numbered migration files (001–456)
+│   ├── schema.sql           # Combined schema (all 349 tables + column additions)
+│   └── migrations/          # Individual numbered migration files (001–457)
 ├── src/                     # Express API, services, middleware, scripts, and workers
 │   ├── app.js               # Express app setup
 │   ├── server.js            # HTTP server entry point
@@ -142,7 +142,7 @@ fireisp5.0/
 
 ## Database
 
-FireISP 5.0 uses MySQL 8.0+ (or MariaDB 10.6+). The schema is located in the `database/` directory.
+FireISP 5.0 uses MySQL 8.0.29+ (MySQL 8.4 LTS recommended) or MariaDB 10.6+. The schema is located in the `database/` directory.
 
 ### Quick Start
 
@@ -194,7 +194,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 30 | `snmp_profile_oids` | Individual OID-to-column mappings belonging to an SNMP profile |
 | 31 | `snmp_traps` | SNMP trap receiver log — stores unsolicited trap messages (coldStart, warmStart, linkDown, linkUp, authenticationFailure, egpNeighborLoss, enterpriseSpecific) from network devices |
 | 32 | `dr_drill_logs` | Audit log for automated quarterly DR-drill runs — records backup verification, referential-integrity checks, financial-consistency queries, and pass/fail status |
-| 33 | `connection_logs` | Subscriber session events (start/stop/interim-update) for regulatory compliance and per-contract data usage — partitioned by month, 2-year retention |
+| 33 | `connection_logs` | Mutable, tenant-owned current/final RADIUS session projection — one row per application-ingested lifecycle; partitioned by session start and retained 24 calendar months by default |
 | 34 | `warehouses` | Physical storage locations for spare equipment and materials (multiple warehouses supported) |
 | 35 | `inventory_items` | Catalog of spare equipment and materials (antennas, cables, routers, ONUs, etc.) |
 | 36 | `inventory_stock` | Current stock levels per item per warehouse location (aisle / column / shelf) |
@@ -243,9 +243,9 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 79 | `cfdi_conceptos` | CFDI 4.0 concept (line item) rows — one per `<Concepto>` node; stores SAT product/service key, unit key, quantity, description, unit price, line total, optional discount, and ObjetoImp indicator |
 | 80 | `cfdi_concepto_impuestos` | Per-line tax breakdown for CFDI 4.0 — one row per `<Traslado>` or `<Retencion>` inside a concept; stores tax type, SAT tax code (ISR/IVA/IEPS), rate type, rate, taxable base, and calculated tax amount |
 | 81 | `concession_titles` | IFT/CRT concession title registry — tracks title number, type, authorized services, spectrum bands, validity dates, and regulatory status for each organization |
-| 82 | `regulatory_filings` | IFT/CRT periodic filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other LFTR-mandated submissions |
-| 83 | `contract_templates_mx` | IFT/CRT-registered Carta de Adhesión templates — stores the registered standard contract model including registration number, version, body text, and approval status |
-| 84 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md) for the field-by-field validation against the IFT *Formato Estadístico* — UI/export work is gated on that review) |
+| 82 | `regulatory_filings` | Operator-maintained IFT/CRT filing log — annual reports, quarterly stats, tariff registrations, QoS reports, and other submissions whose applicability and current format must be externally validated |
+| 83 | `contract_templates_mx` | MX adhesion-contract template registry — stores operator-entered registration number, version, body text, and approval status; FireISP does not verify the external registration |
+| 84 | `ift_statistical_reports` | Pre-aggregated IFT/CRT reporting snapshots — subscriber counts by speed tier/state/technology, average speeds, coverage municipalities, and revenue per reporting period (the historical [`schema review`](docs/ift-statistical-report-schema-review.md) requires revalidation against the current CRT instrument and form before reliance) |
 | 85 | `factura_publica_invoices` | Factura pública (venta al público en general) periodic aggregation documents — when MX contracts have `facturar = FALSE`, their invoices are aggregated into a periodic factura pública per SAT InformacionGlobal (Periodicidad, Meses, Año); one row per organization per period |
 | 86 | `factura_publica_invoice_items` | Junction table linking individual invoices from contracts with `facturar = FALSE` to their parent factura pública — each invoice belongs to at most one factura pública document |
 | 87 | `payment_gateways` | Payment gateway provider configuration per organization (Stripe, Conekta, OpenPay, MercadoPago, PayPal, manual) — stores environment, encrypted credentials, webhook secrets, and provider-specific JSON config |
@@ -278,12 +278,12 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 114 | `sso_auth_states` | Short-lived OIDC authorization state / nonce store — holds the random `state` and `nonce` parameters generated at the start of an OIDC authorization-code flow; rows expire after 10 minutes; prevents CSRF and replay attacks |
 | 115 | `organization_quotas` | Per-tenant resource quota table — stores optional upper bounds for `max_clients`, `max_devices`, `max_storage_mb`, and `max_scheduled_tasks`; a NULL limit means "unlimited"; absence of a row is also treated as unlimited |
 | 116 | `organization_database_configs` | Per-tenant database isolation configuration — stores the `isolation_mode` (`shared` default, `isolated` opt-in) and, for isolated tenants, the target database host/port/name/user, encrypted password, SSL flag, and `last_verified_at` connectivity-check timestamp |
-| 117 | `profeco_complaints` | PROFECO / CONCILIANET complaint register — one row per consumer complaint folio filed with Mexico's Procuraduría Federal del Consumidor; captures folio number, ISP–consumer resolution status, complaint category, service type, intake and resolution dates, staff attribution, and optional links to existing client and support-ticket records; enables quarterly regulatory filing |
+| 117 | `profeco_complaints` | Internal PROFECO-related complaint-support register — captures an operator-entered folio, resolution state, category, service type, dates, staff attribution, and optional client/ticket links; its generic export is not an official CONCILIANET filing or proof of a quarterly duty |
 | 118 | `ai_providers` | AI/LLM provider registry per organization — stores provider kind (`openai`, `azure_openai`, `anthropic`, `gemini`, `ollama`, `custom`, `openrouter`), API endpoint, encrypted API key, model name, optional `embedding_model` for RAG, temperature, max tokens, active flag, and soft-delete support |
 | 119 | `ai_policies` | Per-organization AI Reply Assistant policy — master on/off switch, dispatch mode (`draft_only`, `auto_send`, `suggest`), tone, PII-redaction flag, per-channel enable flags (email/ticket/portal), max draft length, and confidence threshold; one row per organization |
 | 120 | `ai_phrase_library` | Curated phrase library for AI prompt enrichment — stores phrase text, category (`greeting`, `closing`, `technical`, `billing`, `escalation`, `other`), locale, optional variable placeholders (JSON), optional embedding vector ID in ChromaDB, and soft-delete support |
 | 121 | `ai_forbidden_terms` | Forbidden-term guard list per organization — terms that must not appear in any AI-drafted reply; evaluated by `phraseLibraryService.validateDraft()` before dispatch; supports locale-scoping and soft-delete |
-| 122 | `ai_reply_logs` | Immutable audit log of every AI-drafted reply — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are never returned by the API |
+| 122 | `ai_reply_logs` | Application record of AI-drafted replies — stores `ticket_id`, `provider_id`, `dispatch_mode`, `confidence_score`, `draft_text`, `final_text`, `cost_usd`, `tokens_used`, `pii_redacted` flag, `validation_passed` flag, `sent_at`, and `created_by`; internal `context_snapshot` and `prompt_hash` are not returned by the API, but the table is not protected by an immutability trigger |
 | 123 | `contract_topology_paths` | Cached network topology paths for AI context — stores the materialized path from a contract's CPE through all intermediate devices to the backbone; used by `topologyContextService` to build the topology breadcrumb injected into AI prompts; invalidated on device/link/contract change |
 | 124 | `client_groups` | Family/account grouping for shared billing or family plans — stores group name, `billing_mode` (`separate` or `shared`), optional `primary_client_id` billing owner, and soft-delete; clients link via `clients.client_group_id` |
 | 125 | `client_custom_fields` | Unlimited per-client key/value custom fields (technician notes, internal tags, etc.) — unique on `(client_id, field_key)`, free-form `field_value`, with soft-delete |
@@ -427,16 +427,16 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 263 | `dashboard_widgets` | Analytics dashboard widget layout (§15.5) — widget_type ENUM (revenue_chart/subscriber_growth/aging_summary/capacity_forecast/top_consumers/uptime_summary/bandwidth_utilization/custom_metric), per-user position/size grid, config JSON, is_visible |
 | 264 | `custom_reports` | User-built custom reports (§15.5) — name, query_type ENUM (sql/visual), sql_query TEXT (SELECT-only, validated), visual_config JSON, is_public, last_run_at; public reports visible to all org members |
 | 265 | `subscriber_consents` | Versioned privacy/communication consent evidence — purpose, outbound marketing channel, granted/withdrawn timestamps, notice hash, IP, installation order/work order/signed-document provenance, and capturing staff member; MX uses its Aviso de Privacidad while global uses neutral privacy wording |
-| 266 | `dsar_requests` | §16.2 DSAR/ARCO request workflow with 30-day deadline — request type (access/rectification/cancellation/opposition), status lifecycle, legal hold flag, fulfillment notes, and assigned reviewer |
+| 266 | `dsar_requests` | §16.2 DSAR/ARCO request workflow — request type (access/rectification/cancellation/opposition), status lifecycle, legal hold flag, fulfillment notes, assigned reviewer, and a current generic 30-day due date that must not be treated as the Mexican statutory business-day calculation |
 | 267 | `identity_verification_records` | §16.2 INE/IFE/CURP identity verification with checksum — document type, document number, CURP, verification method, verification date, verifier user, and outcome status |
-| 268 | `gov_data_requests` | §16.3 Tamper-proof log of government data requests (lawful interception) — authority name, legal basis, request date, data scope, response date, SHA-256 row_hash integrity chain |
+| 268 | `gov_data_requests` | §16.3 Tenant-owned government-request case gate — validated authority/reference/legal basis, direct-IP or shared-CGNAT tuple/time scope, legal-review/processing lifecycle, scoped preservation metadata, and a SHA-256 consistency marker; this is not a tamper-proof statutory vault |
 | 269 | `phone_number_inventory` | §16.4 VoIP/DID phone number inventory — E.164 number, number type ENUM (did/toll_free/local/mobile), carrier, status ENUM (available/assigned/porting/reserved), assigned client FK |
 | 270 | `number_portability_records` | §16.4 MNP/FNP portability records — porting direction (in/out), donor/recipient carrier, port-in/port-out dates, status lifecycle, regulatory reference number |
-| 271 | `numbering_blocks` | §16.4 CNMC numbering block management — block prefix, range start/end, block size, assigned carrier, regulatory authority, allocation date, and utilization tracking |
+| 271 | `numbering_blocks` | §16.4 telephone-number block metadata — block prefix, range start/end, size, assigned carrier, operator-entered regulatory authority, allocation date, and utilization; FireISP does not validate the applicable Mexican CRT numbering source (CNMC is Spain's regulator) |
 | 272 | `uso_obligations` | §16.6 Universal service obligation tracking — obligation type, reporting period, contribution amount, payment status, regulatory filing reference, and compliance deadline |
 | 273 | `rural_coverage_reports` | §16.6 Rural deployment and social coverage reporting — municipality code, coverage percentage, technology type, underserved flag, population covered, and reporting period |
-| 274 | `service_modification_notices` | §16.7 Mandatory service modification notice tracking — modification type, effective date, notice sent date, notice period days, regulatory requirement reference, and affected contracts count |
-| 275 | `data_residency_config` | §16.8 Data localization and residency compliance config — storage region, backup region, cross-border transfer allowed flag, transfer legal basis, ATDT/CRT rule reference, and last reviewed date |
+| 274 | `service_modification_notices` | §16.7 operator-configured service-modification notice records — modification type, effective date, claimed notice date/period, regulatory reference, and affected-contract count; changing status does not transmit or prove delivery |
+| 275 | `data_residency_config` | §16.8 operator-entered data-localization/residency declaration — storage/backup region, cross-border flag, claimed basis/rule reference, and review date; it does not verify infrastructure, processors, replicas, backups, or access paths |
 | 276 | `report_access_logs` | §16.9 Who accessed/downloaded what subscriber data — user ID, report type, data scope, access timestamp, IP address, export format, and row count for regulatory audit trail |
 | 277 | `webauthn_credentials` | §17.1 WebAuthn/FIDO2 hardware key credential storage — credential_id (opaque handle), public_key, AAGUID, transports JSON; org + user scoped with soft-delete |
 | 278 | `admin_ip_allowlist` | §17.1 Org-scoped IP/CIDR allowlist for admin portal access — ip_address (IPv4/CIDR), is_active, optional expiry timestamp |
@@ -487,6 +487,30 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 | 323 | `organization_order_sequences` | Migration 384 Atomic per-organization service-order-number counter — `organization_id` is the PRIMARY KEY (sentinel `0` = the NULL/single-tenant bucket), `next_number` is advanced atomically by `lifecycleService.nextOrderNumber()` to replace the collision-prone `COUNT(*)+1` SO-###### numbering |
 | 324 | `organization_email_settings` | Migration 386 Per-organization outbound SMTP configuration — host/port/secure/user, AES-256-GCM encrypted password (`smtp_password_encrypted`, never returned in API responses — GET exposes only `configured: boolean`), from name/email, `enabled` fallback-to-global flag, `last_test_*` connectivity-check fields; UNIQUE on `organization_id` |
 | 325 | `organization_quote_sequences` | Migration 389 Atomic per-organization quote-number counter — `organization_id` is the PRIMARY KEY (sentinel `0` = the NULL/single-tenant bucket), `next_number` is advanced atomically by `billingService.nextQuoteNumber()`; quotes previously had no auto-numbering at all, mirrors `organization_invoice_sequences` (migration 381) |
+| 326 | `nas_wg_tunnels` | Migration 364 per-NAS WireGuard tunnel configuration, encrypted key material, routed subnets, and provisioning/health state |
+| 327 | `wg_user_peers` | Migration 365 enrolled user WireGuard devices with encrypted key material, tunnel address, scoped routes, and revocation state |
+| 328 | `user_network_assignments` | Migration 365 durable admin-granted site/NAS reachability scope for a user's WireGuard access |
+| 329 | `backup_settings` | Migration 404 singleton instance-wide S3-compatible remote-backup destination; secret key encrypted and write-only |
+| 330 | `backup_runs` | Migration 404 database-backup execution history, including local/remote outcome, size, timing, and failure details |
+| 331 | `whatsapp_links` | Migration 418 client-to-E.164 WhatsApp bindings with active/revoked lifecycle and binding provenance |
+| 332 | `whatsapp_verifications` | Migration 418 hashed, expiring, single-use WhatsApp linking/step-up verification records |
+| 333 | `whatsapp_inbound_messages` | Migration 418 inbound WhatsApp audit/idempotency records keyed by provider message ID |
+| 334 | `whatsapp_conversation_state` | Migration 419 short-lived multi-turn WhatsApp bot flow state per phone number |
+| 335 | `tls_monitor_state` | Migration 434 singleton operational state for real TLS certificate-read success/failure and stale-monitor detection |
+| 336 | `ops_alert_deliveries` | Migration 436 install-level infrastructure-alert delivery deduplication |
+| 337 | `deploy_requests` | Migration 439 install-operator deployment request queue and bounded execution-result history |
+| 338 | `deploy_agent_status` | Migration 439 singleton host deployment-agent heartbeat/version state |
+| 339 | `organization_settings` | Migration 443 tenant-owned settings separated from install-wide `settings` |
+| 340 | `document_templates` | Migration 447 tenant legal-document templates with reviewed activation and Markdown placeholders |
+| 341 | `signed_documents` | Migration 447 frozen rendered legal-document instances, content hash, signer evidence, and lifecycle state |
+| 342 | `radius_accounting_events` | Migration 457 tenant-owned, partitioned normalized evidence for selected RADIUS lifecycle milestones (Start, first Interim transition, Stop, and a corrected final Stop when applicable); not every heartbeat or raw packet |
+| 343 | `cgnat_exporter_configs` | Migration 457 tenant exporter/NAT-instance/pool/realm inventory with purpose approval, source-tuple-exclusivity attestation, externally reconciled empty-baseline reference, required coverage and sequence/loss health; v1 cannot import a nonempty historical mapping snapshot |
+| 344 | `cgnat_public_tuple_locks` | Migration 457 serialization anchors used to reject overlapping subscriber allocations for one public address/protocol; contains no subscriber or destination data |
+| 345 | `cgnat_attribution_bindings` | Migration 457 tenant-owned, indexed, privacy-minimal CGNAT source-translation/port-allocation evidence correlated to subscriber access sessions; no destination or content fields |
+| 346 | `cgnat_binding_events` | Migration 457 append-only normalized allocate/release lifecycle receipts with clock, sequence, loss and integrity evidence |
+| 347 | `ip_attribution_case_evidence` | Migration 457 case-scoped preservation links for direct-public RADIUS sessions or CGNAT bindings, with explicit hold release metadata |
+| 348 | `radius_accounting_usage_daily` | Migration 457 operational UTC rollup of monotonic accounting counter deltas from supported application ingest, with completeness and anomaly markers for baseline/reset uncertainty and estimated UTC day allocation |
+| 349 | `collector_ingest_receipts` | Migration 457 short-retention, per-minute transactional provenance rollups for accepted accounting and CGNAT collector traffic; not raw packet storage or a substitute for lifecycle evidence |
 
 > **Migration 323–335 — Security & Access Control (§17):** webauthn_credentials, admin_ip_allowlist, password_policies, api_key_rate_limits, firewall_rules, ddos_protection_rules, blackhole_routes, dns_blocklists, cpe_security_scans, encryption_key_metadata, data_masking_rules, secure_deletion_log; plus 4 new roles (super_admin, noc_operator, reseller_admin, auditor) and 36 security module permissions.
 
@@ -639,12 +663,14 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 456 — NAS maintenance mode:** Adds `nas.maintenance_mode`, allowing an operator to keep a NAS active for subscriber service and manual management while excluding it from automatic RouterOS PPPoE diagnostics polling and readiness coverage. Existing NAS devices default to normal polling. The diagnostics banner reports maintained NAS separately so planned work and lab placeholders do not create false coverage warnings.
 
+> **Migration 457 — Tenant-safe connection logging and IP attribution:** Makes `connection_logs` an organization-scoped mutable current/final session projection, adds stable lifecycle identity/receipt/retention and usage-baseline fields, and creates `radius_accounting_events`, `radius_accounting_usage_daily`, collector provenance, and privacy-minimal CGNAT binding/case-evidence controls. It adds tenant-bound accounting and CGNAT-ingest permissions, separate case-gated IP-attribution access/export permissions, selected lifecycle-milestone evidence, operational counter-delta rollups, creation-only partition maintenance, and 24-calendar-month product defaults. It stores no destination or content history. Shared-primary organizations still require installation-wide-unique active NAS addresses and RADIUS usernames because source-only listeners and stock FreeRADIUS compatibility tables are globally keyed; physically isolated tenant databases may reuse them. Apply migration 457 to every active isolated tenant database with `MIGRATE_ISOLATED_TENANTS=true`; large partitioned-table alters/backfills require a verified backup and real-MySQL migration/rollback rehearsal. During that maintenance window, pause/drain all accounting/CGNAT writers, verify collector retry/queue behavior, migrate the primary and every active isolated database, confirm the ownership/evidence triggers, and only then resume writers. MySQL cannot make the projection alteration and trigger installation atomic.
+
 > **Migrations 235–236 — §4.1 PPPoE Management Phase A (Pool Enhancements, Permissions):**
 > `235_ip_pools_pppoe_enhancements.sql` adds five guarded columns to `ip_pools`: `nas_id` (FK→nas, for NAS-pool binding), `service_type` ENUM, `default_prefix_len` (IPv6 PD), `excluded_ranges` TEXT, and `last_alerted_threshold` TINYINT (utilization crossing tracker). `236_seed_pppoe_management_permissions.sql` seeds five RBAC permissions (`ip_pools.assign`, `ip_pools.utilization`, `ip_pools.binding_report`, `connection_logs.summary`, `radius.batch_disconnect`) with role assignments, and registers the `check_pool_utilization` hourly scheduled task.
 
 > **Migrations 230–234 — §3.3+§3.4 RADIUS/AAA Phase C (Accounting, CoA hardening, NAS health):**
 > `230_radius_accounting_ingest_columns.sql` adds 6 columns to `connection_logs` via stored-procedure guards (partitioned table): `acct_session_id` (Acct-Session-Id), `nas_port_id`, `called_station_id`, `calling_station_id`, `framed_ip`, `framed_ipv6_prefix`; adds index on `acct_session_id`. `231_create_mac_move_events.sql` adds `mac_move_events` table (no FK constraints — loose refs for compliance). `232_nas_registry_enhancements.sql` adds `coa_port`, `location`, `site_id` (FK→sites SET NULL), `secondary_nas_id` (self-ref FK SET NULL), `health_status`, `last_health_check_at` to `nas`. `233_radius_accounting_retention_setting.sql` seeds `purge_radius_accounting` (daily 03:00) and `nas_health_check` (*/5 * * * *) scheduled tasks. `234_seed_radius_accounting_permissions.sql` seeds `radius.accounting_ingest`, `radius.cdr_export`, `radius.coa`, `radius.mac_move_events.view`, `nas.health` RBAC permissions.
-> New services: `radiusAccountingService` (ingest Start/Stop/Interim-Update into connection_logs with Gigawords wraparound handling, MAC move detection + synthesised stop rows, CDR export JSON/CSV, retention purge); `radiusCoaEncoder` (RFC 2865 byte-level encoding for User-Name, Framed-IP-Address, VSA type 26 — MikroTik vendor 14988 attrs 8+19, Cisco vendor 9 attr 1); `nasHealthService` (RADIUS Status-Server code 12 probes with Message-Authenticator, up/down transition events). `suspensionService.sendRadiusPacket` upgraded: extra attributes via `encodeNamedAttributes`, secondary NAS failover when primary `sent=false`. New endpoints: `POST /radius/accounting` (machine-to-machine, `RADIUS_ACCOUNTING_SECRET` header auth; tenant ownership is resolved from one live NAS), `GET /radius/cdr` (audit-logged CDR export with `?from=&to=&username=&format=csv|json`); `POST /radius/coa` (dynamic per-subscriber CoA with named attributes); `GET /radius/mac-move-events` (paginated MAC move log); `GET/POST /nas/:id/health[-check]`. Frontend: new `/mac-move-events` page; `NasList` updated with health badge, CoA port, location, failover NAS fields. Env vars: `RADIUS_ACCOUNTING_SECRET` (required for ingest), `RADIUS_ACCOUNTING_RETENTION_MONTHS` (default 12). FreeRADIUS rest module configuration documented in `docs/freeradius/README.md`.
+> New services: `radiusAccountingService` (ingest Start/Stop/Interim-Update into connection_logs with Gigawords wraparound handling, MAC move detection + synthesised stop rows, CDR export JSON/CSV, retention purge); `radiusCoaEncoder` (RFC 2865 byte-level encoding for User-Name, Framed-IP-Address, VSA type 26 — MikroTik vendor 14988 attrs 8+19, Cisco vendor 9 attr 1); `nasHealthService` (RADIUS Status-Server code 12 probes with Message-Authenticator, up/down transition events). `suspensionService.sendRadiusPacket` upgraded: extra attributes via `encodeNamedAttributes`, secondary NAS failover when primary `sent=false`. New endpoints: `POST /radius/accounting` (compatibility machine-to-machine path whose shared secret and globally unique NAS address resolve tenant ownership), `GET /radius/cdr` (audit-logged CDR export with `?from=&to=&username=&format=csv|json`); `POST /radius/coa` (dynamic per-subscriber CoA with named attributes); `GET /radius/mac-move-events` (paginated MAC move log); `GET/POST /nas/:id/health[-check]`. Migration 457 adds the recommended tenant-bound `POST /radius/accounting/tenant` path and changes the current accounting-retention default to 24 calendar months. FreeRADIUS REST configuration is documented in `docs/freeradius/README.md`.
 
 > **Migrations 225–229 — §3.2 RADIUS/AAA Phase B (Authorization Gaps):**
 > `225_radius_authorization_plan_columns.sql` adds `session_timeout_seconds`, `idle_timeout_seconds`, `simultaneous_use` (default 1) to `plans`, and `simultaneous_use` (NULL=inherit plan), `vlan_id`, `inner_vlan_id` to `radius`; seeds `kick_duplicate_sessions` scheduled task (every 5 min). `226_create_plan_access_windows.sql` adds the `plan_access_windows` table (day_mask + time window, mirroring `plan_speed_windows`). `227_walled_garden_and_suspension_action.sql` adds `organization_walled_garden_settings` and extends `suspension_rules.action` ENUM with `walled_garden`. `228_create_radius_account_routes.sql` adds `radius_account_routes` for per-account `Framed-Route` injection. `229_seed_radius_authz_permissions.sql` seeds RBAC permissions for `plan_access_windows.*`, `radius_account_routes.*`, `walled_garden.*`, `radius.kick_sessions`. Sync now emits: `Session-Timeout` / `Idle-Timeout` in radgroupreply; `Login-Time` in radgroupcheck from access windows (serialized by `radiusLoginTimeService`); `Simultaneous-Use :=` in radcheck (account override wins); `Tunnel-Type`, `Tunnel-Medium-Type`, `Tunnel-Private-Group-Id` in radreply for VLAN assignment (plus `:1` tag for QinQ); `Mikrotik-Address-List` in radreply for walled subscribers; `Framed-Route +=` per route row. New `walledGardenSuspendContract()` / `walledGardenReconnect()` functions handle CoA + suspension log + immediate re-sync. New `kickDuplicateSessions()` finds over-limit subscribers and disconnects oldest sessions via existing Disconnect-Request path. New API endpoints: `GET/POST /plans/:id/access-windows`, `PUT/DELETE /plans/:id/access-windows/:windowId`; `GET/POST /radius/:id/routes`, `PUT/DELETE /radius/:id/routes/:routeId`; `GET/PUT /radius/walled-garden`; `POST /radius/kick-sessions`. Walled garden NAS-side setup documented in `docs/freeradius/README.md`.
@@ -728,7 +754,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 058 — Template FK on email_logs ALTER:** `058_add_template_id_to_email_logs.sql` adds a `template_id BIGINT UNSIGNED NULL` foreign key column to `email_logs`, linking each sent message to the `message_templates` table. The existing `template` VARCHAR column is kept for backward compatibility and free-text template names.
 
-> **Migration 065 — Locale switch ALTER:** `065_add_locale_to_clients_and_organizations.sql` adds `locale ENUM('global','MX') NOT NULL DEFAULT 'global'` to both `clients` and `organizations`. Setting `locale = 'MX'` activates SAT CFDI 4.0 and IFT/CRT compliance requirements at the app layer. Existing clients with a CURP are back-filled to `'MX'`.
+> **Migration 065 — Locale switch ALTER:** `065_add_locale_to_clients_and_organizations.sql` adds `locale ENUM('global','MX') NOT NULL DEFAULT 'global'` to both `clients` and `organizations`. Setting `locale = 'MX'` activates MX-specific product workflows at the app layer; it does not determine that a legal obligation applies or has been satisfied. Existing clients with a CURP are back-filled to `'MX'`.
 
 > **Migration 069 — SAT catalog seed:** `069_seed_sat_catalogs.sql` populates the six SAT CFDI 4.0 catalog tables (sat_regimen_fiscal, sat_uso_cfdi, sat_forma_pago, sat_metodo_pago, sat_tipo_comprobante, sat_moneda) with official SAT values. Uses `INSERT IGNORE` for idempotent re-runs.
 
@@ -861,7 +887,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 146 — Credit note invoice cap triggers:** `146_credit_note_invoice_total_guard_trigger.sql` adds BEFORE INSERT / BEFORE UPDATE triggers on `credit_notes` that prevent the sum of credit note totals (excluding cancelled) from exceeding the linked invoice total. Raises SQLSTATE '45000' on over-credit.
 
-> **Migration 147 — Audit log immutability triggers:** `147_audit_log_immutability_triggers.sql` adds BEFORE UPDATE / BEFORE DELETE triggers on `audit_logs` that block any modification or removal of audit records. Audit logs are append-only for compliance; the data-retention service uses administrative privileges to bypass when needed. Raises SQLSTATE '45000'.
+> **Migration 147 — Audit log no-update/no-delete triggers:** `147_audit_log_immutability_triggers.sql` adds BEFORE UPDATE / BEFORE DELETE triggers on `audit_logs` that reject ordinary row modification or removal with SQLSTATE '45000'. MySQL administrative privileges do not bypass these triggers; the current ordinary retention DELETE conflicts with them, and organization cascades/privileged schema changes remain separate integrity boundaries. See `LEGAL-GAP-003` in the [legal register](docs/legal-regulatory-register.md).
 
 > **Migration 148 — CFDI document immutability trigger:** `148_cfdi_document_immutability_trigger.sql` adds a BEFORE UPDATE trigger on `cfdi_documents` that prevents modification of stamped (`sat_status = 'vigente'`) documents' financial fields (subtotal, total, UUID, XML, receptor data, etc.) per SAT Anexo 20. Only `sat_status` changes (for the cancellation flow) and non-financial metadata (pdf_url, updated_at) remain modifiable. Raises SQLSTATE '45000'.
 
@@ -881,7 +907,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 156 — Seed database backup task:** `156_seed_database_backup_task.sql` inserts the `database_backup` scheduled task (cron `0 3 * * *` — daily at 03:00 UTC, priority `normal`, timeout 1800 s, 2 retries) that runs `mysqldump`, compresses the output with gzip, saves it locally in `storage/backups/` (retaining the last 7 copies), and uploads it to S3-compatible cloud storage (AWS S3 or Backblaze B2) when `BACKUP_S3_BUCKET`/`BACKUP_S3_REGION`/`BACKUP_S3_ACCESS_KEY`/`BACKUP_S3_SECRET_KEY` are configured. Cloud upload failure is non-fatal — the local copy is retained. Uses `INSERT IGNORE` for idempotency.
 
-> **Migration 157 — IFT statistical report alignment ALTER:** `157_align_ift_statistical_reports_with_ift_format.sql` aligns `ift_statistical_reports` with the IFT *Formato Estadístico — Servicio Fijo de Internet* required fields (see [`docs/ift-statistical-report-schema-review.md`](docs/ift-statistical-report-schema-review.md)). Adds `concession_title_id BIGINT UNSIGNED NULL` (FK to `concession_titles`, IFT F2), `subscribers_by_municipality JSON NULL` (INEGI municipality-code breakdown, IFT F5), `subscribers_by_customer_type JSON NULL` (residential/business counts, IFT F11), `subscribers_by_payment_modality JSON NULL` (pospago/prepago/empaquetado counts, IFT F12), and `notes TEXT NULL` (free-form filing comments).
+> **Migration 157 — Historical IFT-format schema alignment ALTER:** `157_align_ift_statistical_reports_with_ift_format.sql` adds fields selected by a 2026-04-21 engineering review of an IFT fixed-Internet format: `concession_title_id`, municipality/customer/payment breakdowns, and `notes`. The exact reviewed form version was not archived and former LFTR Article 175 is no longer current authority; revalidate the current CRT instrument/form before filing or UI/export reliance. See the [historical schema review](docs/ift-statistical-report-schema-review.md) and `MX-TEL-007` in the [legal register](docs/legal-regulatory-register.md).
 
 > **Migration 158 — FireRelay node on devices + config backup task:** `158_add_firerelay_node_to_devices_and_seed_config_backup_task.sql` adds `firerelay_node_id VARCHAR(64) NULL` to `devices` (with `idx_devices_firerelay_node_id` index) — records which FireRelay agent can reach the device via the RouterOS API. No FK is added because the agent connection is the authoritative reachability source and standalone-mode deployments may have no `firerelay_nodes` rows. Also seeds the `config_backup_pull` scheduled task (cron `0 2 * * *`, daily at 02:00 UTC, 2 retries, 3600 s timeout) that pulls RouterOS `/export` configs from all devices with a `firerelay_node_id` and stores versioned snapshots in `device_config_backups` with SHA-256 deduplication. Uses `INSERT IGNORE` for idempotency.
 
@@ -906,7 +932,7 @@ for f in database/migrations/*.sql; do mysql -u <user> -p <database_name> < "$f"
 
 > **Migration 167 — Per-tenant database isolation config:** `167_create_organization_database_configs.sql` creates the `organization_database_configs` control-plane table. One row per organization (unique constraint). Stores `isolation_mode` (`shared` default, `isolated` opt-in), isolated database host, port, name, user, AES-256-GCM-encrypted password (`db_password_encrypted`), SSL flag, and `last_verified_at` timestamp. When `isolation_mode = 'isolated'` and a valid connection config is present, `src/config/database.js` routes every DB operation for that organization to a dedicated MySQL pool (cached in memory, invalidated on config update). Admin endpoints: `GET/PUT /api/v1/organizations/:id/database-isolation` (masked config), `POST /api/v1/organizations/:id/database-isolation/test` (connectivity check + records `last_verified_at`). `FK ON DELETE CASCADE` from `organizations`.
 
-> **Migration 168 — PROFECO complaint tracking:** `168_create_profeco_complaints_table.sql` creates the `profeco_complaints` table for ISPs subject to Mexico's PROFECO (Procuraduría Federal del Consumidor) CONCILIANET obligations. One row per complaint folio. Stores `folio_profeco` (official CONCILIANET folio, nullable until assigned), `consumer_name`, `consumer_email/phone`, `service_type`, `complaint_category`, `description`, `status` (`received` → `in_process` → `resolved` / `escalated`), `resolution_notes`, `received_at`, `response_deadline`, `resolved_at`, `submitted_by` (FK to users), and optional FKs to `clients` and `tickets`. Unique constraint on `(organization_id, folio_profeco)`. Supports quarterly export for regulatory filing.
+> **Migration 168 — PROFECO-related complaint tracking:** `168_create_profeco_complaints_table.sql` creates an internal complaint-support table with operator-entered folio/contact/category/status/deadline/resolution fields and optional client/ticket links. Its CSV/JSON output is generic; FireISP does not establish CONCILIANET applicability, an official filing format, a quarterly duty, submission, or acceptance.
 
 > **Migration 169 — AI Reply Assistant tables + device/link columns:** `169_ai_assistant.sql` creates six tables for the AI Reply Assistant feature (`ai_policies`, `ai_providers`, `ai_phrase_library`, `ai_forbidden_terms`, `ai_reply_logs`, `contract_topology_paths`) and adds two ALTER TABLE statements: `devices.role ENUM('cpe','pop','backbone','border','access') NULL` for topology classification, and `network_links.medium ENUM('fiber','wireless','copper') NULL` + `network_links.role ENUM('backbone','distribution','access','client') NULL` for link metadata used by `topologyContextService`.
 
@@ -1060,7 +1086,7 @@ Or in `my.cnf` / `my.ini`:
 event_scheduler = ON
 ```
 
-> **⚠️ Prerequisite:** `event_scheduler = ON` is **required** for automated SNMP rollup/retention and `connection_logs` partition maintenance. If it is disabled, SNMP aggregation stops, old partitions accumulate past their retention windows, and `connection_logs` inserts will eventually fail when `p_future` is exhausted. Run the preflight check procedure (see [Preflight Check](#preflight-check-event-scheduler)) during deployment to detect this early.
+> **⚠️ Prerequisite:** `event_scheduler = ON` is **required** for automated SNMP rollup/retention and partition creation for `connection_logs` and `radius_accounting_events`. If it is disabled, SNMP aggregation stops and new partitioned accounting/evidence rows accumulate in the `p_future` catch-all. CGNAT binding tables are indexed but not monthly partitioned. The application retention task—not a partition-drop event—owns deletion of expired connection records. Run the preflight check procedure (see [Preflight Check](#preflight-check-event-scheduler)) during deployment.
 
 | Event | Schedule | Action |
 |-------|----------|--------|
@@ -1071,52 +1097,96 @@ event_scheduler = ON
 
 All rollup procedures use a **high-watermark** (`snmp_rollup_state` table) to track the last successfully processed timestamp, so missed runs catch up automatically rather than only looking back a fixed window. Rollup procedures use `INSERT … ON DUPLICATE KEY UPDATE` for idempotent re-runs. Raw data retention is instant (partition `DROP`) while hourly retention uses batch deletes (10 000 rows per iteration) since that table is much smaller.
 
-### Connection Logs (Compliance & Usage)
+### Connection Logging, Evidence, and Operational Usage
 
-The `connection_logs` table records every RADIUS accounting event (`start`, `stop`, `interim-update`) per contract, providing a complete audit trail of subscriber sessions for regulatory compliance. Each row is **self-contained** — it captures the subscriber identity, assigned IP address(es), NAS, and session counters at the time of the event, so the record remains valid even if the contract or client is later deleted.
+`connection_logs` is the mutable current/final projection of a subscriber
+session. Supported application ingest creates one row per lifecycle, then
+Start/Interim/Stop receipts advance that row's state, cumulative counters and
+last-received time. It is not one immutable row per accounting packet.
 
-| Column | Description |
-|--------|-------------|
-| `contract_id` / `client_id` | Contract and client at time of session (no FK — compliance) |
-| `username` | RADIUS username at time of session |
-| `session_id` | RADIUS Acct-Session-Id |
-| `ip_address` / `ipv6_address` / `ipv6_delegated_prefix` | IP address(es) assigned during the session |
-| `nas_id` / `nas_ip_address` | NAS that authenticated the session |
-| `event_type` | `start`, `stop`, or `interim-update` |
-| `bytes_in` / `bytes_out` / `packets_in` / `packets_out` | Session traffic counters (at stop/interim) |
-| `session_duration` | Duration in seconds (at stop) |
-| `terminate_cause` | RADIUS Acct-Terminate-Cause (at stop) |
+`radius_accounting_events` separately retains selected normalized lifecycle
+milestones: Start, the first transition to Interim, Stop, and a later corrected
+final Stop when applicable. It deliberately does not retain every routine
+Interim heartbeat or the raw RADIUS packet. Its dedupe key and integrity hash
+support replay and consistency checks; they do not make it tamper-proof against
+a privileged database operator or a complete statutory evidence vault.
 
-**Retention:** 2 years via monthly partition `DROP`, managed by `connection_logs_maintain_partitions()`.
+`radius_accounting_usage_daily` contains monotonic counter deltas grouped by
+the normalized accounting event's UTC date. It is an operational rollup, not
+packet-level metering: counter resets, a non-zero first observation, a newly
+appearing counter, or an interval crossing UTC midnight marks the lifecycle or
+day incomplete and records an anomaly. Billing, FUP, rollover, or legal users
+must inspect `is_complete`, `anomaly_count`, and `anomaly_reason` and fail closed
+when exact attribution matters. Deprecated direct-SQL `connection_logs` writers
+do not populate this rollup and are not a supported billing source.
 
-> **⚠️ Requires `event_scheduler = ON`:** The scheduled event below will not run if the MySQL Event Scheduler is disabled. Without it, future partitions are never created (causing inserts to fail) and expired partitions are never dropped (violating the 2-year compliance retention window). See [Preflight Check](#preflight-check-event-scheduler) to validate this at deployment time.
+`cgnat_attribution_bindings` holds privacy-minimal translation or port-allocation
+evidence submitted by an operator-controlled external collector: private source
+tuple, translated public source address and port/range, protocol, exact UTC
+allocation interval, gateway/exporter provenance, and the canonical
+`session_instance_id` returned by tenant RADIUS ingest. Every allocate/release
+event requires that tenant-owned session UUID; optional subscriber hints or a
+reused private address cannot replace it. The dataset deliberately has no
+destination address/port, URL, domain, DNS, packet payload, application content,
+or browsing-history field. FireISP does not parse RouterOS, NetFlow/IPFIX, or
+syslog itself.
+
+The LMTR does not expressly enumerate CGNAT address/port bindings. This is an
+operator/counsel-configured attribution control, not automatic compliance from
+selecting the `MX` locale. A unique lookup supports attribution to a subscriber
+account and access session; it does not prove which human used the connection,
+what they did, or which destination they contacted. Missing and overlapping
+bindings must be reported as unavailable or ambiguous rather than guessed.
+For a directly assigned public IPv4 address, public IP plus UTC time resolves
+only through a certain RADIUS evidence interval: the first exact-IP lifecycle
+event and receipt establish the lower bound, while both the closure/latest
+event and its receipt establish the upper bound. Translated port and protocol
+are required only when a public address is shared behind CGNAT.
+The CGNAT mode is supported only when a public IP/port/protocol tuple is
+exclusive to one subscriber at an instant. Translators that reuse the tuple and
+need remote destination for disambiguation are reported unsupported; FireISP
+does not collect destinations to compensate.
+An exporter epoch with a reported sequence/loss/metadata incident remains
+fail-closed. After authoritative external reconciliation, retire that identity
+and start a newly versioned exporter identity/epoch; do not reset its historical
+counters or make old-epoch evidence appear healthy.
+Raw device time is corrected by subtracting `clock_offset_ms` (raw device time
+minus UTC), and only corrected time minus uncertainty advances the certain
+coverage horizon. V1 has no heartbeat/checkpoint: quiet exporters become stale,
+and an open mapping or long-lived port block alone does not remain continuously
+attributable. A new or returning boot identifier never resumes an existing
+epoch; drain/reconcile/rebaseline the pool and register a newly versioned
+exporter identity/configuration epoch.
+The synchronous HTTP/MySQL path is for assessed low-volume mappings or
+deterministic exclusive port blocks. Carrier-scale per-connection streams need
+a durable queue/normalizer, dedicated partitioned append/search store, and
+measured end-to-end loss/backlog; an accepted HTTP batch is not proof of complete
+network coverage.
+
+Retention defaults are 24 calendar months for the projection, lifecycle
+evidence, usage rollup, and CGNAT bindings. The operator and counsel must approve
+the actual CGNAT schedule because locale alone supplies no legal basis. Ordinary
+CGNAT retention is configurable from 1–24 calendar months and is hard-capped at
+24 for minimization; only an active scoped case hold may preserve evidence
+longer.
+`CGNAT_ATTRIBUTION_RETENTION_MONTHS` is installation-wide, so the selected
+period must be approved for every tenant that enables collection; tenants that
+require different periods need separate deployments until per-organization
+retention exists. The
+application `purge_radius_accounting` task deletes expired rows in bounded
+batches across shared and active isolated databases; only explicitly preserved,
+case-linked evidence may bypass ordinary deletion. Partition events materialize
+current and future partitions but do not replace the policy-aware purge.
 
 | Event | Schedule | Action |
 |-------|----------|--------|
-| `evt_connection_logs_partition_maintenance` | Daily at 03:30 | Calls `connection_logs_maintain_partitions()` — adds future month partitions and drops expired ones (2-year retention) |
+| `evt_connection_logs_partition_maintenance` | Daily at 03:30 | Materializes current through +3 month `connection_logs` partitions; does not drop records |
+| `evt_subscriber_logging_partition_maintenance` | Daily at 03:00 | Materializes current through +3 month `radius_accounting_events` partitions; does not drop records |
 
-**Typical queries:**
-
-```sql
--- Who had IP 10.0.1.42 on 2026-03-15?
-SELECT * FROM connection_logs
-WHERE ip_address = '10.0.1.42'
-  AND event_at >= '2026-03-15' AND event_at < '2026-03-16';
-
--- All sessions for contract #123 in March 2026
-SELECT * FROM connection_logs
-WHERE contract_id = 123
-  AND event_at >= '2026-03-01' AND event_at < '2026-04-01';
-
--- Total data usage per contract for billing period
-SELECT contract_id,
-       SUM(bytes_in)  AS total_download,
-       SUM(bytes_out) AS total_upload
-FROM connection_logs
-WHERE event_type IN ('stop', 'interim-update')
-  AND event_at >= '2026-03-01' AND event_at < '2026-04-01'
-GROUP BY contract_id;
-```
+Every direct query must include the owning `organization_id`. Prefer the
+tenant-scoped APIs and audited exports over ad-hoc SQL. Configuration, collector
+limits, access controls, completeness caveats, and production acceptance steps
+are in [Connection Logging and Evidence Operations](docs/connection-logging-compliance.md).
 
 ### Preflight Check: Event Scheduler
 
@@ -1132,8 +1202,8 @@ If `event_scheduler` is **not** `ON`, the procedure raises a `SQLSTATE '45000'` 
 
 | Consequence | Detail |
 |-------------|--------|
-| `connection_logs` insert failures | Without daily partition maintenance, `p_future` fills up and INSERTs start failing |
-| Compliance retention violation | Partitions older than 2 years are never dropped, accumulating data beyond the regulatory window |
+| Partition-layout drift | Without daily partition maintenance, new `connection_logs`/accounting-evidence rows accumulate in `p_future`; later reorganization can become expensive and monthly operational checks are no longer meaningful |
+| Retention drift | A disabled/failed application retention task leaves expired connection records in place; the partition creator does not delete them |
 | SNMP data gap | Rollup and retention events stop running, leaving raw data unbounded |
 
 **To enable the Event Scheduler:**
@@ -1269,7 +1339,7 @@ WHERE it.transaction_type = 'sell_to_client'
 GROUP BY ii.id;
 ```
 
-See the [`docs/`](docs/) directory for detailed guides on [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md) (includes Helm chart + Argo CD GitOps), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [volume persistence](docs/volume-persistence.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), [tenant database isolation](docs/tenant-database-isolation.md), [TLS setup](docs/tls-setup.md), [load testing](docs/load-testing.md), [SLOs & alerting](docs/slo.md), [pen-test guide](docs/pentest.md), [privacy & DSAR](docs/privacy.md), [secrets management](docs/secrets-management.md), [DR drill](docs/dr-drill.md), [CFDI sandbox testing](docs/cfdi-sandbox-testing.md), the [operational runbook](docs/runbook.md), and [video walkthroughs](docs/videos/) for data migration and FireRelay installation.
+See the [`docs/`](docs/) directory for detailed guides on the central [legal and government regulatory touchpoint register](docs/legal-regulatory-register.md), [API usage](docs/API_GUIDE.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md) (includes Helm chart + Argo CD GitOps), [RADIUS setup](docs/radius-setup.md), [backup & restore](docs/backup-restore.md), [volume persistence](docs/volume-persistence.md), [RBAC permissions](docs/rbac-permissions.md), [webhook events](docs/webhook-events.md), [FireRelay clustering](docs/firerelay.md), [tenant database isolation](docs/tenant-database-isolation.md), [TLS setup](docs/tls-setup.md), [load testing](docs/load-testing.md), [SLOs & alerting](docs/slo.md), [pen-test guide](docs/pentest.md), [privacy & DSAR](docs/privacy.md), [secrets management](docs/secrets-management.md), [DR drill](docs/dr-drill.md), [CFDI sandbox testing](docs/cfdi-sandbox-testing.md), the [operational runbook](docs/runbook.md), and [video walkthroughs](docs/videos/) for data migration and FireRelay installation.
 
 ## Getting Started (from Source)
 
@@ -1289,7 +1359,7 @@ pnpm install
 cp .env.example .env
 # Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET, and ENCRYPTION_KEY
 
-# 5. Set up the database (MySQL 8.0+ / MariaDB 10.6+)
+# 5. Set up the database (MySQL 8.0.29+ / MariaDB 10.6+)
 pnpm run migrate
 pnpm run seed
 

@@ -4,12 +4,13 @@
 // Multi-tab page covering Mexico regulatory compliance:
 //   1. Consent Management  — subscriber ARCO consent records
 //   2. DSAR Requests       — data subject access requests
-//   3. Identity Verification — CURP/RFC identity verification records
-//   4. Phone & Numbering   — IFT phone number inventory + portability
-//   5. Universal Service   — USO obligations + rural coverage
-//   6. Consumer Protection — service modification notices + contract templates
-//   7. Data Residency      — storage country config + compliance check
-//   8. Audit & Export      — audit log export + report access logs
+//   3. Government Requests — validated, case-bound IP-traceability workflow
+//   4. Identity Verification — CURP/RFC identity verification records
+//   5. Phone & Numbering   — IFT phone number inventory + portability
+//   6. Universal Service   — USO obligations + rural coverage
+//   7. Consumer Protection — service modification notices + contract templates
+//   8. Data Residency      — storage country config + compliance check
+//   9. Audit & Export      — audit log export + report access logs
 //
 // All data fetched from /api/v1/regulatory-compliance/*, /api/v1/numbering-management/*,
 // /api/v1/universal-service/*, /api/v1/consumer-protection/*, /api/v1/data-residency,
@@ -19,6 +20,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { readCsrfCookie } from '@/api/csrf';
 import { useAuth } from '@/auth/AuthContext';
 import { can } from '@/auth/permissions';
@@ -33,7 +35,7 @@ import { LEGAL_DOCUMENT_PLACEHOLDER_HELP } from '@/legalDocumentPlaceholders';
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = 'consent' | 'dsar' | 'identity' | 'numbering' | 'uso' | 'consumer' | 'residency' | 'audit';
+type Tab = 'consent' | 'dsar' | 'government' | 'identity' | 'numbering' | 'uso' | 'consumer' | 'residency' | 'audit';
 
 interface ConsentRecord {
   id: number;
@@ -66,6 +68,23 @@ interface IdentityRecord {
   id_type: string;
   status: string;
   curp_checksum_valid: boolean | null;
+}
+
+interface GovernmentRequest {
+  id: number;
+  authority_name: string;
+  authority_ref: string | null;
+  request_type: string;
+  client_id: number | null;
+  contract_id: number | null;
+  ip_address: string | null;
+  public_port: number | null;
+  protocol: string | number | null;
+  observed_at: string | null;
+  legal_basis: string | null;
+  notes: string | null;
+  status: string;
+  created_at: string | null;
 }
 
 interface PhoneNumber {
@@ -156,7 +175,18 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 // Main page
 // ---------------------------------------------------------------------------
 
-const TABS: Tab[] = ['consent', 'dsar', 'identity', 'numbering', 'uso', 'consumer', 'residency', 'audit'];
+const TABS: Tab[] = ['consent', 'dsar', 'government', 'identity', 'numbering', 'uso', 'consumer', 'residency', 'audit'];
+const TAB_VIEW_PERMISSIONS: Record<Tab, string[]> = {
+  consent: ['subscriber_consents.view'],
+  dsar: ['dsar_requests.view'],
+  government: ['gov_data_requests.view'],
+  identity: ['identity_verification.view'],
+  numbering: ['phone_number_inventory.view'],
+  uso: ['uso_obligations.view'],
+  consumer: ['service_modification_notices.view', 'contract_templates_mx.view'],
+  residency: ['data_residency.view'],
+  audit: ['report_access_logs.view', 'audit_export.view'],
+};
 
 export default function RegulatoryCompliancePage() {
   const { t } = useTranslation();
@@ -165,9 +195,11 @@ export default function RegulatoryCompliancePage() {
 
   // /consumer-protection/* is MX-locale-gated (404 REGION_DISABLED otherwise) —
   // hide its tab for global-locale orgs instead of rendering it as forever-empty.
-  const visibleTabs = user?.organization_locale === 'MX'
+  const localeTabs = user?.organization_locale === 'MX'
     ? TABS
     : TABS.filter(tab => tab !== 'consumer');
+  const visibleTabs = localeTabs.filter(tab => TAB_VIEW_PERMISSIONS[tab].some(permission => can(user, permission)));
+  const renderedTab = visibleTabs.includes(activeTab) ? activeTab : visibleTabs[0] ?? null;
 
   return (
     <div style={{ padding: '20px' }}>
@@ -182,11 +214,11 @@ export default function RegulatoryCompliancePage() {
             key={tab}
             onClick={() => setActiveTab(tab)}
             style={{
-              fontWeight: activeTab === tab ? 'bold' : 'normal',
+              fontWeight: renderedTab === tab ? 'bold' : 'normal',
               padding: '6px 12px',
-              border: activeTab === tab ? '2px solid #4a90e2' : '1px solid #ccc',
+              border: renderedTab === tab ? '2px solid #4a90e2' : '1px solid #ccc',
               borderRadius: 4,
-              background: activeTab === tab ? '#eaf3ff' : '#fff',
+              background: renderedTab === tab ? '#eaf3ff' : '#fff',
               cursor: 'pointer',
             }}
           >
@@ -194,14 +226,20 @@ export default function RegulatoryCompliancePage() {
           </button>
         ))}
       </div>
-      {activeTab === 'consent' && <ConsentTab />}
-      {activeTab === 'dsar' && <DsarTab />}
-      {activeTab === 'identity' && <IdentityTab />}
-      {activeTab === 'numbering' && <NumberingTab />}
-      {activeTab === 'uso' && <UsoTab />}
-      {activeTab === 'consumer' && user?.organization_locale === 'MX' && <ConsumerTab />}
-      {activeTab === 'residency' && <ResidencyTab />}
-      {activeTab === 'audit' && <AuditTab />}
+      {!renderedTab && (
+        <p role="alert" style={{ padding: 12, border: '1px solid #d0d5dd', borderRadius: 6, color: '#475467' }}>
+          {t('regulatoryCompliance.accessDenied')}
+        </p>
+      )}
+      {renderedTab === 'consent' && <ConsentTab />}
+      {renderedTab === 'dsar' && <DsarTab />}
+      {renderedTab === 'government' && <GovernmentRequestsTab />}
+      {renderedTab === 'identity' && <IdentityTab />}
+      {renderedTab === 'numbering' && <NumberingTab />}
+      {renderedTab === 'uso' && <UsoTab />}
+      {renderedTab === 'consumer' && <ConsumerTab />}
+      {renderedTab === 'residency' && <ResidencyTab />}
+      {renderedTab === 'audit' && <AuditTab />}
     </div>
   );
 }
@@ -212,10 +250,8 @@ export default function RegulatoryCompliancePage() {
 
 function ConsentTab() {
   const { t } = useTranslation();
-  // PrivateRoute lets readonly and technician onto this page as well as the
-  // intended billing role, and migration 321 grants those two only
-  // subscriber_consents.view. Withdraw needs .manage, which ONLY admin has —
-  // so an ungated button 403s for every non-admin who can see this tab.
+  // The page supports custom permission sets. Keep mutation controls aligned
+  // with the backend even after the view permission made this tab visible.
   const { user } = useAuth();
   const canCreate = can(user, 'subscriber_consents.create');
   const canManage = can(user, 'subscriber_consents.manage');
@@ -526,6 +562,384 @@ function DsarTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Tab: Government Requests — case gate for exact IP attribution
+// ---------------------------------------------------------------------------
+
+function normalizedTransportProtocol(value: string | number | null): string | null {
+  if (value === 6 || String(value).toLowerCase() === 'tcp') return 'tcp';
+  if (value === 17 || String(value).toLowerCase() === 'udp') return 'udp';
+  return null;
+}
+
+function exactUtcInstant(value: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toISOString();
+}
+
+function GovernmentRequestsTab() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const canCreate = can(user, 'gov_data_requests.create');
+  const canManage = can(user, 'gov_data_requests.manage');
+  const canLookup = can(user, 'ip_attribution.view');
+  const [requests, setRequests] = useState<GovernmentRequest[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [rejectionReasons, setRejectionReasons] = useState<Record<number, string>>({});
+  const [releaseReasons, setReleaseReasons] = useState<Record<number, string>>({});
+  const [releasedCases, setReleasedCases] = useState<Set<number>>(() => new Set());
+  const [form, setForm] = useState({
+    authority_name: '',
+    authority_ref: '',
+    legal_basis: '',
+    assignment_mode: 'cgnat',
+    public_ipv4: '',
+    public_port: '',
+    protocol: '',
+    observed_at: '',
+  });
+
+  function load() {
+    setLoading(true);
+    apiFetch<{ data: GovernmentRequest[] }>('/regulatory-compliance/gov-data-requests?request_type=ip_traceability&limit=100')
+      .then(response => setRequests(response.data || []))
+      .catch(() => {
+        setRequests([]);
+        setMessage({ ok: false, text: t('regulatoryCompliance.government.loadError') });
+      })
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, []);
+
+  async function createRequest(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    try {
+      await apiFetch('/regulatory-compliance/gov-data-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          authority_name: form.authority_name.trim(),
+          authority_ref: form.authority_ref.trim(),
+          request_type: 'ip_traceability',
+          legal_basis: form.legal_basis.trim(),
+          ip_address: form.public_ipv4.trim(),
+          public_port: form.assignment_mode === 'direct' ? null : Number(form.public_port),
+          protocol: form.assignment_mode === 'direct' ? null : form.protocol,
+          observed_at: new Date(form.observed_at).toISOString(),
+        }),
+      });
+      setMessage({ ok: true, text: t('regulatoryCompliance.government.created') });
+      setForm(current => ({
+        ...current,
+        authority_ref: '',
+        legal_basis: '',
+        public_ipv4: '',
+        public_port: '',
+        protocol: '',
+        observed_at: '',
+      }));
+      load();
+    } catch {
+      setMessage({ ok: false, text: t('regulatoryCompliance.government.createError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startProcessing(id: number) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await apiFetch(`/regulatory-compliance/gov-data-requests/${id}/process`, { method: 'PUT' });
+      setMessage({ ok: true, text: t('regulatoryCompliance.government.processingStarted') });
+      load();
+    } catch {
+      setMessage({ ok: false, text: t('regulatoryCompliance.government.processError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeRequest(id: number, action: 'fulfill' | 'reject') {
+    const rejectionReason = (rejectionReasons[id] ?? '').trim();
+    if (action === 'reject' && !rejectionReason) return;
+    if (!window.confirm(t(`regulatoryCompliance.government.${action}Confirm`))) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await apiFetch(`/regulatory-compliance/gov-data-requests/${id}/${action}`, {
+        method: 'PUT',
+        ...(action === 'reject' ? { body: JSON.stringify({ reason: rejectionReason }) } : {}),
+      });
+      setMessage({ ok: true, text: t(`regulatoryCompliance.government.${action}Success`) });
+      load();
+    } catch {
+      setMessage({ ok: false, text: t('regulatoryCompliance.government.closeError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function releaseEvidenceHold(id: number) {
+    const reason = (releaseReasons[id] ?? '').trim();
+    if (!reason || !window.confirm(t('regulatoryCompliance.government.releaseConfirm'))) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await apiFetch<{ released_evidence_rows?: number }>(
+        `/regulatory-compliance/gov-data-requests/${id}/release-evidence-hold`,
+        { method: 'PUT', body: JSON.stringify({ reason }) },
+      );
+      setReleasedCases(current => new Set(current).add(id));
+      setMessage({
+        ok: true,
+        text: t('regulatoryCompliance.government.releaseSuccess', {
+          count: Number(response.released_evidence_rows || 0),
+        }),
+      });
+    } catch {
+      setMessage({ ok: false, text: t('regulatoryCompliance.government.releaseError') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, minWidth: 170 };
+  const inputStyle: React.CSSProperties = { padding: '6px 8px', border: '1px solid #ccc', borderRadius: 4 };
+  const canStart = (status: string) => ['received', 'pending_legal_review'].includes(status);
+
+  return (
+    <div>
+      <h2>{t('regulatoryCompliance.tabs.government')}</h2>
+      <p style={{ color: '#667085', lineHeight: 1.5, maxWidth: 900 }}>
+        {t('regulatoryCompliance.government.help')}
+      </p>
+      <p role="note" style={{ color: '#92400e', lineHeight: 1.5, maxWidth: 900, fontWeight: 600 }}>
+        {t('regulatoryCompliance.government.workflowHelp')}
+      </p>
+      {canManage && (
+        <p style={{ color: '#667085', lineHeight: 1.5, maxWidth: 900 }}>
+          {t('regulatoryCompliance.government.releaseHelp')}
+        </p>
+      )}
+      {canCreate && (
+        <form
+          onSubmit={createRequest}
+          aria-label={t('regulatoryCompliance.government.formLabel')}
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}
+        >
+          <label style={fieldStyle}>{t('regulatoryCompliance.government.authority')}
+            <input style={inputStyle} required maxLength={255} value={form.authority_name}
+              onChange={event => setForm(current => ({ ...current, authority_name: event.target.value }))} />
+          </label>
+          <label style={fieldStyle}>{t('regulatoryCompliance.government.officialReference')}
+            <input style={inputStyle} required maxLength={100} value={form.authority_ref}
+              onChange={event => setForm(current => ({ ...current, authority_ref: event.target.value }))} />
+          </label>
+          <label style={{ ...fieldStyle, flexGrow: 1 }}>{t('regulatoryCompliance.government.legalBasis')}
+            <input style={inputStyle} required maxLength={5000} value={form.legal_basis}
+              onChange={event => setForm(current => ({ ...current, legal_basis: event.target.value }))} />
+          </label>
+          <label style={fieldStyle}>{t('regulatoryCompliance.government.assignmentMode')}
+            <select style={inputStyle} value={form.assignment_mode}
+              onChange={event => setForm(current => ({ ...current, assignment_mode: event.target.value }))}>
+              <option value="cgnat">{t('regulatoryCompliance.government.modeCgnat')}</option>
+              <option value="direct">{t('regulatoryCompliance.government.modeDirect')}</option>
+            </select>
+          </label>
+          <label style={fieldStyle}>{t('regulatoryCompliance.government.publicIpv4')}
+            <input style={inputStyle} required value={form.public_ipv4}
+              onChange={event => setForm(current => ({ ...current, public_ipv4: event.target.value }))} />
+          </label>
+          {form.assignment_mode !== 'direct' && (
+            <>
+              <label style={fieldStyle}>{t('regulatoryCompliance.government.publicPort')}
+                <input style={inputStyle} required type="number" min={1} max={65535} step={1} value={form.public_port}
+                  onChange={event => setForm(current => ({ ...current, public_port: event.target.value }))} />
+              </label>
+              <label style={fieldStyle}>{t('regulatoryCompliance.government.protocol')}
+                <select style={inputStyle} required value={form.protocol}
+                  onChange={event => setForm(current => ({ ...current, protocol: event.target.value }))}>
+                  <option value="">{t('regulatoryCompliance.government.selectProtocol')}</option>
+                  <option value="tcp">TCP</option>
+                  <option value="udp">UDP</option>
+                </select>
+              </label>
+            </>
+          )}
+          <label style={fieldStyle}>{t('regulatoryCompliance.government.exactTimestamp')}
+            <input style={inputStyle} required type="datetime-local" step={1} value={form.observed_at}
+              onChange={event => setForm(current => ({ ...current, observed_at: event.target.value }))} />
+          </label>
+          <p style={{ flexBasis: '100%', margin: 0, color: '#667085', fontSize: 12 }}>
+            {t('regulatoryCompliance.government.timezoneHelp', {
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'local',
+            })}
+          </p>
+          <button type="submit" disabled={busy} style={{ padding: '7px 16px', background: '#4a90e2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+            {busy ? t('regulatoryCompliance.government.saving') : t('regulatoryCompliance.government.create')}
+          </button>
+        </form>
+      )}
+      {message && <p role="status" style={{ color: message.ok ? '#2e7d32' : '#c62828', fontSize: 13 }}>{message.text}</p>}
+      {loading ? <p>{t('common.loading')}</p> : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>ID</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.authority')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.officialReference')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.legalBasis')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.authorizedLookup')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.status')}</th>
+                <th style={thStyle}>{t('regulatoryCompliance.government.actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map(request => {
+                const protocol = normalizedTransportProtocol(request.protocol);
+                const tuple = [
+                  request.ip_address || '—',
+                  request.public_port ? `:${request.public_port}` : '',
+                  protocol ? ` ${protocol.toUpperCase()}` : '',
+                ].join('');
+                return (
+                  <tr key={request.id}>
+                    <td style={tdStyle}>{request.id}</td>
+                    <td style={tdStyle}>{request.authority_name}</td>
+                    <td style={tdStyle}>{request.authority_ref || '—'}</td>
+                    <td style={{ ...tdStyle, whiteSpace: 'normal', minWidth: 220, maxWidth: 360, lineHeight: 1.45 }}>
+                      <div>{request.legal_basis || '—'}</div>
+                      {(request.client_id || request.contract_id) && (
+                        <div style={{ color: '#667085', fontSize: 12, marginTop: 6 }}>
+                          <strong>{t('regulatoryCompliance.government.subjectScope')}:</strong>{' '}
+                          {[
+                            request.client_id
+                              ? t('regulatoryCompliance.government.subjectClient', { id: request.client_id })
+                              : null,
+                            request.contract_id
+                              ? t('regulatoryCompliance.government.subjectContract', { id: request.contract_id })
+                              : null,
+                          ].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {request.notes && (
+                        <details style={{ color: '#667085', fontSize: 12, marginTop: 6 }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                            {t('regulatoryCompliance.government.caseNotes')}
+                          </summary>
+                          <p style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{request.notes}</p>
+                        </details>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'var(--font-mono)' }}>
+                      {tuple}<br />
+                      <span style={{ color: '#667085', fontFamily: 'inherit' }}>
+                        {exactUtcInstant(request.observed_at)}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{t(`regulatoryCompliance.government.statuses.${request.status}`, { defaultValue: request.status })}</td>
+                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                      {canManage && canStart(request.status) && (
+                        <button type="button" disabled={busy} onClick={() => { void startProcessing(request.id); }}
+                          style={{ padding: '3px 10px', fontSize: 12, marginRight: 6, border: '1px solid #2e7d32', color: '#2e7d32', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
+                          {t('regulatoryCompliance.government.startProcessing')}
+                        </button>
+                      )}
+                      {canLookup && request.status === 'processing' && request.ip_address && request.observed_at && (
+                        <Link
+                          to="/connection-logs"
+                          state={{
+                            ipAttribution: {
+                              gov_data_request_id: request.id,
+                              public_ipv4: request.ip_address,
+                              public_port: request.public_port,
+                              protocol,
+                              observed_at: request.observed_at,
+                            },
+                          }}
+                          style={{ color: '#1d4ed8', fontWeight: 600 }}
+                        >
+                          {t('regulatoryCompliance.government.openLookup')}
+                        </Link>
+                      )}
+                      {canManage && request.status === 'processing' && (
+                        <button type="button" disabled={busy} onClick={() => { void closeRequest(request.id, 'fulfill'); }}
+                          style={{ padding: '3px 10px', fontSize: 12, marginLeft: 6, border: '1px solid #2e7d32', color: '#2e7d32', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}>
+                          {t('regulatoryCompliance.government.fulfill')}
+                        </button>
+                      )}
+                      {canManage && ['received', 'pending_legal_review', 'processing'].includes(request.status) && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 6, flexWrap: 'wrap' }}>
+                          <input
+                            aria-label={t('regulatoryCompliance.government.rejectReason')}
+                            placeholder={t('regulatoryCompliance.government.rejectReasonPlaceholder')}
+                            maxLength={500}
+                            value={rejectionReasons[request.id] ?? ''}
+                            onChange={event => setRejectionReasons(current => ({
+                              ...current, [request.id]: event.target.value,
+                            }))}
+                            style={{ ...inputStyle, minWidth: 190 }}
+                          />
+                          <button
+                            type="button"
+                            disabled={busy || !(rejectionReasons[request.id] ?? '').trim()}
+                            onClick={() => { void closeRequest(request.id, 'reject'); }}
+                            style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #b42318', color: '#b42318', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
+                          >
+                            {t('regulatoryCompliance.government.reject')}
+                          </button>
+                        </span>
+                      )}
+                      {canManage && ['fulfilled', 'rejected'].includes(request.status) && (
+                        releasedCases.has(request.id) ? (
+                          <span style={{ color: '#166534', fontSize: 12 }}>
+                            {t('regulatoryCompliance.government.releaseRecorded')}
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <input
+                              aria-label={t('regulatoryCompliance.government.releaseReason')}
+                              placeholder={t('regulatoryCompliance.government.releaseReasonPlaceholder')}
+                              maxLength={500}
+                              value={releaseReasons[request.id] ?? ''}
+                              onChange={event => setReleaseReasons(current => ({
+                                ...current, [request.id]: event.target.value,
+                              }))}
+                              style={{ ...inputStyle, minWidth: 210 }}
+                            />
+                            <button
+                              type="button"
+                              disabled={busy || !(releaseReasons[request.id] ?? '').trim()}
+                              onClick={() => { void releaseEvidenceHold(request.id); }}
+                              style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #b42318', color: '#b42318', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
+                            >
+                              {t('regulatoryCompliance.government.releaseEvidenceHold')}
+                            </button>
+                          </span>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {requests.length === 0 && (
+                <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: '#999' }}>{t('common.noResults')}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tab: Identity Verification
 // ---------------------------------------------------------------------------
 
@@ -711,21 +1125,24 @@ function UsoTab() {
 function ConsumerTab() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const canViewNotices = can(user, 'service_modification_notices.view');
+  const canViewTemplates = can(user, 'contract_templates_mx.view');
   const [notices, setNotices] = useState<ServiceModification[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!canViewNotices) return;
     setLoading(true);
     apiFetch<{ data: ServiceModification[] }>('/consumer-protection/service-modifications')
       .then(r => setNotices(r.data || []))
       .catch(() => setNotices([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [canViewNotices]);
 
   return (
     <div>
       <h2>{t('regulatoryCompliance.tabs.consumer')}</h2>
-      {loading ? (
+      {canViewNotices && (loading ? (
         <p>{t('common.loading')}</p>
       ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -759,13 +1176,15 @@ function ConsumerTab() {
             )}
           </tbody>
         </table>
+      ))}
+      {canViewTemplates && (
+        <ContractTemplateMxRegistry
+          canView
+          canCreate={can(user, 'contract_templates_mx.create')}
+          canUpdate={can(user, 'contract_templates_mx.update')}
+          organizationId={user?.organization_id ?? null}
+        />
       )}
-      <ContractTemplateMxRegistry
-        canView={can(user, 'contract_templates_mx.view')}
-        canCreate={can(user, 'contract_templates_mx.create')}
-        canUpdate={can(user, 'contract_templates_mx.update')}
-        organizationId={user?.organization_id ?? null}
-      />
     </div>
   );
 }
@@ -1273,6 +1692,8 @@ function ContractTemplateMxRegistry({ canView, canCreate, canUpdate, organizatio
 
 function ResidencyTab() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const canManage = can(user, 'data_residency.manage');
   const [config, setConfig] = useState<DataResidencyConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -1323,13 +1744,15 @@ function ResidencyTab() {
               ? new Date(config.last_compliance_check).toLocaleString()
               : t('regulatoryCompliance.residency.neverChecked')}
           </p>
-          <button
-            onClick={runCheck}
-            disabled={checking}
-            style={{ padding: '6px 14px', marginTop: 8 }}
-          >
-            {checking ? t('common.loading') : t('regulatoryCompliance.residency.runCheck')}
-          </button>
+          {canManage && (
+            <button
+              onClick={runCheck}
+              disabled={checking}
+              style={{ padding: '6px 14px', marginTop: 8 }}
+            >
+              {checking ? t('common.loading') : t('regulatoryCompliance.residency.runCheck')}
+            </button>
+          )}
         </div>
       ) : (
         <p>{t('regulatoryCompliance.residency.noConfig')}</p>
@@ -1344,16 +1767,20 @@ function ResidencyTab() {
 
 function AuditTab() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const canViewAccessLogs = can(user, 'report_access_logs.view');
+  const canExport = can(user, 'audit_export.view');
   const [logs, setLogs] = useState<ReportAccessLog[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!canViewAccessLogs) return;
     setLoading(true);
     apiFetch<{ data: ReportAccessLog[] }>('/audit-logs/report-access-logs')
       .then(r => setLogs(r.data || []))
       .catch(() => setLogs([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [canViewAccessLogs]);
 
   const handleExport = () => {
     const token = localStorage.getItem('token');
@@ -1381,14 +1808,16 @@ function AuditTab() {
   return (
     <div>
       <h2>{t('regulatoryCompliance.tabs.audit')}</h2>
-      <button
-        onClick={handleExport}
-        style={{ padding: '6px 14px', marginBottom: 16 }}
-      >
-        {t('regulatoryCompliance.audit.exportLogs')}
-      </button>
-      <h3>{t('regulatoryCompliance.audit.reportAccessLogs')}</h3>
-      {loading ? (
+      {canExport && (
+        <button
+          onClick={handleExport}
+          style={{ padding: '6px 14px', marginBottom: 16 }}
+        >
+          {t('regulatoryCompliance.audit.exportLogs')}
+        </button>
+      )}
+      {canViewAccessLogs && <h3>{t('regulatoryCompliance.audit.reportAccessLogs')}</h3>}
+      {canViewAccessLogs && (loading ? (
         <p>{t('common.loading')}</p>
       ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -1420,7 +1849,7 @@ function AuditTab() {
             )}
           </tbody>
         </table>
-      )}
+      ))}
     </div>
   );
 }

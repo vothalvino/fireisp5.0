@@ -12,6 +12,7 @@ const logger = require('../utils/logger').child({ service: 'billing' });
 const { InvoiceGenerationError, AppError } = require('../utils/errors');
 const auditLog = require('./auditLog');
 const { drawdownForSale } = require('./inventoryDrawdownService');
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 
 /**
  * Normalise a free-text postal code to a 5-digit Mexican CP, or null.
@@ -468,20 +469,30 @@ async function calculateOverageCharges(contractId, periodStart, periodEnd) {
       p.data_cap_gb,
       p.overage_mode,
       p.overage_price_per_gb,
-      COALESCE(SUM(cl.bytes_in + cl.bytes_out), 0) AS bytes_used
+      COALESCE(SUM(CASE WHEN u.is_complete = 1 THEN u.bytes_in_delta + u.bytes_out_delta ELSE 0 END), 0) AS bytes_used,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+      COUNT(u.id) AS observed_rows,
+      (SELECT COUNT(*) FROM connection_logs unverifiable
+        WHERE unverifiable.organization_id = c.organization_id
+          AND unverifiable.contract_id = c.id
+          AND ${buildUnverifiableSessionOverlap('unverifiable')}) AS unverifiable_session_rows
     FROM contracts c
     JOIN plans p ON p.id = c.plan_id
-    LEFT JOIN connection_logs cl ON cl.contract_id = c.id
-      AND cl.event_type IN ('stop', 'interim-update')
-      AND cl.event_at >= ?
-      AND cl.event_at <= ?
+    LEFT JOIN radius_accounting_usage_daily u ON u.contract_id = c.id
+      AND u.organization_id = c.organization_id
+      AND u.usage_date >= DATE(?)
+      AND u.usage_date <= DATE(?)
     WHERE c.id = ?
     GROUP BY p.data_cap_gb, p.overage_mode, p.overage_price_per_gb
-  `, [periodStart, periodEnd, contractId]);
+  `, [periodStart, periodEnd, periodStart, periodEnd, contractId]);
 
   if (rows.length === 0) return { overage_gb: 0, amount: 0 };
 
   const r = rows[0];
+  if (Number(r.observed_rows || 0) === 0 || Number(r.incomplete_rows || 0) > 0
+      || Number(r.unverifiable_session_rows || 0) > 0) {
+    return { overage_gb: 0, amount: 0, usage_complete: false };
+  }
   if (r.overage_mode !== 'per_gb' || !r.data_cap_gb || !r.overage_price_per_gb) {
     return { overage_gb: 0, amount: 0 };
   }

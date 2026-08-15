@@ -44,13 +44,17 @@ const ATTR = {
   CALLING_STATION_ID: 31,
   SESSION_TIMEOUT: 27,
   ACCT_STATUS_TYPE: 40,
+  ACCT_DELAY_TIME: 41,
   ACCT_INPUT_OCTETS: 42,
   ACCT_OUTPUT_OCTETS: 43,
   ACCT_SESSION_ID: 44,
   ACCT_SESSION_TIME: 46,
+  ACCT_INPUT_PACKETS: 47,
+  ACCT_OUTPUT_PACKETS: 48,
   ACCT_TERMINATE_CAUSE: 49,
   ACCT_INPUT_GIGAWORDS: 52,
   ACCT_OUTPUT_GIGAWORDS: 53,
+  EVENT_TIMESTAMP: 55,
   CHAP_CHALLENGE: 60,
   NAS_PORT_ID: 87,
   FRAMED_IPV6_PREFIX: 97,
@@ -58,7 +62,13 @@ const ATTR = {
 };
 
 // Acct-Status-Type values (RFC 2866 §5.1)
-const ACCT_STATUS = { 1: 'Start', 2: 'Stop', 3: 'Interim-Update' };
+const ACCT_STATUS = {
+  1: 'Start',
+  2: 'Stop',
+  3: 'Interim-Update',
+  7: 'Accounting-On',
+  8: 'Accounting-Off',
+};
 
 /**
  * Decode a RADIUS packet into its header + flat attribute list.
@@ -108,6 +118,47 @@ function getInt(attributes, type) {
 function getIp(attributes, type) {
   const v = getAttr(attributes, type);
   return v && v.length === 4 ? `${v[0]}.${v[1]}.${v[2]}.${v[3]}` : null;
+}
+
+/** Decode RFC 3162 Framed-IPv6-Prefix (reserved byte, length, prefix bytes). */
+function getIpv6Prefix(attributes, type = ATTR.FRAMED_IPV6_PREFIX) {
+  const value = getAttr(attributes, type);
+  if (!value) return null;
+  if (value.length < 2) throw new Error('Malformed Framed-IPv6-Prefix attribute');
+  if (value[0] !== 0) throw new Error('Malformed Framed-IPv6-Prefix reserved byte');
+  const prefixLength = value[1];
+  const expectedLength = 2 + Math.ceil(prefixLength / 8);
+  if (prefixLength > 128 || value.length !== expectedLength) {
+    throw new Error('Malformed Framed-IPv6-Prefix length');
+  }
+  const remainingBits = prefixLength % 8;
+  if (remainingBits !== 0 && value.length > 2) {
+    const hostMask = (1 << (8 - remainingBits)) - 1;
+    if ((value[value.length - 1] & hostMask) !== 0) {
+      throw new Error('Malformed Framed-IPv6-Prefix host bits');
+    }
+  }
+  const address = Buffer.alloc(16);
+  value.subarray(2).copy(address, 0, 0, Math.min(16, value.length - 2));
+  const groups = [];
+  for (let offset = 0; offset < 16; offset += 2) groups.push(address.readUInt16BE(offset).toString(16));
+  let bestStart = -1; let bestLength = 0;
+  for (let start = 0; start < groups.length;) {
+    if (groups[start] !== '0') { start += 1; continue; }
+    let end = start;
+    while (end < groups.length && groups[end] === '0') end += 1;
+    if (end - start > bestLength) { bestStart = start; bestLength = end - start; }
+    start = end;
+  }
+  let formatted;
+  if (bestLength > 1) {
+    const left = groups.slice(0, bestStart).join(':');
+    const right = groups.slice(bestStart + bestLength).join(':');
+    formatted = `${left}::${right}`;
+  } else {
+    formatted = groups.join(':');
+  }
+  return `${formatted}/${prefixLength}`;
 }
 
 /**
@@ -272,6 +323,7 @@ module.exports = {
   getString,
   getInt,
   getIp,
+  getIpv6Prefix,
   decodePapPassword,
   encodePapPassword,
   verifyChap,

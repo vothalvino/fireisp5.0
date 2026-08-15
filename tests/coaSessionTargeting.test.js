@@ -116,26 +116,30 @@ describe('resolveCoaTargets()', () => {
     db.query
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]])   // open-session NASes
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.1')]]);  // home NAS lookup
-    const targets = await suspensionService.resolveCoaTargets({ username: 'roamer', nas_id: 1 });
+    const targets = await suspensionService.resolveCoaTargets({
+      username: 'roamer', nas_id: 1, organization_id: 1,
+    });
     expect(targets.map((t) => t.id)).toEqual([2, 1]);
     expect(db.query).toHaveBeenCalledTimes(2);
     // Session query filters open sessions for the username
     const sessionSql = db.query.mock.calls[0][0];
-    expect(db.query.mock.calls[0][1]).toEqual(['roamer']);
+    expect(db.query.mock.calls[0][1]).toEqual([1, 'roamer']);
     expect(sessionSql).toMatch(/interim-update/);
     // The NAS join must be an UNGATED OR: FreeRADIUS-SQL recipes historically
     // stamped nas_id with the HOME NAS, so a `cl.nas_id IS NULL` gate on the
     // ip_address branch would re-create the home-NAS-only targeting bug.
     expect(sessionSql).toMatch(/n\.id = cl\.nas_id OR n\.ip_address = cl\.nas_ip_address/);
     expect(sessionSql).not.toMatch(/nas_id IS NULL/);
-    // Recency bound for partition pruning
-    expect(sessionSql).toMatch(/DATE_SUB\(NOW\(\), INTERVAL 90 DAY\)/);
-    expect(db.query.mock.calls[1][1]).toEqual([1]);
+    expect(sessionSql).toMatch(/cl\.organization_id = \?/);
+    expect(sessionSql).toMatch(/DATE_SUB\(NOW\(\), INTERVAL 60 MINUTE\)/);
+    expect(db.query.mock.calls[1][1]).toEqual([1, 1]);
   });
 
   test('home NAS already among session NASes is not duplicated (no second lookup)', async () => {
     db.query.mockResolvedValueOnce([[nasRow(1, '10.0.0.1')]]);
-    const targets = await suspensionService.resolveCoaTargets({ username: 'u', nas_id: 1 });
+    const targets = await suspensionService.resolveCoaTargets({
+      username: 'u', nas_id: 1, organization_id: 1,
+    });
     expect(targets).toHaveLength(1);
     expect(db.query).toHaveBeenCalledTimes(1);
   });
@@ -144,13 +148,17 @@ describe('resolveCoaTargets()', () => {
     db.query
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.1')]]);
-    const targets = await suspensionService.resolveCoaTargets({ username: 'u', nas_id: 1 });
+    const targets = await suspensionService.resolveCoaTargets({
+      username: 'u', nas_id: 1, organization_id: 1,
+    });
     expect(targets.map((t) => t.id)).toEqual([1]);
   });
 
   test('no sessions and no home NAS returns an empty target list', async () => {
     db.query.mockResolvedValueOnce([[]]);
-    const targets = await suspensionService.resolveCoaTargets({ username: 'u', nas_id: null });
+    const targets = await suspensionService.resolveCoaTargets({
+      username: 'u', nas_id: null, organization_id: 1,
+    });
     expect(targets).toEqual([]);
     expect(db.query).toHaveBeenCalledTimes(1);
   });
@@ -170,7 +178,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('roaming subscriber: Disconnect goes to BOTH the session NAS and the home NAS', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'roamer', nas_id: 1 }]])          // account
+      .mockResolvedValueOnce([[{ username: 'roamer', nas_id: 1, organization_id: 1 }]]) // account
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]])                       // session NAS
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.1', { coa_port: 1700 })]]); // home NAS
     const r = await suspensionService.sendRadiusDisconnect(7);
@@ -189,7 +197,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('single target keeps the bare response string', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r).toEqual({ sent: true, response: 'Disconnect-ACK', outcome: 'ack' });
@@ -197,7 +205,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('per-session targeting sends only to that NAS and includes Acct-Session-Id', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]); // NAS-by-ip lookup
     const r = await suspensionService.sendRadiusDisconnect(7, {
       acctSessionId: '8100000a',
@@ -205,7 +213,7 @@ describe('sendRadiusDisconnect()', () => {
     });
     expect(r.sent).toBe(true);
     expect(db.query).toHaveBeenCalledTimes(2); // account + NAS by ip (no session resolution)
-    expect(db.query.mock.calls[1][1]).toEqual(['10.0.0.2']);
+    expect(db.query.mock.calls[1][1]).toEqual([1, '10.0.0.2']);
     expect(mockSentPackets).toHaveLength(1);
     expect(mockSentPackets[0].address).toBe('10.0.0.2');
     const attrs = parseAttrs(mockSentPackets[0].buf);
@@ -215,7 +223,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('per-session targeting with an unregistered NAS falls back to resolved targets', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])
       .mockResolvedValueOnce([[]])                        // NAS-by-ip: not registered
       .mockResolvedValueOnce([[]])                        // no open-session NASes
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.1')]]);  // home NAS safety net
@@ -233,7 +241,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('per-session targeting with an unregistered NAS and no fallback targets returns sent:false', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[]])  // NAS-by-ip: not registered
       .mockResolvedValueOnce([[]]); // no open-session NASes, no home NAS
     const r = await suspensionService.sendRadiusDisconnect(7, {
@@ -247,7 +255,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('acctSessionId without nasIpAddress still narrows via Acct-Session-Id on resolved targets', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]); // session NASes
     const r = await suspensionService.sendRadiusDisconnect(7, { acctSessionId: 'sess42' });
     expect(r.sent).toBe(true);
@@ -257,7 +265,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('no target NAS at all → sent:false with explanatory message', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r.sent).toBe(false);
@@ -268,7 +276,7 @@ describe('sendRadiusDisconnect()', () => {
   test('one unreachable NAS does not mask the successful one', async () => {
     mockNasBehavior['10.0.0.3'] = 'error';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2'), nasRow(3, '10.0.0.3')]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r.sent).toBe(true);
@@ -279,7 +287,7 @@ describe('sendRadiusDisconnect()', () => {
   test('failed primary fails over to its secondary NAS', async () => {
     mockNasBehavior['10.0.0.9'] = 'error';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                          // account
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])      // account
       .mockResolvedValueOnce([[]])                                                       // no open sessions
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]])         // home NAS
       .mockResolvedValueOnce([[{ ip_address: '10.0.0.5', coa_port: 3799, secret: 's5' }]]); // secondary
@@ -298,7 +306,7 @@ describe('sendRadiusDisconnect()', () => {
   test('a Disconnect-NAK is reported as failure, not success', async () => {
     mockNasBehavior['10.0.0.2'] = 'nak';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r).toEqual({ sent: false, response: 'Disconnect-NAK', outcome: 'nak' });
@@ -311,7 +319,7 @@ describe('sendRadiusDisconnect()', () => {
     // hit a colliding session there.
     mockNasBehavior['10.0.0.9'] = 'nak';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                  // account
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])      // account
       .mockResolvedValueOnce([[]])                                               // no open sessions
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]]); // home NAS
     const r = await suspensionService.sendRadiusDisconnect(7);
@@ -324,7 +332,7 @@ describe('sendRadiusDisconnect()', () => {
     jest.useFakeTimers();
     mockNasBehavior['10.0.0.9'] = 'silent';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])                          // account
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])      // account
       .mockResolvedValueOnce([[]])                                                       // no open sessions
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.9', { secondary_nas_id: 5 })]])         // home NAS
       .mockResolvedValueOnce([[{ ip_address: '10.0.0.5', coa_port: 3799, secret: 's5' }]]); // secondary
@@ -342,7 +350,7 @@ describe('sendRadiusDisconnect()', () => {
     jest.useFakeTimers();
     mockNasBehavior['10.0.0.2'] = 'silent';
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     const promise = suspensionService.sendRadiusDisconnect(7);
     await jest.advanceTimersByTimeAsync(5000);
@@ -353,7 +361,7 @@ describe('sendRadiusDisconnect()', () => {
   test('a reply that fails Response Authenticator verification is ignored (times out)', async () => {
     jest.useFakeTimers();
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     // The NAS replies, but computes its authenticator with a different secret
     // than ours — a spoofed/corrupt reply must not resolve the send as an ACK.
@@ -366,7 +374,7 @@ describe('sendRadiusDisconnect()', () => {
 
   test('targets without a configured secret are skipped', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2', { secret: '' })]]);
     const r = await suspensionService.sendRadiusDisconnect(7);
     expect(r).toEqual({ sent: false, response: 'NAS RADIUS secret not configured', outcome: 'no_secret' });
@@ -380,7 +388,7 @@ describe('sendRadiusDisconnect()', () => {
 describe('sendRadiusCoA()', () => {
   test('sends code 43 with extra attributes to the open-session NAS', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);
     const r = await suspensionService.sendRadiusCoA(7, 'update', [
       { name: 'Mikrotik-Rate-Limit', value: '10M/5M' },
@@ -395,7 +403,7 @@ describe('sendRadiusCoA()', () => {
 
   test('roaming: CoA reaches every open-session NAS plus home', async () => {
     db.query
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1 }]])
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: 1, organization_id: 1 }]])
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2'), nasRow(3, '10.0.0.3')]])
       .mockResolvedValueOnce([[nasRow(1, '10.0.0.1')]]);
     const r = await suspensionService.sendRadiusCoA(7, 'reconnect');
@@ -414,41 +422,44 @@ describe('sendRadiusCoA()', () => {
 // ---------------------------------------------------------------------------
 // kickDuplicateSessions — per-session targeting through the real send path
 // ---------------------------------------------------------------------------
-describe('kickDuplicateSessions() — session grouping and per-session kicks', () => {
+describe('kickDuplicateSessions() — current session projection and per-session kicks', () => {
   const { kickDuplicateSessions } = require('../src/services/radiusService');
 
-  test('active-session query groups rows into sessions and excludes NULL session_ids', async () => {
+  test('active-session query reads the tenant-scoped current projection with canonical ids', async () => {
     db.query
-      .mockResolvedValueOnce([[{ radius_id: 1, username: 'u', allowed_sim_use: 2, contract_id: 10 }]])
-      // GROUP BY collapses start+interim rows to ONE row per live session —
-      // one within-limit session must NOT be kicked.
+      .mockResolvedValueOnce([[
+        {
+          radius_id: 1, username: 'u', allowed_sim_use: 2, contract_id: 10, organization_id: 1,
+        },
+      ]])
       .mockResolvedValueOnce([[{ session_id: 's1', event_at: '2026-01-01 08:00:00', nas_ip_address: '10.0.0.2' }]]);
     const result = await kickDuplicateSessions(1);
     expect(result).toEqual({ kicked: 0, errors: 0 });
     expect(mockSentPackets).toHaveLength(0);
     const sessionSql = db.query.mock.calls[1][0];
-    expect(sessionSql).toMatch(/GROUP BY cl\.session_id/);
-    expect(sessionSql).toMatch(/cl\.session_id IS NOT NULL/);
+    expect(db.query.mock.calls[1][1]).toEqual([1, 'u']);
+    expect(sessionSql).toMatch(/cl\.organization_id = \?/);
+    expect(sessionSql).toMatch(/COALESCE\(cl\.acct_session_id, cl\.session_id\) IS NOT NULL/);
     expect(sessionSql).toMatch(/IN \('start', 'interim-update'\)/);
-    expect(sessionSql).toMatch(/DATE_SUB\(NOW\(\), INTERVAL 90 DAY\)/);
-    // Ghost guard (j65): a session with no accounting evidence inside the
-    // liveness window (default 60 min) must stop counting toward the limit —
-    // a lost Acct-Stop otherwise makes the kicker disconnect the subscriber's
-    // REAL session every 5-minute cycle, forever. The filter lives in SQL
-    // (HAVING on the session's latest event), so with a mocked DB the SQL
-    // shape IS the behaviour under test.
-    expect(sessionSql).toMatch(/HAVING MAX\(cl\.event_at\) >= DATE_SUB\(NOW\(\), INTERVAL 60 MINUTE\)/);
+    expect(sessionSql).toMatch(/COALESCE\(cl\.last_accounting_received_at, cl\.last_accounting_at, cl\.event_at\)/);
+    expect(sessionSql).toMatch(/DATE_SUB\(NOW\(\), INTERVAL 60 MINUTE\)/);
+    expect(sessionSql).toMatch(/cl\.session_instance_id IS NOT NULL OR cl\.id =/);
+    expect(sessionSql).not.toMatch(/GROUP BY|HAVING/);
   });
 
   test('kicks the oldest excess session at ITS NAS, narrowed by Acct-Session-Id', async () => {
     db.query
-      .mockResolvedValueOnce([[{ radius_id: 1, username: 'u', allowed_sim_use: 1, contract_id: 10 }]])
+      .mockResolvedValueOnce([[
+        {
+          radius_id: 1, username: 'u', allowed_sim_use: 1, contract_id: 10, organization_id: 1,
+        },
+      ]])
       .mockResolvedValueOnce([[
         { session_id: 's-old', event_at: '2026-01-01 08:00:00', nas_ip_address: '10.0.0.2' },
         { session_id: 's-new', event_at: '2026-01-01 09:00:00', nas_ip_address: '10.0.0.3' },
       ]])
       // sendRadiusDisconnect for the kicked session:
-      .mockResolvedValueOnce([[{ username: 'u', nas_id: null }]])   // account
+      .mockResolvedValueOnce([[{ username: 'u', nas_id: null, organization_id: 1 }]]) // account
       .mockResolvedValueOnce([[nasRow(2, '10.0.0.2')]]);            // NAS by ip
     const result = await kickDuplicateSessions(1);
     expect(result).toEqual({ kicked: 1, errors: 0 });
@@ -461,7 +472,11 @@ describe('kickDuplicateSessions() — session grouping and per-session kicks', (
 
   test('an undeliverable kick counts as an error, not a kick', async () => {
     db.query
-      .mockResolvedValueOnce([[{ radius_id: 1, username: 'u', allowed_sim_use: 1, contract_id: 10 }]])
+      .mockResolvedValueOnce([[
+        {
+          radius_id: 1, username: 'u', allowed_sim_use: 1, contract_id: 10, organization_id: 1,
+        },
+      ]])
       .mockResolvedValueOnce([[
         { session_id: 's1', event_at: '2026-01-01 08:00:00', nas_ip_address: '10.0.0.2' },
         { session_id: 's2', event_at: '2026-01-01 09:00:00', nas_ip_address: '10.0.0.3' },

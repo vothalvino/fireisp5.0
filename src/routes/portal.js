@@ -82,6 +82,7 @@ const { computeClientBalance } = require('../services/clientBalanceService');
 const whatsappService = require('../services/whatsappService');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 
 const router = Router();
 
@@ -832,12 +833,21 @@ router.get('/dashboard', async (req, res, next) => {
       const now = new Date();
       const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       const [[usageRow]] = await db.query(
-        `SELECT COALESCE(SUM(bytes_in), 0) AS bytes_in,
-                COALESCE(SUM(bytes_out), 0) AS bytes_out
-         FROM connection_logs
-         WHERE contract_id = ? AND event_type IN ('stop','interim-update')
-           AND event_at >= ?`,
-        [contract.contract_id, monthStart],
+        `SELECT COALESCE(SUM(bytes_in_delta), 0) AS bytes_in,
+                COALESCE(SUM(bytes_out_delta), 0) AS bytes_out,
+                COALESCE(SUM(is_complete = 0), 0) AS incomplete_rows,
+                COUNT(*) AS observed_rows,
+                (SELECT COUNT(*) FROM connection_logs unverifiable
+                  WHERE unverifiable.organization_id = ? AND unverifiable.contract_id = ?
+                    AND ${buildUnverifiableSessionOverlap(
+    'unverifiable',
+    "DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01')",
+    'UTC_TIMESTAMP(3)',
+  )}) AS unverifiable_session_rows
+           FROM radius_accounting_usage_daily
+          WHERE organization_id = ? AND contract_id = ? AND usage_date >= ?`,
+        [req.client.organizationId, contract.contract_id,
+          req.client.organizationId, contract.contract_id, monthStart],
       );
       usage = {
         download_bytes: usageRow.bytes_in,
@@ -846,6 +856,10 @@ router.get('/dashboard', async (req, res, next) => {
         download_gb: parseFloat((usageRow.bytes_in / 1073741824).toFixed(3)),
         upload_gb: parseFloat((usageRow.bytes_out / 1073741824).toFixed(3)),
         total_gb: parseFloat(((usageRow.bytes_in + usageRow.bytes_out) / 1073741824).toFixed(3)),
+        usage_complete: Number(usageRow.observed_rows || 0) > 0
+          && Number(usageRow.incomplete_rows || 0) === 0
+          && Number(usageRow.unverifiable_session_rows || 0) === 0,
+        unverifiable_session_rows: Number(usageRow.unverifiable_session_rows || 0),
       };
     }
 
@@ -898,16 +912,22 @@ router.get('/usage/current-month', async (req, res, next) => {
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
     const [rows] = await db.query(
-      `SELECT DATE(event_at) AS date,
-              COALESCE(SUM(bytes_in), 0) AS download_bytes,
-              COALESCE(SUM(bytes_out), 0) AS upload_bytes,
-              COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes
-       FROM connection_logs
-       WHERE contract_id = ? AND event_type IN ('stop','interim-update')
-         AND event_at >= ?
-       GROUP BY DATE(event_at)
+      `SELECT u.usage_date AS date,
+              COALESCE(SUM(u.bytes_in_delta), 0) AS download_bytes,
+              COALESCE(SUM(u.bytes_out_delta), 0) AS upload_bytes,
+              COALESCE(SUM(u.bytes_in_delta + u.bytes_out_delta), 0) AS total_bytes,
+              COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+              (SELECT COUNT(*) FROM connection_logs unverifiable
+                WHERE unverifiable.organization_id = ? AND unverifiable.contract_id = ?
+                  AND ${buildUnverifiableSessionOverlap(
+    'unverifiable', 'u.usage_date', 'DATE_ADD(u.usage_date, INTERVAL 1 DAY)',
+  )}) AS unverifiable_session_rows
+       FROM radius_accounting_usage_daily u
+       WHERE u.organization_id = ? AND u.contract_id = ? AND u.usage_date >= ?
+       GROUP BY u.usage_date
        ORDER BY date ASC`,
-      [contracts[0].id, monthStart],
+      [req.client.organizationId, contracts[0].id,
+        req.client.organizationId, contracts[0].id, monthStart],
     );
 
     res.json({
@@ -916,6 +936,9 @@ router.get('/usage/current-month', async (req, res, next) => {
         download_gb: parseFloat((r.download_bytes / 1073741824).toFixed(3)),
         upload_gb: parseFloat((r.upload_bytes / 1073741824).toFixed(3)),
         total_gb: parseFloat((r.total_bytes / 1073741824).toFixed(3)),
+        usage_complete: Number(r.incomplete_rows || 0) === 0
+          && Number(r.unverifiable_session_rows || 0) === 0,
+        unverifiable_session_rows: Number(r.unverifiable_session_rows || 0),
       })),
     });
   } catch (err) {

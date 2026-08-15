@@ -6,6 +6,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
@@ -45,6 +46,12 @@ function mockSessionTxn(...executeResults) {
 describe('authService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // mockResolvedValueOnce queues survive clearAllMocks(). Reset the database
+    // adapters so a deliberately rejected authorization path cannot leave a
+    // stale control-plane result for the next test.
+    db.query.mockReset();
+    db.execute.mockReset();
+    db.getConnection.mockReset();
   });
 
   // =========================================================================
@@ -497,7 +504,7 @@ describe('authService', () => {
       expect(conn.release).toHaveBeenCalled();
     });
 
-    test('preserves a valid requested active org across refresh (admin → non-membership org)', async () => {
+    test('falls back to the primary org when a legacy admin lacks target-org membership', async () => {
       const refreshTokenValue = crypto.randomBytes(32).toString('hex');
       const refreshHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
       const futureDate = new Date(Date.now() + 86400000).toISOString();
@@ -506,13 +513,22 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]) // session
         .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
         .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
-        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
-        .mockResolvedValueOnce([[]]);                       // resolveActiveOrg: not a member (admin allowed anyway)
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]]) // resolveActiveOrg: live user
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // principal: org 7 exists
+        .mockResolvedValueOnce([[]])                        // principal: no membership
+        .mockResolvedValueOnce([[{
+          id: 1,
+          email: 'a@b.com',
+          role: 'admin',
+          organization_id: 1,
+          is_install_operator: 0,
+          authority_persona: 'admin',
+        }]]);                                               // principal: live control-plane user
       mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 2 }]);  // DELETE claim + INSERT new
 
       const result = await authService.refreshToken(refreshTokenValue, '7');
 
-      expect(result.activeOrgId).toBe(7);
+      expect(result.activeOrgId).toBe(1);
     });
 
     test('falls back to the primary org when the requested active org is not permitted', async () => {
@@ -524,8 +540,17 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 1, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]) // session
         .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'support', status: 'active', organization_id: 1 }]]) // findById (non-admin)
         .mockResolvedValueOnce([[{ id: 1 }]])               // getOrganizations → primary org 1
-        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // resolveActiveOrg: org 7 exists
-        .mockResolvedValueOnce([[]]);                       // resolveActiveOrg: not a member → null (non-admin)
+        .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'support', status: 'active', organization_id: 1 }]]) // resolveActiveOrg: live user
+        .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]]) // principal: org 7 exists
+        .mockResolvedValueOnce([[]])                        // principal: no membership
+        .mockResolvedValueOnce([[{
+          id: 1,
+          email: 'a@b.com',
+          role: 'support',
+          organization_id: 1,
+          is_install_operator: 0,
+          authority_persona: 'support',
+        }]]);                                               // principal: live control-plane user
       mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 2 }]);  // DELETE claim + INSERT new
 
       // Not an admin and not a member of org 7 → the switch is rejected on refresh.
@@ -666,6 +691,14 @@ describe('authService', () => {
         .mockResolvedValueOnce([[{ id: 1, email: 'a@b.com', role: 'admin', status: 'active', organization_id: 1 }]])  // findById
         .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])  // target org exists
         .mockResolvedValueOnce([[{ membership_role: 'admin' }]])  // membership
+        .mockResolvedValueOnce([[{
+          id: 1,
+          email: 'a@b.com',
+          role: 'admin',
+          organization_id: 1,
+          is_install_operator: 0,
+          authority_persona: 'admin',
+        }]])  // live control-plane user
         .mockResolvedValueOnce([[{ id: 3, token_hash: refreshHash, user_id: 1, token_family: 'fam-1', expires_at: futureDate }]]);  // session SELECT
       const conn = mockSessionTxn([{ affectedRows: 0 }]);  // DELETE — concurrent redeem won
 

@@ -6,6 +6,9 @@ jest.mock('../src/models/User', () => ({
   getPermissions: jest.fn(),
   getOrgRole: jest.fn(),
 }));
+jest.mock('../src/config/database', () => ({
+  withPrimaryContext: jest.fn((callback) => callback()),
+}));
 
 const User = require('../src/models/User');
 const { requirePermission, requireRole } = require('../src/middleware/rbac');
@@ -20,15 +23,19 @@ function mockReqRes(user = {}) {
 
 describe('requirePermission middleware', () => {
   beforeEach(() => {
-    jest.resetAllMocks();
+    jest.clearAllMocks();
+    User.getPermissions.mockResolvedValue([
+      'clients.view', 'clients.create', 'clients.delete',
+      'devices.view', 'invoices.create',
+    ]);
   });
 
-  test('allows admin to bypass permission check', async () => {
+  test('resolves tenant admin permissions authoritatively instead of bypassing RBAC', async () => {
     const { req, res, next } = mockReqRes({ id: 1, role: 'admin', organizationId: 1 });
     const mw = requirePermission('clients.view');
     await mw(req, res, next);
     expect(next).toHaveBeenCalledWith();
-    expect(User.getPermissions).not.toHaveBeenCalled();
+    expect(User.getPermissions).toHaveBeenCalledWith(1, 1);
   });
 
   test('allows user with matching permission', async () => {
@@ -123,11 +130,20 @@ describe('requirePermission middleware', () => {
     test('allows API token with null scopes (unrestricted)', async () => {
       const { req, res, next } = mockReqRes({
         id: 1, role: 'admin', organizationId: 1,
-        apiTokenId: 100, scopes: null,
+        apiTokenId: 100, scopes: null, scopesSqlNull: true,
       });
       const mw = requirePermission('clients.create');
       await mw(req, res, next);
       expect(next).toHaveBeenCalledWith();
+    });
+
+    test('JSON literal null is denied without the SQL-NULL provenance bit', async () => {
+      const { req, res, next } = mockReqRes({
+        id: 1, role: 'admin', organizationId: 1,
+        apiTokenId: 100, scopes: null, scopesSqlNull: false,
+      });
+      await requirePermission('clients.view')(req, res, next);
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
     });
 
     test('read scope denies write permissions', async () => {
@@ -207,6 +223,21 @@ describe('requirePermission middleware', () => {
       );
     });
 
+    test.each([
+      ['empty array', []],
+      ['JSON null', 'null'],
+      ['JSON object', '{}'],
+      ['JSON scalar', '"clients:read"'],
+    ])('%s scopes deny all access', async (_label, scopes) => {
+      const { req, res, next } = mockReqRes({
+        id: 1, role: 'admin', organizationId: 1,
+        apiTokenId: 100, scopes,
+      });
+      const mw = requirePermission('clients.view');
+      await mw(req, res, next);
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    });
+
     test('JWT users are not subject to scope checking', async () => {
       // JWT users don't have apiTokenId — scopes should be ignored
       const { req, res, next } = mockReqRes({
@@ -231,7 +262,7 @@ describe('requirePermission middleware', () => {
 
 describe('requireRole middleware', () => {
   beforeEach(() => {
-    jest.resetAllMocks();
+    jest.clearAllMocks();
   });
 
   test('allows user with matching role', async () => {

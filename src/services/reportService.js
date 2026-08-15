@@ -1187,20 +1187,17 @@ async function subscriberIdentity(organizationId, { from, to } = {}) {
 }
 
 /**
- * Interception Readiness — check whether the org is set up for lawful intercept.
+ * Operational connection-logging readiness for the organization.
+ * This is pipeline health information, not a legal-compliance certification.
  */
 async function interceptionReadiness(organizationId) {
-  const [[nasRows], [activeContractRows], [ipRows]] = await Promise.all([
-    db.queryReplica(`
-      SELECT COUNT(*) AS cnt
-      FROM \`devices\`
-      WHERE organization_id = ? AND type = 'nas'
-    `, [organizationId]),
-    db.queryReplica(`
-      SELECT COUNT(*) AS cnt
-      FROM \`contracts\`
-      WHERE organization_id = ? AND status = 'active' AND deleted_at IS NULL
-    `, [organizationId]),
+  const [logging, [ipRows]] = await Promise.all([
+    require('./connectionLoggingReadinessService').getReadiness(
+      organizationId,
+      // This generic report is available without the sensitive IP-attribution
+      // permissions. Keep exporter inventory and CGNAT health out of it.
+      { includeCgnat: false },
+    ),
     db.queryReplica(`
       SELECT COUNT(*) AS cnt
       FROM \`ip_assignments\`
@@ -1208,20 +1205,21 @@ async function interceptionReadiness(organizationId) {
     `, [organizationId]),
   ]);
 
-  const hasNas = nasRows[0].cnt > 0;
-  const activeContracts = activeContractRows[0].cnt;
-  const ipAssignments = ipRows[0].cnt;
-  // Considered ready if NAS exists, has active contracts, and has IP assignments
-  const ready = hasNas && activeContracts > 0 && ipAssignments > 0;
+  const hasNas = logging.active_nas > 0;
+  const ipAssignments = Number(ipRows[0]?.cnt || 0);
+  const ready = logging.ready && ipAssignments > 0;
 
   return {
     generated_at: new Date().toISOString(),
     organization_id: organizationId,
     has_nas: hasNas,
-    has_radius_setup: hasNas, // Proxy: NAS presence implies RADIUS is configured
-    active_contracts: activeContracts,
+    has_radius_setup: logging.session_logger.configured,
+    active_contracts: logging.active_contracts,
     ip_assignments: ipAssignments,
     ready,
+    status: logging.status,
+    connection_logging: logging,
+    disclaimer: 'Operational readiness only; this is not a legal-compliance certification.',
   };
 }
 

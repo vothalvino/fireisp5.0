@@ -8,6 +8,7 @@
 // =============================================================================
 
 const db = require('../config/database');
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 
 /**
  * Check all active contracts in an org for 80/90/100% threshold crossings
@@ -43,13 +44,24 @@ async function checkAndNotifyThresholds(organizationId) {
     if (capGb <= 0) continue;
 
     const [[usage]] = await db.query(
-      `SELECT COALESCE(SUM(bytes_in + bytes_out) / 1073741824.0, 0) AS used_gb
-       FROM connection_logs
-       WHERE contract_id = ?
-         AND created_at >= ?
-         AND created_at <= ?`,
-      [contract.id, billingMonth, endStr + ' 23:59:59'],
+      `SELECT COALESCE(SUM(CASE WHEN is_complete = 1
+                    THEN bytes_in_delta + bytes_out_delta ELSE 0 END) / 1073741824.0, 0) AS used_gb,
+              COALESCE(SUM(is_complete = 0), 0) AS incomplete_rows
+              , COUNT(*) AS observed_rows,
+              (SELECT COUNT(*) FROM connection_logs unverifiable
+                WHERE unverifiable.organization_id = ? AND unverifiable.contract_id = ?
+                  AND ${buildUnverifiableSessionOverlap('unverifiable', '?', 'DATE_ADD(?, INTERVAL 1 DAY)')}) AS unverifiable_session_rows
+         FROM radius_accounting_usage_daily
+        WHERE organization_id = ? AND contract_id = ?
+          AND usage_date >= ? AND usage_date <= ?`,
+      [contract.organization_id, contract.id, billingMonth, endStr,
+        contract.organization_id, contract.id, billingMonth, endStr],
     );
+
+    // Never throttle/notify from an uncertain counter baseline or an interval
+    // that crossed a UTC billing boundary without exact allocation.
+    if (Number(usage.observed_rows || 0) === 0 || Number(usage.incomplete_rows || 0) > 0
+        || Number(usage.unverifiable_session_rows || 0) > 0) continue;
 
     const usedGb = parseFloat(usage.used_gb) || 0;
     const usagePct = (usedGb / capGb) * 100;

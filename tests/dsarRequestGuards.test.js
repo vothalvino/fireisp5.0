@@ -22,6 +22,7 @@ const path = require('path');
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), execute: jest.fn(), getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
+  withPrimaryContext: callback => callback(),
 }));
 
 const config = require('../src/config');
@@ -36,6 +37,21 @@ const insertOf = () => db.query.mock.calls.find(c => /INSERT INTO dsar_requests/
 
 function wireDb({ clientInOrg = true } = {}) {
   db.query.mockImplementation(async (sql) => {
+    if (/FROM organizations/.test(sql)) return [[{ id: 1, name: 'Test org' }]];
+    if (/FROM organization_users/.test(sql) && /membership_role/.test(sql)) {
+      return [[{ membership_role: 'admin' }]];
+    }
+    if (/SELECT u\.id, u\.email, u\.role/.test(sql)) {
+      return [[{ ...ADMIN, authority_persona: 'admin', is_install_operator: 0 }]];
+    }
+    if (/SELECT g\.id AS group_id/.test(sql)) return [[{ group_id: 1, has_access: 1 }]];
+    if (/FROM role_permissions rp/.test(sql)) {
+      return [[
+        { slug: 'dsar_requests.view' },
+        { slug: 'dsar_requests.create' },
+        { slug: 'dsar_requests.manage' },
+      ]];
+    }
     if (isUserLookup(sql)) return [[ADMIN]];
     if (/FROM clients WHERE id = \? AND organization_id <=> \?/.test(sql)) {
       return [clientInOrg ? [{ id: 42 }] : []];

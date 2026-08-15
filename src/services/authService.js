@@ -10,7 +10,7 @@ const User = require('../models/User');
 const { sanitizeUser } = require('../utils/userSanitize');
 const db = require('../config/database');
 const emailTransport = require('./emailTransport');
-const { isInstallOperatorUser } = require('./installOperator');
+const { resolveOrgPrincipal } = require('./orgPrincipalService');
 const emailTemplates = require('../views/emailTemplates');
 const logger = require('../utils/logger');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
@@ -251,21 +251,15 @@ async function login({ email, password }) {
  */
 async function resolveActiveOrg(userId, userRole, requestedOrgId) {
   if (!requestedOrgId) return null;
-  const [orgRows] = await db.query(
-    'SELECT id, name FROM organizations WHERE id = ? AND deleted_at IS NULL',
-    [requestedOrgId],
-  );
-  if (orgRows.length === 0) return null;
-  const [memberRows] = await db.query(
-    `SELECT role AS membership_role FROM organization_users
-     WHERE user_id = ? AND organization_id = ? AND deleted_at IS NULL`,
-    [userId, requestedOrgId],
-  );
-  if (memberRows.length === 0 && userRole !== 'admin') return null;
+  const user = await User.findById(userId);
+  if (!user || user.status !== 'active' || user.role !== userRole) return null;
+  const principal = await resolveOrgPrincipal(user, requestedOrgId);
+  if (!principal) return null;
   return {
-    id: orgRows[0].id,
-    name: orgRows[0].name,
-    membership_role: memberRows[0]?.membership_role || (userRole === 'admin' ? 'admin' : null),
+    id: principal.organizationId,
+    name: principal.organizationName,
+    membership_role: principal.membershipRole,
+    is_install_operator: principal.isInstallOperator,
   };
 }
 
@@ -517,41 +511,14 @@ async function switchOrganization(userId, organizationId, currentRefreshToken) {
     throw new UnauthorizedError('User not found or inactive');
   }
 
-  // Target org must exist and not be soft-deleted.
-  const [orgRows] = await db.query(
-    'SELECT id, name FROM organizations WHERE id = ? AND deleted_at IS NULL',
-    [organizationId],
-  );
-  if (orgRows.length === 0) {
-    throw new ForbiddenError('Organization not found');
-  }
-  const targetOrg = orgRows[0];
-
-  // Membership is required — with ONE exception, the install operator.
-  //
-  // This used to read `user.role !== 'admin'`, commented as a deliberate
-  // "relaxed-isolation model: one operator can manage every ISP". The premise
-  // was wrong: users.role='admin' is the per-TENANT admin persona (`roles` is a
-  // GLOBAL table and User.resolveGroupMirror copies group.kind into
-  // users.role), so EVERY organisation's admin held the carve-out. Org A's
-  // admin could mint a token whose orgId claim was org B and then read and
-  // write org B's clients, invoices and devices through entirely ordinary,
-  // correctly-scoped routes — req.orgId IS that claim, so no route guard could
-  // see anything wrong. The operator flag (migration 444) is a fact no request
-  // can grant, so the carve-out now belongs to the person who runs the box.
-  const [memberRows] = await db.query(
-    `SELECT role AS membership_role FROM organization_users
-     WHERE user_id = ? AND organization_id = ? AND deleted_at IS NULL`,
-    [userId, organizationId],
-  );
-  const isOperator = memberRows.length === 0 ? await isInstallOperatorUser(user) : false;
-  if (memberRows.length === 0 && !isOperator) {
+  const principal = await resolveOrgPrincipal(user, organizationId);
+  if (!principal) {
     throw new ForbiddenError('User is not a member of the requested organization');
   }
   const membership = {
-    org_id: targetOrg.id,
-    org_name: targetOrg.name,
-    membership_role: memberRows[0]?.membership_role || (isOperator ? 'admin' : null),
+    org_id: principal.organizationId,
+    org_name: principal.organizationName,
+    membership_role: principal.membershipRole,
   };
 
   // Validate + rotate the refresh token.  We require the current refresh token

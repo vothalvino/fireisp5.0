@@ -22,6 +22,7 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), execute: jest.fn(), getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
+  withPrimaryContext: jest.fn((callback) => callback()),
 }));
 jest.mock('../src/models/User', () => ({ findById: jest.fn() }));
 
@@ -38,10 +39,19 @@ const MANAGER = { id: 3, email: 'mgr@tenant-a.mx', role: 'manager', status: 'act
  * @param member   is the user a member of the TARGET org?
  * @param operator does users.is_install_operator say they run the install?
  */
-function wireDb({ member = false, operator = false } = {}) {
+function wireDb({ user, member = false, operator = false } = {}) {
   db.query.mockImplementation(async (sql) => {
-    if (/FROM organizations WHERE id/.test(sql)) return [[{ id: 9, name: 'Other ISP' }]];
-    if (/FROM organization_users/.test(sql)) return [member ? [{ membership_role: 'admin' }] : []];
+    if (/FROM organizations\s+WHERE id/.test(sql)) return [[{ id: 9, name: 'Other ISP' }]];
+    if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
+      return [member ? [{ membership_role: user.role }] : []];
+    }
+    if (/FROM users u/.test(sql)) {
+      return [[{
+        ...user,
+        is_install_operator: operator ? 1 : 0,
+        authority_persona: user.role,
+      }]];
+    }
     if (/SELECT is_install_operator FROM users/.test(sql)) {
       return [[{ is_install_operator: operator ? 1 : 0 }]];
     }
@@ -57,7 +67,7 @@ beforeEach(() => {
 describe('a tenant admin cannot switch into an organisation they do not belong to', () => {
   it('refuses, despite carrying users.role=admin', async () => {
     User.findById.mockResolvedValue(TENANT_ADMIN);
-    wireDb({ member: false, operator: false });
+    wireDb({ user: TENANT_ADMIN, member: false, operator: false });
 
     await expect(authService.switchOrganization(TENANT_ADMIN.id, 9, 'refresh-token'))
       .rejects.toThrow(/not a member/i);
@@ -65,7 +75,7 @@ describe('a tenant admin cannot switch into an organisation they do not belong t
 
   it('refuses a non-admin the same way — unchanged behaviour', async () => {
     User.findById.mockResolvedValue(MANAGER);
-    wireDb({ member: false, operator: false });
+    wireDb({ user: MANAGER, member: false, operator: false });
 
     await expect(authService.switchOrganization(MANAGER.id, 9, 'refresh-token'))
       .rejects.toThrow(/not a member/i);
@@ -73,7 +83,7 @@ describe('a tenant admin cannot switch into an organisation they do not belong t
 
   it('never mints a token for the refused switch', async () => {
     User.findById.mockResolvedValue(TENANT_ADMIN);
-    wireDb({ member: false, operator: false });
+    wireDb({ user: TENANT_ADMIN, member: false, operator: false });
 
     await expect(authService.switchOrganization(TENANT_ADMIN.id, 9, 'refresh-token')).rejects.toThrow();
     // The refresh-token rotation is what issues the new orgId claim; it must
@@ -85,7 +95,7 @@ describe('a tenant admin cannot switch into an organisation they do not belong t
 describe('who may still switch', () => {
   it('a member switches into their own organisation', async () => {
     User.findById.mockResolvedValue(MANAGER);
-    wireDb({ member: true, operator: false });
+    wireDb({ user: MANAGER, member: true, operator: false });
 
     // Membership passes the guard; the call proceeds to token rotation, which
     // this suite does not stub — the assertion is only that it is NOT the
@@ -96,7 +106,7 @@ describe('who may still switch', () => {
 
   it('the install operator switches into any organisation', async () => {
     User.findById.mockResolvedValue(OPERATOR);
-    wireDb({ member: false, operator: true });
+    wireDb({ user: OPERATOR, member: false, operator: true });
 
     await expect(authService.switchOrganization(OPERATOR.id, 9, 'refresh-token'))
       .rejects.not.toThrow(/not a member/i);
@@ -105,7 +115,7 @@ describe('who may still switch', () => {
   it('an INSTALL_OPERATOR_USER_IDS account switches even with the flag unset', async () => {
     jest.replaceProperty(config, 'installOperatorUserIds', [OPERATOR.id]);
     User.findById.mockResolvedValue(OPERATOR);
-    wireDb({ member: false, operator: false });
+    wireDb({ user: OPERATOR, member: false, operator: false });
 
     await expect(authService.switchOrganization(OPERATOR.id, 9, 'refresh-token'))
       .rejects.not.toThrow(/not a member/i);

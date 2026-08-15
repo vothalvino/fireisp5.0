@@ -10,9 +10,43 @@ jest.mock('../src/config/database', () => ({
   queryReplica: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
+
+jest.mock('../src/services/orgPrincipalService', () => ({
+  resolveOrgPrincipal: jest.fn(async (user, organizationId) => ({
+    organizationId: Number(organizationId || user.organization_id),
+    organizationName: 'Test ISP',
+    membershipRole: user.role,
+    authorizationRole: user.role,
+    isInstallOperator: false,
+  })),
+}));
+
+jest.mock('../src/models/User', () => {
+  const User = jest.requireActual('../src/models/User');
+  User.getPermissions = jest.fn(async () => [
+    'audit_export.view', 'audit_logs.view', 'report_access_logs.view',
+    'clients.view', 'connection_logs.export',
+    'dsar_requests.create', 'dsar_requests.manage', 'dsar_requests.view',
+    'gov_data_requests.create', 'gov_data_requests.manage', 'gov_data_requests.view',
+    'identity_verification.create', 'identity_verification.manage', 'identity_verification.view',
+    'subscriber_consents.create', 'subscriber_consents.manage', 'subscriber_consents.view',
+    'phone_number_inventory.manage', 'phone_number_inventory.view',
+    'number_portability.manage', 'number_portability.view',
+    'numbering_blocks.manage', 'numbering_blocks.view',
+    'uso_obligations.manage', 'uso_obligations.view',
+    'rural_coverage.manage', 'rural_coverage.view',
+    'service_modification_notices.create', 'service_modification_notices.manage',
+    'service_modification_notices.view',
+    'contract_templates_mx.create', 'contract_templates_mx.update',
+    'contract_templates_mx.delete', 'contract_templates_mx.view',
+    'data_residency.manage', 'data_residency.view',
+  ]);
+  return User;
+});
 
 jest.mock('../src/utils/logger', () => ({
   info: jest.fn(),
@@ -2210,7 +2244,7 @@ describe('GET /api/v1/regulatory-compliance/gov-data-requests — with filters',
 
   it('returns 200 with status and request_type filters', async () => {
     const res = await request(app)
-      .get('/api/v1/regulatory-compliance/gov-data-requests?status=pending&request_type=subscriber_data')
+      .get('/api/v1/regulatory-compliance/gov-data-requests?status=pending_legal_review&request_type=subscriber_data')
       .set('Authorization', `Bearer ${adminToken()}`)
       .set('X-Org-Id', '10');
     expect(res.status).toBe(200);
@@ -2286,7 +2320,8 @@ describe('PUT /api/v1/regulatory-compliance/gov-data-requests/:id/reject', () =>
     const res = await request(app)
       .put('/api/v1/regulatory-compliance/gov-data-requests/1/reject')
       .set('Authorization', `Bearer ${adminToken()}`)
-      .set('X-Org-Id', '10');
+      .set('X-Org-Id', '10')
+      .send({ reason: 'Request withdrawn by authority' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
   });

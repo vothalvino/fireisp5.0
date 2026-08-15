@@ -4,14 +4,19 @@ jest.mock('../src/config', () => ({
 }));
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
 }));
 jest.mock('../src/models/User', () => ({
   findById: jest.fn(),
+}));
+jest.mock('../src/services/orgPrincipalService', () => ({
+  resolveOrgPrincipal: jest.fn(),
 }));
 
 const jwt = require('jsonwebtoken');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
+const { resolveOrgPrincipal } = require('../src/services/orgPrincipalService');
 const { authenticate, optionalAuth } = require('../src/middleware/auth');
 
 function mockReqRes(overrides = {}) {
@@ -32,6 +37,12 @@ function mockReqRes(overrides = {}) {
 describe('auth middleware', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resolveOrgPrincipal.mockImplementation(async (user, requestedOrganizationId) => ({
+      organizationId: Number(requestedOrganizationId || user.organization_id),
+      membershipRole: user.role,
+      authorizationRole: user.role,
+      isInstallOperator: false,
+    }));
   });
 
   // =========================================================================
@@ -134,7 +145,9 @@ describe('auth middleware', () => {
         id: 1,
         email: 'user@example.com',
         role: 'admin',
+        membershipRole: 'admin',
         organizationId: 10,
+        isInstallOperator: false,
       });
     });
 
@@ -291,8 +304,11 @@ describe('auth middleware', () => {
       email: 'api@example.com',
       role: 'admin',
       status: 'active',
-      organization_id: 20,
+      token_organization_id: 20,
+      user_home_organization_id: 20,
+      is_install_operator: 0,
       scopes: 'read,write',
+      scopes_sql_null: 0,
     };
 
     test('succeeds with valid API token', async () => {
@@ -309,9 +325,13 @@ describe('auth middleware', () => {
         id: 3,
         email: 'api@example.com',
         role: 'admin',
+        membershipRole: 'admin',
         organizationId: 20,
+        isInstallOperator: false,
         apiTokenId: 500,
         scopes: 'read,write',
+        scopesSqlNull: false,
+        apiTokenRateLimitPolicy: null,
       });
     });
 
@@ -358,7 +378,55 @@ describe('auth middleware', () => {
       expect(db.query).toHaveBeenCalledTimes(2);
       const updateCall = db.query.mock.calls[1];
       expect(updateCall[0]).toContain('UPDATE api_tokens');
-      expect(updateCall[1]).toEqual(['10.0.0.5', 500]);
+      expect(updateCall[0]).toContain('last_used_at < DATE_SUB(NOW(), INTERVAL 1 MINUTE)');
+      expect(updateCall[1]).toEqual(['10.0.0.5', 500, '10.0.0.5']);
+    });
+
+    test('does not write last-used tracking again within one minute for the same IP', async () => {
+      db.query.mockResolvedValueOnce([[
+        {
+          ...validTokenRow,
+          last_used_at: new Date(),
+          last_used_ip: '10.0.0.5',
+        },
+      ]]);
+
+      const { req, res, next } = mockReqRes({
+        headers: { 'x-api-key': 'my-api-key' },
+        ip: '10.0.0.5',
+      });
+
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(db.query).toHaveBeenCalledTimes(1);
+      expect(db.query.mock.calls[0][0]).toContain('LEFT JOIN api_key_rate_limits');
+    });
+
+    test('attaches the rate-limit policy selected with live token authentication', async () => {
+      db.query.mockResolvedValueOnce([[
+        {
+          ...validTokenRow,
+          rate_limit_policy_id: 7,
+          requests_per_minute: 12,
+          requests_per_hour: 100,
+          requests_per_day: 1000,
+          burst_size: 3,
+          rate_limit_policy_active: 1,
+        },
+      ]]).mockResolvedValueOnce([]);
+
+      const { req, res, next } = mockReqRes({ headers: { 'x-api-key': 'my-api-key' } });
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user.apiTokenRateLimitPolicy).toEqual({
+        requests_per_minute: 12,
+        requests_per_hour: 100,
+        requests_per_day: 1000,
+        burst_size: 3,
+        is_active: 1,
+      });
     });
 
     test('attaches scopes to req.user', async () => {
@@ -375,7 +443,7 @@ describe('auth middleware', () => {
     });
 
     test('sets scopes to null when token has no scopes', async () => {
-      const tokenNoScopes = { ...validTokenRow, scopes: null };
+      const tokenNoScopes = { ...validTokenRow, scopes: null, scopes_sql_null: 1 };
       db.query.mockResolvedValueOnce([[tokenNoScopes]]).mockResolvedValueOnce([]);
 
       const { req, res, next } = mockReqRes({
@@ -446,8 +514,11 @@ describe('auth middleware', () => {
         email: 'a@b.com',
         role: 'user',
         status: 'active',
-        organization_id: 3,
+        token_organization_id: 3,
+        user_home_organization_id: 3,
+        is_install_operator: 0,
         scopes: null,
+        scopes_sql_null: 1,
       };
       db.query.mockResolvedValueOnce([[tokenRow]]).mockResolvedValueOnce([]);
 

@@ -27,11 +27,28 @@
 // =============================================================================
 
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(), queryReplica: jest.fn(), execute: jest.fn(),
   getConnection: jest.fn(), close: jest.fn(), pool: { end: jest.fn() },
+  withPrimaryContext: jest.fn(callback => callback()),
+}));
+jest.mock('../src/middleware/auth', () => ({
+  authenticate: (req, _res, next) => {
+    req.user = { id: 1, role: 'admin', organizationId: 1 };
+    next();
+  },
+}));
+jest.mock('../src/middleware/orgScope', () => ({
+  orgScope: (req, _res, next) => {
+    req.orgId = 1;
+    next();
+  },
+}));
+jest.mock('../src/middleware/rbac', () => ({
+  requirePermission: () => (_req, _res, next) => next(),
+  requireRole: () => (_req, _res, next) => next(),
+  userHasPermission: jest.fn().mockResolvedValue(true),
 }));
 jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../src/services/eventBus', () => ({
@@ -39,13 +56,11 @@ jest.mock('../src/services/eventBus', () => ({
   on: jest.fn(), off: jest.fn(), once: jest.fn(), removeListener: jest.fn(),
 }));
 
-const config = require('../src/config');
 const db = require('../src/config/database');
 const app = require('../src/app');
 
 const ADMIN = { id: 1, email: 'a@b.c', role: 'admin', status: 'active', organization_id: 1 };
-const token = () => jwt.sign({ sub: 1, email: 'a@b.c', role: 'admin', orgId: 1 }, config.jwt.secret, { expiresIn: '1h' });
-const auth = (r) => r.set('Authorization', `Bearer ${token()}`);
+const auth = r => r;
 
 const ROUTE = { id: 9, radius_account_id: 5, organization_id: 1, destination: '10.0.0.0/24' };
 

@@ -24,6 +24,8 @@ jest.mock('../src/services/cacheService', () => ({
   get: jest.fn(),
   set: jest.fn(),
   del: jest.fn(),
+  incrementFixedWindow: jest.fn(),
+  decrementFixedWindow: jest.fn(),
   flush: jest.fn(),
 }));
 // POST /bulk/email now sends real emails (detached, after the response) via
@@ -68,6 +70,11 @@ function mockAuthUser() {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  cacheService.incrementFixedWindow.mockImplementation(async (_key, windowMs) => ({
+    count: 1,
+    resetAt: Date.now() + windowMs,
+  }));
+  cacheService.decrementFixedWindow.mockResolvedValue(undefined);
 });
 
 // =============================================================================

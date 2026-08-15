@@ -1,5 +1,5 @@
 // =============================================================================
-// FireISP 5.0 — Post-install follow-up dispatcher (subscriber-flow Step 7 tail)
+// FireISP 5.0 — Post-install follow-up dispatcher (lead-installation workflow tail)
 // =============================================================================
 // N days after a service order completes (install done, contract live), the
 // billing team gets a follow-up ticket to CALL THE CLIENT: is the service

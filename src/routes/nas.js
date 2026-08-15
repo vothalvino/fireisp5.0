@@ -123,10 +123,16 @@ const ctrl = crudController(Nas, {
   // never surfaced to the caller. When WG_SERVER_ENABLED=false this is a no-op.
   // For NATed NAS: passes the pre-allocated tunnel IP (which is already stored in
   // nas.ip_address) so provisionDesiredState reuses it instead of allocating a new one.
-  afterCreate: (nas, req) => config.wireguard.serverEnabled && wgProvisioningService.provisionDesiredState(
-    nas,
-    req?.nasPreallocatedTunnelIp ? { preallocatedTunnelIp: req.nasPreallocatedTunnelIp } : {},
-  ),
+  afterCreate: async (nas, req) => {
+    require('../services/tenantNasResolverService').invalidateNasRoutingCache();
+    if (config.wireguard.serverEnabled) {
+      await wgProvisioningService.provisionDesiredState(
+        nas,
+        req?.nasPreallocatedTunnelIp ? { preallocatedTunnelIp: req.nasPreallocatedTunnelIp } : {},
+      );
+    }
+  },
+  afterUpdate: () => require('../services/tenantNasResolverService').invalidateNasRoutingCache(),
   // access_mode is immutable after registration. Switching it would desync
   // ip_address from the WG tunnel (direct→nated leaves a real IP with no tunnel;
   // nated→direct leaves a tunnel address as if it were a device IP, orphaning the
@@ -141,10 +147,16 @@ const ctrl = crudController(Nas, {
   // Tear down the NAS's WireGuard tunnel on delete (remove hub peer + routes,
   // soft-delete the tunnel row, drop its subnets from affected users' scope).
   // Advisory — failure is caught + logged, never fails the delete.
-  afterDelete: (nas) => wgProvisioningService.teardownNas(nas.id),
+  afterDelete: async (nas) => {
+    require('../services/tenantNasResolverService').invalidateNasRoutingCache();
+    await wgProvisioningService.teardownNas(nas.id);
+  },
   // Inverse of afterDelete: revive the torn-down tunnel (same keypair) when the
   // NAS is restored, so delete→restore brings the site tunnel back. Advisory.
-  afterRestore: (nas) => wgProvisioningService.restoreNas(nas.id),
+  afterRestore: async (nas) => {
+    require('../services/tenantNasResolverService').invalidateNasRoutingCache();
+    await wgProvisioningService.restoreNas(nas.id);
+  },
 });
 
 router.use(authenticate);

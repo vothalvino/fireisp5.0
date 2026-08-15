@@ -4,7 +4,9 @@
 // Defines the scope system for API tokens. Scopes restrict what an API token
 // can do, layered on top of the user's RBAC permissions.
 //
-// Format:  "resource:access"   where access is "read" or "write"
+// Format:  "resource:access" where access is "read", "write", or the
+// collector-only "ingest" access supported by connection_logs and the
+// privacy-minimal CGNAT attribution collector.
 // Examples: "clients:read", "invoices:write", "*:read"
 //
 // - `:read`  → allows `.view` and `.export` permission actions
@@ -24,6 +26,7 @@ const VALID_RESOURCES = [
   'clients',
   'concession_titles',
   'connection_logs',
+  'cgnat_attribution',
   'contracts',
   'coverage_zones',
   'credit_notes',
@@ -37,6 +40,7 @@ const VALID_RESOURCES = [
   'inventory',
   'invoices',
   'ip_assignments',
+  'ip_attribution',
   'ip_pools',
   'jobs',
   'network_health',
@@ -72,6 +76,8 @@ const VALID_RESOURCES = [
 
 const ACCESS_READ = 'read';
 const ACCESS_WRITE = 'write';
+const ACCESS_INGEST = 'ingest';
+const INGEST_RESOURCES = new Set(['connection_logs', 'cgnat_attribution']);
 
 /**
  * Permission actions that are satisfied by `:read` scope.
@@ -103,6 +109,9 @@ function permissionToScope(permissionSlug) {
   if (WRITE_ACTIONS.has(action)) {
     return { resource, access: ACCESS_WRITE };
   }
+  if (action === ACCESS_INGEST) {
+    return { resource, access: ACCESS_INGEST };
+  }
 
   // Unknown action — treat as write for safety
   return { resource, access: ACCESS_WRITE };
@@ -112,7 +121,8 @@ function permissionToScope(permissionSlug) {
  * Check whether a set of scopes grants the required scope.
  *
  * Rules:
- *  - `null` or empty scopes → unrestricted (all access)
+ *  - SQL `null` scopes → unrestricted (legacy compatibility)
+ *  - empty or malformed scope values → deny all
  *  - `*:write` → grants everything
  *  - `*:read` → grants read on all resources
  *  - `resource:write` → grants both read and write on that resource
@@ -125,8 +135,8 @@ function permissionToScope(permissionSlug) {
  */
 function hasScope(scopes, requiredResource, requiredAccess) {
   // null/undefined scopes = unrestricted
-  if (!scopes || !Array.isArray(scopes)) return true;
-  if (scopes.length === 0) return true;
+  if (scopes === null || scopes === undefined) return true;
+  if (!Array.isArray(scopes) || scopes.length === 0) return false;
 
   for (const scope of scopes) {
     const colonIndex = scope.indexOf(':');
@@ -135,7 +145,14 @@ function hasScope(scopes, requiredResource, requiredAccess) {
     const scopeResource = scope.substring(0, colonIndex);
     const scopeAccess = scope.substring(colonIndex + 1);
 
-    // Wildcard write grants everything
+    // Collector ingest is intentionally never implied by wildcard or ordinary
+    // write authority. A credential must name the exact resource:ingest scope.
+    if (requiredAccess === ACCESS_INGEST) {
+      if (scopeResource === requiredResource && scopeAccess === ACCESS_INGEST) return true;
+      continue;
+    }
+
+    // Wildcard write grants ordinary read/write access (not collector ingest).
     if (scopeResource === '*' && scopeAccess === ACCESS_WRITE) return true;
 
     // Wildcard read grants all read access
@@ -162,7 +179,8 @@ function hasScope(scopes, requiredResource, requiredAccess) {
  */
 function scopeAllowsPermission(scopes, permissionSlug) {
   // Unrestricted tokens
-  if (!scopes || !Array.isArray(scopes) || scopes.length === 0) return true;
+  if (scopes === null || scopes === undefined) return true;
+  if (!Array.isArray(scopes) || scopes.length === 0) return false;
 
   const required = permissionToScope(permissionSlug);
   if (!required) return false;
@@ -185,6 +203,7 @@ function isValidScope(scope) {
   const resource = scope.substring(0, colonIndex);
   const access = scope.substring(colonIndex + 1);
 
+  if (access === ACCESS_INGEST) return INGEST_RESOURCES.has(resource);
   if (access !== ACCESS_READ && access !== ACCESS_WRITE) return false;
   if (resource === '*') return true;
   return VALID_RESOURCES.includes(resource);
@@ -248,6 +267,12 @@ function listAvailableScopes() {
       description: `Read-write access to ${resource.replace(/_/g, ' ')}`,
     });
   }
+  for (const resource of INGEST_RESOURCES) {
+    scopes.push({
+      scope: `${resource}:ingest`,
+      description: `Collector-only ingest access to ${resource.replace(/_/g, ' ')}`,
+    });
+  }
 
   return scopes;
 }
@@ -256,6 +281,7 @@ module.exports = {
   VALID_RESOURCES,
   ACCESS_READ,
   ACCESS_WRITE,
+  ACCESS_INGEST,
   permissionToScope,
   hasScope,
   scopeAllowsPermission,

@@ -18,7 +18,7 @@
 //   • `roles` is an explicit allowlist (set membership, NOT rank compare), so
 //     the technician=billing rank tie in hasRole() is never consulted for nav.
 //   • Legacy `admin` sees everything; `readonly` sees everything its route
-//     guards allow ("sees everything, changes nothing" — backend rejects writes).
+//     guards allow except pages that explicitly require a resolved permission.
 //   • Allowlists were audited against backend requirePermission slugs and
 //     role_permissions seeds (migrations 119/194/197/199/298/365/377) so that
 //     no visible row 403s — see PR description for the audit table.
@@ -58,6 +58,8 @@ export interface RouteDef {
   rail?: boolean;
   /** Explicit allowlist. Omitted = any authenticated role (guard still applies). */
   roles?: Role[];
+  /** At least one resolved backend permission is required for sensitive pages. */
+  requiredAnyPermissions?: string[];
   /** Only shown when the active org's compliance locale matches. */
   requiredLocale?: 'MX';
   /**
@@ -195,7 +197,7 @@ export const ROUTES: RouteDef[] = [
   // carries a card so the hub shows it and "View all N" counts stay honest
   { path: '/wg-tunnels', keywords: ['wireguard', 'vpn'], labelKey: 'nav.myWgTunnels', section: 'network', guard: 'any', card: 'accessProvisioning', rail: true },
   { path: '/speed-tests', labelKey: 'nav.speedTests', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
-  { path: '/connection-logs', labelKey: 'nav.connectionLogs', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
+  { path: '/connection-logs', labelKey: 'nav.connectionLogs', section: 'network', guard: 'any', card: 'monitoringNoc', rail: true, roles: ['technician', 'support'] },
   { path: '/topology-map', labelKey: 'nav.topologyMap', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
   { path: '/snmp-metrics', labelKey: 'nav.snmpMetrics', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
   { path: '/snmp-traps', labelKey: 'nav.snmpTraps', section: 'network', guard: 'technician', card: 'monitoringNoc', roles: ['technician'] },
@@ -269,7 +271,15 @@ export const ROUTES: RouteDef[] = [
   { path: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', section: 'compliance', guard: 'billing', sub: 'ift', rail: true, roles: ['billing'], requiredLocale: 'MX' },
   { path: '/profeco-complaints', labelKey: 'nav.profecoComplaints', section: 'compliance', guard: 'billing', sub: 'consumer', rail: true, roles: ['billing'], requiredLocale: 'MX' },
   // deliberately NOT MX-gated — Compliance still renders for non-Mexico orgs
-  { path: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', section: 'compliance', guard: 'billing', sub: 'general', rail: true, roles: ['billing'] },
+  {
+    path: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', section: 'compliance', guard: 'any', sub: 'general', rail: true,
+    requiredAnyPermissions: [
+      'subscriber_consents.view', 'dsar_requests.view', 'gov_data_requests.view',
+      'identity_verification.view', 'phone_number_inventory.view', 'uso_obligations.view',
+      'service_modification_notices.view', 'contract_templates_mx.view',
+      'data_residency.view', 'report_access_logs.view', 'audit_export.view',
+    ],
+  },
 
   // --- Admin (hub: /admin) ---------------------------------------------------------
   { path: '/users', labelKey: 'nav.users', section: 'admin', guard: 'admin', card: 'peopleAccess', rail: true },
@@ -303,17 +313,20 @@ export const ROUTES: RouteDef[] = [
 export interface NavUser {
   role: string;
   organization_locale?: string;
+  permissions?: string[];
 }
 
 export function canSee(
   user: NavUser,
-  node: { guard?: Guard; roles?: Role[]; requiredLocale?: 'MX' },
+  node: { guard?: Guard; roles?: Role[]; requiredLocale?: 'MX'; requiredAnyPermissions?: string[] },
 ): boolean {
   if (node.requiredLocale && user.organization_locale !== node.requiredLocale) return false;
   if (user.role === 'admin') return true;
+  if (node.requiredAnyPermissions
+      && !node.requiredAnyPermissions.some(permission => user.permissions?.includes(permission))) return false;
   // A row whose route guard the user fails would render <NotAllowed/> — hide it.
   if (node.guard && node.guard !== 'any' && !hasRole(user.role, node.guard)) return false;
-  // readonly sees everything its guards allow; backend rejects writes.
+  // readonly sees everything its guards allow after any explicit permission gate.
   if (user.role === 'readonly') return true;
   return !node.roles || node.roles.includes(user.role as Role);
 }

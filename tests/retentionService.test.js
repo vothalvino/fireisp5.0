@@ -24,6 +24,7 @@ const logger = require('../src/utils/logger');
 const retentionService = require('../src/services/retentionService');
 
 const ISOLATED_DATABASE_QUERY = 'FROM organization_database_configs odc';
+const POLICY_COUNT = Object.keys(retentionService.DEFAULT_POLICIES).length;
 
 function mockGlobalQueries(isolatedOrganizationIds = []) {
   db.query.mockImplementation(sql => {
@@ -43,6 +44,7 @@ describe('retentionService', () => {
     for (const table of Object.keys(retentionService.DEFAULT_POLICIES)) {
       delete process.env[`RETENTION_${table.toUpperCase()}_DAYS`];
     }
+    delete process.env.RADIUS_ACCOUNTING_RETENTION_MONTHS;
   }
 
   beforeEach(() => {
@@ -68,6 +70,13 @@ describe('retentionService', () => {
         idempotency_keys: 7,
         radpostauth: 90,
         pppoe_event_logs: 90,
+        connection_logs: 730,
+        radius_accounting_events: 730,
+        radius_accounting_usage_daily: 730,
+        collector_ingest_receipts: 90,
+        cgnat_binding_events: 730,
+        cgnat_attribution_bindings: 730,
+        ip_attribution_case_evidence: 730,
       });
     });
 
@@ -148,26 +157,67 @@ describe('retentionService', () => {
     );
   });
 
+  describe('calendar-month connection logging retention', () => {
+    test('purges the session projection by its indexed latest-activity timestamp', async () => {
+      db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+      await retentionService.purgeTableMonths('connection_logs', 24);
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('`retention_at` < DATE_SUB(NOW(), INTERVAL ? MONTH)'),
+        [24],
+      );
+    });
+
+    test('uses exact 24- and 3-calendar-month policies and keeps receipts at 90 days', () => {
+      const specs = retentionService.loadPolicySpecs();
+
+      expect(specs.connection_logs).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.radius_accounting_events).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.radius_accounting_usage_daily).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.cgnat_binding_events).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.cgnat_attribution_bindings).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.ip_attribution_case_evidence).toEqual({ value: 24, unit: 'MONTH' });
+      expect(specs.collector_ingest_receipts).toEqual({ value: 90, unit: 'DAY' });
+    });
+
+    test('connection-only retention includes sessions, milestones, usage, receipts, and flows', async () => {
+      mockGlobalQueries();
+
+      const result = await retentionService.runConnectionLogging();
+
+      expect(result.tables.map(row => row.table)).toEqual([
+        'connection_logs',
+        'radius_accounting_events',
+        'radius_accounting_usage_daily',
+        'collector_ingest_receipts',
+        'cgnat_binding_events',
+        'cgnat_attribution_bindings',
+        'ip_attribution_case_evidence',
+      ]);
+    });
+  });
+
   describe('runAll()', () => {
     test('runs every configured policy against the primary database', async () => {
       mockGlobalQueries();
 
       const result = await retentionService.runAll();
 
-      expect(result.tables).toHaveLength(8);
+      expect(result.tables).toHaveLength(POLICY_COUNT);
       expect(result.total_deleted).toBe(0);
       expect(result.database_scopes).toEqual([
         expect.objectContaining({
           database_scope: 'primary',
           organization_id: null,
-          tables: 8,
+          tables: POLICY_COUNT,
           status: 'ok',
         }),
       ]);
       expect(db.withPrimaryContext).toHaveBeenCalledTimes(2);
       expect(db.withTenantContext).not.toHaveBeenCalled();
-      expect(db.query.mock.calls[0][0]).toContain("o.status = 'active'");
-      expect(db.query.mock.calls[0][0]).toContain('o.deleted_at IS NULL');
+      expect(db.query.mock.calls[0][0]).not.toContain("o.status = 'active'");
+      expect(db.query.mock.calls[0][0]).not.toContain('o.deleted_at IS NULL');
     });
 
     test('continues on error for an individual table', async () => {
@@ -181,7 +231,7 @@ describe('retentionService', () => {
 
       const result = await retentionService.runAll();
 
-      expect(result.tables).toHaveLength(8);
+      expect(result.tables).toHaveLength(POLICY_COUNT);
       expect(result.tables.find(table => table.error)).toEqual(
         expect.objectContaining({ error: 'Table not found', database_scope: 'primary' }),
       );
@@ -203,15 +253,16 @@ describe('retentionService', () => {
       expect(result.total_deleted).toBe(50);
     });
 
-    test('fans out to every active isolated tenant database', async () => {
+    test('fans out to every configured isolated database, including inactive tenant records', async () => {
       mockGlobalQueries([11, 22]);
 
       const result = await retentionService.runAll();
 
       expect(db.withTenantContext).toHaveBeenNthCalledWith(1, 11, expect.any(Function));
       expect(db.withTenantContext).toHaveBeenNthCalledWith(2, 22, expect.any(Function));
-      expect(result.tables).toHaveLength(24);
-      expect(result.tables.filter(table => table.database_scope === 'isolated')).toHaveLength(16);
+      expect(result.tables).toHaveLength(POLICY_COUNT * 3);
+      expect(result.tables.filter(table => table.database_scope === 'isolated'))
+        .toHaveLength(POLICY_COUNT * 2);
       expect(result.database_scopes).toEqual([
         expect.objectContaining({ database_scope: 'primary', status: 'ok' }),
         expect.objectContaining({ database_scope: 'isolated', organization_id: 11, status: 'ok' }),
@@ -222,7 +273,7 @@ describe('retentionService', () => {
       const isolatedDeletes = db.query.mock.calls.filter(
         ([sql, params]) => sql.startsWith('DELETE') && params.length === 2,
       );
-      expect(isolatedDeletes).toHaveLength(16);
+      expect(isolatedDeletes).toHaveLength(POLICY_COUNT * 2);
       expect(isolatedDeletes.every(([, params]) => [11, 22].includes(params[1]))).toBe(true);
     });
 
@@ -236,8 +287,8 @@ describe('retentionService', () => {
       const result = await retentionService.runAll();
 
       expect(db.withTenantContext).toHaveBeenCalledTimes(2);
-      expect(result.tables).toHaveLength(16);
-      expect(result.tables.filter(table => table.organization_id === 22)).toHaveLength(8);
+      expect(result.tables).toHaveLength(POLICY_COUNT * 2);
+      expect(result.tables.filter(table => table.organization_id === 22)).toHaveLength(POLICY_COUNT);
       expect(result.scope_failures).toEqual([
         {
           database_scope: 'isolated',
@@ -254,7 +305,7 @@ describe('retentionService', () => {
 
       expect(db.withTenantContext).toHaveBeenCalledWith(42, expect.any(Function));
       expect(db.withPrimaryContext).not.toHaveBeenCalled();
-      expect(result.tables).toHaveLength(8);
+      expect(result.tables).toHaveLength(POLICY_COUNT);
       expect(result.tables.every(table => table.organization_id === 42)).toBe(true);
 
       for (const [sql, params] of db.query.mock.calls) {
@@ -270,6 +321,20 @@ describe('retentionService', () => {
         .rejects.toThrow('organizationId must be a positive integer');
       expect(db.query).not.toHaveBeenCalled();
       expect(db.withTenantContext).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('scheduled policy separation', () => {
+    test('general and connection-logging jobs have disjoint table sets', async () => {
+      mockGlobalQueries();
+      const general = await retentionService.runGeneral();
+      const connection = await retentionService.runConnectionLogging();
+      const generalTables = general.tables.map(row => row.table);
+      const connectionTables = connection.tables.map(row => row.table);
+
+      expect(connectionTables).toEqual(retentionService.CONNECTION_LOGGING_TABLES);
+      expect(generalTables).toHaveLength(POLICY_COUNT - connectionTables.length);
+      expect(generalTables.filter(table => connectionTables.includes(table))).toEqual([]);
     });
   });
 });

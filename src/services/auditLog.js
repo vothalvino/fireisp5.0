@@ -6,6 +6,7 @@
 
 const db = require('../config/database');
 const logger = require('../utils/logger');
+const { runInPrimaryContext } = require('../utils/primaryContext');
 
 /**
  * Log an audit event.
@@ -32,7 +33,7 @@ const logger = require('../utils/logger');
  */
 async function log({ userId, organizationId, action, tableName, entityType, recordId, entityId, summary, oldValues, newValues }) {
   try {
-    await db.query(
+    await runInPrimaryContext(() => db.query(
       `INSERT INTO audit_logs (user_id, organization_id, action, entity_type, entity_id, summary, old_values, new_values)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -45,7 +46,7 @@ async function log({ userId, organizationId, action, tableName, entityType, reco
         oldValues ? JSON.stringify(oldValues) : null,
         newValues ? JSON.stringify(newValues) : null,
       ],
-    );
+    ));
   } catch (err) {
     // Audit logging should never crash the request
     logger.error({ err }, 'Audit log error');

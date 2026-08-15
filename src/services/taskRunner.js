@@ -244,7 +244,7 @@ async function runTask(taskName, organizationId = null) {
     case 'retry_failed_charges':
       return paymentRetryService.processPendingRetries(organizationId);
     case 'data_retention':
-      return retentionService.runAll();
+      return retentionService.runGeneral();
     case 'database_backup':
       return runBackup();
     case 'config_backup_pull':

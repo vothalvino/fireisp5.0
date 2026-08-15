@@ -200,11 +200,10 @@ async function getReadiness(organizationId) {
       [organizationId],
     ),
     db.query(
-      `SELECT MAX(cl.event_at) AS last_received_at,
-              COUNT(CASE WHEN cl.event_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 END) AS events_24h
+      `SELECT MAX(COALESCE(cl.last_accounting_received_at, cl.event_at)) AS last_received_at,
+              COUNT(CASE WHEN COALESCE(cl.last_accounting_received_at, cl.event_at) >= DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 END) AS events_24h
          FROM connection_logs cl
-         JOIN nas n ON n.id = cl.nas_id
-        WHERE n.organization_id = ?`,
+        WHERE cl.organization_id = ?`,
       [organizationId],
     ),
     db.query(

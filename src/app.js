@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { AppError } = require('./utils/errors');
 const errorTracking = require('./utils/errorTracking');
-const { apiLimiter, authLimiter, passwordResetLimiter, verifyEmailResendLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, authLimiter, passwordResetLimiter, verifyEmailResendLimiter, sessionLimiter, exportLimiter, sseLimiter, webhookLimiter, collectorIngressLimiter, isCollectorPath } = require('./middleware/rateLimit');
 const { requestLogger } = require('./middleware/requestLogger');
 const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
@@ -340,7 +340,22 @@ const corsOrigin = (() => {
     'http://127.0.0.1:5173',
   ];
 })();
-app.use(cors({ origin: corsOrigin, credentials: true }));
+app.use(cors({
+  origin: corsOrigin,
+  credentials: true,
+  exposedHeaders: ['Content-Disposition', 'X-Evidence-SHA256'],
+}));
+
+// Bound unauthenticated machine traffic before allocating/parsing the body.
+// Collector batches have a dedicated 2 MiB ceiling (well above the supported
+// max batch at the documented record shape) instead of the general 10 MiB API
+// allowance. The shared limiter executes first, so rejected traffic never
+// reaches JSON parsing.
+const collectorJsonParser = express.json({ limit: '2mb' });
+app.use('/api/', (req, res, next) => {
+  if (!isCollectorPath(req)) return next();
+  return collectorIngressLimiter(req, res, () => collectorJsonParser(req, res, next));
+});
 
 app.use(express.json({
   limit: '10mb',

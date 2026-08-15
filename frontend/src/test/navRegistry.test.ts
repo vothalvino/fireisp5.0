@@ -83,6 +83,14 @@ describe('nav registry ↔ App.tsx invariants', () => {
     }
   });
 
+  it('keeps Regulatory Compliance discoverable only through explicit view permissions', () => {
+    const route = ROUTES.find(r => r.path === '/regulatory-compliance');
+    expect(route?.guard).toBe('any');
+    expect(route?.requiredAnyPermissions).toContain('gov_data_requests.view');
+    expect(route?.requiredAnyPermissions).toContain('subscriber_consents.view');
+    expect(route?.roles).toBeUndefined();
+  });
+
   it('hub landing pages are routed with the guard their section declares', () => {
     for (const [p, sectionId] of Object.entries(HUB_PATHS)) {
       const section = SECTIONS.find(s => s.id === sectionId);

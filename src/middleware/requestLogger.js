@@ -10,7 +10,7 @@ const logger = require('../utils/logger');
 // and personal data (PII) into access logs. The `[?&]NAME=` anchoring means
 // each name matches only a whole parameter (never a substring), so listing
 // `token` cannot partial-match `access_token` — add exact names as needed.
-const SENSITIVE_PARAMS = /[?&](password|token|api_key|secret|access_token|refresh_token|username|email|phone)=[^&]*/gi;
+const SENSITIVE_PARAMS = /[?&](password|token|api_key|secret|access_token|refresh_token|username|email|phone|ip_address|source_ip|destination_ip|translated_source_ip|nat_ip|mac|session_id|acct_session_id)=[^&]*/gi;
 
 /**
  * Mask sensitive query parameters in a URL.

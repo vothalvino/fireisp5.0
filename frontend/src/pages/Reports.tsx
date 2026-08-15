@@ -877,13 +877,48 @@ interface RetentionRow {
   table_name: string;
   old_record_count: number;
 }
+interface ConnectionLoggingReadinessSummary {
+  active_nas: number;
+  status: string;
+  session_logger: {
+    configured: boolean;
+  };
+}
 interface InterceptionReadiness {
   has_nas: boolean;
+  has_radius_setup?: boolean;
   ready: boolean;
+  status?: string;
+  connection_logging?: ConnectionLoggingReadinessSummary;
+  disclaimer?: string | null;
 }
 interface ComplianceReportData {
   data_retention: RetentionRow[];
   interception_readiness: InterceptionReadiness;
+}
+
+function connectionLoggingStatusKey(status: string | undefined): string {
+  switch (status) {
+    case 'ready':
+      return 'reports.connectionLogging.statuses.ready';
+    case 'waiting_for_traffic':
+      return 'reports.connectionLogging.statuses.waitingForTraffic';
+    case 'not_configured':
+      return 'reports.connectionLogging.statuses.notConfigured';
+    case 'not_applicable':
+      return 'reports.connectionLogging.statuses.notApplicable';
+    default:
+      return 'reports.connectionLogging.statuses.unknown';
+  }
+}
+
+function connectionLoggingStatusColor(status: string | undefined): string {
+  switch (status) {
+    case 'ready': return '#27ae60';
+    case 'waiting_for_traffic': return '#e67e22';
+    case 'not_configured': return '#e74c3c';
+    default: return '#6b7280';
+  }
 }
 
 // Scheduled reports
@@ -1028,6 +1063,18 @@ function ComplianceTab() {
 
   const d = data?.data;
   const readiness = d?.interception_readiness;
+  const connectionLogging = readiness?.connection_logging;
+  const hasNas = connectionLogging
+    ? connectionLogging.active_nas > 0
+    : Boolean(readiness?.has_nas);
+  const loggerConfigured = connectionLogging?.session_logger.configured
+    ?? readiness?.has_radius_setup
+    ?? false;
+  const operationalStatus = readiness?.status
+    ?? connectionLogging?.status
+    ?? (readiness?.ready ? 'ready' : undefined);
+  const disclaimer = readiness?.disclaimer?.trim()
+    || t('reports.connectionLogging.disclaimerFallback');
 
   return (
     <div style={styles.tabContent}>
@@ -1036,30 +1083,48 @@ function ComplianceTab() {
       {error && <p style={styles.error}>{String(error)}</p>}
       {d && (
         <>
-          {/* Interception readiness card */}
-          <h3 style={styles.sectionTitle}>{t('reports.interceptionReadiness')}</h3>
+          {/* Operational connection-logging health; this is not legal certification. */}
+          <h3 style={styles.sectionTitle}>{t('reports.operationalConnectionLoggingReadiness')}</h3>
           {readiness && (
-            <div style={{ ...styles.kpiCard, maxWidth: 320, marginBottom: 20 }}>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ ...styles.kpiCard, maxWidth: 560, marginBottom: 20 }}>
+              <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>Has NAS</div>
+                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>
+                    {t('reports.connectionLogging.activeNas')}
+                  </div>
                   <span style={{
                     ...styles.badge,
-                    background: readiness.has_nas ? '#27ae60' : '#e74c3c',
-                  }}>
-                    {readiness.has_nas ? 'Yes' : 'No'}
+                    background: hasNas ? '#27ae60' : '#e74c3c',
+                  }} aria-label={t('reports.connectionLogging.activeNas')}>
+                    {t(hasNas ? 'reports.connectionLogging.yes' : 'reports.connectionLogging.no')}
                   </span>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>Status</div>
+                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>
+                    {t('reports.connectionLogging.sessionAccountingConfigured')}
+                  </div>
                   <span style={{
                     ...styles.badge,
-                    background: readiness.ready ? '#27ae60' : '#e67e22',
-                  }}>
-                    {readiness.ready ? 'Ready' : 'Not Ready'}
+                    background: loggerConfigured ? '#27ae60' : '#e74c3c',
+                  }} aria-label={t('reports.connectionLogging.sessionAccountingConfigured')}>
+                    {t(loggerConfigured ? 'reports.connectionLogging.yes' : 'reports.connectionLogging.no')}
+                  </span>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 4 }}>
+                    {t('reports.connectionLogging.operationalStatus')}
+                  </div>
+                  <span style={{
+                    ...styles.badge,
+                    background: connectionLoggingStatusColor(operationalStatus),
+                  }} aria-label={t('reports.connectionLogging.operationalStatus')}>
+                    {t(connectionLoggingStatusKey(operationalStatus))}
                   </span>
                 </div>
               </div>
+              <p role="note" style={{ ...styles.muted, margin: '12px 0 0' }}>
+                {disclaimer}
+              </p>
             </div>
           )}
 

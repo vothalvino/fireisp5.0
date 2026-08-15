@@ -55,6 +55,103 @@ const POLICY_CONFIG = Object.freeze({
     dateColumn: 'logged_at',
     tenantWhere: '`organization_id` = ?',
   },
+  connection_logs: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'RADIUS_ACCOUNTING_RETENTION_MONTHS',
+    dateColumn: 'retention_at',
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: `NOT EXISTS (
+      SELECT 1 FROM ip_attribution_case_evidence held
+       WHERE held.organization_id = connection_logs.organization_id
+         AND held.connection_log_id = connection_logs.id
+         AND held.hold_released_at IS NULL
+    ) AND NOT EXISTS (
+      SELECT 1 FROM cgnat_attribution_bindings binding
+       WHERE binding.organization_id = connection_logs.organization_id
+         AND binding.connection_log_id = connection_logs.id
+    )`,
+  },
+  radius_accounting_events: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'RADIUS_ACCOUNTING_RETENTION_MONTHS',
+    dateColumn: 'event_at',
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: `NOT EXISTS (
+      SELECT 1 FROM ip_attribution_case_evidence held
+       WHERE held.organization_id = radius_accounting_events.organization_id
+         AND held.connection_log_id = radius_accounting_events.connection_log_id
+         AND held.hold_released_at IS NULL
+    ) AND NOT EXISTS (
+      SELECT 1 FROM cgnat_attribution_bindings binding
+       WHERE binding.organization_id = radius_accounting_events.organization_id
+         AND binding.session_instance_id = radius_accounting_events.session_instance_id
+    )`,
+  },
+  radius_accounting_usage_daily: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'RADIUS_ACCOUNTING_RETENTION_MONTHS',
+    dateColumn: 'usage_date',
+    tenantWhere: '`organization_id` = ?',
+  },
+  collector_ingest_receipts: {
+    defaultDays: 90,
+    dateColumn: 'last_received_at',
+    tenantWhere: '`organization_id` = ?',
+  },
+  cgnat_binding_events: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'CGNAT_ATTRIBUTION_RETENTION_MONTHS',
+    maxDays: 730,
+    maxMonths: 24,
+    dateColumn: 'received_at',
+    dateExpression: `(SELECT closed_binding.released_at
+      FROM cgnat_attribution_bindings closed_binding
+      WHERE closed_binding.organization_id = cgnat_binding_events.organization_id
+        AND closed_binding.id = cgnat_binding_events.binding_id)`,
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: `EXISTS (
+      SELECT 1 FROM cgnat_attribution_bindings closed_binding
+       WHERE closed_binding.organization_id = cgnat_binding_events.organization_id
+         AND closed_binding.id = cgnat_binding_events.binding_id
+         AND closed_binding.released_at IS NOT NULL
+    ) AND NOT EXISTS (
+      SELECT 1 FROM ip_attribution_case_evidence held
+       WHERE held.organization_id = cgnat_binding_events.organization_id
+         AND held.binding_id = cgnat_binding_events.binding_id
+         AND held.hold_released_at IS NULL
+    )`,
+  },
+  cgnat_attribution_bindings: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'CGNAT_ATTRIBUTION_RETENTION_MONTHS',
+    maxDays: 730,
+    maxMonths: 24,
+    dateColumn: 'released_at',
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: `released_at IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM ip_attribution_case_evidence held
+       WHERE held.organization_id = cgnat_attribution_bindings.organization_id
+         AND held.binding_id = cgnat_attribution_bindings.id
+         AND held.hold_released_at IS NULL
+    )`,
+  },
+  ip_attribution_case_evidence: {
+    defaultDays: 730,
+    defaultMonths: 24,
+    monthsEnv: 'CGNAT_ATTRIBUTION_RETENTION_MONTHS',
+    maxDays: 730,
+    maxMonths: 24,
+    // Releasing a hold resumes the original retention clock; it must not grant
+    // a fresh retention period to an already-old evidence snapshot.
+    dateColumn: 'pinned_at',
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: 'hold_released_at IS NOT NULL',
+  },
 });
 
 /**
@@ -93,8 +190,33 @@ function normalizeOrganizationId(value) {
 function loadPolicies() {
   const policies = {};
   for (const [table, defaultDays] of Object.entries(DEFAULT_POLICIES)) {
+    const config = POLICY_CONFIG[table];
     const envKey = `RETENTION_${table.toUpperCase()}_DAYS`;
     const envVal = process.env[envKey];
+
+    if (config.monthsEnv && process.env[config.monthsEnv] !== undefined
+        && process.env[config.monthsEnv].trim() !== '') {
+      const configuredMonths = parsePositiveInteger(process.env[config.monthsEnv]);
+      if (!configuredMonths) {
+        logger.warn(
+          { envKey: config.monthsEnv, configuredValue: process.env[config.monthsEnv], defaultDays },
+          'Invalid retention period; using safe default',
+        );
+        policies[table] = defaultDays;
+      } else {
+        const effectiveMonths = config.maxMonths
+          ? Math.min(configuredMonths, config.maxMonths)
+          : configuredMonths;
+        if (effectiveMonths !== configuredMonths) {
+          logger.warn(
+            { envKey: config.monthsEnv, configuredMonths, maxMonths: config.maxMonths },
+            'Retention period exceeds the supported maximum; using the maximum',
+          );
+        }
+        policies[table] = effectiveMonths * 30;
+      }
+      continue;
+    }
 
     if (envVal === undefined || envVal.trim() === '') {
       policies[table] = defaultDays;
@@ -111,9 +233,36 @@ function loadPolicies() {
       continue;
     }
 
-    policies[table] = configuredDays;
+    if (config.maxDays && configuredDays > config.maxDays) {
+      logger.warn(
+        { envKey, configuredDays, maxDays: config.maxDays },
+        'Retention period exceeds the supported maximum; using the maximum',
+      );
+      policies[table] = config.maxDays;
+    } else {
+      policies[table] = configuredDays;
+    }
   }
   return policies;
+}
+
+function loadPolicySpecs() {
+  const dayPolicies = loadPolicies();
+  return Object.fromEntries(Object.entries(dayPolicies).map(([table, days]) => {
+    const config = POLICY_CONFIG[table];
+    if (!config.monthsEnv) return [table, { value: days, unit: 'DAY' }];
+    const dayEnv = process.env[`RETENTION_${table.toUpperCase()}_DAYS`];
+    const monthEnv = process.env[config.monthsEnv];
+    if ((monthEnv === undefined || monthEnv.trim() === '')
+        && dayEnv !== undefined && dayEnv.trim() !== '') {
+      return [table, { value: days, unit: 'DAY' }];
+    }
+    const parsed = parsePositiveInteger(monthEnv);
+    const months = parsed
+      ? Math.min(parsed, config.maxMonths || Number.MAX_SAFE_INTEGER)
+      : config.defaultMonths;
+    return [table, { value: months, unit: 'MONTH' }];
+  }));
 }
 
 /**
@@ -149,9 +298,11 @@ async function purgeTable(table, retentionDays, dateColumn, options = {}) {
     ? normalizeOrganizationId(options.organizationId)
     : null;
   const tenantClause = tenantScoped ? ` AND ${config.tenantWhere}` : '';
+  const extraClause = config.extraWhere ? ` AND (${config.extraWhere})` : '';
   const params = tenantScoped
     ? [effectiveRetentionDays, organizationId]
     : [effectiveRetentionDays];
+  const dateExpression = config.dateExpression || `\`${effectiveDateColumn}\``;
 
   let totalDeleted = 0;
 
@@ -168,7 +319,7 @@ async function purgeTable(table, retentionDays, dateColumn, options = {}) {
   // Delete in batches to avoid locking the table for too long.
   while (true) {
     const [result] = await db.query(
-      `DELETE FROM \`${table}\` WHERE \`${effectiveDateColumn}\` < DATE_SUB(NOW(), INTERVAL ? DAY)${tenantClause} LIMIT ${DELETE_BATCH_SIZE}`,
+      `DELETE FROM \`${table}\` WHERE ${dateExpression} < DATE_SUB(NOW(), INTERVAL ? DAY)${tenantClause}${extraClause} LIMIT ${DELETE_BATCH_SIZE}`,
       params,
     );
 
@@ -183,6 +334,31 @@ async function purgeTable(table, retentionDays, dateColumn, options = {}) {
   return { table, deleted: totalDeleted };
 }
 
+async function purgeTableMonths(table, retentionMonths, options = {}) {
+  const config = POLICY_CONFIG[table];
+  if (!config?.monthsEnv) throw new Error(`Table "${table}" does not support month retention`);
+  const months = parsePositiveInteger(retentionMonths);
+  if (!months || (config.maxMonths && months > config.maxMonths)) {
+    throw new Error('retentionMonths must be within the supported positive range');
+  }
+  const tenantScoped = Object.prototype.hasOwnProperty.call(options || {}, 'organizationId');
+  const organizationId = tenantScoped ? normalizeOrganizationId(options.organizationId) : null;
+  const tenantClause = tenantScoped ? ` AND ${config.tenantWhere}` : '';
+  const extraClause = config.extraWhere ? ` AND (${config.extraWhere})` : '';
+  const params = tenantScoped ? [months, organizationId] : [months];
+  const dateExpression = config.dateExpression || `\`${config.dateColumn}\``;
+  let totalDeleted = 0;
+  while (true) {
+    const [result] = await db.query(
+      `DELETE FROM \`${table}\` WHERE ${dateExpression} < DATE_SUB(NOW(), INTERVAL ? MONTH)${tenantClause}${extraClause} LIMIT ${DELETE_BATCH_SIZE}`,
+      params,
+    );
+    totalDeleted += result.affectedRows;
+    if (result.affectedRows < DELETE_BATCH_SIZE) break;
+  }
+  return { table, deleted: totalDeleted };
+}
+
 async function runPoliciesForCurrentDatabase({
   policies,
   databaseScope,
@@ -191,14 +367,12 @@ async function runPoliciesForCurrentDatabase({
 }) {
   const results = [];
 
-  for (const [table, days] of Object.entries(policies)) {
+  for (const [table, policy] of Object.entries(policies)) {
     try {
-      const result = await purgeTable(
-        table,
-        days,
-        POLICY_CONFIG[table].dateColumn,
-        tenantScoped ? { organizationId } : {},
-      );
+      const result = policy?.unit === 'MONTH'
+        ? await purgeTableMonths(table, policy.value, tenantScoped ? { organizationId } : {})
+        : await purgeTable(table, policy?.value ?? policy, POLICY_CONFIG[table].dateColumn,
+          tenantScoped ? { organizationId } : {});
       results.push({
         ...result,
         database_scope: databaseScope,
@@ -231,10 +405,7 @@ async function listIsolatedOrganizationIds() {
     const [rows] = await db.query(
       `SELECT odc.organization_id
          FROM organization_database_configs odc
-         JOIN organizations o ON o.id = odc.organization_id
         WHERE odc.isolation_mode = 'isolated'
-          AND o.status = 'active'
-          AND o.deleted_at IS NULL
         ORDER BY odc.organization_id`,
     );
 
@@ -265,8 +436,7 @@ function scopeSummary(databaseScope, organizationId, result) {
  * @param {{ organizationId?: number }} [options]
  * @returns {{ total_deleted: number, tables: Array, database_scopes: Array, scope_failures: Array }}
  */
-async function runAll(options = {}) {
-  const policies = loadPolicies();
+async function runWithPolicies(options, policies) {
   const tenantRun = options !== null
     && typeof options === 'object'
     && Object.prototype.hasOwnProperty.call(options, 'organizationId');
@@ -362,4 +532,48 @@ async function runAll(options = {}) {
   };
 }
 
-module.exports = { runAll, purgeTable, loadPolicies, DEFAULT_POLICIES };
+async function runAll(options = {}) {
+  return runWithPolicies(options, loadPolicySpecs());
+}
+
+const CONNECTION_LOGGING_TABLES = Object.freeze([
+  'connection_logs',
+  'radius_accounting_events',
+  'radius_accounting_usage_daily',
+  'collector_ingest_receipts',
+  'cgnat_binding_events',
+  'cgnat_attribution_bindings',
+  'ip_attribution_case_evidence',
+]);
+
+// Scheduled general retention must be disjoint from the dedicated connection
+// logging task. runAll remains available for explicit all-data/secure-deletion
+// workflows that intentionally cover every policy in one invocation.
+async function runGeneral(options = {}) {
+  const all = loadPolicySpecs();
+  const selected = Object.fromEntries(
+    Object.entries(all).filter(([table]) => !CONNECTION_LOGGING_TABLES.includes(table)),
+  );
+  return runWithPolicies(options, selected);
+}
+
+async function runConnectionLogging(options = {}) {
+  const all = loadPolicySpecs();
+  const selected = Object.fromEntries(
+    CONNECTION_LOGGING_TABLES
+      .map(table => [table, all[table]]),
+  );
+  return runWithPolicies(options, selected);
+}
+
+module.exports = {
+  runAll,
+  runGeneral,
+  runConnectionLogging,
+  purgeTable,
+  purgeTableMonths,
+  loadPolicies,
+  loadPolicySpecs,
+  DEFAULT_POLICIES,
+  CONNECTION_LOGGING_TABLES,
+};
