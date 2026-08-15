@@ -142,6 +142,108 @@ describe('i18n — critical pt-BR values', () => {
   });
 });
 
+describe('i18n — connection records are complete and localized', () => {
+  const criticalKeys = [
+    'connection_logs.title',
+    'connection_logs.sessions.help',
+    'connection_logs.attribution.restrictedHelp',
+    'connection_logs.attribution.notPersonProof',
+    'connection_logs.attribution.results.ambiguous.help',
+    'connection_logs.attribution.export.download',
+    'connection_logs.attribution.export.error',
+    'connection_logs.attribution.export.checksumMismatch',
+    'connection_logs.attribution.export.verificationUnavailable',
+    'connection_logs.attribution.evidence.activeOpen',
+    'connection_logs.columns.terminateCause',
+    'connection_logs.terminateCauses.nasReboot',
+    'connection_logs.readiness.sessionsGuidance',
+    'connection_logs.readiness.attributionGuidance',
+    'connection_logs.readiness.attributionRestricted',
+    'connection_logs.readiness.health.reported',
+    'regulatoryCompliance.accessDenied',
+    'regulatoryCompliance.government.help',
+    'regulatoryCompliance.government.workflowHelp',
+    'regulatoryCompliance.government.startProcessing',
+    'regulatoryCompliance.government.rejectReason',
+    'regulatoryCompliance.government.releaseHelp',
+    'regulatoryCompliance.government.releaseEvidenceHold',
+  ];
+
+  for (const key of criticalKeys) {
+    it(`localizes ${key} in Spanish and Portuguese`, () => {
+      expect(enFlat[key]).toBeTruthy();
+      expect(esFlat[key]).toBeTruthy();
+      expect(ptBrFlat[key]).toBeTruthy();
+      expect(esFlat[key]).not.toBe(enFlat[key]);
+      expect(ptBrFlat[key]).not.toBe(enFlat[key]);
+    });
+  }
+
+  it('preserves duration and readiness interpolation placeholders', () => {
+    for (const locale of [enFlat, esFlat, ptBrFlat]) {
+      expect(locale['connection_logs.duration.daysHours']).toContain('{{days}}');
+      expect(locale['connection_logs.duration.daysHours']).toContain('{{hours}}');
+      expect(locale['connection_logs.readiness.coverageValue']).toContain('{{covered}}');
+      expect(locale['connection_logs.readiness.coverageValue']).toContain('{{total}}');
+      expect(locale['connection_logs.readiness.retentionValue']).toContain('{{months}}');
+      expect(locale['connection_logs.attribution.results.ambiguous.help']).toContain('{{count}}');
+      expect(locale['connection_logs.attribution.evidence.windowValue']).toContain('{{from}}');
+      expect(locale['connection_logs.attribution.evidence.windowValue']).toContain('{{to}}');
+      expect(locale['regulatoryCompliance.government.timezoneHelp']).toContain('{{timezone}}');
+      expect(locale['regulatoryCompliance.government.releaseSuccess']).toContain('{{count}}');
+      expect(locale['connection_logs.attribution.export.checksum']).toContain('{{checksum}}');
+    }
+  });
+});
+
+describe('i18n — DSAR export UI is complete and localized', () => {
+  const localizedKeys = [
+    'dsarTool.title',
+    'dsarTool.intro',
+    'dsarTool.form.ariaLabel',
+    'dsarTool.form.assemble',
+    'dsarTool.form.assembling',
+    'dsarTool.form.downloadAria',
+    'dsarTool.error',
+    'dsarTool.values.yes',
+    'dsarTool.values.notReported',
+    'dsarTool.summary.ariaLabel',
+    'dsarTool.summary.noEmail',
+    'dsarTool.scope.ariaLabel',
+    'dsarTool.scope.framing',
+    'dsarTool.scope.externalSystemsReview',
+    'dsarTool.cancellation.ariaLabel',
+    'dsarTool.cancellation.framing',
+    'dsarTool.cancellation.serverNoticeFallback',
+    'dsarTool.table.ariaLabel',
+    'dsarTool.table.caption',
+    'dsarTool.table.present',
+    'dsarTool.sections.connectionLogs',
+    'dsarTool.sections.radiusAccountingEvents',
+    'dsarTool.sections.radiusAccountingUsageDaily',
+    'dsarTool.sections.cgnatAttributionBindings',
+    'dsarTool.sections.cgnatAttributionEvents',
+  ];
+
+  for (const key of localizedKeys) {
+    it(`localizes ${key} in Spanish and Portuguese`, () => {
+      expect(enFlat[key]).toBeTruthy();
+      expect(esFlat[key]).toBeTruthy();
+      expect(ptBrFlat[key]).toBeTruthy();
+      expect(esFlat[key]).not.toBe(enFlat[key]);
+      expect(ptBrFlat[key]).not.toBe(enFlat[key]);
+    });
+  }
+
+  it('frames scope and cancellation as bounded review steps in every locale', () => {
+    for (const locale of [enFlat, esFlat, ptBrFlat]) {
+      expect(locale['dsarTool.scope.framing']).toBeTruthy();
+      expect(locale['dsarTool.cancellation.framing']).toBeTruthy();
+      expect(locale['dsarTool.scope.framing']).not.toMatch(/every piece of personal data/i);
+    }
+  });
+});
+
 describe('i18n — PPPoE diagnostics operational messages', () => {
   const readinessDetailCodes = [
     'authentication_embedded_not_running',

@@ -11,6 +11,10 @@ const db = require('../config/database');
 const logger = require('../utils/logger').child({ service: 'suspension' });
 const { ValidationError } = require('../utils/errors');
 const mxRegisteredTemplateService = require('./mxRegisteredContractTemplateService');
+const config = require('../config');
+const SESSION_LIVENESS_MINUTES = Number.isSafeInteger(config.radiusSessionLivenessMinutes)
+  && config.radiusSessionLivenessMinutes > 0
+  ? Math.min(config.radiusSessionLivenessMinutes, 1440) : 60;
 // NOTE: the action values below are written as SQL literals ('suspended',
 // 'unsuspended') rather than interpolated from SUSPENSION_ACTIONS on purpose —
 // the new `node src/scripts/sql-column-check.js` gate can only validate an ENUM
@@ -527,7 +531,9 @@ async function isClientSuspensionExempt(contractId) {
  */
 async function lookupRadiusAccount(contractId) {
   const [rows] = await db.query(
-    'SELECT r.username, r.nas_id FROM radius r WHERE r.contract_id = ? AND r.deleted_at IS NULL LIMIT 1',
+    `SELECT r.username, r.nas_id, COALESCE(r.organization_id, c.organization_id) AS organization_id
+       FROM radius r LEFT JOIN contracts c ON c.id = r.contract_id
+      WHERE r.contract_id = ? AND r.deleted_at IS NULL LIMIT 1`,
     [contractId],
   );
   return rows[0] || null;
@@ -580,25 +586,32 @@ async function resolveCoaTargets(account) {
      FROM connection_logs cl
      JOIN nas n
        ON (n.id = cl.nas_id OR n.ip_address = cl.nas_ip_address)
+      AND n.organization_id = cl.organization_id
       AND n.deleted_at IS NULL
-     WHERE cl.username = ?
-       AND cl.event_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+     WHERE cl.organization_id = ? AND cl.username = ?
+       AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)
+           >= DATE_SUB(NOW(), INTERVAL ${SESSION_LIVENESS_MINUTES} MINUTE)
        AND cl.event_type IN ('start', 'interim-update')
-       AND NOT EXISTS (
-         SELECT 1 FROM connection_logs cl2
-         WHERE cl2.username = cl.username
-           AND cl2.session_id = cl.session_id
-           AND cl2.event_type = 'stop'
-       )`,
-    [account.username],
+       AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+         SELECT legacy_latest.id FROM connection_logs legacy_latest
+          WHERE legacy_latest.organization_id = cl.organization_id
+            AND legacy_latest.session_instance_id IS NULL
+            AND legacy_latest.nas_id <=> cl.nas_id
+            AND legacy_latest.username = cl.username
+            AND legacy_latest.contract_id = cl.contract_id
+            AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                <=> COALESCE(cl.acct_session_id, cl.session_id)
+          ORDER BY legacy_latest.event_at DESC, legacy_latest.id DESC LIMIT 1))`,
+    [account.organization_id, account.username],
   );
 
   const targets = [...sessionNases];
 
   if (account.nas_id && !targets.some((t) => t.id === account.nas_id)) {
     const [homeRows] = await db.query(
-      'SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-      [account.nas_id],
+      `SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas
+        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1`,
+      [account.nas_id, account.organization_id],
     );
     if (homeRows.length > 0) targets.push(homeRows[0]);
   }
@@ -686,8 +699,9 @@ async function sendRadiusDisconnect(contractId, { acctSessionId = null, nasIpAdd
   let targets = [];
   if (nasIpAddress) {
     const [rows] = await db.query(
-      'SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas WHERE ip_address = ? AND deleted_at IS NULL LIMIT 1',
-      [nasIpAddress],
+      `SELECT id, ip_address, coa_port, secret, secondary_nas_id FROM nas
+        WHERE organization_id = ? AND ip_address = ? AND deleted_at IS NULL LIMIT 1`,
+      [account.organization_id, nasIpAddress],
     );
     targets = rows;
     if (targets.length === 0) {

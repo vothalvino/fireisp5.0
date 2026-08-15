@@ -11,7 +11,9 @@ describe('rolloverService', () => {
     it('accrues rollover for contracts with unused capacity', async () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, organization_id: 1, data_cap_gb: '100.000' }]]) // contracts
-        .mockResolvedValueOnce([[{ used_gb: '70.000' }]])                                  // usage
+        .mockResolvedValueOnce([[
+          { used_gb: '70.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 0 },
+        ]])                                                                                // usage
         .mockResolvedValueOnce([{ affectedRows: 1 }]);                                     // insert
 
       const result = await rolloverService.accrueRollover(1);
@@ -22,7 +24,9 @@ describe('rolloverService', () => {
     it('does not accrue when usage exceeds cap', async () => {
       db.query
         .mockResolvedValueOnce([[{ id: 1, organization_id: 1, data_cap_gb: '100.000' }]])
-        .mockResolvedValueOnce([[{ used_gb: '110.000' }]]);
+        .mockResolvedValueOnce([[
+          { used_gb: '110.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 0 },
+        ]]);
 
       const result = await rolloverService.accrueRollover(1);
       expect(result.processed).toBe(1);
@@ -37,6 +41,19 @@ describe('rolloverService', () => {
       expect(result.rolled_over_contracts).toBe(0);
     });
 
+    it('does not grant rollover while a lifecycle is awaiting its first follow-up', async () => {
+      db.query
+        .mockResolvedValueOnce([[{ id: 1, organization_id: 1, data_cap_gb: '100.000' }]])
+        .mockResolvedValueOnce([[
+          { used_gb: '70.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 1 },
+        ]]);
+
+      const result = await rolloverService.accrueRollover(1);
+
+      expect(result).toEqual({ processed: 1, rolled_over_contracts: 0 });
+      expect(db.query).toHaveBeenCalledTimes(2);
+    });
+
     it('measures usage over the PREVIOUS month and keys the balance to the current month', async () => {
       // Regression: the scheduled task fires at 00:00 on the 1st. Measuring
       // the just-started month reads ~0 usage and grants every capped
@@ -48,13 +65,18 @@ describe('rolloverService', () => {
       try {
         db.query
           .mockResolvedValueOnce([[{ id: 7, organization_id: 1, data_cap_gb: '100.000' }]])
-          .mockResolvedValueOnce([[{ used_gb: '90.000' }]])
+          .mockResolvedValueOnce([[
+            { used_gb: '90.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 0 },
+          ]])
           .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
         await rolloverService.accrueRollover(1);
 
-        const usageCall = db.query.mock.calls.find(([sql]) => sql.includes('FROM connection_logs'));
-        expect(usageCall[1]).toEqual([7, '2026-02-01', '2026-02-28 23:59:59']);
+        const usageCall = db.query.mock.calls.find(([sql]) => sql.includes('FROM radius_accounting_usage_daily'));
+        expect(usageCall[1]).toEqual([
+          1, 7, '2026-02-01', '2026-02-28',
+          1, 7, '2026-02-01', '2026-02-28',
+        ]);
 
         const insertCall = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO data_rollover_balances'));
         // (org, contract, billing_month, rollover_gb) — 10 GB unused, under the 25-GB cap ceiling

@@ -117,13 +117,34 @@ authenticate {
 }
 ```
 
-### 5. Edit the `accounting` section (for connection_logs)
+### 5. Send accounting through the tenant API
 
 ```
 accounting {
-    sql          # Logs sessions to connection_logs
+    rest         # Sends Start / Interim-Update / Stop to FireISP
 }
 ```
+
+Configure the FreeRADIUS `rest` module to call
+`POST /api/v1/radius/accounting/tenant` with an organization API token in the
+`X-API-Key` header. The token must belong to the same organization as the NAS,
+carry the dedicated `connection_logs:ingest` scope, and be owned by a role with
+`connection_logs.ingest`. The token must contain exactly that single scope;
+JWTs, wildcard/write scopes, additional scopes, and a combined
+session/CGNAT-collector token are rejected. If privacy-minimal CGNAT attribution
+is separately approved, its external binding normalizer uses a different token
+whose only scope is `cgnat_attribution:ingest`; it is not part of FreeRADIUS.
+
+This tenant-explicit path is recommended for every deployment and is required
+when the organization uses an isolated database. A shared-primary deployment
+currently requires active NAS addresses and RADIUS usernames to remain unique
+installation-wide because the embedded/source-only listeners and stock
+FreeRADIUS `radcheck`/`radreply` tables are not tenant-keyed. Physically isolated
+tenant databases may reuse those values safely through their tenant-bound
+token. The legacy shared-secret endpoint,
+`POST /api/v1/radius/accounting`, remains available only when
+`NAS-IP-Address` identifies exactly one active NAS across the installation.
+See the complete [`rlm_rest` example](freeradius/README.md#radius-accounting-ingest-rlm_rest).
 
 ---
 
@@ -192,56 +213,30 @@ authorize_reply_query = " \
 
 > **Note:** For non-MikroTik NAS devices, replace `Mikrotik-Rate-Limit` with the appropriate vendor-specific attribute (e.g., `WISPr-Bandwidth-Max-Down` / `WISPr-Bandwidth-Max-Up`).
 
-### Accounting (write to connection_logs)
+### Accounting (do not write `connection_logs` directly)
 
-> **Note:** `nas_id` is resolved from the packet's `NAS-IP-Address` (the
-> *serving* NAS), not copied from `radius.nas_id` (the home NAS).
-> Authentication is NAS-agnostic, so a subscriber may be online through any
-> registered NAS — FireISP's CoA/Disconnect targeting reads these rows to find
-> the router the session actually lives on.
+The older version of this guide installed three direct SQL `INSERT` queries.
+Do not use those queries for a new installation. They cannot safely choose a
+tenant across isolated databases that reuse private NAS addresses, represent one session as
+several unrelated rows, and bypass the application's replay handling and
+separate lifecycle-milestone evidence (Start, first Interim transition, and
+Stop). Routine Interim heartbeats update the current-session projection and
+receipt time without creating an evidence row for every heartbeat. Direct SQL
+also does not populate `radius_accounting_usage_daily`, so it cannot support the
+new operational usage-delta reports or their completeness/anomaly checks.
 
-```sql
-accounting_start_query = " \
-    INSERT INTO connection_logs \
-        (contract_id, client_id, username, session_id, \
-         ip_address, nas_id, nas_ip_address, event_type, event_at) \
-    SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
-           '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'start', NOW() \
-    FROM radius r \
-    WHERE r.username = '%{SQL-User-Name}' \
-    LIMIT 1"
-
-accounting_stop_query = " \
-    INSERT INTO connection_logs \
-        (contract_id, client_id, username, session_id, \
-         ip_address, nas_id, nas_ip_address, event_type, \
-         bytes_in, bytes_out, packets_in, packets_out, \
-         session_duration, terminate_cause, event_at) \
-    SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
-           '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'stop', \
-           '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
-           '%{Acct-Input-Packets}', '%{Acct-Output-Packets}', \
-           '%{Acct-Session-Time}', '%{Acct-Terminate-Cause}', NOW() \
-    FROM radius r \
-    WHERE r.username = '%{SQL-User-Name}' \
-    LIMIT 1"
-
-accounting_update_query = " \
-    INSERT INTO connection_logs \
-        (contract_id, client_id, username, session_id, \
-         ip_address, nas_id, nas_ip_address, event_type, \
-         bytes_in, bytes_out, session_duration, event_at) \
-    SELECT r.contract_id, r.client_id, '%{SQL-User-Name}', \
-           '%{Acct-Session-Id}', '%{Framed-IP-Address}', \
-           (SELECT n2.id FROM nas n2 WHERE n2.ip_address = '%{NAS-IP-Address}' AND n2.deleted_at IS NULL LIMIT 1), '%{NAS-IP-Address}', 'interim-update', \
-           '%{Acct-Input-Octets}', '%{Acct-Output-Octets}', \
-           '%{Acct-Session-Time}', NOW() \
-    FROM radius r \
-    WHERE r.username = '%{SQL-User-Name}' \
-    LIMIT 1"
-```
+Use the tenant API described above. FireISP resolves the serving NAS inside the
+token's organization, records one mutable session projection plus separate
+selected Start/first-Interim/Stop evidence, combines Gigawords counters, updates
+the UTC usage-delta rollup, and handles retransmitted packets idempotently.
+The subscriber response includes `session_instance_id`, the canonical UUID for
+that tenant access-session lifecycle. Any approved CGNAT normalizer must capture
+that returned UUID and include it unchanged on every allocate/release record;
+username, NAS, `Acct-Session-Id`, and private IP are not substitutes.
+Existing direct-SQL writers remain a rollout compatibility path only; migrate
+them to `rlm_rest` before relying on the Connections page, usage reports, or
+exports. The normalized milestone evidence is not every raw RADIUS packet,
+tamper-proof storage, or an automatically complete statutory vault.
 
 ### NAS Client Lookup
 
@@ -289,11 +284,37 @@ freeradius -X
 grep -i "sql" /var/log/freeradius/radius.log
 ```
 
-### Verify connection_logs population
+### Verify session, evidence, and usage population
 
 ```sql
-SELECT * FROM connection_logs ORDER BY event_at DESC LIMIT 10;
+SELECT organization_id, session_instance_id, username, acct_session_id,
+       event_type, event_at, last_accounting_at, last_accounting_received_at,
+       bytes_in, bytes_out, usage_accounting_complete, usage_anomaly_count
+FROM connection_logs
+WHERE organization_id = YOUR_ORG_ID
+ORDER BY last_accounting_received_at DESC
+LIMIT 10;
+
+SELECT organization_id, session_instance_id, status_type, event_at,
+       observed_at, dedupe_key, integrity_hash
+FROM radius_accounting_events
+WHERE organization_id = YOUR_ORG_ID
+ORDER BY observed_at DESC
+LIMIT 10;
+
+SELECT organization_id, usage_date, session_instance_id,
+       bytes_in_delta, bytes_out_delta, is_complete,
+       anomaly_count, anomaly_reason
+FROM radius_accounting_usage_daily
+WHERE organization_id = YOUR_ORG_ID
+ORDER BY usage_date DESC
+LIMIT 10;
 ```
+
+One supported Start/Interim/Stop lifecycle should leave one projection, three
+milestone rows, and monotonic usage deltas. Routine Interim heartbeats should
+not create additional evidence milestones; replays must not double-count usage.
+Review any incomplete/anomalous usage row instead of treating it as exact.
 
 ---
 
@@ -342,12 +363,13 @@ set accept=yes port=3799
 
 ## Security Recommendations
 
-1. **Create a dedicated MySQL user** for FreeRADIUS with minimal permissions:
+1. **Create a dedicated MySQL user** for FreeRADIUS with minimal permissions.
+   It needs read access for authentication, but no direct write access to
+   `connection_logs` when accounting uses the recommended tenant API:
    ```sql
    CREATE USER 'radius_user'@'%' IDENTIFIED BY 'strong_password';
    GRANT SELECT ON fireisp.radius TO 'radius_user'@'%';
    GRANT SELECT ON fireisp.nas TO 'radius_user'@'%';
-   GRANT INSERT ON fireisp.connection_logs TO 'radius_user'@'%';
    FLUSH PRIVILEGES;
    ```
 

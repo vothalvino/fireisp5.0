@@ -18,6 +18,9 @@ describe('billingService — overage charges', () => {
       overage_mode: 'none',
       overage_price_per_gb: null,
       bytes_used: 200 * 1073741824,
+      observed_rows: 1,
+      incomplete_rows: 0,
+      unverifiable_session_rows: 0,
     }]]);
 
     const result = await calculateOverageCharges(1, '2025-01-01', '2025-01-31');
@@ -31,6 +34,9 @@ describe('billingService — overage charges', () => {
       overage_mode: 'per_gb',
       overage_price_per_gb: '0.50',
       bytes_used: 50 * 1073741824,
+      observed_rows: 1,
+      incomplete_rows: 0,
+      unverifiable_session_rows: 0,
     }]]);
 
     const result = await calculateOverageCharges(1, '2025-01-01', '2025-01-31');
@@ -44,11 +50,52 @@ describe('billingService — overage charges', () => {
       overage_mode: 'per_gb',
       overage_price_per_gb: '0.50',
       bytes_used: 110 * 1073741824,
+      observed_rows: 1,
+      incomplete_rows: 0,
+      unverifiable_session_rows: 0,
     }]]);
 
     const result = await calculateOverageCharges(1, '2025-01-01', '2025-01-31');
     expect(result.overage_gb).toBeCloseTo(10, 0);
     expect(result.amount).toBeCloseTo(5.0, 1);
+  });
+
+  it('fails closed when another lifecycle has only a Start and no follow-up', async () => {
+    db.query.mockResolvedValueOnce([[
+      {
+        data_cap_gb: 100,
+        overage_mode: 'per_gb',
+        overage_price_per_gb: '0.50',
+        bytes_used: 110 * 1073741824,
+        observed_rows: 1,
+        incomplete_rows: 0,
+        unverifiable_session_rows: 1,
+      },
+    ]]);
+
+    const result = await calculateOverageCharges(1, '2025-01-01', '2025-01-31');
+
+    expect(result).toEqual({ overage_gb: 0, amount: 0, usage_complete: false });
+    expect(db.query.mock.calls[0][0]).toMatch(/connection_logs unverifiable[\s\S]*unverifiable\.event_type = 'start'/);
+  });
+
+  it('fails closed when complete rollups coexist with a deprecated direct-SQL event', async () => {
+    db.query.mockResolvedValueOnce([[
+      {
+        data_cap_gb: 100,
+        overage_mode: 'per_gb',
+        overage_price_per_gb: '0.50',
+        bytes_used: 110 * 1073741824,
+        observed_rows: 2,
+        incomplete_rows: 0,
+        unverifiable_session_rows: 1,
+      },
+    ]]);
+
+    const result = await calculateOverageCharges(1, '2025-01-01', '2025-01-31');
+
+    expect(result.usage_complete).toBe(false);
+    expect(db.query.mock.calls[0][0]).toMatch(/unverifiable\.session_instance_id IS NULL/);
   });
 
   it('returns zero when contract not found', async () => {

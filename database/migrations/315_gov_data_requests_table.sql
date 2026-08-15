@@ -2,7 +2,7 @@
 -- Migration 315: §16.3 IP Log Retention — gov_data_requests table
 -- =============================================================================
 -- New tables:
---   gov_data_requests — audit log of all government data requests (lawful interception)
+--   gov_data_requests — auditable register of validated government data requests
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS gov_data_requests (
     notes           TEXT            NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    row_hash        VARCHAR(64)     NULL     COMMENT 'SHA-256 of key fields for tamper-proof integrity check',
+    row_hash        VARCHAR(64)     NULL     COMMENT 'SHA-256 consistency marker; not tamper-proof against privileged database changes',
     PRIMARY KEY (id),
     KEY idx_gov_data_requests_org        (organization_id),
     KEY idx_gov_data_requests_client     (client_id),
@@ -40,4 +40,4 @@ CREATE TABLE IF NOT EXISTS gov_data_requests (
     CONSTRAINT fk_gov_data_requests_fulfilled_by FOREIGN KEY (fulfilled_by)
         REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Audit log of all government data requests — lawful interception (§16.3)';
+  COMMENT='Auditable register of validated government data requests (§16.3)';

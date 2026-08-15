@@ -26,6 +26,7 @@ jest.mock('../src/config/database', () => ({
   getConnection: jest.fn(),
   close:         jest.fn(),
   pool:          { end: jest.fn() },
+  withPrimaryContext: jest.fn((callback) => callback()),
 }));
 
 jest.mock('../src/middleware/auth', () => ({

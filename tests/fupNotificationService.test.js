@@ -14,7 +14,9 @@ describe('fupNotificationService', () => {
         data_cap_gb: '100.000', fup_threshold_gb: null,
       }]])
       // usage: 85% — triggers 80% threshold only
-      .mockResolvedValueOnce([[{ used_gb: '85.000' }]])
+      .mockResolvedValueOnce([[
+        { used_gb: '85.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 0 },
+      ]])
       // dedup check for 80% — not found
       .mockResolvedValueOnce([[null]])
       // insert notification
@@ -33,7 +35,9 @@ describe('fupNotificationService', () => {
         id: 1, organization_id: 1, client_id: 5,
         data_cap_gb: '100.000', fup_threshold_gb: null,
       }]])
-      .mockResolvedValueOnce([[{ used_gb: '85.000' }]])
+      .mockResolvedValueOnce([[
+        { used_gb: '85.000', observed_rows: 1, incomplete_rows: 0, unverifiable_session_rows: 0 },
+      ]])
       // dedup check for 80% — ALREADY exists
       .mockResolvedValueOnce([[{ id: 10 }]])
     ;
@@ -47,6 +51,20 @@ describe('fupNotificationService', () => {
     const result = await fupNotificationService.checkAndNotifyThresholds(1);
     expect(result.checked).toBe(0);
     expect(result.notified).toBe(0);
+  });
+
+  it('does not notify when a session is still awaiting its first follow-up', async () => {
+    db.query
+      .mockResolvedValueOnce([[
+        { id: 1, organization_id: 1, client_id: 5, data_cap_gb: '100.000', fup_threshold_gb: null },
+      ]])
+      .mockResolvedValueOnce([[
+        { used_gb: '95.000', observed_rows: 2, incomplete_rows: 0, unverifiable_session_rows: 1 },
+      ]]);
+
+    const result = await fupNotificationService.checkAndNotifyThresholds(1);
+
+    expect(result).toEqual({ checked: 1, notified: 0 });
   });
 
   describe('listNotifications', () => {

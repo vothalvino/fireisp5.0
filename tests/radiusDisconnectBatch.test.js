@@ -250,11 +250,9 @@ describe('POST /api/radius/sessions/disconnect-batch', () => {
 // =============================================================================
 // Tenancy — the disconnect target must belong to the caller's organisation
 // =============================================================================
-// Both lookups here resolved a target with NO organisation filter: the
-// session_id branch read connection_logs (which has no organization_id of its
-// own) and the username branch read `radius` directly. req.orgId reached only
-// the audit row, so a cross-tenant disconnect was recorded under the CALLER's
-// org.
+// Both lookups must resolve a target inside the caller's organisation. The
+// session branch can now use connection_logs.organization_id directly; the
+// username branch remains anchored through the account's contract.
 //
 // The username branch was the sharper edge: `uq_radius_username (username,
 // active_flag)` makes a username unique across the WHOLE INSTALL, so another
@@ -285,7 +283,7 @@ describe('disconnect-batch is organisation-scoped', () => {
     expect(radiusService.disconnectSession).not.toHaveBeenCalled();
   });
 
-  test('the session lookup filters on the contract organisation', async () => {
+  test('the session lookup uses the tenant-scoped connection projection', async () => {
     mockAuthUser();
     db.query.mockResolvedValueOnce([[]]);
 
@@ -295,10 +293,12 @@ describe('disconnect-batch is organisation-scoped', () => {
       .send({ acct_session_ids: ['s1'] });
 
     const [sql, params] = db.query.mock.calls[0];
-    // connection_logs has no organization_id — the contract is the only anchor.
-    expect(sql).toMatch(/JOIN\s+contracts\s+c\s+ON\s+c\.id\s*=\s*cl\.contract_id/i);
-    expect(sql).toMatch(/c\.organization_id/);
-    expect(params).toContain(1); // req.orgId
+    expect(sql).toMatch(/WHERE\s+cl\.organization_id\s*=\s*\?/i);
+    expect(sql).not.toMatch(/JOIN\s+contracts/i);
+    expect(sql).toMatch(/COALESCE\(cl\.acct_session_id, cl\.session_id\) = \?/);
+    expect(sql).toMatch(/IN \('start', 'interim-update'\)/);
+    expect(sql).toMatch(/INTERVAL 60 MINUTE/);
+    expect(params).toEqual([1, 's1', null, null]);
   });
 
   test("another org's username is not found, and no packet is sent", async () => {
@@ -439,9 +439,11 @@ describe('POST /radius/:id/disconnect per-session targeting', () => {
     // The session lookup is anchored on THIS account's contract — the pair
     // from the request is a lookup key, never trusted directly.
     const [sql, params] = db.query.mock.calls[1];
+    expect(sql).toMatch(/cl\.organization_id = \?/);
     expect(sql).toMatch(/cl\.contract_id = \?/);
-    expect(params[0]).toBe(42);
+    expect(params.slice(0, 3)).toEqual([1, 42, 'sess-1   ']);
     expect(sql).toMatch(/IN \('start', 'interim-update'\)/);
+    expect(sql).toMatch(/INTERVAL 60 MINUTE/);
   });
 
   test('a targeted session that no longer exists is a 404, NOT a contract-wide kill', async () => {

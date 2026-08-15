@@ -11,7 +11,12 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
+jest.mock('../src/services/connectionLoggingReadinessService', () => ({
+  getReadiness: jest.fn(),
+}));
+
 const db = require('../src/config/database');
+const connectionLoggingReadiness = require('../src/services/connectionLoggingReadinessService');
 const reportService = require('../src/services/reportService');
 
 describe('reportService', () => {
@@ -360,21 +365,31 @@ describe('reportService', () => {
 
   describe('interceptionReadiness()', () => {
     test('returns has_nas, active_contracts, and ready flag', async () => {
-      db.queryReplica
-        .mockResolvedValueOnce([[{ cnt: 1 }]])   // NAS devices
-        .mockResolvedValueOnce([[{ cnt: 50 }]])  // active contracts
-        .mockResolvedValueOnce([[{ cnt: 40 }]]); // active ip_assignments
+      connectionLoggingReadiness.getReadiness.mockResolvedValueOnce({
+        active_nas: 1,
+        active_contracts: 50,
+        ready: true,
+        status: 'receiving',
+        session_logger: { configured: true },
+      });
+      db.queryReplica.mockResolvedValueOnce([[{ cnt: 40 }]]); // active ip_assignments
       const result = await reportService.interceptionReadiness(1);
       expect(result).toHaveProperty('has_nas', true);
       expect(result).toHaveProperty('active_contracts', 50);
       expect(result).toHaveProperty('ready', true);
+      expect(result.disclaimer).toMatch(/not a legal-compliance certification/i);
+      expect(connectionLoggingReadiness.getReadiness).toHaveBeenCalledWith(1, { includeCgnat: false });
     });
 
     test('ready is false when no NAS', async () => {
-      db.queryReplica
-        .mockResolvedValueOnce([[{ cnt: 0 }]])   // no NAS
-        .mockResolvedValueOnce([[{ cnt: 50 }]])
-        .mockResolvedValueOnce([[{ cnt: 40 }]]);
+      connectionLoggingReadiness.getReadiness.mockResolvedValueOnce({
+        active_nas: 0,
+        active_contracts: 50,
+        ready: false,
+        status: 'not_configured',
+        session_logger: { configured: false },
+      });
+      db.queryReplica.mockResolvedValueOnce([[{ cnt: 40 }]]);
       const result = await reportService.interceptionReadiness(1);
       expect(result.ready).toBe(false);
     });

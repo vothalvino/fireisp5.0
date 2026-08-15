@@ -4,7 +4,7 @@ Comprehensive SQL-based tests for the FireISP 5.0 database schema, covering sche
 
 ## Prerequisites
 
-- **MySQL 8.0+** or **MariaDB 10.6+** running locally or remotely
+- **MySQL 8.0.29+** or **MariaDB 10.6+** running locally or remotely
 - A **test database** created and schema applied:
 
 ```bash

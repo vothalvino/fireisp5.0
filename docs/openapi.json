@@ -12006,15 +12006,231 @@
         "tags": [
           "RADIUS"
         ],
-        "summary": "Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth",
+        "summary": "Compatibility accounting ingest for a trusted central collector; NAS IP must be globally unambiguous",
         "operationId": "ingestRadiusAccounting",
+        "security": [
+          {
+            "radiusAccountingSecret": []
+          }
+        ],
+        "requestBody": {
+          "description": "RADIUS accounting attributes",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RadiusAccountingRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Ingest result",
+            "description": "Accepted or idempotent replay",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/RadiusAccountingIngestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Collector authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Collector authorization failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unattributable accounting record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radius/accounting/tenant": {
+      "post": {
+        "tags": [
+          "RADIUS"
+        ],
+        "summary": "Recommended organization-bound accounting ingest",
+        "description": "Requires a dedicated organization API token whose only scope is connection_logs:ingest. The NAS is resolved only inside the token organization.",
+        "operationId": "ingestTenantRadiusAccounting",
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "RADIUS accounting attributes",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RadiusAccountingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadiusAccountingIngestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Collector authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Collector authorization failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unattributable accounting record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -13731,20 +13947,424 @@
         "tags": [
           "Connection Logs"
         ],
-        "summary": "List connection logs",
+        "summary": "List subscriber session records",
+        "description": "Application-ingested lifecycles are one mutable projection row per session_instance_id. Deprecated direct-SQL rows are exposed as individual legacy accounting events; they cannot reconstruct reliable per-connection lifecycle history. Non-stopped records older than the configured receipt-liveness window return state=unknown rather than being presented as currently active.",
         "operationId": "listConnectionLogs",
         "security": [
           {
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "contract_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "ip_address",
+            "in": "query",
+            "description": "Assigned IPv4, IPv6 address, or delegated prefix",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "nas",
+            "in": "query",
+            "description": "NAS id, name fragment, or IP address",
+            "schema": {
+              "type": "string",
+              "maxLength": 150
+            }
+          },
+          {
+            "name": "nas_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "acct_session_id",
+            "in": "query",
+            "deprecated": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "mac",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "interim",
+                "ended"
+              ]
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "start",
+                "interim-update",
+                "stop"
+              ]
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "description": "UTC or explicitly offset ISO-8601 date/time",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "description": "UTC or explicitly offset ISO-8601 date/time",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "ConnectionLog[]",
+            "description": "Paginated result",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ConnectionSession"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/export": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Export subscriber session records as CSV",
+        "description": "Requires connection_logs.export. Both UTC/offset date bounds are mandatory, the window is limited to 366 days, and results over 50,000 rows are rejected explicitly. Access is audited.",
+        "operationId": "exportConnectionLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "ip_address",
+            "in": "query",
+            "description": "Assigned IPv4, IPv6 address, or delegated prefix",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "nas",
+            "in": "query",
+            "description": "NAS id, name fragment, or IP address",
+            "schema": {
+              "type": "string",
+              "maxLength": 150
+            }
+          },
+          {
+            "name": "nas_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "acct_session_id",
+            "in": "query",
+            "deprecated": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "mac",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "interim",
+                "ended"
+              ]
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "start",
+                "interim-update",
+                "stop"
+              ]
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": true,
+            "description": "UTC or explicitly offset ISO-8601 date/time",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": true,
+            "description": "UTC or explicitly offset ISO-8601 date/time",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscriber session CSV",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Export permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, unbounded, or over-limit export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -13757,20 +14377,142 @@
         "tags": [
           "Connection Logs"
         ],
-        "summary": "List active PPPoE sessions (start events with no stop)",
+        "summary": "List recently observed active PPPoE sessions",
         "operationId": "listActiveRadiusSessions",
         "security": [
           {
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "ip_address",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "nas_ip_address",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            }
+          },
+          {
+            "name": "nas_port_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "mac",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Session[]",
+            "description": "Paginated result",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ConnectionSession"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -13810,10 +14552,53 @@
           "Connection Logs"
         ],
         "summary": "IP binding history export (JSON or CSV)",
+        "description": "Requires connection_logs.export and ip_pools.binding_report. Both YYYY-MM-DD bounds are mandatory and limited to 366 days.",
         "operationId": "getBindingReport",
         "security": [
           {
             "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
           }
         ],
         "responses": {
@@ -13835,11 +14620,66 @@
         "tags": [
           "Connection Logs"
         ],
-        "summary": "Daily data usage aggregated per client",
+        "summary": "Daily operational usage deltas aggregated per client",
+        "description": "UTC end-day allocation from application-ingested monotonic accounting deltas. Estimated/incomplete rollups and overlapping pending-Start or legacy accounting records set usage_complete=false and expose unverifiable_session_rows.",
         "operationId": "getDailyUsage",
         "security": [
           {
             "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "contract_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         ],
         "responses": {
@@ -13861,11 +14701,43 @@
         "tags": [
           "Connection Logs"
         ],
-        "summary": "Top N clients by data usage in a period",
+        "summary": "Top clients by operational usage deltas in a period",
+        "description": "Rows report usage_complete=false when the period overlaps incomplete rollups, a pending application Start, or deprecated direct-SQL accounting events.",
         "operationId": "getTopConsumers",
         "security": [
           {
             "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
           }
         ],
         "responses": {
@@ -13875,6 +14747,801 @@
               "application/json": {
                 "schema": {
                   "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/cgnat-attribution/bindings/ingest": {
+      "post": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Ingest privacy-minimal CGNAT allocation/release evidence",
+        "description": "Exact-scope organization API token only: cgnat_attribution:ingest. TCP/UDP endpoint-independent public tuples only. Destination addresses, URLs, content and packet data are rejected as unknown fields. V1 has no standalone heartbeat: a quiet exporter or long-lived mapping cannot support positive attribution after its last certain allocate/release evidence horizon.",
+        "operationId": "ingestCgnatAttributionBindings",
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Allocation/release evidence batch; hard ceiling 1,000",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CgnatBindingIngestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CgnatBindingIngestResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "API token required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exact bound collector token required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting replay or overlapping tuple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or incomplete evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/cgnat-attribution/exporters": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "List approved CGNAT exporter evidence epochs",
+        "description": "Interactive user plus cgnat_attribution.manage. Collector tokens cannot enumerate configurations.",
+        "operationId": "listCgnatAttributionExporters",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CgnatExporterConfig"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Interactive manage permission required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Create, approve, or retire a CGNAT exporter evidence epoch",
+        "description": "Interactive user plus cgnat_attribution.manage. Evidentiary fields freeze after the first event; retirement requires enabled=false and is_required=false and no open allocations. Reconfiguration/token rotation uses a versioned identity.",
+        "operationId": "saveCgnatAttributionExporter",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Explicit purpose, pool, exclusive-tuple capability, and bound collector token",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CgnatExporterConfigInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CgnatExporterConfig"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Interactive manage permission required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Frozen epoch or open allocations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/cgnat-attribution/exporters/{id}/release-recovery": {
+      "post": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Approve a release-only collector for a faulted exporter epoch",
+        "description": "Interactive cgnat_attribution.manage only. Available only when the frozen collector is no longer valid and open allocations remain. The replacement token may close existing mappings but cannot allocate; approval permanently faults the old epoch so it can never produce positive attribution.",
+        "operationId": "approveCgnatExporterReleaseRecovery",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Audited incident reference and unbound exact-scope recovery token",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CgnatExporterReleaseRecoveryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CgnatExporterConfig"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Interactive manage permission required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Exporter configuration not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Recovery is unnecessary, already approved, or no open allocations remain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid recovery token or request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/ip-attribution/lookup": {
+      "post": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Resolve one approved-case public-IP attribution",
+        "description": "Interactive JWT only. Requires gov_data_requests.view and ip_attribution.view plus a same-organization processing ip_traceability case whose exact public IPv4/time and optional TCP/UDP port tuple match. No routine binding browser is exposed.",
+        "operationId": "lookupIpAttribution",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Direct assignment omits port/protocol; shared CGNAT supplies both",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IpAttributionLookupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/IpAttributionLookupResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Case, permission, subject, or interactive-session gate failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Government data request not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid exact lookup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/ip-attribution/export": {
+      "post": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Export one approved-case public-IP attribution as CSV",
+        "description": "Interactive JWT only. Requires gov_data_requests.view and ip_attribution.export. Access is audited before disclosure and the response carries X-Evidence-SHA256.",
+        "operationId": "exportIpAttribution",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Exact approved-case lookup",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IpAttributionLookupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One case-bound IP-attribution result",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Export permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, unbounded, or over-limit export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-logs/readiness": {
+      "get": {
+        "tags": [
+          "Connection Logs"
+        ],
+        "summary": "Get operational IP-attribution readiness",
+        "description": "Operational evidence health, not a legal certification or proof of a human action. CGNAT detail is visible only with ip_attribution.view or cgnat_attribution.manage.",
+        "operationId": "getConnectionLoggingReadiness",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConnectionLoggingReadiness"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -18232,7 +19899,8 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Traffic interception readiness",
+        "summary": "Operational connection-logging readiness",
+        "description": "Compatibility endpoint for connection-logging pipeline health. The result is operational information, not a legal-compliance certification.",
         "operationId": "interceptionReadiness",
         "security": [
           {
@@ -46993,6 +48661,7 @@
           "Regulatory Compliance MX"
         ],
         "summary": "List government data requests",
+        "description": "Tenant-scoped; validated page/limit/status/request_type filters.",
         "operationId": "listGovDataRequests",
         "security": [
           {
@@ -47016,7 +48685,8 @@
         "tags": [
           "Regulatory Compliance MX"
         ],
-        "summary": "Log government data request",
+        "summary": "Register a government data request for legal review",
+        "description": "Interactive manage permission. ip_traceability requires a globally routable public IPv4, exact UTC instant, and either no port/protocol for direct assignment or both port and TCP/UDP protocol for CGNAT. Starts pending_legal_review and does not authorize lookup.",
         "operationId": "createGovDataRequest",
         "security": [
           {
@@ -47024,7 +48694,7 @@
           }
         ],
         "requestBody": {
-          "description": "regulatoryCompliance_createGovDataRequest",
+          "description": "Validated authority_name, authority_ref, legal_basis, request_type, requested_at, due_date, and exact IP-attribution scope where applicable",
           "content": {
             "application/json": {
               "schema": {
@@ -47088,7 +48758,7 @@
         "tags": [
           "Regulatory Compliance MX"
         ],
-        "summary": "Fulfill government data request",
+        "summary": "Fulfill a processing government data request",
         "operationId": "fulfillGovDataRequest",
         "security": [
           {
@@ -47124,7 +48794,7 @@
         "tags": [
           "Regulatory Compliance MX"
         ],
-        "summary": "Reject government data request",
+        "summary": "Reject a nonterminal government data request",
         "operationId": "rejectGovDataRequest",
         "security": [
           {
@@ -47141,6 +48811,124 @@
             }
           }
         ],
+        "requestBody": {
+          "description": "Attributable rejection reason",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests/{id}/process": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Approve legal review and enter processing",
+        "description": "Interactive manage permission. Validates official reference, legal basis, tenant subject ownership, and exact IP scope before authorization.",
+        "operationId": "processGovDataRequest",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulatory-compliance/gov-data-requests/{id}/release-evidence-hold": {
+      "put": {
+        "tags": [
+          "Regulatory Compliance MX"
+        ],
+        "summary": "Release preserved attribution evidence after terminal-case review",
+        "description": "Interactive manage permission. Does not happen automatically on fulfillment/rejection; released evidence resumes its original retention clock.",
+        "operationId": "releaseGovDataRequestEvidenceHold",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Reviewed hold-release reason",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Updated",
@@ -54570,6 +56358,16 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "radiusAccountingSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Radius-Secret"
       }
     },
     "schemas": {
@@ -74003,6 +75801,2302 @@
           "download_mbps",
           "upload_mbps"
         ]
+      },
+      "ConnectionSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "organization_id",
+          "username",
+          "event_type",
+          "event_at",
+          "state",
+          "session_start"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "organization_id": {
+            "type": "integer"
+          },
+          "record_kind": {
+            "type": "string",
+            "enum": [
+              "session",
+              "legacy_event"
+            ]
+          },
+          "contract_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "client_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nas_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nas_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acct_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "radius_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_instance_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nas_ip_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nas_port": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nas_port_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "called_station_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calling_station_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ip_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "framed_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assigned_ipv4": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "framed_ipv6_prefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ipv6_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ipv6_delegated_prefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assigned_ipv6": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "start",
+              "interim-update",
+              "stop"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "interim",
+              "ended",
+              "unknown"
+            ]
+          },
+          "event_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "session_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "session_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_accounting_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_accounting_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "bytes_in": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bytes_out": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "packets_in": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "packets_out": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "acct_input_octets_v6": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "acct_output_octets_v6": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "session_duration": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "terminate_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acct_delay_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usage_accounting_complete": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "usage_anomaly_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attribution_evidence_complete": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "attribution_anomaly_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage_last_bytes_in": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usage_last_bytes_out": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usage_last_packets_in": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usage_last_packets_out": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usage_last_duration": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "retention_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "stack_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CgnatBindingInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_type",
+          "binding_key",
+          "binding_type",
+          "private_ipv4",
+          "public_ipv4",
+          "public_port_start",
+          "public_port_end",
+          "protocol",
+          "allocated_at",
+          "exporter_id",
+          "exporter_boot_id",
+          "nat_instance_id",
+          "nat_pool_id",
+          "nat_realm",
+          "event_id",
+          "sequence_number",
+          "device_recorded_at",
+          "session_instance_id"
+        ],
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "allocate",
+              "release"
+            ]
+          },
+          "binding_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "binding_type": {
+            "type": "string",
+            "enum": [
+              "single_port",
+              "port_block"
+            ]
+          },
+          "private_ipv4": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "private_port_start": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "private_port_end": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "public_ipv4": {
+            "type": "string",
+            "format": "ipv4",
+            "description": "Globally routable unicast IPv4 only"
+          },
+          "public_port_start": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "public_port_end": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "6",
+                  "17"
+                ]
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  6,
+                  17
+                ]
+              }
+            ]
+          },
+          "allocated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "released_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "client_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "contract_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "radius_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Canonical session_instance_id returned by the tenant RADIUS accounting ingest"
+          },
+          "exporter_nas_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "exporter_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "exporter_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ipv4"
+          },
+          "exporter_boot_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "nat_instance_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "nat_pool_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "nat_realm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191,
+            "pattern": "^[\\x20-\\x7E]+$"
+          },
+          "sequence_number": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "device_recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "clock_offset_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": -86400000,
+            "maximum": 86400000,
+            "description": "Raw device clock minus UTC in milliseconds"
+          },
+          "clock_uncertainty_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 300000
+          },
+          "records_lost_before": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "CgnatBindingIngestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bindings"
+        ],
+        "properties": {
+          "bindings": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "$ref": "#/components/schemas/CgnatBindingInput"
+            }
+          }
+        }
+      },
+      "CgnatBindingIngestResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "received",
+          "inserted",
+          "replayed",
+          "allocated",
+          "released",
+          "incomplete_metadata",
+          "sequence"
+        ],
+        "properties": {
+          "received": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inserted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replayed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "allocated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "released": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "incomplete_metadata": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sequence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "initial",
+              "contiguous",
+              "reset",
+              "gap",
+              "out_of_order"
+            ],
+            "properties": {
+              "initial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "contiguous": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gap": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "out_of_order": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "CgnatExporterConfigInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "exporter_id",
+          "nat_instance_id",
+          "nat_pool_id",
+          "nat_pool_record_id",
+          "nat_realm",
+          "collector_api_token_id",
+          "tuple_exclusivity_confirmed",
+          "purpose_reference",
+          "authoritative_baseline_confirmed",
+          "baseline_reference",
+          "is_required",
+          "enabled"
+        ],
+        "properties": {
+          "exporter_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "exporter_nas_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "exporter_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ipv4"
+          },
+          "nat_instance_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "nat_pool_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "nat_pool_record_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "nat_realm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "collector_api_token_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "purpose_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tuple_exclusivity_confirmed": {
+            "type": "boolean"
+          },
+          "authoritative_baseline_confirmed": {
+            "type": "boolean"
+          },
+          "baseline_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_required": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CgnatExporterConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "exporter_id",
+          "nat_instance_id",
+          "nat_pool_id",
+          "nat_pool_record_id",
+          "nat_realm",
+          "collector_api_token_id",
+          "tuple_exclusivity_confirmed",
+          "purpose_reference",
+          "authoritative_baseline_confirmed",
+          "baseline_reference",
+          "is_required",
+          "enabled",
+          "public_ipv4_start",
+          "public_ipv4_end"
+        ],
+        "properties": {
+          "exporter_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "exporter_nas_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "exporter_ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ipv4"
+          },
+          "nat_instance_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "nat_pool_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "nat_pool_record_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "nat_realm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "collector_api_token_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "purpose_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tuple_exclusivity_confirmed": {
+            "type": "boolean"
+          },
+          "authoritative_baseline_confirmed": {
+            "type": "boolean"
+          },
+          "baseline_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_required": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "public_ipv4_start": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "public_ipv4_end": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "recovery_collector_api_token_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recovery_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recovery_approved_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recovery_approved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collection_approved_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "collection_approved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "baseline_confirmed_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "baseline_confirmed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "retired_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "retired_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_binding_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_device_recorded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_corrected_device_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "coverage_horizon_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_exporter_boot_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sequence_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sequence_gap_events": {
+            "type": "integer"
+          },
+          "sequence_missing_records": {
+            "type": "integer"
+          },
+          "out_of_order_events": {
+            "type": "integer"
+          },
+          "reported_lost_records": {
+            "type": "integer"
+          },
+          "incomplete_metadata_events": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CgnatExporterReleaseRecoveryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collector_api_token_id",
+          "incident_reference"
+        ],
+        "properties": {
+          "collector_api_token_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "incident_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "IpAttributionLookupRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gov_data_request_id",
+              "public_ipv4",
+              "observed_at"
+            ],
+            "properties": {
+              "gov_data_request_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "public_ipv4": {
+                "type": "string",
+                "format": "ipv4",
+                "description": "Globally routable unicast IPv4 only"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gov_data_request_id",
+              "public_ipv4",
+              "public_port",
+              "protocol",
+              "observed_at"
+            ],
+            "properties": {
+              "gov_data_request_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "public_ipv4": {
+                "type": "string",
+                "format": "ipv4",
+                "description": "Globally routable unicast IPv4 only"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "public_port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "protocol": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "tcp",
+                      "udp",
+                      "6",
+                      "17"
+                    ]
+                  },
+                  {
+                    "type": "integer",
+                    "enum": [
+                      6,
+                      17
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "IpAttributionAuthorization": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authority_name",
+          "authority_ref",
+          "legal_reviewed_at",
+          "legal_reviewed_by",
+          "legal_basis_hash",
+          "request_row_hash"
+        ],
+        "properties": {
+          "authority_name": {
+            "type": "string"
+          },
+          "authority_ref": {
+            "type": "string"
+          },
+          "legal_reviewed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "legal_reviewed_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "legal_basis_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "request_row_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "DirectPublicAttribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connection_log_id",
+          "client_id",
+          "contract_id",
+          "username",
+          "radius_session_id",
+          "session_instance_id",
+          "public_ipv4",
+          "assigned_at",
+          "released_at",
+          "certain_from",
+          "certain_until",
+          "assignment_evidence_id",
+          "assignment_evidence_event_at",
+          "assignment_evidence_received_at",
+          "assignment_evidence_integrity_hash",
+          "closure_evidence_id",
+          "closure_evidence_event_at",
+          "closure_evidence_received_at",
+          "closure_evidence_integrity_hash",
+          "last_accounting_event_at",
+          "accounting_received_at",
+          "evidence_hash"
+        ],
+        "properties": {
+          "connection_log_id": {
+            "type": "integer"
+          },
+          "client_id": {
+            "type": "integer"
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
+          "radius_session_id": {
+            "type": "string"
+          },
+          "session_instance_id": {
+            "type": "string"
+          },
+          "public_ipv4": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "released_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "certain_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "certain_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assignment_evidence_id": {
+            "type": "integer"
+          },
+          "assignment_evidence_event_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assignment_evidence_received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assignment_evidence_integrity_hash": {
+            "type": "string"
+          },
+          "closure_evidence_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "closure_evidence_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closure_evidence_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closure_evidence_integrity_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_accounting_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "accounting_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "CgnatAttribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "binding_id",
+          "binding_type",
+          "client_id",
+          "contract_id",
+          "username",
+          "radius_session_id",
+          "session_instance_id",
+          "connection_log_id",
+          "radius_evidence_id",
+          "radius_evidence_event_at",
+          "radius_evidence_observed_at",
+          "radius_evidence_integrity_hash",
+          "private_ipv4",
+          "public_ipv4",
+          "public_port_start",
+          "public_port_end",
+          "protocol",
+          "allocated_at",
+          "released_at",
+          "certain_from",
+          "certain_until",
+          "exporter_id",
+          "exporter_config_id",
+          "collector_api_token_id",
+          "allocation_event_id",
+          "allocation_event_integrity_hash",
+          "integrity_hash"
+        ],
+        "properties": {
+          "binding_id": {
+            "type": "integer"
+          },
+          "binding_type": {
+            "type": "string",
+            "enum": [
+              "single_port",
+              "port_block"
+            ]
+          },
+          "client_id": {
+            "type": "integer"
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
+          "radius_session_id": {
+            "type": "string"
+          },
+          "session_instance_id": {
+            "type": "string"
+          },
+          "connection_log_id": {
+            "type": "integer"
+          },
+          "radius_evidence_id": {
+            "type": "integer"
+          },
+          "radius_evidence_event_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "radius_evidence_observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "radius_evidence_integrity_hash": {
+            "type": "string"
+          },
+          "private_ipv4": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "private_port_start": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "private_port_end": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "public_ipv4": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "public_port_start": {
+            "type": "integer"
+          },
+          "public_port_end": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp"
+            ]
+          },
+          "allocated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "released_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exporter_id": {
+            "type": "string"
+          },
+          "certain_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "certain_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exporter_config_id": {
+            "type": "integer"
+          },
+          "exporter_public_ipv4_start": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "exporter_public_ipv4_end": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "exporter_purpose_reference": {
+            "type": "string"
+          },
+          "exporter_tuple_exclusivity_confirmed": {
+            "type": "boolean"
+          },
+          "exporter_authoritative_baseline_confirmed": {
+            "type": "boolean"
+          },
+          "exporter_baseline_reference": {
+            "type": "string"
+          },
+          "exporter_baseline_confirmed_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "exporter_baseline_confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exporter_collection_approved_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "exporter_collection_approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exporter_epoch_created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exporter_epoch_retired_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exporter_last_device_recorded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exporter_last_corrected_device_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exporter_coverage_horizon_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "exporter_sequence_gap_events": {
+            "type": "integer"
+          },
+          "exporter_sequence_missing_records": {
+            "type": "integer"
+          },
+          "exporter_out_of_order_events": {
+            "type": "integer"
+          },
+          "exporter_reported_lost_records": {
+            "type": "integer"
+          },
+          "exporter_incomplete_metadata_events": {
+            "type": "integer"
+          },
+          "collector_api_token_id": {
+            "type": "integer"
+          },
+          "exporter_boot_id": {
+            "type": "string"
+          },
+          "nat_instance_id": {
+            "type": "string"
+          },
+          "nat_pool_id": {
+            "type": "string"
+          },
+          "nat_realm": {
+            "type": "string"
+          },
+          "allocation_event_id": {
+            "type": "string"
+          },
+          "allocation_event_integrity_hash": {
+            "type": "string"
+          },
+          "allocation_sequence_number": {
+            "type": "integer"
+          },
+          "allocation_sequence_status": {
+            "type": "string"
+          },
+          "allocation_device_recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "allocation_received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "release_event_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_event_integrity_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_sequence_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "release_sequence_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_device_recorded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "release_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "allocation_clock_offset_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "allocation_clock_uncertainty_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "allocation_records_lost_before": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "release_clock_offset_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "release_clock_uncertainty_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "release_records_lost_before": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "access_session_state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "ended"
+            ]
+          },
+          "access_session_last_accounting_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "access_session_last_accounting_received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "access_session_stop_evidence_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "access_session_stop_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "access_session_stop_observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "access_session_stop_integrity_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "integrity_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "IpAttributionLookupResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gov_data_request_id",
+          "query",
+          "status",
+          "reason",
+          "candidate_count",
+          "attributionMethod"
+        ],
+        "properties": {
+          "gov_data_request_id": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "public_ipv4",
+              "public_port",
+              "protocol",
+              "observed_at"
+            ],
+            "properties": {
+              "public_ipv4": {
+                "type": "string",
+                "format": "ipv4"
+              },
+              "public_port": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "protocol": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "matched",
+              "unavailable",
+              "ambiguous"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attributionMethod": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "direct_public_assignment",
+              "cgnat_binding",
+              null
+            ]
+          },
+          "attribution": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DirectPublicAttribution"
+              },
+              {
+                "$ref": "#/components/schemas/CgnatAttribution"
+              }
+            ],
+            "description": "Present only for a unique matched result"
+          },
+          "evidence_snapshot_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorization": {
+            "$ref": "#/components/schemas/IpAttributionAuthorization"
+          }
+        }
+      },
+      "ConnectionLoggingReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "status",
+          "checked_at",
+          "database_scope",
+          "active_nas",
+          "active_contracts",
+          "session_logger",
+          "cgnat_attribution",
+          "retention",
+          "caveats"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "partial",
+              "not_applicable",
+              "not_configured",
+              "waiting_for_traffic"
+            ]
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "database_scope": {
+            "type": "string",
+            "enum": [
+              "shared",
+              "isolated"
+            ]
+          },
+          "active_nas": {
+            "type": "integer"
+          },
+          "maintenance_nas": {
+            "type": "integer"
+          },
+          "active_contracts": {
+            "type": "integer"
+          },
+          "unattributed_legacy_sessions": {
+            "type": "integer"
+          },
+          "session_logger": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "configured",
+              "status",
+              "ready",
+              "receiving",
+              "healthy",
+              "lifecycle_evidence_24h",
+              "active_sessions",
+              "attributable_active_sessions",
+              "evidence_anchored_active_sessions",
+              "covered_sources",
+              "total_sources",
+              "source_coverage_complete",
+              "direct_public_attribution_ready",
+              "timeline_current"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "receiving",
+                  "incomplete",
+                  "waiting_for_traffic",
+                  "not_configured"
+                ]
+              },
+              "ready": {
+                "type": "boolean"
+              },
+              "receiving": {
+                "type": "boolean"
+              },
+              "healthy": {
+                "type": "boolean"
+              },
+              "last_received_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "last_event_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "lifecycle_evidence_24h": {
+                "type": "integer"
+              },
+              "active_sessions": {
+                "type": "integer"
+              },
+              "attributable_active_sessions": {
+                "type": "integer"
+              },
+              "evidence_anchored_active_sessions": {
+                "type": "integer"
+              },
+              "covered_sources": {
+                "type": "integer"
+              },
+              "total_sources": {
+                "type": "integer"
+              },
+              "source_coverage_complete": {
+                "type": "boolean"
+              },
+              "direct_public_attribution_ready": {
+                "type": "boolean"
+              },
+              "last_projection_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "timeline_current": {
+                "type": "boolean"
+              }
+            }
+          },
+          "cgnat_attribution": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "authorized",
+                  "status"
+                ],
+                "properties": {
+                  "authorized": {
+                    "const": false
+                  },
+                  "status": {
+                    "const": "not_authorized"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ready",
+                  "configured",
+                  "status",
+                  "collector_tokens",
+                  "expected_exporters",
+                  "expected_pools",
+                  "active_cgnat_pools",
+                  "enabled_exporters",
+                  "approved_exporters",
+                  "receiving_exporters",
+                  "complete_exporters",
+                  "invalid_bound_exporter_tokens",
+                  "overlapping_required_pool_pairs",
+                  "coverage_status",
+                  "bindings_24h",
+                  "events_24h",
+                  "open_bindings",
+                  "stale_open_bindings",
+                  "incomplete_metadata_24h",
+                  "sequence_gap_events_24h",
+                  "reported_lost_records_24h",
+                  "clock_status",
+                  "max_clock_offset_ms",
+                  "loss_status",
+                  "active_case_holds",
+                  "supported_nat_mode"
+                ],
+                "properties": {
+                  "ready": {
+                    "type": "boolean"
+                  },
+                  "configured": {
+                    "type": "boolean"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "receiving",
+                      "incomplete",
+                      "waiting_for_traffic",
+                      "configuration_incomplete",
+                      "not_configured"
+                    ]
+                  },
+                  "collector_tokens": {
+                    "type": "integer"
+                  },
+                  "expected_exporters": {
+                    "type": "integer"
+                  },
+                  "expected_pools": {
+                    "type": "integer"
+                  },
+                  "active_cgnat_pools": {
+                    "type": "integer"
+                  },
+                  "enabled_exporters": {
+                    "type": "integer"
+                  },
+                  "approved_exporters": {
+                    "type": "integer"
+                  },
+                  "receiving_exporters": {
+                    "type": "integer"
+                  },
+                  "complete_exporters": {
+                    "type": "integer"
+                  },
+                  "invalid_bound_exporter_tokens": {
+                    "type": "integer"
+                  },
+                  "overlapping_required_pool_pairs": {
+                    "type": "integer"
+                  },
+                  "coverage_status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "incomplete",
+                      "not_configured"
+                    ]
+                  },
+                  "last_received_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "last_device_recorded_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "last_corrected_device_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "coverage_horizon_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "bindings_24h": {
+                    "type": "integer"
+                  },
+                  "events_24h": {
+                    "type": "integer"
+                  },
+                  "open_bindings": {
+                    "type": "integer"
+                  },
+                  "stale_open_bindings": {
+                    "type": "integer"
+                  },
+                  "incomplete_metadata_24h": {
+                    "type": "integer"
+                  },
+                  "sequence_gap_events_24h": {
+                    "type": "integer"
+                  },
+                  "reported_lost_records_24h": {
+                    "type": "integer"
+                  },
+                  "clock_status": {
+                    "type": "string",
+                    "enum": [
+                      "reported",
+                      "incomplete",
+                      "unknown"
+                    ]
+                  },
+                  "max_clock_offset_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "loss_status": {
+                    "type": "string",
+                    "enum": [
+                      "clear",
+                      "unresolved"
+                    ]
+                  },
+                  "active_case_holds": {
+                    "type": "integer"
+                  },
+                  "supported_nat_mode": {
+                    "const": "endpoint_independent_tcp_udp_public_tuple"
+                  }
+                }
+              }
+            ]
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_months",
+              "effective_policies",
+              "last_run_at",
+              "last_status",
+              "partition_event_enabled",
+              "event_scheduler_status",
+              "radius_partitions"
+            ],
+            "properties": {
+              "session_months": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "cgnat_months": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "effective_policies": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value",
+                    "unit"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "DAY",
+                        "MONTH"
+                      ]
+                    }
+                  }
+                }
+              },
+              "last_run_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "last_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "partition_event_enabled": {
+                "type": "boolean"
+              },
+              "event_scheduler_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "radius_partitions": {
+                "type": "integer"
+              }
+            }
+          },
+          "caveats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RadiusAccountingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "Acct-Status-Type": {
+            "type": "string",
+            "enum": [
+              "Start",
+              "Interim-Update",
+              "Stop",
+              "Accounting-On",
+              "Accounting-Off"
+            ]
+          },
+          "User-Name": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "Acct-Session-Id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "NAS-IP-Address": {
+            "type": "string",
+            "maxLength": 45
+          },
+          "NAS-Port": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "NAS-Port-Id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "Called-Station-Id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "Calling-Station-Id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "Framed-IP-Address": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "Framed-IPv6-Prefix": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "Acct-Input-Octets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Output-Octets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Input-Gigawords": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Output-Gigawords": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Input-Packets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Output-Packets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Session-Time": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Acct-Terminate-Cause": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "maxLength": 64
+              }
+            ]
+          },
+          "Acct-Delay-Time": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Event-Timestamp": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "string",
+                "description": "Unix seconds or timezone-qualified ISO-8601 date/time"
+              }
+            ]
+          }
+        },
+        "required": [
+          "Acct-Status-Type"
+        ]
+      },
+      "RadiusAccountingIngestResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "action"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "insert",
+              "update",
+              "noop"
+            ]
+          },
+          "id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "macMove": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "session_instance_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       }
     }
   }

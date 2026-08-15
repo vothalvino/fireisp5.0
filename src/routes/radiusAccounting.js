@@ -11,8 +11,9 @@
 const { Router } = require('express');
 const crypto = require('crypto');
 const db = require('../config/database');
-const { ingestAccounting } = require('../services/radiusAccountingService');
+const { ingestAccounting, recordInfrastructureAccounting } = require('../services/radiusAccountingService');
 const { ValidationError } = require('../utils/errors');
+const { resolveNasByIp } = require('../services/tenantNasResolverService');
 const logger = require('../utils/logger').child({ service: 'radiusAccountingRoute' });
 
 const router = Router();
@@ -67,8 +68,43 @@ function secretMatches(expected, provided) {
 function pickInt(body, hyphenated, camelCase, defaultValue = null) {
   const raw = pick(body, hyphenated, camelCase);
   if (raw === undefined || raw === null || raw === '') return defaultValue;
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? defaultValue : n;
+  if ((typeof raw !== 'number' && typeof raw !== 'string')
+      || !/^\d+$/.test(String(raw)) || !Number.isSafeInteger(Number(raw))) {
+    throw new ValidationError(`Invalid ${hyphenated}`, [{
+      field: hyphenated,
+      message: `${hyphenated} must be a non-negative safe integer`,
+    }]);
+  }
+  return Number(raw);
+}
+
+function normalizeAccountingBody(body = {}) {
+  return {
+    acctStatusType: pick(body, 'Acct-Status-Type', 'acctStatusType'),
+    userName: pick(body, 'User-Name', 'userName'),
+    acctSessionId: pick(body, 'Acct-Session-Id', 'acctSessionId'),
+    nasIpAddress: pick(body, 'NAS-IP-Address', 'nasIpAddress'),
+    nasPort: pickInt(body, 'NAS-Port', 'nasPort'),
+    nasPortId: pick(body, 'NAS-Port-Id', 'nasPortId') || null,
+    calledStationId: pick(body, 'Called-Station-Id', 'calledStationId') || null,
+    callingStationId: pick(body, 'Calling-Station-Id', 'callingStationId') || null,
+    framedIpAddress: pick(body, 'Framed-IP-Address', 'framedIpAddress') || null,
+    framedIpv6Prefix: pick(body, 'Framed-IPv6-Prefix', 'framedIpv6Prefix') || null,
+    acctInputOctetsV6: pickInt(body, 'Acct-Input-Octets-IPv6', 'acctInputOctetsV6'),
+    acctOutputOctetsV6: pickInt(body, 'Acct-Output-Octets-IPv6', 'acctOutputOctetsV6'),
+    acctInputOctets: pickInt(body, 'Acct-Input-Octets', 'acctInputOctets'),
+    acctOutputOctets: pickInt(body, 'Acct-Output-Octets', 'acctOutputOctets'),
+    acctInputPackets: pickInt(body, 'Acct-Input-Packets', 'acctInputPackets'),
+    acctOutputPackets: pickInt(body, 'Acct-Output-Packets', 'acctOutputPackets'),
+    // Preserve absence. A missing counter pair is not a zero counter and must
+    // not reset the monotonic usage baseline.
+    acctInputGigawords: pickInt(body, 'Acct-Input-Gigawords', 'acctInputGigawords'),
+    acctOutputGigawords: pickInt(body, 'Acct-Output-Gigawords', 'acctOutputGigawords'),
+    acctSessionTime: pickInt(body, 'Acct-Session-Time', 'acctSessionTime'),
+    acctTerminateCause: pick(body, 'Acct-Terminate-Cause', 'acctTerminateCause') || null,
+    eventTimestamp: pick(body, 'Event-Timestamp', 'eventTimestamp') || null,
+    acctDelayTime: pickInt(body, 'Acct-Delay-Time', 'acctDelayTime'),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -106,114 +142,79 @@ router.post('/accounting', async (req, res, next) => {
     // ------------------------------------------------------------------
     // Normalise FreeRADIUS attribute names (both hyphenated and camelCase)
     // ------------------------------------------------------------------
-    const acctStatusType = pick(body, 'Acct-Status-Type', 'acctStatusType');
-    const userName        = pick(body, 'User-Name', 'userName');
-    const acctSessionId   = pick(body, 'Acct-Session-Id', 'acctSessionId');
-    const nasIpAddress    = pick(body, 'NAS-IP-Address', 'nasIpAddress');
-    const nasPort         = pickInt(body, 'NAS-Port', 'nasPort');
-    const nasPortId       = pick(body, 'NAS-Port-Id', 'nasPortId') || null;
-    const calledStationId  = pick(body, 'Called-Station-Id', 'calledStationId') || null;
-    const callingStationId = pick(body, 'Calling-Station-Id', 'callingStationId') || null;
-    const framedIpAddress  = pick(body, 'Framed-IP-Address', 'framedIpAddress') || null;
-    const framedIpv6Prefix = pick(body, 'Framed-IPv6-Prefix', 'framedIpv6Prefix') || null;
-    const acctInputOctetsV6   = pickInt(body, 'Acct-Input-Octets-IPv6', 'acctInputOctetsV6');
-    const acctOutputOctetsV6  = pickInt(body, 'Acct-Output-Octets-IPv6', 'acctOutputOctetsV6');
-    const acctInputOctets   = pickInt(body, 'Acct-Input-Octets', 'acctInputOctets');
-    const acctOutputOctets  = pickInt(body, 'Acct-Output-Octets', 'acctOutputOctets');
-    const acctInputGigawords  = pickInt(body, 'Acct-Input-Gigawords', 'acctInputGigawords', 0);
-    const acctOutputGigawords = pickInt(body, 'Acct-Output-Gigawords', 'acctOutputGigawords', 0);
-    const acctSessionTime   = pickInt(body, 'Acct-Session-Time', 'acctSessionTime');
-    const acctTerminateCause = pick(body, 'Acct-Terminate-Cause', 'acctTerminateCause') || null;
+    const attrs = normalizeAccountingBody(body);
+    attrs.provenance = {
+      source: 'radius_shared_secret',
+      requestId: req.id,
+      sourceIp: req.ip,
+      userAgent: req.get('user-agent'),
+    };
+    const { acctStatusType, userName, acctSessionId, nasIpAddress } = attrs;
 
     // ------------------------------------------------------------------
-    // Validate the status first, then no-op infrastructure events. Real
-    // Accounting-On/Off packets commonly omit subscriber/session attributes.
+    // Validate the status first. Accounting-On/Off omit subscriber/session
+    // attributes but must still resolve one NAS and persist provenance before
+    // acknowledgement.
     // ------------------------------------------------------------------
     if (!acctStatusType) {
       return res.status(400).json({ error: 'Missing required attribute: Acct-Status-Type' });
     }
     const normalised = String(acctStatusType).trim();
-    if (normalised === 'Accounting-On' || normalised === 'Accounting-Off') {
-      logger.info({ acctStatusType: normalised, nasIpAddress }, 'Accounting-On/Off received — no-op');
-      return res.status(200).json({ ok: true, action: 'noop', reason: acctStatusType });
+    const infrastructureStatus = normalised === 'Accounting-On' || normalised === 'Accounting-Off';
+    if (!infrastructureStatus && !['Start', 'Stop', 'Interim-Update'].includes(normalised)) {
+      throw new ValidationError('Unsupported Acct-Status-Type');
     }
 
     // ------------------------------------------------------------------
     // Subscriber accounting records require an attributable NAS/session.
     // ------------------------------------------------------------------
-    if (!userName || !acctSessionId || !nasIpAddress) {
+    if (!nasIpAddress || (!infrastructureStatus && (!userName || !acctSessionId))) {
       return res.status(400).json({
         error: 'Missing required attributes: User-Name, Acct-Session-Id, NAS-IP-Address',
       });
-    }
-
-    // ------------------------------------------------------------------
-    // Validate recognised status types
-    // ------------------------------------------------------------------
-    const VALID_STATUS_TYPES = new Set(['Start', 'Stop', 'Interim-Update']);
-    if (!VALID_STATUS_TYPES.has(normalised)) {
-      logger.warn({ acctStatusType: normalised }, 'Unrecognised Acct-Status-Type — ignoring');
-      return res.status(200).json({ ok: true, action: 'noop', reason: `Unrecognised status type: ${normalised}` });
     }
 
     // Resolve tenant ownership before any subscriber/session lookup. NAS-IP is
     // not globally trustworthy when private addresses are reused, so an
     // unknown or ambiguous address is rejected instead of being attributed to
     // whichever tenant happens to have a matching username.
-    const [nasRows] = await db.query(
-      `SELECT n.id, n.organization_id
-         FROM nas n
-        WHERE n.ip_address = ?
-          AND n.status = 'active'
-          AND n.deleted_at IS NULL
-          AND NOT EXISTS (
-            SELECT 1
-              FROM organization_database_configs odc
-             WHERE odc.organization_id = n.organization_id
-               AND odc.isolation_mode = 'isolated'
-          )
-        LIMIT 2`,
-      [nasIpAddress],
-    );
-    if (nasRows.length !== 1 || nasRows[0].organization_id === null) {
+    const resolution = await resolveNasByIp(nasIpAddress);
+    if (!resolution.nas) {
       throw new ValidationError('Unable to attribute accounting record to a NAS tenant', [
         {
           field: 'NAS-IP-Address',
-          message: nasRows.length > 1
+          message: resolution.ambiguous
             ? 'NAS-IP-Address is ambiguous across active NAS records'
             : 'NAS-IP-Address does not identify one active tenant-owned NAS',
         },
       ]);
     }
-    const nas = nasRows[0];
+    const nas = resolution.nas;
 
-    const result = await ingestAccounting({
+    if (infrastructureStatus) {
+      await db.withTenantContext(nas.organization_id, () => recordInfrastructureAccounting({
+        organizationId: nas.organization_id,
+        nasId: nas.id,
+        acctStatusType: normalised,
+        provenance: attrs.provenance,
+      }));
+      logger.info({ organizationId: nas.organization_id, acctStatusType: normalised }, 'Accounting-On/Off receipt persisted');
+      return res.status(200).json({ ok: true, action: 'noop', reason: normalised });
+    }
+
+    const result = await db.withTenantContext(nas.organization_id, () => ingestAccounting({
+      ...attrs,
       acctStatusType: normalised,
-      userName,
-      acctSessionId,
-      nasIpAddress,
-      nasPort,
-      nasPortId,
-      calledStationId,
-      callingStationId,
-      framedIpAddress,
-      framedIpv6Prefix,
-      acctInputOctets,
-      acctOutputOctets,
-      acctInputGigawords,
-      acctOutputGigawords,
-      acctSessionTime,
-      acctTerminateCause,
-      acctInputOctetsV6,
-      acctOutputOctetsV6,
       organizationId: nas.organization_id,
       nasId: nas.id,
-    });
+    }));
 
-    res.status(200).json({ ok: true, action: result.action, id: result.id, macMove: result.macMove });
+    res.status(200).json({ ok: true, action: result.action, id: result.id,
+      macMove: result.macMove, session_instance_id: result.sessionInstanceId });
   } catch (err) {
     next(err);
   }
 });
 
 module.exports = router;
+module.exports.normalizeAccountingBody = normalizeAccountingBody;

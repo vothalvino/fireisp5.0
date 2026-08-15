@@ -162,7 +162,7 @@
     "serviceAreas": "Áreas de Serviço",
     "outages": "Interrupções",
     "speedTests": "Testes de Velocidade",
-    "connectionLogs": "Logs de Conexão",
+    "connectionLogs": "Evidências de conexão",
     "networkHealth": "Saúde da Rede",
     "snmpProfiles": "Perfis SNMP",
     "deviceConfigBackups": "Backups de Config.",
@@ -3839,7 +3839,22 @@
     "ponUtilization": "Utilização PON",
     "complianceReports": "Relatórios de Conformidade",
     "dataRetention": "Retenção de Dados",
-    "interceptionReadiness": "Prontidão para Interceptação"
+    "operationalConnectionLoggingReadiness": "Prontidão operacional do registro de conexões",
+    "connectionLogging": {
+      "activeNas": "NAS ativo disponível",
+      "sessionAccountingConfigured": "Contabilização de sessões configurada",
+      "operationalStatus": "Status operacional",
+      "yes": "Sim",
+      "no": "Não",
+      "statuses": {
+        "ready": "Recebendo registros",
+        "waitingForTraffic": "Aguardando registros",
+        "notConfigured": "Não configurado",
+        "notApplicable": "Não aplicável",
+        "unknown": "Desconhecido"
+      },
+      "disclaimerFallback": "Este indicador é apenas operacional. Ele não certifica conformidade legal nem a cobertura completa dos registros."
+    }
   },
   "analyticsDashboard": {
     "title": "Painel de Análises",
@@ -3857,9 +3872,11 @@
   "regulatoryCompliance": {
     "title": "Conformidade regulatória",
     "titleMx": "Conformidade regulatória (México)",
+    "accessDenied": "Nenhuma ferramenta de conformidade está disponível com suas permissões atuais.",
     "tabs": {
       "consent": "Gestao de Consentimentos",
       "dsar": "Solicitacoes DSAR",
+      "government": "Solicitações Governamentais",
       "identity": "Verificacao de Identidade",
       "numbering": "Telefonia e Numeracao",
       "uso": "Servico Universal",
@@ -3918,6 +3935,63 @@
         "portability": "Portabilidade",
         "rectification": "Retificação",
         "restriction": "Restrição"
+      }
+    },
+    "government": {
+      "help": "Crie um processo de rastreabilidade de IP com escopo limitado, valide a referência oficial e o fundamento jurídico e depois inicie o processamento antes de abrir a consulta exata de atribuição.",
+      "workflowHelp": "Ordem obrigatória: enquanto o processo estiver Em processamento, execute a consulta exata e baixe qualquer CSV auditado necessário; somente depois marque-o como atendido ou rejeitado. Processos encerrados não podem consultar nem exportar a atribuição novamente.",
+      "formLabel": "Criar uma solicitação governamental de rastreabilidade de IP",
+      "authority": "Autoridade solicitante",
+      "officialReference": "Referência oficial",
+      "legalBasis": "Fundamento jurídico citado",
+      "subjectScope": "Escopo autorizado do titular",
+      "subjectClient": "Cliente nº {{id}}",
+      "subjectContract": "Contrato nº {{id}}",
+      "caseNotes": "Notas do processo",
+      "assignmentMode": "Modo de atribuição",
+      "modeCgnat": "IPv4 público CGNAT / compartilhado",
+      "modeDirect": "Atribuição direta de IPv4 público",
+      "publicIpv4": "IPv4 público autorizado",
+      "publicPort": "Porta pública de origem autorizada",
+      "protocol": "Protocolo autorizado",
+      "selectProtocol": "Selecione o protocolo",
+      "exactTimestamp": "Data e hora exatas autorizadas",
+      "timezoneHelp": "Informe a hora local até o segundo; o FireISP armazena o instante UTC exato usando o fuso horário do navegador ({{timezone}}).",
+      "create": "Criar processo",
+      "saving": "Salvando…",
+      "created": "O processo de rastreabilidade de IP foi criado para validação.",
+      "createError": "Não foi possível criar o processo. Verifique todos os campos obrigatórios do escopo.",
+      "loadError": "Não foi possível carregar as solicitações governamentais.",
+      "processingStarted": "O processo validado está agora em processamento.",
+      "processError": "O processo não pôde entrar em processamento. Confirme a referência, o fundamento jurídico e o escopo exato.",
+      "releaseHelp": "Depois que um processo for atendido ou rejeitado, uma pessoa autorizada pode liberar a retenção da evidência preservada com um motivo registrado. A liberação não exclui a evidência imediatamente; ela devolve os registros ao cronograma de retenção aprovado.",
+      "releaseReason": "Motivo para liberar a retenção de evidência",
+      "releaseReasonPlaceholder": "Motivo obrigatório da liberação",
+      "releaseEvidenceHold": "Liberar retenção de evidência",
+      "releaseConfirm": "Liberar a retenção da evidência preservada deste processo encerrado? O motivo será auditado.",
+      "releaseSuccess": "Liberação da retenção registrada para {{count}} registro(s) preservado(s).",
+      "releaseError": "Não foi possível liberar a retenção de evidência. Confirme que o processo foi atendido ou rejeitado e informe um motivo.",
+      "releaseRecorded": "Retenção de evidência liberada",
+      "authorizedLookup": "Consulta autorizada",
+      "status": "Status",
+      "actions": "Ações",
+      "startProcessing": "Validar e iniciar",
+      "openLookup": "Abrir consulta exata",
+      "fulfill": "Marcar como atendido",
+      "reject": "Rejeitar processo",
+      "rejectReason": "Motivo da rejeição do processo",
+      "rejectReasonPlaceholder": "Motivo obrigatório da rejeição",
+      "fulfillConfirm": "Marcar este processo como atendido? Primeiro conclua a consulta exata e qualquer exportação CSV auditada necessária; um processo atendido não pode consultar nem exportar a atribuição novamente.",
+      "rejectConfirm": "Rejeitar este processo? Conclua primeiro qualquer consulta exata e exportação CSV auditada necessária; a rejeição encerra o acesso à atribuição e registra o motivo na trilha de auditoria.",
+      "fulfillSuccess": "A solicitação governamental foi marcada como atendida.",
+      "rejectSuccess": "A solicitação governamental foi rejeitada.",
+      "closeError": "Não foi possível encerrar a solicitação governamental no status atual.",
+      "statuses": {
+        "received": "Recebida",
+        "processing": "Em processamento",
+        "fulfilled": "Atendida",
+        "rejected": "Rejeitada",
+        "pending_legal_review": "Pendente de revisão jurídica"
       }
     },
     "identity": {
@@ -5409,5 +5483,240 @@
       "custom": "Personalizado"
     },
     "mxOnly": "Os modelos de documentos legais estão disponíveis apenas para organizações com perfil MX — esta organização usa o perfil global."
+  },
+  "dsarTool": {
+    "title": "Exportação de solicitação de acesso a dados pessoais",
+    "intro": "Informe o ID de um cliente para reunir os conjuntos de dados enumerados do FireISP atribuídos a esse cliente dentro da sua organização. Revise separadamente o escopo declarado e os sistemas externos; depois use o documento JSON como parte do processo de solicitação conforme a LFPDPPP (MX) ou o RGPD (UE).",
+    "form": {
+      "ariaLabel": "Preparar uma exportação de acesso aos dados do cliente",
+      "clientId": "ID do cliente",
+      "placeholder": "ex.: 42",
+      "assemble": "Preparar exportação",
+      "assembling": "Preparando…",
+      "download": "Baixar JSON",
+      "downloadAria": "Baixar a exportação JSON de acesso aos dados do cliente"
+    },
+    "error": "Não foi possível preparar a exportação. Verifique o ID do cliente e tente novamente.",
+    "values": {
+      "yes": "Sim",
+      "no": "Não",
+      "notReported": "Não informado"
+    },
+    "summary": {
+      "ariaLabel": "Metadados da exportação",
+      "email": "E-mail",
+      "noEmail": "Nenhum e-mail registrado",
+      "generated": "Gerada",
+      "schema": "Esquema",
+      "requestedBy": "Solicitada por"
+    },
+    "scope": {
+      "ariaLabel": "Escopo da exportação",
+      "title": "Escopo da exportação",
+      "framing": "Este instantâneo abrange somente os conjuntos de dados enumerados do FireISP exibidos abaixo. Verifique separadamente os sistemas externos e integrados antes de usá-lo.",
+      "serverDescription": "Escopo declarado pelo servidor",
+      "serverDescriptionFallback": "O servidor não forneceu uma descrição adicional do escopo.",
+      "completeForEnumeratedDatasets": "Completa para os conjuntos de dados enumerados",
+      "organizationScoped": "Limitada à organização",
+      "allStorageSystemsCovered": "Inclui todos os sistemas de armazenamento",
+      "externalSystemsReview": "Não — revise separadamente os sistemas externos e integrados",
+      "connectionAttribution": "Atribuição de conexões",
+      "compatibilityViews": "Visualizações de compatibilidade"
+    },
+    "cancellation": {
+      "ariaLabel": "Revisão de cancelamento e exclusão",
+      "title": "É necessário revisar o cancelamento ou a exclusão.",
+      "framing": "Esta exportação não exclui dados por si só. Revise os deveres de retenção aprovados e as retenções legais antes de qualquer ação de cancelamento ou exclusão.",
+      "automaticDeletionPerformed": "Exclusão automática realizada",
+      "handling": "Tratamento",
+      "handlingValues": {
+        "reviewRequired": "Revisão obrigatória"
+      },
+      "serverNotice": "Aviso do servidor",
+      "serverNoticeFallback": "O servidor não forneceu orientações adicionais sobre o cancelamento."
+    },
+    "table": {
+      "ariaLabel": "Totais de registros da exportação",
+      "caption": "Totais de registros informados pelo servidor para este instantâneo de exportação.",
+      "section": "Seção",
+      "records": "Registros",
+      "present": "Presente"
+    },
+    "sections": {
+      "mxProfile": "Perfil fiscal do MX",
+      "contacts": "Contatos",
+      "mxProfiles": "Registros de perfis fiscais do MX",
+      "contracts": "Contratos",
+      "invoices": "Faturas",
+      "payments": "Pagamentos",
+      "tickets": "Tickets",
+      "connectionLogs": "Registros de sessões de conexão",
+      "radiusAccountingEvents": "Evidências de contabilização RADIUS",
+      "radiusAccountingUsageDaily": "Uso diário de contabilização",
+      "cgnatAttributionBindings": "Evidência de atribuição de endereço e porta CGNAT",
+      "cgnatAttributionEvents": "Eventos de origem do coletor CGNAT",
+      "ipAssignments": "Atribuições de IP",
+      "aiReplyLogs": "Registros de respostas de IA"
+    }
+  },
+  "connection_logs": {
+    "title": "Evidências de conexão",
+    "subtitle": "Consulte a contabilização de assinantes e faça atribuições de IP vinculadas a um processo com a evidência mínima retida.",
+    "accessDenied": "Nenhuma ferramenta de evidência de conexão está disponível com suas permissões atuais.",
+    "total": "Total: {{count}}",
+    "tabs": { "label": "Tipos de evidência de conexão", "sessions": "Sessões de assinantes", "attribution": "Atribuição de IP" },
+    "sessions": {
+      "title": "Sessões de assinantes",
+      "help": "A contabilização RADIUS vincula uma conta de assinante autenticada aos endereços atribuídos, ao servidor de acesso, aos horários e ao uso. Ela não fornece evidência de tradução NAT.",
+      "error": "Não foi possível carregar as sessões de assinantes.",
+      "empty": "Nenhuma sessão de assinante corresponde a estes filtros."
+    },
+    "attribution": {
+      "title": "Atribuição de IP vinculada a processo",
+      "help": "Use um endereço público e um instante exatos para localizar uma única atribuição retida de conta/sessão de acesso. Endereços CGNAT compartilhados também exigem a porta de origem e o protocolo de transporte.",
+      "restrictedTitle": "Fluxo restrito de resposta jurídica",
+      "restrictedHelp": "Cada consulta é controlada por permissão, auditada e vinculada a uma solicitação governamental validada. Não existe um navegador geral de atribuições.",
+      "caseHelp": "O processo deve ser uma solicitação de rastreabilidade de IP em status Em processamento, com referência oficial, fundamento jurídico e exatamente os mesmos valores autorizados para a consulta.",
+      "manageCases": "Gerenciar solicitações governamentais",
+      "formLabel": "Consulta exata de atribuição de IP",
+      "mode": "Modo de atribuição",
+      "modeCgnat": "IPv4 público CGNAT / compartilhado",
+      "modeDirect": "Atribuição direta de IPv4 público",
+      "caseId": "ID da solicitação governamental",
+      "publicIpv4": "IPv4 público",
+      "publicPort": "Porta pública de origem",
+      "protocol": "Protocolo de transporte",
+      "selectProtocol": "Selecione o protocolo",
+      "exactTimestamp": "Data e hora exatas",
+      "timezoneHelp": "Informe o instante com precisão de segundos. Ele será enviado em UTC usando o fuso horário do navegador ({{timezone}}).",
+      "localTimezone": "hora local",
+      "search": "Executar consulta exata",
+      "searching": "Verificando evidências…",
+      "clear": "Limpar consulta",
+      "resultCase": "Solicitação governamental nº {{id}}",
+      "notPersonProof": "Este resultado atribui uma designação de rede retida a uma conta de assinante e a uma sessão de acesso. Ele não prova qual pessoa usou a conexão nem qualquer ato dessa pessoa.",
+      "planScope": "Um plano de serviço controla somente a atribuição do pool de endereços; não é evidência de atribuição.",
+      "validation": {
+        "caseRequired": "Informe um ID válido de solicitação governamental.",
+        "ipv4Invalid": "Informe um endereço IPv4 público válido.",
+        "portInvalid": "Informe uma porta pública de origem entre 1 e 65535.",
+        "protocolRequired": "Selecione TCP ou UDP.",
+        "timestampRequired": "Informe uma data e hora exatas válidas."
+      },
+      "errors": {
+        "caseNotFound": "Essa solicitação governamental não foi encontrada para esta organização.",
+        "caseType": "A solicitação não é um processo de rastreabilidade de IP.",
+        "caseStatus": "A solicitação deve ser validada e movida para Em processamento antes da consulta.",
+        "caseIncomplete": "Adicione a referência oficial e o fundamento jurídico antes de usar este processo.",
+        "scopeMismatch": "Os valores da consulta não correspondem exatamente aos autorizados por este processo.",
+        "permission": "Você não tem permissão para usar esta consulta restrita.",
+        "rateLimited": "Foram tentadas consultas restritas demais. Aguarde e tente novamente.",
+        "server": "Não foi possível concluir a consulta de atribuição. Nenhuma atribuição foi inferida."
+      },
+      "results": {
+        "unique": { "title": "Uma atribuição foi encontrada", "help": "Exatamente uma atribuição retida abrange o endereço e o instante autorizados." },
+        "unavailable": { "title": "Nenhuma atribuição disponível", "help": "Nenhuma atribuição retida satisfaz a consulta autorizada exata. Não infira uma conta." },
+        "ambiguous": { "title": "A atribuição é ambígua", "help": "{{count}} atribuições candidatas se sobrepõem à consulta. Nenhuma é selecionada ou exibida." },
+        "incomplete": { "title": "A evidência está incompleta", "help": "A evidência disponível não permite uma atribuição exata. Nenhuma conta é inferida." },
+        "unknown": { "title": "Atribuição indisponível", "help": "O servidor retornou um resultado não reconhecido. Nenhuma conta é inferida." }
+      },
+      "export": {
+        "download": "Baixar CSV de evidência do processo",
+        "preparing": "Preparando CSV do processo…",
+        "help": "Isto repete a consulta exata autorizada do processo e cria uma exportação auditada contendo somente seu resultado e evidência de atribuição. O FireISP verifica os bytes baixados em relação ao SHA-256 do servidor antes de salvar o arquivo.",
+        "error": "Não foi possível preparar o CSV de evidência do processo. Nenhum arquivo foi baixado.",
+        "checksumInvalid": "O servidor não forneceu um checksum de evidência válido. Nenhum arquivo foi baixado.",
+        "checksumMismatch": "O CSV falhou na verificação SHA-256. Nenhum arquivo foi baixado; tente novamente e investigue a transferência.",
+        "verificationUnavailable": "Este navegador não conseguiu verificar o checksum do CSV. Nenhum arquivo foi baixado.",
+        "checksum": "SHA-256 da evidência: {{checksum}}"
+      },
+      "methods": {
+        "direct_public": "Atribuição pública direta",
+        "direct_public_assignment": "Atribuição pública direta",
+        "cgnat": "Vínculo CGNAT",
+        "cgnat_mapping": "Vínculo CGNAT",
+        "cgnat_binding": "Vínculo CGNAT",
+        "unknown": "Não informado"
+      },
+      "evidence": {
+        "subscriberAccount": "Registro da conta de assinante",
+        "serviceRecord": "Registro do serviço",
+        "accessUsername": "Usuário de acesso",
+        "accessSession": "Sessão de acesso RADIUS",
+        "privateTuple": "Atribuição de endereço / porta privada",
+        "publicAssignment": "IPv4 público atribuído",
+        "publicMapping": "Atribuição de endereço / porta pública",
+        "protocol": "Protocolo",
+        "attributionMethod": "Método de atribuição",
+        "allocationWindow": "Janela da atribuição",
+        "windowValue": "{{from}} até {{to}}",
+        "activeOpen": "ativa / sem liberação recebida",
+        "mappingKind": "Tipo de atribuição",
+        "poolRealm": "Pool / domínio NAT",
+        "gateway": "Gateway CGNAT ou de acesso",
+        "exporter": "Fonte da evidência",
+        "lookupInstant": "Instante autorizado da consulta",
+        "deviceRecordedAt": "Hora do evento registrada pelo dispositivo",
+        "receivedAt": "Hora de recebimento no coletor",
+        "connectionLogId": "ID da evidência contábil",
+        "bindingId": "ID do registro de evidência",
+        "integrityHash": "Hash de consistência"
+      }
+    },
+    "filters": {
+      "sessionsLabel": "Filtrar sessões de assinantes",
+      "dateFrom": "De", "dateTo": "Até", "clientId": "ID do cliente", "contractId": "ID do contrato", "username": "Usuário",
+      "assignedIp": "IPv4 ou IPv6 atribuído", "nas": "Servidor de acesso", "sessionId": "ID da sessão RADIUS", "mac": "MAC do assinante",
+      "state": "Estado da sessão", "allStates": "Todos os estados",
+      "apply": "Aplicar filtros", "clear": "Limpar filtros"
+    },
+    "columns": {
+      "client": "Cliente", "contract": "Contrato", "username": "Usuário", "ipv4": "IPv4 atribuído", "ipv6": "IPv6 atribuído",
+      "state": "Estado", "started": "Início", "ended": "Fim", "duration": "Duração", "nas": "Servidor de acesso",
+      "nasIp": "IP do NAS", "nasPort": "Porta NAS", "mac": "MAC", "sessionId": "ID da sessão", "download": "Download",
+      "upload": "Upload", "terminateCause": "Causa do encerramento"
+    },
+    "states": { "active": "Ativa", "interim": "Em andamento", "ended": "Encerrada", "unknown": "Desconhecida" },
+    "terminateCauses": {
+      "userRequest": "Solicitação do usuário", "lostCarrier": "Perda de portadora", "lostService": "Perda do serviço",
+      "idleTimeout": "Tempo de inatividade esgotado", "sessionTimeout": "Tempo da sessão esgotado", "adminReset": "Redefinição administrativa",
+      "adminReboot": "Reinicialização administrativa", "portError": "Erro da porta", "nasError": "Erro do NAS",
+      "nasRequest": "Solicitação do NAS", "nasReboot": "Reinicialização do NAS", "portUnneeded": "Porta não mais necessária",
+      "portPreempted": "Porta preemptada", "portSuspended": "Porta suspensa", "serviceUnavailable": "Serviço indisponível",
+      "callback": "Chamada de retorno", "userError": "Erro do usuário", "hostRequest": "Solicitação do host",
+      "supplicantRestart": "Reinicialização do suplicante", "reauthenticationFailure": "Falha na reautenticação",
+      "portReinitialized": "Porta reinicializada", "portAdministrativelyDisabled": "Porta desabilitada administrativamente"
+    },
+    "duration": {
+      "daysHours": "{{days}} d {{hours}} h", "hoursMinutes": "{{hours}} h {{minutes}} min",
+      "minutesSeconds": "{{minutes}} min {{seconds}} s", "seconds": "{{seconds}} s"
+    },
+    "export": {
+      "sessions": "Exportar CSV de sessões", "preparing": "Preparando CSV…",
+      "error": "Não foi possível preparar a exportação CSV.",
+      "sessionGuidance": "As exportações CSV exigem um intervalo aplicado de De e Até de no máximo 366 dias. A consulta de sessões pode permanecer sem limite de datas.",
+      "datesRequired": "Defina De e Até e depois aplique os filtros antes de exportar.",
+      "invalidDates": "Insira datas válidas em De e Até e depois aplique os filtros antes de exportar.",
+      "dateOrder": "Para exportar, Até não pode ser anterior a De.",
+      "windowTooLong": "As exportações CSV de sessões não podem abranger mais de 366 dias."
+    },
+    "readiness": {
+      "title": "Prontidão das evidências", "subtitle": "São sinais operacionais, não uma certificação de conformidade jurídica. Verifique cada fonte antes de confiar em uma atribuição.",
+      "error": "Não foi possível verificar a prontidão do registro.", "sessionsTitle": "Contabilização de assinantes",
+      "attributionTitle": "Evidência de atribuição de IP", "retentionTitle": "Retenção configurada", "lastReceived": "Último registro recebido",
+      "records24h": "Registros em 24 horas", "source": "Fonte", "sourceRadius": "Contabilização RADIUS", "sourceAttribution": "Coletor de CGNAT / atribuições de endereço", "coverage": "Cobertura completa das fontes", "coverageValue": "{{covered}} de {{total}}",
+      "coverageStatus": "Status da cobertura", "clockStatus": "Status do relógio", "clockOffset": "máx. {{milliseconds}} ms", "lossStatus": "Status de entrega / perda",
+      "sequenceGaps24h": "Eventos de lacuna de sequência em 24 horas", "lostRecords24h": "Registros perdidos informados em 24 horas", "incompleteMetadata24h": "Registros incompletos em 24 horas",
+      "sessionsGuidance": "Configure mensagens de início, atualização intermediária e fim da contabilização RADIUS em cada servidor de acesso e confirme a chegada de eventos recentes.",
+      "sessionsReceiving": "A contabilização recente de assinantes está chegando. Revise a cobertura quando adicionar ou alterar servidores de acesso.",
+      "attributionGuidance": "Configure cada fonte de saída com endereço direto ou CGNAT para enviar evidências de atribuição com relógios sincronizados e relatórios de perda. Configurações habilitadas de exportador CGNAT exigem authoritative_baseline_confirmed e um baseline_reference não vazio; cada evento CGNAT exige session_instance_id. Falta de cobertura, precisão de horário ou registros impede uma atribuição confiável.",
+      "attributionReceiving": "Evidências recentes de atribuição estão chegando. Receber dados não basta: cobertura, relógio, metadados e indicadores de perda também devem estar completos. Mantenha completos authoritative_baseline_confirmed, baseline_reference e o session_instance_id de cada evento.",
+      "attributionRestricted": "A prontidão da atribuição é restrita. A contabilização de assinantes permanece disponível separadamente.",
+      "sessionRetention": "Sessões de assinantes", "attributionRetention": "Evidência de atribuição de IP", "retentionValue": "{{months}} meses",
+      "retentionGuidance": "Confirme se ambas as janelas de limpeza correspondem ao cronograma jurídico e de privacidade aprovado pela organização.",
+      "sessionRetentionBelowBaseline": "A retenção de sessões de assinantes é de {{months}} meses, abaixo da referência de política de 24 meses do FireISP para o México. Confirme o cronograma jurídico aprovado da organização antes de depender desses registros.",
+      "health": { "complete": "Completa", "partial": "Parcial", "missing": "Ausente", "synchronized": "Sincronizado", "reported": "Informado", "healthy": "Sem perda informada", "degraded": "Requer atenção", "unknown": "Não informado" },
+      "status": { "ready": "Recebendo", "waiting": "Requer atenção", "notConfigured": "Não configurado", "unknown": "Desconhecido" }
+    }
   }
 }

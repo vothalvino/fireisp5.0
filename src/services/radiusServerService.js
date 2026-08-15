@@ -23,6 +23,7 @@ const codec = require('./radiusServerCodec');
 const coa = require('./radiusCoaEncoder');
 const { generateAttributes } = require('./radiusAttributeService');
 const speedWindowService = require('./speedWindowService');
+const { resolveNasByIp } = require('./tenantNasResolverService');
 
 const { CODE, ATTR, ACCT_STATUS } = codec;
 
@@ -49,6 +50,13 @@ const counters = {
 
 /** Resolve the NAS (and its RADIUS shared secret) by source IP. */
 async function findNasByIp(ip) {
+  if (typeof db.withPrimaryContext === 'function' && typeof db.withTenantContext === 'function') {
+    const resolution = await resolveNasByIp(ip, { includeSecret: true });
+    return resolution.nas;
+  }
+  // Minimal test/custom adapters without tenant routing retain the shared-only
+  // lookup. Production always resolves every database scope above so a reused
+  // private NAS IP fails closed as ambiguous.
   const [rows] = await db.query(
     `SELECT n.id, n.organization_id, n.secret
        FROM nas n
@@ -66,6 +74,13 @@ async function findNasByIp(ip) {
     [ip],
   );
   return rows[0] || null;
+}
+
+function withNasTenant(nas, callback) {
+  if (typeof db.withTenantContext === 'function' && nas?.organization_id) {
+    return db.withTenantContext(nas.organization_id, callback);
+  }
+  return callback();
 }
 
 /**
@@ -152,13 +167,13 @@ function persistAuthOutcome({
   ];
 
   try {
-    const pending = db.query(
+    const pending = withNasTenant(nas, () => db.query(
       `INSERT INTO radpostauth
          (organization_id, nas_id, username, reply, nas_ip_address,
           calling_station_id, reason_code)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       values,
-    );
+    ));
     Promise.resolve(pending).catch((err) => {
       logger.warn(
         { err: err.message, nasId: nas.id, reasonCode },
@@ -257,7 +272,7 @@ async function handleAuth(msg, rinfo, respond) {
   if (!username) {
     reasonCode = AUTH_REASON.MISSING_USERNAME;
   } else {
-    subscriber = await findSubscriber(username, nas.organization_id);
+    subscriber = await withNasTenant(nas, () => findSubscriber(username, nas.organization_id));
     if (!subscriber) {
       reasonCode = AUTH_REASON.UNKNOWN_OR_INACTIVE_USER;
     } else if (!subscriber.password) {
@@ -287,7 +302,7 @@ async function handleAuth(msg, rinfo, respond) {
   if (accept) {
     code = CODE.ACCESS_ACCEPT;
     counters.accepts++;
-    let plan = await findPlan(subscriber.plan_id);
+    let plan = await withNasTenant(nas, () => findPlan(subscriber.plan_id));
     // §10.2: overlay an active time-based speed window so sessions coming up
     // DURING a window start at window speeds (CoA transitions handle sessions
     // already online). Fail open to plan speeds — a window lookup error must
@@ -358,9 +373,18 @@ async function handleAcct(msg, rinfo, respond) {
 
   const statusInt = codec.getInt(pkt.attributes, ATTR.ACCT_STATUS_TYPE);
   const acctStatusType = ACCT_STATUS[statusInt] || null;
-  if (acctStatusType) {
-    try {
-      await require('./radiusAccountingService').ingestAccounting({
+  if (!acctStatusType) {
+    counters.acctDropped++;
+    logger.warn({ from: rinfo.address, statusInt }, 'RADIUS: unsupported accounting status — no response');
+    return;
+  }
+  const infrastructureStatus = acctStatusType === 'Accounting-On' || acctStatusType === 'Accounting-Off';
+  try {
+    // Accounting-On/Off are authenticated NAS lifecycle signals, not
+    // subscriber sessions. Accept them as an explicit no-op without requiring
+    // User-Name/Acct-Session-Id; all subscriber statuses must persist before ACK.
+    if (!infrastructureStatus) {
+      await withNasTenant(nas, () => require('./radiusAccountingService').ingestAccounting({
         acctStatusType,
         userName: codec.getString(pkt.attributes, ATTR.USER_NAME),
         acctSessionId: codec.getString(pkt.attributes, ATTR.ACCT_SESSION_ID),
@@ -369,23 +393,41 @@ async function handleAcct(msg, rinfo, respond) {
         calledStationId: codec.getString(pkt.attributes, ATTR.CALLED_STATION_ID),
         callingStationId: codec.getString(pkt.attributes, ATTR.CALLING_STATION_ID),
         framedIpAddress: codec.getIp(pkt.attributes, ATTR.FRAMED_IP_ADDRESS),
-        framedIpv6Prefix: null,
+        framedIpv6Prefix: codec.getIpv6Prefix(pkt.attributes),
         acctInputOctets: codec.getInt(pkt.attributes, ATTR.ACCT_INPUT_OCTETS),
         acctOutputOctets: codec.getInt(pkt.attributes, ATTR.ACCT_OUTPUT_OCTETS),
         acctInputGigawords: codec.getInt(pkt.attributes, ATTR.ACCT_INPUT_GIGAWORDS),
         acctOutputGigawords: codec.getInt(pkt.attributes, ATTR.ACCT_OUTPUT_GIGAWORDS),
+        acctInputPackets: codec.getInt(pkt.attributes, ATTR.ACCT_INPUT_PACKETS),
+        acctOutputPackets: codec.getInt(pkt.attributes, ATTR.ACCT_OUTPUT_PACKETS),
         acctSessionTime: codec.getInt(pkt.attributes, ATTR.ACCT_SESSION_TIME),
-        acctTerminateCause: codec.getString(pkt.attributes, ATTR.ACCT_TERMINATE_CAUSE),
+        acctTerminateCause: codec.getInt(pkt.attributes, ATTR.ACCT_TERMINATE_CAUSE),
+        eventTimestamp: codec.getInt(pkt.attributes, ATTR.EVENT_TIMESTAMP),
+        acctDelayTime: codec.getInt(pkt.attributes, ATTR.ACCT_DELAY_TIME),
         organizationId: nas ? nas.organization_id : null,
         nasId: nas ? nas.id : null,
-      });
-      counters.acctIngested++;
-    } catch (err) {
-      logger.error({ from: rinfo.address, err: err.message }, 'RADIUS: accounting ingest failed');
+        provenance: {
+          source: 'radius_embedded',
+          sourceIp: rinfo.address,
+        },
+      }));
+    } else {
+      await withNasTenant(nas, () => require('./radiusAccountingService').recordInfrastructureAccounting({
+        organizationId: nas ? nas.organization_id : null,
+        nasId: nas ? nas.id : null,
+        acctStatusType,
+        provenance: { source: 'radius_embedded', sourceIp: rinfo.address },
+      }));
     }
+    counters.acctIngested++;
+  } catch (err) {
+    counters.acctDropped++;
+    logger.error({ from: rinfo.address, err: err.message }, 'RADIUS: accounting ingest failed — no response so NAS can retry');
+    return;
   }
 
-  // Always acknowledge so the NAS does not retransmit indefinitely.
+  // Acknowledge only after durable ingest/no-op succeeds. Withholding the
+  // response on storage failure asks the NAS to retry instead of losing data.
   const packet = coa.buildRadiusPacket(CODE.ACCOUNTING_RESPONSE, pkt.identifier, Buffer.alloc(16), Buffer.alloc(0));
   codec.signResponse(packet, pkt.authenticator, secret, false);
   respond(packet);

@@ -1,19 +1,30 @@
 # IFT Statistical Report — Schema Review
 
+> **Historical engineering review — do not rely on its legal citation for a
+> current filing.** This document was written against former LFTR Article 175
+> and an IFT format. The LFTR is now abrogated and the CRT is the current
+> regulator. The responsible regulatory lead must revalidate the current LMTR,
+> preserved or replacement instruments, official form, frequency, fields, and
+> submission channel before using this schema or filing data. Track that work in
+> [`legal-regulatory-register.md`](legal-regulatory-register.md), requirement
+> `MX-TEL-007`.
+
 **Date:** 2026-04-21
-**Status:** Schema alignment implemented in migration 157 and the model/validation rewrite below; **regulatory-lead sign-off still required before UI/export work begins.**
+**Status:** Historical schema alignment implemented in migration 157. **Do not use this document as the source for a current filing; a new current-source review is required before UI/export reliance.**
 **Scope:** `ift_statistical_reports` table (migrations 079 + 157), `IftStatisticalReport` model, and the `iftStatisticalReports` validation schema.
-**Authority:** Ley Federal de Telecomunicaciones y Radiodifusión (LFTR) **Art. 175** and the IFT *Lineamientos Generales para la Presentación de Información Estadística por parte de los Concesionarios y Autorizados* (most recent published *Formato Estadístico* for fixed‑broadband / *Servicio Fijo de Internet*).
+**Historical authority used by this review:** former Ley Federal de Telecomunicaciones y Radiodifusión (LFTR) **Art. 175** and the IFT *Lineamientos Generales para la Presentación de Información Estadística por parte de los Concesionarios y Autorizados*. This is not a current-law verification.
 
 ---
 
 ## 1. Why this review exists
 
-The issue (`Validate FireISP IFT statistical report schema against official IFT requirements`) requested a formal, field-by-field validation **before** any UI or export work begins. Shipping UI on top of a schema that misses required IFT fields would force a re-issue of every previously stored snapshot and is a compliance risk under LFTR Art. 175.
+The issue (`Validate FireISP IFT statistical report schema against official IFT requirements`) requested a field-by-field engineering comparison before UI or export work. Shipping a mismatched schema would force a re-issue of stored snapshots. The former LFTR Article 175 citation used at the time no longer establishes the current duty or format.
 
 This document is the deliverable. It does three things:
 
-1. Lists the IFT-required fields for the *Formato Estadístico — Servicio Fijo de Internet*.
+1. Records the fields the 2026-04-21 review treated as required by an IFT
+   *Formato Estadístico — Servicio Fijo de Internet*; this assumption is not
+   current-law verification.
 2. Compares them, field-by-field, against the three layers of the current implementation:
    - **DB**: `database/migrations/079_create_ift_statistical_reports_table.sql`
    - **Model**: `src/models/IftStatisticalReport.js` (`fillable` list)
@@ -24,9 +35,14 @@ Until each item below is either marked **Confirmed** or has a follow-up issue wi
 
 ---
 
-## 2. IFT-required fields (Formato Estadístico, Servicio Fijo de Internet)
+## 2. Historically assumed IFT fields (not validated for a current filing)
 
-Per the IFT Lineamientos and the published *Formato Estadístico* (Art. 175 LFTR), each periodic report from a concessionaire/authorized provider of fixed Internet must include at least the following data points. References below use the field labels published by IFT.
+The 2026-04-21 review treated the following data points as fields from an IFT
+format under former LFTR Article 175. The exact source version was not preserved
+in this repository and the current CRT instrument/form has not been verified.
+Accordingly, the list is useful only for understanding the schema design. It
+must not be described as a complete or current filing requirement. References
+below retain the historical field labels.
 
 | # | IFT field | IFT description | Granularity |
 |---|-----------|-----------------|-------------|
@@ -55,7 +71,7 @@ Per the IFT Lineamientos and the published *Formato Estadístico* (Art. 175 LFTR
 ## 3. Field-by-field comparison vs current implementation
 
 Legend:
-- ✅ **Confirmed** — present and correctly typed in all three layers (DB, model, schema).
+- ✅ **Internally aligned** — present and correctly typed in all three product layers (DB, model, schema); not legal confirmation.
 - ⚠️ **Partial** — present in some layers but missing or inconsistent in others.
 - ❌ **Missing** — not represented at all.
 - 🛑 **Mismatch** — a name/type discrepancy between layers that will silently drop data when writing through the model.
@@ -109,21 +125,31 @@ These are bugs regardless of IFT requirements, and they must be fixed in lock-st
 - [ ] **OpenAPI regeneration** so the published request bodies use the IFT field vocabulary (the future UI consumes the typed client). *(The `crudPaths(...)` helper in `src/utils/openapi.js` derives request bodies from the validation schema, so the published spec already reflects the new field names; re-run the frontend `npm run gen:api` step before starting UI work.)*
 - [ ] **Sign-off** from the regulatory lead that the *Tecnología* enum, the *Tipo de contratación* enum, and the *Modalidad de pago* enum match the latest published IFT formato.
 
-Once those items are merged and the regulatory lead has signed off this document, the UI and CSV/XLSX export work tracked under the *Reporting / Export* milestone may begin.
+Before UI or CSV/XLSX export is relied on for a filing, the regulatory lead must
+create a successor review tied to the exact current CRT instrument, official
+form/version, reporting entity, frequency, fields, validation rules, submission
+channel, and acuse. Signing this historical document is not sufficient.
 
 **Confirmations (no change required):**
 
 - Snapshot-per-`(organization_id, report_period)` shape is correct (see `uq_ift_statistical_reports_org_period`).
 - `status` enum (`draft` / `final` / `filed`) matches the workflow expected by the regulatory team.
 - Linkage to `regulatory_filings` via `filing_id` correctly captures F16 and F17 once the filing exists.
-- MX-locale enforcement triggers (migration 087) and the locale downgrade guard (migration 088) already cover this table — no additional locale work is needed.
+- MX-locale enforcement triggers (migration 087) and the locale downgrade guard
+  (migration 088) cover the table as product behavior. Locale does not determine
+  legal applicability and this does not validate the current filing workflow.
 
 ---
 
-## 6. References
+## 6. Historical references and current revalidation source
 
-- LFTR, Art. 175 — obligación de los concesionarios y autorizados de entregar información estadística al Instituto.
-- IFT — *Lineamientos Generales para la Presentación de Información Estadística* (publicación más reciente en el DOF).
-- IFT — *Formato Estadístico — Servicio Fijo de Internet* (descargable desde el portal del IFT, <https://www.ift.org.mx/>).
+- Former LFTR, Art. 175 — historical citation used by this review; the statute is
+  abrogated and is not the current authority.
+- IFT — historical *Lineamientos Generales para la Presentación de Información
+  Estadística* and *Formato Estadístico — Servicio Fijo de Internet*; the exact
+  reviewed publication/form version was not archived here.
+- Current source index and required follow-up: `SRC-MX-LMTR`, `MON-MX-CRT`, and
+  `MX-TEL-007` in
+  [`legal-regulatory-register.md`](legal-regulatory-register.md).
 - INEGI — Catálogo Único de Claves de Áreas Geoestadísticas Estatales, Municipales y Localidades (códigos usados en F4–F6).
 - Internal: migrations `database/migrations/079_create_ift_statistical_reports_table.sql` and `database/migrations/157_align_ift_statistical_reports_with_ift_format.sql`, model `src/models/IftStatisticalReport.js`, schema `src/middleware/schemas/iftStatisticalReports.js`, routes `src/routes/iftStatisticalReports.js`.

@@ -398,8 +398,17 @@ An incident should be **formally declared** (create an incident channel / ticket
    ORDER BY created_at DESC LIMIT 500;
    ```
 4. **Check for data exfiltration** in access logs (nginx / CloudFlare) — look for unusual `GET /export` or bulk-download patterns.
-5. **Notify affected parties** per LFPDPPP Art. 20 (72 hours) or GDPR Art. 33 (72 hours) if personal data was accessed.
-6. **Engage security counsel** if the breach scope is unclear.
+5. **Engage security/privacy counsel immediately** and record the affected data,
+   people, likely consequences, containment, and corrective measures. Under the
+   current LFPDPPP, notify affected people without delay when the confirmed
+   breach significantly affects their patrimonial or moral rights. Do not apply
+   GDPR's 72-hour supervisory-authority deadline to Mexico by analogy. If GDPR
+   or a sector, title, contract, insurance policy, or authority-specific rule
+   also applies, counsel must identify its recipient and clock.
+6. **Preserve the legal decision and notification evidence** in the restricted
+   incident system; do not put personal or privileged details in Git. See
+   [`legal-regulatory-register.md`](legal-regulatory-register.md),
+   `MX-PRIV-003`.
 
 ---
 
@@ -537,8 +546,12 @@ On-call engineer  ──→  Engineering lead / CTO  ──→  All-hands bridge
    (0 – 15 min)           (15 – 30 min)              (> 30 min)
 
 For legal/regulatory issues (data breach, SAT inquiry):
-   On-call engineer  ──→  Legal counsel  ──→  INAI (LFPDPPP) or DPA (GDPR)
-                                               within 72 hours of discovery
+   On-call engineer  ──→  Legal/privacy counsel  ──→  Affected people and/or
+                                                     competent authority only
+                                                     when the assessed law,
+                                                     order, title or contract
+                                                     requires it, within its
+                                                     actual deadline
 
 For payment gateway issues:
    On-call engineer  ──→  Finance/accounting  ──→  Gateway support line
@@ -676,4 +689,3 @@ curl -X POST https://<your-domain>/api/v1/ai/backfill-embeddings \
   -H "Authorization: Bearer <admin-token>" \
   -H "X-Org-Id: <org_id>"
 ```
-

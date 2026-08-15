@@ -200,12 +200,19 @@ database and then fans out through every active isolated tenant context. Its
 primary pass excludes historical rows belonging to isolated organizations, so
 the same rejection cannot raise an alert from both database copies.
 
-The install-wide embedded UDP RADIUS listener and the shared-secret HTTP
-`/radius/accounting` endpoint resolve NAS source addresses only in the primary
-database, so they are not supported ingest paths for isolated tenants. Use
-tenant-local external FreeRADIUS for authentication. Accounting/MAC-move
-diagnostics remain `not_configured` unless a tenant-local integration writes
-the isolated database's `connection_logs` with its trusted `nas_id`.
+Use tenant-local external FreeRADIUS for authentication, then send accounting
+to `POST /api/v1/radius/accounting/tenant` with an API token bound to that same
+organization. FireISP routes the write into its isolated database context.
+Before enabling isolation, apply the complete schema and copy the organization's
+tenant-owned data; an empty schema is not a usable cutover. See
+[Per-tenant database isolation](../tenant-database-isolation.md).
+
+The embedded UDP listener and compatibility shared-secret HTTP endpoint scan
+the shared primary plus active isolated database contexts and accept a NAS
+address only when it has exactly one active match across the installation. This
+fails closed safely, but reused RFC1918 NAS addresses make those paths
+unavailable. Prefer the tenant-token endpoint; use a distinct public or
+WireGuard source address if the embedded listener is required.
 
 ---
 
@@ -508,33 +515,52 @@ accounting, plus configured RouterOS NAS coverage. An empty diagnostic list is
 trustworthy only when its source is `ready`; `waiting`/`not_configured` means
 the feed may be incomplete. The global RouterOS collector fans out through
 isolated tenant database contexts, as does the scheduled authentication-failure
-alert scan; the optional shared-secret `/pppoe/events`
-endpoint, like the accounting endpoint, resolves NAS IDs only in the primary
-database and is not an isolated-tenant ingest path.
+alert scan. The optional shared-secret `/pppoe/events` endpoint still resolves
+NAS IDs only in the primary database and is not an isolated-tenant ingest path;
+RADIUS accounting instead has the organization-token endpoint described below.
 
 ---
 
 ## RADIUS Accounting ingest (rlm_rest)
 
-FireISP exposes a machine-to-machine endpoint that FreeRADIUS can POST accounting records to:
+The recommended machine-to-machine endpoint is organization-bound before any
+NAS or subscriber lookup:
 
+```http
+POST /api/v1/radius/accounting/tenant
+X-API-Key: <organization API token>
 ```
-POST /api/v1/radius/accounting
-```
 
-The endpoint requires no JWT token. Authentication uses a shared secret sent in either:
+Create a dedicated token owned by an active principal in the same organization
+as the NAS. Its one and only API scope must be `connection_logs:ingest`, and the
+owner must have the `connection_logs.ingest` RBAC permission. A JWT, wildcard or
+write scope, additional scope, and a token shared with the CGNAT binding
+collector are rejected.
 
-- `X-Radius-Secret: <secret>` header, or
-- `Authorization: Bearer <secret>` header
+For a subscriber Start/Interim/Stop lifecycle, the JSON response includes
+`session_instance_id`, FireISP's canonical UUID for that exact tenant access
+session. A CGNAT normalizer must capture and preserve this returned value: every
+allocate and release record requires it. Do not reconstruct the UUID or guess a
+session from username, `Acct-Session-Id`, NAS address, or a reused private IP.
 
-Set the shared secret in `RADIUS_ACCOUNTING_SECRET` (backend env var). The endpoint fails closed
-with HTTP 503 when it is unset.
+The tenant endpoint resolves `NAS-IP-Address` only inside the token's
+organization. Session IDs and subscriber-assigned private addresses may be
+reused safely between shared-primary organizations. Active NAS addresses and
+RADIUS usernames must remain installation-wide unique inside one shared
+database because source-only listeners and the stock FreeRADIUS compatibility
+tables are not tenant-keyed. Those values may be reused across physically
+isolated tenant databases, where this token fixes the database context.
 
-The endpoint resolves one active NAS from `NAS-IP-Address` before doing any
-subscriber or session lookup. Its `organization_id` is authoritative; no
-environment variable or request field can override tenant ownership. Unknown
-or ambiguous NAS addresses are rejected with HTTP 422, so ensure FreeRADIUS
-sends the registered routable/WireGuard NAS address.
+### Compatibility shared-secret endpoint
+
+`POST /api/v1/radius/accounting` remains available for staged upgrades. It uses
+`X-Radius-Secret` or `Authorization: Bearer` with
+`RADIUS_ACCOUNTING_SECRET`, and is disabled with HTTP 503 when that setting is
+unset. The caller cannot name an organization: FireISP scans shared and active
+isolated database contexts and accepts the request only when
+`NAS-IP-Address` identifies exactly one active NAS installation-wide. Unknown
+or ambiguous addresses fail closed. Do not use this path where private NAS
+addresses may be reused.
 
 ### FreeRADIUS rlm_rest configuration
 
@@ -543,11 +569,10 @@ Install `rlm_rest` (bundled in FreeRADIUS ≥ 3.0). Create or edit
 
 ```apacheconf
 rest {
-    # Base URL of your FireISP backend
     connect_uri = "https://isp.example.com"
 
     accounting {
-        uri = "${..connect_uri}/api/v1/radius/accounting"
+        uri = "${..connect_uri}/api/v1/radius/accounting/tenant"
         method = 'post'
         body = 'json'
         # FireISP returns an acknowledgement object, not RADIUS attributes.
@@ -556,11 +581,10 @@ rest {
         tls = ${..tls}
 
         header {
-            X-Radius-Secret = "<RADIUS_ACCOUNTING_SECRET value>"
+            X-API-Key = "<dedicated organization API token>"
         }
     }
 
-    # 2-second connect / 5-second request timeouts
     connect_timeout = 2.0
     timeout = 5.0
 }
@@ -573,11 +597,9 @@ cd /etc/freeradius/3.0/mods-enabled
 ln -s ../mods-available/rest rest
 ```
 
-### Accounting section
-
 In `/etc/freeradius/3.0/sites-available/default`, add `rest` to the accounting
-section. Keep it after `sql` if you also maintain the optional `radacct` table,
-so SQL accounting still runs if the REST call fails:
+section. `sql` is optional and needs a separate `radacct` table; it is not a
+replacement for the FireISP REST projection/evidence path.
 
 ```apacheconf
 accounting {
@@ -591,63 +613,77 @@ accounting {
 }
 ```
 
-### JSON payload format
+### JSON payload and stored datasets
 
 With `body = 'json'`, FreeRADIUS 3's `rlm_rest` module sends each standard
 hyphenated attribute in an envelope such as
 `"User-Name":{"type":"string","value":["alice"]}`. FireISP consumes that
 native format directly. It also accepts flat hyphenated
 (`"Acct-Status-Type":"Start"`) and camelCase (`"acctStatusType":"Start"`)
-forms for custom shippers. The minimum required fields for each status type are:
+forms for custom shippers.
 
 | Status-Type | Required attributes |
 |-------------|---------------------|
-| Start | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id` |
-| Stop | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id`, `Acct-Terminate-Cause` |
-| Interim-Update | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id` |
-| Accounting-On / Accounting-Off | (no-op — silently ignored) |
+| Start / Stop / Interim-Update | `User-Name`, `NAS-IP-Address`, `Acct-Session-Id` |
+| Accounting-On / Accounting-Off | Status only; acknowledged as a no-op |
 
 Gigawords wraparound is handled automatically:
-`total_bytes = Acct-Input-Octets + Acct-Input-Gigawords × 4294967296`
+`total_bytes = Acct-Input-Octets + Acct-Input-Gigawords × 4294967296`.
+
+Supported application ingest maintains one mutable `connection_logs` row per
+session lifecycle. It separately records selected normalized milestones in
+`radius_accounting_events` (Start, first Interim transition, Stop, and a later
+corrected final Stop when applicable) and monotonic counter deltas in
+`radius_accounting_usage_daily`. Routine Interim heartbeats are not preserved
+as evidence rows. The milestone table is neither a raw-packet archive nor
+tamper-proof/automatically complete statutory storage.
+
+The UTC usage rollup flags non-zero baselines, counter resets/late fields, and
+cross-midnight estimates. Inspect its completeness/anomaly fields before using
+it for billing or FUP. Direct SQL writes to `connection_logs` do not populate
+the rollup and are not a supported usage source.
 
 ### MAC move detection
 
-When a `Start` record arrives for a username that already has an open session on a
-different `Calling-Station-Id` (MAC address) or NAS, FireISP:
+When a `Start` record arrives for a username that already has an open session on
+a different `Calling-Station-Id` or NAS, FireISP closes the old projection,
+records `mac_move_events`, and continues the new lifecycle. View the event under
+**RADIUS → MAC Move Events** or `GET /api/v1/radius/mac-move-events`.
 
-1. Synthesizes a `Stop` record for the old session.
-2. Logs the event to the `mac_move_events` table.
-3. Returns HTTP 200 and continues creating the new `Start` record.
+### CDR export and retention
 
-View events in the UI under **RADIUS → MAC Move Events** or via `GET /api/v1/radius/mac-move-events`.
+`GET /api/v1/radius/cdr` accepts ISO-8601 `from`, `to`, optional `username`, and
+`format=json|csv`. It requires authenticated export permissions and records the
+access. Use bounded periods; oversized exports fail explicitly.
 
-### CDR export
-
-Export call-detail records with `GET /api/v1/radius/cdr`:
-
-| Query parameter | Description |
-|-----------------|-------------|
-| `from` | ISO-8601 start datetime (inclusive) |
-| `to` | ISO-8601 end datetime (inclusive) |
-| `username` | Filter to a single subscriber |
-| `format` | `json` (default) or `csv` |
-
-CSV responses are RFC 4180-compliant with a `Content-Disposition: attachment` header.
-
-Retention is controlled by the `RADIUS_ACCOUNTING_RETENTION_MONTHS` env var (default: 12).
-The `purge_radius_accounting` scheduled task runs nightly at 03:00 and deletes records older
-than the retention window in batches of 1 000 rows to avoid long table-lock events.
+`RADIUS_ACCOUNTING_RETENTION_MONTHS` defaults to 24 calendar months for session
+projections, lifecycle evidence, and the UTC usage rollup. The
+`purge_radius_accounting` task deletes expired records in batches of 1,000
+across the primary and active isolated database contexts.
 
 ### Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `RADIUS_ACCOUNTING_SECRET` | _(unset — endpoint disabled)_ | Shared secret for accounting ingest |
-| `RADIUS_ACCOUNTING_RETENTION_MONTHS` | `12` | Months of accounting data to retain |
+| `RADIUS_ACCOUNTING_SECRET` | _(unset)_ | Enables only the compatibility shared-secret endpoint |
+| `RADIUS_ACCOUNTING_RETENTION_MONTHS` | `24` | Calendar months for projections, lifecycle evidence, and usage rollups |
+| `RADIUS_ACCOUNTING_REQUESTS_PER_MINUTE` | `6000` | Tenant-endpoint requests per token/minute; clamped to 1–60,000 |
+| `RADIUS_ACCOUNTING_MAX_CLOCK_SKEW_SECONDS` | `300` | Accepted future Event-Timestamp skew; capped at 3,600 seconds |
 | `PPPOE_EVENTS_SECRET` | falls back to `RADIUS_ACCOUNTING_SECRET` | Shared secret for optional PPPoE event ingest |
 | `PPPOE_EVENT_POLL_LIMIT` | `500` | Newest RouterOS log records considered per NAS poll (clamped 50–1,000) |
 | `RETENTION_RADPOSTAUTH_DAYS` | `90` | Days to retain post-authentication diagnostics (`radpostauth.authdate`) |
 | `RETENTION_PPPOE_EVENT_LOGS_DAYS` | `90` | Days to retain RouterOS/ingested PPPoE events (`pppoe_event_logs.logged_at`) |
+
+Collector endpoints are rate-limited before parsing and accept JSON bodies up
+to 2 MiB; ordinary API routes retain the general 10 MiB ceiling. Request-rate
+settings are safety ceilings, not capacity promises; load-test the actual
+Interim interval and database latency. Privacy-minimal CGNAT binding ingest is a
+separate pipeline with its own exact `cgnat_attribution:ingest` token and
+operator-controlled external normalizer. It contains source translation,
+port/protocol/time and correlation evidence only—no destination or content
+fields—and is not part of FreeRADIUS accounting. RADIUS supplies the access
+session to which an accepted binding may be correlated; it cannot infer the NAT
+translation itself.
 
 ---
 

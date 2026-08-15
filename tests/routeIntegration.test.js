@@ -265,6 +265,8 @@ describe('Auth Routes — /api/auth', () => {
         id: 1,
         email: 'test@example.com',
         status: 'active',
+        role: 'admin',
+        organization_id: 1,
         email_verified_at: '2026-01-01 00:00:00',
       });
 
@@ -285,6 +287,8 @@ describe('Auth Routes — /api/auth', () => {
         first_name: 'Test',
         last_name: 'User',
         status: 'active',
+        role: 'admin',
+        organization_id: 1,
         email_verified_at: null,
       });
       db.query.mockResolvedValue([{ affectedRows: 1 }]);

@@ -15,6 +15,7 @@ const { serializeLoginTime } = require('./radiusLoginTimeService');
 // applySpeedWindows), so this top-level require is cycle-free.
 const speedWindowService = require('./speedWindowService');
 const { ValidationError } = require('../utils/errors');
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 const {
   WALLED_GARDEN_REASON_PREFIX,
   OPEN_WALLED_GARDEN_PREDICATE,
@@ -132,16 +133,25 @@ async function getActiveSession(contractId) {
   // retained), while a periodic 'interim-update' still is: that subscriber
   // reads as disconnected even though RADIUS is actively accounting traffic
   // for them right now.
+  const liveness = Number.isInteger(config.radiusSessionLivenessMinutes)
+    ? config.radiusSessionLivenessMinutes : 60;
   const [rows] = await db.query(`
-    SELECT * FROM connection_logs
-    WHERE contract_id = ? AND event_type IN ('start', 'interim-update')
-      AND NOT EXISTS (
-        SELECT 1 FROM connection_logs cl2
-        WHERE cl2.session_id = connection_logs.session_id
-          AND cl2.contract_id = connection_logs.contract_id
-          AND cl2.event_type = 'stop'
-      )
-    ORDER BY event_at DESC LIMIT 1
+    SELECT cl.* FROM connection_logs cl
+    JOIN contracts c ON c.id = cl.contract_id AND c.organization_id = cl.organization_id
+    WHERE cl.contract_id = ? AND cl.event_type IN ('start', 'interim-update')
+      AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)
+          >= DATE_SUB(NOW(), INTERVAL ${liveness} MINUTE)
+      AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+        SELECT legacy_latest.id FROM connection_logs legacy_latest
+         WHERE legacy_latest.organization_id = cl.organization_id
+           AND legacy_latest.session_instance_id IS NULL
+           AND legacy_latest.nas_id <=> cl.nas_id
+           AND legacy_latest.username = cl.username
+           AND legacy_latest.contract_id = cl.contract_id
+           AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+               <=> COALESCE(cl.acct_session_id, cl.session_id)
+         ORDER BY legacy_latest.event_at DESC, legacy_latest.id DESC LIMIT 1))
+    ORDER BY COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at) DESC LIMIT 1
   `, [contractId]);
   return rows[0] || null;
 }
@@ -174,14 +184,22 @@ async function getSessionByClientId(clientId, orgId) {
   const [rows] = await db.query(`
     SELECT cl.* FROM connection_logs cl
     JOIN contracts c ON c.id = cl.contract_id
-    WHERE cl.client_id = ? AND c.organization_id = ? AND cl.event_type IN ('start', 'interim-update')
-      AND NOT EXISTS (
-        SELECT 1 FROM connection_logs cl2
-        WHERE cl2.session_id = cl.session_id
-          AND cl2.client_id = cl.client_id
-          AND cl2.event_type = 'stop'
-      )
-    ORDER BY cl.event_at DESC LIMIT 1
+    WHERE cl.client_id = ? AND c.organization_id = ?
+      AND cl.organization_id = c.organization_id
+      AND cl.event_type IN ('start', 'interim-update')
+      AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)
+          >= DATE_SUB(NOW(), INTERVAL ${Number.isInteger(config.radiusSessionLivenessMinutes) ? config.radiusSessionLivenessMinutes : 60} MINUTE)
+      AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+        SELECT legacy_latest.id FROM connection_logs legacy_latest
+         WHERE legacy_latest.organization_id = cl.organization_id
+           AND legacy_latest.session_instance_id IS NULL
+           AND legacy_latest.nas_id <=> cl.nas_id
+           AND legacy_latest.username = cl.username
+           AND legacy_latest.contract_id = cl.contract_id
+           AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+               <=> COALESCE(cl.acct_session_id, cl.session_id)
+         ORDER BY legacy_latest.event_at DESC, legacy_latest.id DESC LIMIT 1))
+    ORDER BY COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at) DESC LIMIT 1
   `, [clientId, orgId]);
   const session = rows[0];
   if (!session) return null;
@@ -243,26 +261,43 @@ async function getSessionHistory(contractId, { from, to } = {}) {
  * Get aggregated data usage for a contract within a time window.
  */
 async function getUsageSummary(contractId, { from, to } = {}) {
+  const overlapStartSql = from ? 'DATE(?)' : "TIMESTAMP('1970-01-01 00:00:00')";
+  const overlapEndSql = to ? 'DATE_ADD(DATE(?), INTERVAL 1 DAY)' : 'UTC_TIMESTAMP(3)';
+  const overlapParams = [contractId];
+  if (from) overlapParams.push(from);
+  if (to) overlapParams.push(to);
   let sql = `
     SELECT
-      COUNT(*) AS session_count,
-      COALESCE(SUM(bytes_in), 0) AS total_bytes_in,
-      COALESCE(SUM(bytes_out), 0) AS total_bytes_out,
-      COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
-      COALESCE(SUM(session_duration), 0) AS total_duration_seconds,
-      COALESCE(SUM(packets_in), 0) AS total_packets_in,
-      COALESCE(SUM(packets_out), 0) AS total_packets_out
-    FROM connection_logs
-    WHERE contract_id = ? AND event_type IN ('stop', 'interim-update')
+      COUNT(DISTINCT u.session_instance_id) AS session_count,
+      COALESCE(SUM(u.bytes_in_delta), 0) AS total_bytes_in,
+      COALESCE(SUM(u.bytes_out_delta), 0) AS total_bytes_out,
+      COALESCE(SUM(u.bytes_in_delta + u.bytes_out_delta), 0) AS total_bytes,
+      COALESCE(SUM(u.duration_delta), 0) AS total_duration_seconds,
+      COALESCE(SUM(u.packets_in_delta), 0) AS total_packets_in,
+      COALESCE(SUM(u.packets_out_delta), 0) AS total_packets_out,
+      COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows
+      , COUNT(*) AS observed_rows,
+      (SELECT COUNT(*)
+         FROM contracts subject_contract
+         JOIN connection_logs unverifiable
+           ON unverifiable.organization_id = subject_contract.organization_id
+          AND unverifiable.contract_id = subject_contract.id
+        WHERE subject_contract.id = ?
+          AND ${buildUnverifiableSessionOverlap(
+    'unverifiable', overlapStartSql, overlapEndSql,
+  )}) AS unverifiable_session_rows
+    FROM radius_accounting_usage_daily u
+    JOIN contracts c ON c.id = u.contract_id AND c.organization_id = u.organization_id
+    WHERE u.contract_id = ?
   `;
-  const params = [contractId];
+  const params = [...overlapParams, contractId];
 
   if (from) {
-    sql += ' AND event_at >= ?';
+    sql += ' AND u.usage_date >= DATE(?)';
     params.push(from);
   }
   if (to) {
-    sql += ' AND event_at <= ?';
+    sql += ' AND u.usage_date <= DATE(?)';
     params.push(to);
   }
 
@@ -283,6 +318,10 @@ async function getUsageSummary(contractId, { from, to } = {}) {
     download_gb: parseFloat((r.total_bytes_in / BYTES_PER_GB).toFixed(3)),
     upload_gb: parseFloat((r.total_bytes_out / BYTES_PER_GB).toFixed(3)),
     total_gb: parseFloat((r.total_bytes / BYTES_PER_GB).toFixed(3)),
+    unverifiable_session_rows: Number(r.unverifiable_session_rows || 0),
+    usage_complete: Number(r.observed_rows || 0) > 0
+      && Number(r.incomplete_rows || 0) === 0
+      && Number(r.unverifiable_session_rows || 0) === 0,
   };
 }
 
@@ -1034,7 +1073,7 @@ async function kickDuplicateSessions(organizationId) {
   const [subscribers] = await db.query(
     `SELECT r.id AS radius_id, r.username,
             COALESCE(r.simultaneous_use, p.simultaneous_use, 1) AS allowed_sim_use,
-            r.contract_id
+            r.contract_id, COALESCE(r.organization_id, c.organization_id) AS organization_id
      FROM radius r
      LEFT JOIN contracts c ON c.id = r.contract_id
      LEFT JOIN plans p ON p.id = c.plan_id
@@ -1084,24 +1123,29 @@ async function kickDuplicateSessions(organizationId) {
       // (livenessMinutes is validated to a positive integer above — it is
       // interpolated, not bound, matching the inline 90 DAY literal.)
       const [activeSessions] = await db.query(
-        `SELECT cl.session_id,
-                MIN(cl.event_at) AS event_at,
-                MAX(cl.nas_ip_address) AS nas_ip_address
+        `SELECT COALESCE(cl.acct_session_id, cl.session_id) AS session_id,
+                cl.event_at,
+                cl.nas_ip_address
          FROM connection_logs cl
-         WHERE cl.username = ?
-           AND cl.session_id IS NOT NULL
-           AND cl.event_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+         WHERE cl.organization_id = ?
+           AND cl.username = ?
+           AND COALESCE(cl.acct_session_id, cl.session_id) IS NOT NULL
            AND cl.event_type IN ('start', 'interim-update')
-           AND NOT EXISTS (
-             SELECT 1 FROM connection_logs cl2
-             WHERE cl2.session_id = cl.session_id
-               AND cl2.username = cl.username
-               AND cl2.event_type = 'stop'
-           )
-         GROUP BY cl.session_id
-         HAVING MAX(cl.event_at) >= DATE_SUB(NOW(), INTERVAL ${livenessMinutes} MINUTE)
-         ORDER BY event_at ASC, cl.session_id ASC`,
-        [sub.username],
+           AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at) >=
+               DATE_SUB(NOW(), INTERVAL ${livenessMinutes} MINUTE)
+           AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+             SELECT legacy_latest.id FROM connection_logs legacy_latest
+              WHERE legacy_latest.organization_id = cl.organization_id
+                AND legacy_latest.session_instance_id IS NULL
+                AND legacy_latest.nas_id <=> cl.nas_id
+                AND legacy_latest.username = cl.username
+                AND legacy_latest.contract_id = cl.contract_id
+                AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                    <=> COALESCE(cl.acct_session_id, cl.session_id)
+              ORDER BY COALESCE(legacy_latest.last_accounting_at, legacy_latest.event_at) DESC,
+                       legacy_latest.id DESC LIMIT 1))
+         ORDER BY cl.event_at ASC, COALESCE(cl.acct_session_id, cl.session_id) ASC`,
+        [sub.organization_id, sub.username],
       );
 
       const excess = activeSessions.length - sub.allowed_sim_use;

@@ -258,6 +258,12 @@ export function App() {
                 {/* Backend pppoe.diagnostics / MAC-move permissions determine
                     which datasets each authenticated role may read. */}
                 <Route path="pppoe-diagnostics" element={<PppoeDiagnostics />} />
+                {/* Subscriber accounting is available to every authenticated
+                    persona whose resolved backend permissions allow it. */}
+                <Route path="connection-logs" element={<ConnectionLogList />} />
+                {/* Tab visibility and every API operation are permission-gated;
+                    this route also supports custom legal-response principals. */}
+                <Route path="regulatory-compliance" element={<RegulatoryCompliancePage />} />
               </Route>
             </Route>
 
@@ -287,7 +293,6 @@ export function App() {
                 <Route path="vlans" element={<VlanList />} />
                 <Route path="service-areas" element={<ServiceAreaList />} />
                 <Route path="speed-tests" element={<SpeedTestList />} />
-                <Route path="connection-logs" element={<ConnectionLogList />} />
                 <Route path="snmp-profiles" element={<SnmpProfileList />} />
                 <Route path="device-config-backups" element={<DeviceConfigBackupList />} />
                 <Route path="config-templates" element={<ConfigTemplateList />} />
@@ -369,7 +374,6 @@ export function App() {
                 <Route path="late-fee-rules" element={<LateFeeRuleList />} />
                 <Route path="payment-reminder-settings" element={<PaymentReminderSettings />} />
                 <Route path="profeco-complaints" element={<ProfecoComplaints />} />
-                <Route path="regulatory-compliance" element={<RegulatoryCompliancePage />} />
               </Route>
             </Route>
 

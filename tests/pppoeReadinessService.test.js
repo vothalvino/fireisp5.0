@@ -143,9 +143,12 @@ describe('pppoeReadinessService', () => {
     expect(result.sources.authentication.status).toBe('ready');
     expect(result.sources.routerEvents).toMatchObject({ status: 'waiting', coveredNas: 1, totalNas: 2 });
     expect(result.sources.accounting.status).toBe('waiting');
-    const accountingSql = db.query.mock.calls.find(([sql]) => sql.includes('FROM connection_logs'))[0];
-    expect(accountingSql).toContain('JOIN nas n ON n.id = cl.nas_id');
+    const accountingCall = db.query.mock.calls.find(([sql]) => sql.includes('FROM connection_logs'));
+    const [accountingSql, accountingParams] = accountingCall;
+    expect(accountingSql).toContain('WHERE cl.organization_id = ?');
+    expect(accountingSql).not.toContain('JOIN nas');
     expect(accountingSql).not.toContain('cl.username');
+    expect(accountingParams).toEqual([4]);
   });
 
   test('returns ready when all three tenant sources have recent events and full NAS coverage', async () => {

@@ -67,8 +67,17 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter:    (_r, _s, n) => n(),
   sseLimiter:       (_r, _s, n) => n(),
   webhookLimiter:   (_r, _s, n) => n(),
+  collectorIngressLimiter: (_r, _s, n) => n(),
+  apiTokenConfiguredLimiter: (_r, _s, n) => n(),
+  isCollectorPath:  () => false,
   tenantApiLimiter: (_r, _s, n) => n(),
   uploadLimiter:    (_r, _s, n) => n(),
+  CacheStore: class {
+    init() {}
+    async increment() { return { totalHits: 1, resetTime: new Date(Date.now() + 60000) }; }
+    async decrement() {}
+    async resetKey() {}
+  },
 }));
 jest.mock('../src/middleware/ipAllowlist', () => ({
   createIpAllowlist: () => (_r, _s, n) => n(),
@@ -126,6 +135,7 @@ const ORG_SCOPED_MODELS = [
   require('../src/models/CreditNote'),
   require('../src/models/Expense'),
   require('../src/models/Nas'),
+  require('../src/models/ConnectionLog'),
   require('../src/models/Warehouse'),
   require('../src/models/AuditLog'),
   // AI assistant models (§7)
@@ -255,7 +265,6 @@ describe('BaseModel — org isolation at SQL level', () => {
     // Models that scope by parent FK (e.g. client_id) rather than organization_id directly.
     // These are sub-resources; their parent lookup enforces org isolation.
     const nonScopedModels = [
-      require('../src/models/ConnectionLog'),  // scoped via contract → client → org
       require('../src/models/Contact'),        // scoped via client → org
     ].filter(m => m.hasOrgScope === false);
 

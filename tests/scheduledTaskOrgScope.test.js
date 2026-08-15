@@ -49,6 +49,24 @@ const GLOBAL = { id: 3, organization_id: null, task_name: 'data_retention', is_g
 function wireDb({ rows = [OWN, GLOBAL], targetOrg, user = OPERATOR } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (isUserLookup(sql)) return [[user]];
+    if (/SELECT g\.id AS group_id/.test(sql)) return [[]];
+    if (/SELECT DISTINCT p\.name AS slug/.test(sql)) {
+      return [[
+        { slug: 'scheduled_tasks.view' },
+        { slug: 'scheduled_tasks.create' },
+        { slug: 'scheduled_tasks.update' },
+        { slug: 'scheduled_tasks.delete' },
+      ]];
+    }
+    if (/FROM organizations\s+WHERE id = \?/.test(sql)) {
+      return [[{ id: user.organization_id, name: 'Test ISP' }]];
+    }
+    if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
+      return [[{ membership_role: user.role }]];
+    }
+    if (/FROM users u/.test(sql)) {
+      return [[{ ...user, authority_persona: user.role }]];
+    }
     if (/SELECT is_install_operator FROM users/.test(sql)) {
       return [[{ is_install_operator: user.is_install_operator }]];
     }
@@ -241,6 +259,15 @@ describe('#582 follow-up: a tenant task is OWNED, not global', () => {
     wireDb({ rows: [] });
     db.query.mockImplementation(async (sql) => {
       if (isUserLookup(sql)) return [[OPERATOR]];
+      if (/FROM organizations\s+WHERE id = \?/.test(sql)) {
+        return [[{ id: OPERATOR.organization_id, name: 'Test ISP' }]];
+      }
+      if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
+        return [[{ membership_role: OPERATOR.role }]];
+      }
+      if (/FROM users u/.test(sql)) {
+        return [[{ ...OPERATOR, authority_persona: OPERATOR.role }]];
+      }
       if (/SELECT is_install_operator FROM users/.test(sql)) return [[{ is_install_operator: 1 }]];
       if (/^INSERT INTO `?scheduled_tasks`?/i.test(sql)) return [{ insertId: 77 }];
       // BaseModel backticks the table name; the hand-written route queries do

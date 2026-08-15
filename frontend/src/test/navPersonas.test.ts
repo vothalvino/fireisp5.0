@@ -5,10 +5,9 @@
 // for the redesign (role_permissions seeds in migrations 119/194/197/199/365/
 // 377/393/399). If a change here surprises you, re-run the audit before
 // updating the expectation — a row a role can see must never 403.
-// readonly note (migration 399 + PrivateRoute.tsx fix): canSee()'s guard
-// check no longer blocks readonly (hasRole() bypasses for it, same as
-// admin), so readonly's resolved nav is now identical to admin's — see the
-// dedicated 'readonly' describe block below.
+// readonly note (migration 399 + PrivateRoute.tsx fix): route guards no longer
+// block readonly. Explicit resolved-permission gates remain authoritative for
+// sensitive pages such as Regulatory Compliance.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest';
@@ -24,8 +23,8 @@ import {
   type SectionId,
 } from '@/nav/routes';
 
-function resolve(role: string, locale: 'MX' | 'global' = 'MX') {
-  const user: NavUser = { role, organization_locale: locale };
+function resolve(role: string, locale: 'MX' | 'global' = 'MX', permissions?: string[]) {
+  const user: NavUser = { role, organization_locale: locale, permissions };
   const out: Record<string, { items: string[]; hub: boolean; count: number }> = {};
   for (const s of SECTIONS) {
     if (s.kind === 'link') continue;
@@ -156,8 +155,17 @@ describe('support', () => {
     ]);
   });
   it('gets the support-safe network subset and PPPoE diagnostics — not the device map (no devices.view — audit)', () => {
-    expect(nav.network.items).toEqual(['/network-health', '/outages', '/wg-tunnels', '/pppoe-diagnostics']);
+    expect(nav.network.items).toEqual(['/network-health', '/outages', '/wg-tunnels', '/connection-logs', '/pppoe-diagnostics']);
     expect(nav.network.hub).toBe(false);
+  });
+  it('can discover subscriber connections in both global and MX organizations', () => {
+    expect(resolve('support', 'global').network.items).toContain('/connection-logs');
+    expect(resolve('support', 'MX').network.items).toContain('/connection-logs');
+  });
+  it('only discovers Regulatory Compliance when an assigned permission opens at least one tab', () => {
+    expect(resolve('support').compliance).toBeUndefined();
+    expect(resolve('support', 'MX', ['gov_data_requests.view']).compliance.items)
+      .toContain('/regulatory-compliance');
   });
 });
 
@@ -173,11 +181,18 @@ describe('readonly', () => {
   // && !hasRole(user.role, node.guard)) return false` — never rejects it, and
   // canSee()'s own `if (user.role === 'readonly') return true` (which existed
   // all along but was unreachable) then skips the `roles[]` allowlist too.
-  // Net effect: readonly and admin hit the exact same two early-return lines
-  // in canSee() (only the locale gate applies to both), so their resolved
-  // nav trees are identical — "sees everything" is now literally true.
-  it('sees exactly what admin sees — canSee() no longer guard-blocks or roles[]-blocks it', () => {
-    expect(nav).toEqual(adminNav);
+  // Permission-bound pages are the exception: a read-only principal should
+  // not discover a sensitive page whose every tab would reject it.
+  it('sees the admin tree except for permission-bound Regulatory Compliance', () => {
+    const expected = {
+      ...adminNav,
+      compliance: {
+        ...adminNav.compliance,
+        count: adminNav.compliance.count - 1,
+        items: adminNav.compliance.items.filter(path => path !== '/regulatory-compliance'),
+      },
+    };
+    expect(nav).toEqual(expected);
   });
   it('sees all three hub links (billing/network/admin) now that the guard check passes', () => {
     expect(nav.billing.hub).toBe(true);
@@ -190,8 +205,12 @@ describe('readonly', () => {
     expect(all).toContain('/work-orders');
     expect(all).toContain('/users');
   });
-  it('compliance collapses to the one non-MX item for non-Mexico orgs, same as admin', () => {
+  it('does not show a global compliance section without a matching view permission', () => {
     const global = resolve('readonly', 'global');
+    expect(global.compliance).toBeUndefined();
+  });
+  it('shows Regulatory Compliance after a matching permission is assigned', () => {
+    const global = resolve('readonly', 'global', ['gov_data_requests.view']);
     expect(global.compliance.items).toEqual(['/regulatory-compliance']);
   });
   it('has no default-expanded section — a "sees everything" persona has no obvious single home', () => {

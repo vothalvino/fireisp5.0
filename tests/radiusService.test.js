@@ -295,6 +295,9 @@ describe('radiusService', () => {
         total_duration_seconds: 36000,
         total_packets_in: 1000000,
         total_packets_out: 500000,
+        observed_rows: 1,
+        incomplete_rows: 0,
+        unverifiable_session_rows: 1,
       }]]);
 
       const result = await radiusService.getUsageSummary(1, { from: '2026-03-01', to: '2026-03-31' });
@@ -302,6 +305,9 @@ describe('radiusService', () => {
       expect(result.download_gb).toBe(10);
       expect(result.upload_gb).toBe(5);
       expect(result.sessions).toBe(10);
+      expect(result.usage_complete).toBe(false);
+      expect(result.unverifiable_session_rows).toBe(1);
+      expect(db.query.mock.calls[0][0]).toContain('last_accounting_received_at');
     });
   });
 });

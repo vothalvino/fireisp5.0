@@ -56,7 +56,7 @@ FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'identity_ver
 -- Module: gov_data_requests (sensitive — admin only)
 -- ---------------------------------------------------------------------------
 INSERT INTO permissions (name, description, module)
-SELECT 'gov_data_requests.view', 'View government data requests (lawful interception log — admin only)', 'gov_data_requests'
+SELECT 'gov_data_requests.view', 'View the validated government-request register (admin only)', 'gov_data_requests'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE name = 'gov_data_requests.view');
 
 INSERT INTO permissions (name, description, module)

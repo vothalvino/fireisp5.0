@@ -12,13 +12,25 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { createApiToken, updateApiToken } = require('../middleware/schemas/apiTokens');
 const { validateScopes, listAvailableScopes } = require('../utils/scopes');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, ForbiddenError } = require('../utils/errors');
+const db = require('../config/database');
 
 const router = Router();
 const ctrl = crudController(ApiToken);
 
+function requireInteractiveJwt(req, _res, next) {
+  if (req.user?.apiTokenId) {
+    return next(new ForbiddenError('API token lifecycle changes require an interactive user session'));
+  }
+  return next();
+}
+
 router.use(authenticate);
 router.use(orgScope);
+// API-token authentication necessarily happens before tenant routing, so token
+// lifecycle records are control-plane data in the primary database even when
+// their owning organization uses an isolated subscriber database.
+router.use((req, res, next) => db.withPrimaryContext(() => next()));
 
 // GET /api-tokens/scopes — list all available scopes (for UI token-creation forms)
 router.get('/scopes', requirePermission('api_tokens.view'), (_req, res) => {
@@ -29,7 +41,7 @@ router.get('/', requirePermission('api_tokens.view'), ctrl.list);
 router.get('/:id', requirePermission('api_tokens.view'), ctrl.get);
 
 // Create token — generate plaintext, store SHA-256 hash, validate scopes
-router.post('/', requirePermission('api_tokens.create'), validate(createApiToken, { strip: true }), async (req, res, next) => {
+router.post('/', requireInteractiveJwt, requirePermission('api_tokens.create'), validate(createApiToken, { strip: true }), async (req, res, next) => {
   try {
     // Validate scopes if provided
     if (req.body.scopes !== undefined && req.body.scopes !== null) {
@@ -60,7 +72,7 @@ router.post('/', requirePermission('api_tokens.create'), validate(createApiToken
 });
 
 // Update token — validate scopes if changing
-router.put('/:id', requirePermission('api_tokens.update'), validate(updateApiToken, { strip: true }), async (req, res, next) => {
+router.put('/:id', requireInteractiveJwt, requirePermission('api_tokens.update'), validate(updateApiToken, { strip: true }), async (req, res, next) => {
   try {
     if (req.body.scopes !== undefined && req.body.scopes !== null) {
       const { valid, errors } = validateScopes(req.body.scopes);
@@ -88,7 +100,7 @@ router.put('/:id', requirePermission('api_tokens.update'), validate(updateApiTok
   }
 });
 
-router.delete('/:id', requirePermission('api_tokens.delete'), ctrl.destroy);
-router.post('/:id/restore', requirePermission('api_tokens.update'), ctrl.restore);
+router.delete('/:id', requireInteractiveJwt, requirePermission('api_tokens.delete'), ctrl.destroy);
+router.post('/:id/restore', requireInteractiveJwt, requirePermission('api_tokens.update'), ctrl.restore);
 
 module.exports = router;

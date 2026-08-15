@@ -170,13 +170,13 @@ describe('dashboardController', () => {
       expect(data.value).toBe('1,284');
       expect(data.note).toBe('RADIUS · 94% of base'); // 1284/1370 → 94%
       const [sql, params] = db.queryReplica.mock.calls[0];
-      expect(sql).toContain("event_type = 'start'");
-      expect(sql).toContain('organization_id = ?');
-      // Hardened: only count sessions with a real session_id (NULL never matches a
-      // stop → would count as live forever), and fall back to NAS on a join miss.
-      expect(sql).toContain('cl.session_id IS NOT NULL');
-      expect(sql).toContain('c.id IS NULL');
-      expect(params).toEqual([3, 3, 3]);
+      expect(sql).toContain("cl.event_type IN ('start', 'interim-update')");
+      expect(sql).toContain('cl.organization_id = ?');
+      expect(sql).toContain('COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)');
+      expect(sql).toContain('INTERVAL 60 MINUTE');
+      expect(sql).toContain('cl.session_instance_id IS NOT NULL OR cl.id =');
+      expect(sql).toContain('COALESCE(cl.acct_session_id, cl.session_id)');
+      expect(params).toEqual([3, 3]);
     });
 
     test('guards divide-by-zero when there are no active contracts', async () => {
@@ -227,7 +227,11 @@ describe('dashboardController', () => {
       // (a MAX(polled_at) join could tie and duplicate the device row).
       expect(sql).toContain('ORDER BY sm.polled_at DESC');
       expect(sql).toContain('LIMIT 1');
-      expect(sql).toContain('cl.session_id IS NOT NULL');
+      expect(sql).toContain("cl.event_type IN ('start', 'interim-update')");
+      expect(sql).toContain('COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)');
+      expect(sql).toContain('INTERVAL 60 MINUTE');
+      expect(sql).toContain('cl.session_instance_id IS NOT NULL OR cl.id =');
+      expect(sql).toContain('GROUP BY cl.organization_id, cl.nas_id');
       expect(params).toEqual([1]);
     });
 

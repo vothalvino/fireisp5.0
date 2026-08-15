@@ -6,6 +6,7 @@ const {
   VALID_RESOURCES,
   ACCESS_READ,
   ACCESS_WRITE,
+  ACCESS_INGEST,
   permissionToScope,
   hasScope,
   scopeAllowsPermission,
@@ -68,12 +69,13 @@ describe('hasScope', () => {
     expect(hasScope(undefined, 'clients', 'read')).toBe(true);
   });
 
-  test('empty array → unrestricted', () => {
-    expect(hasScope([], 'clients', 'write')).toBe(true);
+  test('empty array → deny all', () => {
+    expect(hasScope([], 'clients', 'write')).toBe(false);
   });
 
-  test('non-array → unrestricted', () => {
-    expect(hasScope('not-an-array', 'clients', 'read')).toBe(true);
+  test('non-array → deny all', () => {
+    expect(hasScope('not-an-array', 'clients', 'read')).toBe(false);
+    expect(hasScope({}, 'clients', 'read')).toBe(false);
   });
 
   test('exact read scope matches read', () => {
@@ -134,8 +136,8 @@ describe('scopeAllowsPermission', () => {
     expect(scopeAllowsPermission(null, 'clients.create')).toBe(true);
   });
 
-  test('empty array allows everything', () => {
-    expect(scopeAllowsPermission([], 'clients.view')).toBe(true);
+  test('empty array denies everything', () => {
+    expect(scopeAllowsPermission([], 'clients.view')).toBe(false);
   });
 
   test('clients:read allows clients.view', () => {
@@ -286,7 +288,10 @@ describe('listAvailableScopes', () => {
   test('returns array of scope objects', () => {
     const scopes = listAvailableScopes();
     expect(Array.isArray(scopes)).toBe(true);
-    expect(scopes.length).toBe(2 + VALID_RESOURCES.length * 2); // 2 wildcards + 2 per resource
+    // Two wildcards, read/write for every resource, and the two explicit
+    // collector-only ingest scopes.
+    expect(scopes.length).toBe(2 + VALID_RESOURCES.length * 2 + 2);
+    expect(ACCESS_INGEST).toBe('ingest');
   });
 
   test('first two entries are wildcards', () => {

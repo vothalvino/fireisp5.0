@@ -710,7 +710,8 @@ function generateSpec() {
         put: { tags: ['RADIUS'], summary: 'Update org walled garden settings', operationId: 'updateWalledGardenSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('radius_updateWalledGarden'), responses: r200('WalledGardenSettings') },
       },
       '/radius/kick-sessions': { post: { tags: ['RADIUS'], summary: 'Trigger manual duplicate-session kick for org', operationId: 'kickDuplicateSessions', security: [{ bearerAuth: [] }], responses: r200('Kick result') } },
-      '/radius/accounting': { post: { tags: ['RADIUS'], summary: 'Ingest FreeRADIUS accounting record (Start/Stop/Interim-Update) — machine-to-machine, secret auth', operationId: 'ingestRadiusAccounting', responses: r200('Ingest result') } },
+      '/radius/accounting': { post: { tags: ['RADIUS'], summary: 'Compatibility accounting ingest for a trusted central collector; NAS IP must be globally unambiguous', operationId: 'ingestRadiusAccounting', security: [{ radiusAccountingSecret: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/RadiusAccountingRequest' }, 'RADIUS accounting attributes'), responses: accountingIngestResponses() } },
+      '/radius/accounting/tenant': { post: { tags: ['RADIUS'], summary: 'Recommended organization-bound accounting ingest', description: 'Requires a dedicated organization API token whose only scope is connection_logs:ingest. The NAS is resolved only inside the token organization.', operationId: 'ingestTenantRadiusAccounting', security: [{ apiKeyAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/RadiusAccountingRequest' }, 'RADIUS accounting attributes'), responses: accountingIngestResponses() } },
       '/radius/cdr': { get: { tags: ['RADIUS'], summary: 'Export CDR session records from connection_logs', operationId: 'exportRadiusCdr', security: [{ bearerAuth: [] }], parameters: [{ name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } }, { name: 'username', in: 'query', schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'csv'] } }], responses: r200('CDR rows or CSV') } },
       '/radius/coa': { post: { tags: ['RADIUS'], summary: 'Send dynamic CoA-Request to NAS for a subscriber', operationId: 'sendDynamicCoA', security: [{ bearerAuth: [] }], requestBody: jsonBody('Dynamic CoA request'), responses: r200('CoA result') } },
       '/radius/mac-move-events': { get: {
@@ -757,12 +758,24 @@ function generateSpec() {
       ...crudPaths('speed-tests', 'Speed Tests', 'SpeedTest'),
 
       // ---- Connection Logs ----
-      '/connection-logs': { get: { tags: ['Connection Logs'], summary: 'List connection logs', operationId: 'listConnectionLogs', security: [{ bearerAuth: [] }], responses: r200('ConnectionLog[]') } },
-      '/connection-logs/active': { get: { tags: ['Connection Logs'], summary: 'List active PPPoE sessions (start events with no stop)', operationId: 'listActiveRadiusSessions', security: [{ bearerAuth: [] }], responses: r200('Session[]') } },
+      '/connection-logs': { get: { tags: ['Connection Logs'], summary: 'List subscriber session records', description: 'Application-ingested lifecycles are one mutable projection row per session_instance_id. Deprecated direct-SQL rows are exposed as individual legacy accounting events; they cannot reconstruct reliable per-connection lifecycle history. Non-stopped records older than the configured receipt-liveness window return state=unknown rather than being presented as currently active.', operationId: 'listConnectionLogs', security: [{ bearerAuth: [] }], parameters: sessionQueryParameters(), responses: paginatedResponse('ConnectionSession') } },
+      '/connection-logs/export': { get: { tags: ['Connection Logs'], summary: 'Export subscriber session records as CSV', description: 'Requires connection_logs.export. Both UTC/offset date bounds are mandatory, the window is limited to 366 days, and results over 50,000 rows are rejected explicitly. Access is audited.', operationId: 'exportConnectionLogs', security: [{ bearerAuth: [] }], parameters: sessionExportQueryParameters(), responses: csvExportResponses('Subscriber session CSV') } },
+      '/connection-logs/active': { get: { tags: ['Connection Logs'], summary: 'List recently observed active PPPoE sessions', operationId: 'listActiveRadiusSessions', security: [{ bearerAuth: [] }], parameters: activeSessionQueryParameters(), responses: paginatedResponse('ConnectionSession') } },
       '/connection-logs/active/summary': { get: { tags: ['Connection Logs'], summary: 'Active session counts grouped by NAS and port', operationId: 'getActiveSessionSummary', security: [{ bearerAuth: [] }], responses: r200('ActiveSessionSummary') } },
-      '/connection-logs/binding-report': { get: { tags: ['Connection Logs'], summary: 'IP binding history export (JSON or CSV)', operationId: 'getBindingReport', security: [{ bearerAuth: [] }], responses: r200('BindingReport[]') } },
-      '/connection-logs/daily-usage': { get: { tags: ['Connection Logs'], summary: 'Daily data usage aggregated per client', operationId: 'getDailyUsage', security: [{ bearerAuth: [] }], responses: r200('DailyUsage[]') } },
-      '/connection-logs/top-consumers': { get: { tags: ['Connection Logs'], summary: 'Top N clients by data usage in a period', operationId: 'getTopConsumers', security: [{ bearerAuth: [] }], responses: r200('TopConsumer[]') } },
+      '/connection-logs/binding-report': { get: { tags: ['Connection Logs'], summary: 'IP binding history export (JSON or CSV)', description: 'Requires connection_logs.export and ip_pools.binding_report. Both YYYY-MM-DD bounds are mandatory and limited to 366 days.', operationId: 'getBindingReport', security: [{ bearerAuth: [] }], parameters: bindingReportQueryParameters(), responses: r200('BindingReport[]') } },
+      '/connection-logs/daily-usage': { get: { tags: ['Connection Logs'], summary: 'Daily operational usage deltas aggregated per client', description: 'UTC end-day allocation from application-ingested monotonic accounting deltas. Estimated/incomplete rollups and overlapping pending-Start or legacy accounting records set usage_complete=false and expose unverifiable_session_rows.', operationId: 'getDailyUsage', security: [{ bearerAuth: [] }], parameters: usageQueryParameters(true), responses: r200('DailyUsage[]') } },
+      '/connection-logs/top-consumers': { get: { tags: ['Connection Logs'], summary: 'Top clients by operational usage deltas in a period', description: 'Rows report usage_complete=false when the period overlaps incomplete rollups, a pending application Start, or deprecated direct-SQL accounting events.', operationId: 'getTopConsumers', security: [{ bearerAuth: [] }], parameters: usageQueryParameters(false), responses: r200('TopConsumer[]') } },
+      '/connection-logs/cgnat-attribution/bindings/ingest': { post: { tags: ['Connection Logs'], summary: 'Ingest privacy-minimal CGNAT allocation/release evidence', description: 'Exact-scope organization API token only: cgnat_attribution:ingest. TCP/UDP endpoint-independent public tuples only. Destination addresses, URLs, content and packet data are rejected as unknown fields. V1 has no standalone heartbeat: a quiet exporter or long-lived mapping cannot support positive attribution after its last certain allocate/release evidence horizon.', operationId: 'ingestCgnatAttributionBindings', security: [{ apiKeyAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/CgnatBindingIngestRequest' }, 'Allocation/release evidence batch; hard ceiling 1,000'), responses: { 200: dataResponse('CgnatBindingIngestResult'), 401: errorResponse('API token required'), 403: errorResponse('Exact bound collector token required'), 409: errorResponse('Conflicting replay or overlapping tuple'), 422: errorResponse('Invalid or incomplete evidence') } } },
+      '/connection-logs/cgnat-attribution/exporters': {
+        get: { tags: ['Connection Logs'], summary: 'List approved CGNAT exporter evidence epochs', description: 'Interactive user plus cgnat_attribution.manage. Collector tokens cannot enumerate configurations.', operationId: 'listCgnatAttributionExporters', security: [{ bearerAuth: [] }], responses: { 200: arrayDataResponse('CgnatExporterConfig'), 403: errorResponse('Interactive manage permission required') } },
+        put: { tags: ['Connection Logs'], summary: 'Create, approve, or retire a CGNAT exporter evidence epoch', description: 'Interactive user plus cgnat_attribution.manage. Evidentiary fields freeze after the first event; retirement requires enabled=false and is_required=false and no open allocations. Reconfiguration/token rotation uses a versioned identity.', operationId: 'saveCgnatAttributionExporter', security: [{ bearerAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/CgnatExporterConfigInput' }, 'Explicit purpose, pool, exclusive-tuple capability, and bound collector token'), responses: { 200: dataResponse('CgnatExporterConfig'), 403: errorResponse('Interactive manage permission required'), 409: errorResponse('Frozen epoch or open allocations'), 422: errorResponse('Invalid configuration') } },
+      },
+      '/connection-logs/cgnat-attribution/exporters/{id}/release-recovery': {
+        post: { tags: ['Connection Logs'], summary: 'Approve a release-only collector for a faulted exporter epoch', description: 'Interactive cgnat_attribution.manage only. Available only when the frozen collector is no longer valid and open allocations remain. The replacement token may close existing mappings but cannot allocate; approval permanently faults the old epoch so it can never produce positive attribution.', operationId: 'approveCgnatExporterReleaseRecovery', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: typedJsonBody({ $ref: '#/components/schemas/CgnatExporterReleaseRecoveryRequest' }, 'Audited incident reference and unbound exact-scope recovery token'), responses: { 200: dataResponse('CgnatExporterConfig'), 403: errorResponse('Interactive manage permission required'), 404: errorResponse('Exporter configuration not found'), 409: errorResponse('Recovery is unnecessary, already approved, or no open allocations remain'), 422: errorResponse('Invalid recovery token or request') } },
+      },
+      '/connection-logs/ip-attribution/lookup': { post: { tags: ['Connection Logs'], summary: 'Resolve one approved-case public-IP attribution', description: 'Interactive JWT only. Requires gov_data_requests.view and ip_attribution.view plus a same-organization processing ip_traceability case whose exact public IPv4/time and optional TCP/UDP port tuple match. No routine binding browser is exposed.', operationId: 'lookupIpAttribution', security: [{ bearerAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/IpAttributionLookupRequest' }, 'Direct assignment omits port/protocol; shared CGNAT supplies both'), responses: { 200: dataResponse('IpAttributionLookupResult'), 403: errorResponse('Case, permission, subject, or interactive-session gate failed'), 404: errorResponse('Government data request not found'), 422: errorResponse('Invalid exact lookup') } } },
+      '/connection-logs/ip-attribution/export': { post: { tags: ['Connection Logs'], summary: 'Export one approved-case public-IP attribution as CSV', description: 'Interactive JWT only. Requires gov_data_requests.view and ip_attribution.export. Access is audited before disclosure and the response carries X-Evidence-SHA256.', operationId: 'exportIpAttribution', security: [{ bearerAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/IpAttributionLookupRequest' }, 'Exact approved-case lookup'), responses: csvExportResponses('One case-bound IP-attribution result') } },
+      '/connection-logs/readiness': { get: { tags: ['Connection Logs'], summary: 'Get operational IP-attribution readiness', description: 'Operational evidence health, not a legal certification or proof of a human action. CGNAT detail is visible only with ip_attribution.view or cgnat_attribution.manage.', operationId: 'getConnectionLoggingReadiness', security: [{ bearerAuth: [] }], responses: { 200: dataResponse('ConnectionLoggingReadiness'), 403: errorResponse('Permission denied') } } },
 
       // ---- Device Config Backups ----
       ...crudPaths('device-config-backups', 'Device Config Backups', 'DeviceConfigBackup'),
@@ -930,7 +943,7 @@ function generateSpec() {
       '/reports/data-retention-compliance': { get: { tags: ['Reports'], summary: 'Data retention compliance report', operationId: 'dataRetentionCompliance', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/ip-assignment-log': { get: { tags: ['Reports'], summary: 'IP assignment log', operationId: 'ipAssignmentLog', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/subscriber-identity': { get: { tags: ['Reports'], summary: 'Subscriber identity verification report', operationId: 'subscriberIdentity', security: [{ bearerAuth: [] }], responses: r200('Report') } },
-      '/reports/interception-readiness': { get: { tags: ['Reports'], summary: 'Traffic interception readiness', operationId: 'interceptionReadiness', security: [{ bearerAuth: [] }], responses: r200('Report') } },
+      '/reports/interception-readiness': { get: { tags: ['Reports'], summary: 'Operational connection-logging readiness', description: 'Compatibility endpoint for connection-logging pipeline health. The result is operational information, not a legal-compliance certification.', operationId: 'interceptionReadiness', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/regulatory-export': { get: { tags: ['Reports'], summary: 'Regulatory filing data export', operationId: 'regulatoryExport', security: [{ bearerAuth: [] }], responses: r200('Report') } },
       '/reports/{report}/export': { get: { tags: ['Reports'], summary: 'Export any report as CSV/XLSX/PDF', operationId: 'exportReport', security: [{ bearerAuth: [] }], parameters: [{ name: 'report', in: 'path', required: true, schema: { type: 'string' } }, { name: 'format', in: 'query', schema: { type: 'string', enum: ['csv', 'xlsx', 'pdf'] } }], responses: r200File('application/octet-stream') } },
       '/reports/generate': { post: { tags: ['Reports'], summary: 'Generate a report on-demand', operationId: 'generateReport', security: [{ bearerAuth: [] }], requestBody: jsonBody('report_def_name + format + parameters'), responses: { '202': { description: 'Accepted — generated_reports record created', content: { 'application/json': { schema: { type: 'object' } } } } } } },
@@ -2648,17 +2661,23 @@ function generateSpec() {
         put: { tags: ['Regulatory Compliance MX'], summary: 'Reject identity verification', operationId: 'rejectIdentityVerification', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
       },
       '/regulatory-compliance/gov-data-requests': {
-        get: { tags: ['Regulatory Compliance MX'], summary: 'List government data requests', operationId: 'listGovDataRequests', security: [{ bearerAuth: [] }], responses: r200('Gov data request list') },
-        post: { tags: ['Regulatory Compliance MX'], summary: 'Log government data request', operationId: 'createGovDataRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('regulatoryCompliance_createGovDataRequest'), responses: r201('Gov data request') },
+        get: { tags: ['Regulatory Compliance MX'], summary: 'List government data requests', description: 'Tenant-scoped; validated page/limit/status/request_type filters.', operationId: 'listGovDataRequests', security: [{ bearerAuth: [] }], responses: r200('Gov data request list') },
+        post: { tags: ['Regulatory Compliance MX'], summary: 'Register a government data request for legal review', description: 'Interactive manage permission. ip_traceability requires a globally routable public IPv4, exact UTC instant, and either no port/protocol for direct assignment or both port and TCP/UDP protocol for CGNAT. Starts pending_legal_review and does not authorize lookup.', operationId: 'createGovDataRequest', security: [{ bearerAuth: [] }], requestBody: jsonBody('Validated authority_name, authority_ref, legal_basis, request_type, requested_at, due_date, and exact IP-attribution scope where applicable'), responses: r201('Gov data request') },
       },
       '/regulatory-compliance/gov-data-requests/{id}': {
         get: { tags: ['Regulatory Compliance MX'], summary: 'Get government data request', operationId: 'getGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Gov data request') },
       },
       '/regulatory-compliance/gov-data-requests/{id}/fulfill': {
-        put: { tags: ['Regulatory Compliance MX'], summary: 'Fulfill government data request', operationId: 'fulfillGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Fulfill a processing government data request', operationId: 'fulfillGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
       },
       '/regulatory-compliance/gov-data-requests/{id}/reject': {
-        put: { tags: ['Regulatory Compliance MX'], summary: 'Reject government data request', operationId: 'rejectGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Reject a nonterminal government data request', operationId: 'rejectGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: typedJsonBody({ type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } } }, 'Attributable rejection reason'), responses: r200('Updated') },
+      },
+      '/regulatory-compliance/gov-data-requests/{id}/process': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Approve legal review and enter processing', description: 'Interactive manage permission. Validates official reference, legal basis, tenant subject ownership, and exact IP scope before authorization.', operationId: 'processGovDataRequest', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Updated') },
+      },
+      '/regulatory-compliance/gov-data-requests/{id}/release-evidence-hold': {
+        put: { tags: ['Regulatory Compliance MX'], summary: 'Release preserved attribution evidence after terminal-case review', description: 'Interactive manage permission. Does not happen automatically on fulfillment/rejection; released evidence resumes its original retention clock.', operationId: 'releaseGovDataRequestEvidenceHold', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: typedJsonBody({ type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } } }, 'Reviewed hold-release reason'), responses: r200('Updated') },
       },
       // Audit export + report access logs
       '/audit-logs/export': {
@@ -3155,8 +3174,27 @@ function generateSpec() {
     components: {
       securitySchemes: {
         bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        apiKeyAuth: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
+        radiusAccountingSecret: { type: 'apiKey', in: 'header', name: 'X-Radius-Secret' },
       },
-      schemas,
+      schemas: {
+        ...schemas,
+        ConnectionSession: connectionSessionSchema(),
+        CgnatBindingInput: cgnatBindingInputSchema(),
+        CgnatBindingIngestRequest: cgnatBindingIngestRequestSchema(),
+        CgnatBindingIngestResult: cgnatBindingIngestResultSchema(),
+        CgnatExporterConfigInput: cgnatExporterConfigInputSchema(),
+        CgnatExporterConfig: cgnatExporterConfigSchema(),
+        CgnatExporterReleaseRecoveryRequest: cgnatExporterReleaseRecoveryRequestSchema(),
+        IpAttributionLookupRequest: ipAttributionLookupRequestSchema(),
+        IpAttributionAuthorization: ipAttributionAuthorizationSchema(),
+        DirectPublicAttribution: directPublicAttributionSchema(),
+        CgnatAttribution: cgnatAttributionSchema(),
+        IpAttributionLookupResult: ipAttributionLookupResultSchema(),
+        ConnectionLoggingReadiness: connectionLoggingReadinessSchema(),
+        RadiusAccountingRequest: radiusAccountingRequestSchema(),
+        RadiusAccountingIngestResult: radiusAccountingIngestResultSchema(),
+      },
     },
   };
 }
@@ -3167,6 +3205,559 @@ function jsonBody(desc) {
 }
 function typedJsonBody(schema, description, required = true) {
   return { description, required, content: { 'application/json': { schema } } };
+}
+
+function errorResponse(description) {
+  return {
+    description,
+    content: { 'application/json': { schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { error: { oneOf: [
+        { type: 'string' },
+        { type: 'object', additionalProperties: true },
+      ] } },
+      required: ['error'],
+    } } },
+  };
+}
+
+function dataResponse(componentName) {
+  return {
+    description: 'Success',
+    content: { 'application/json': { schema: {
+      type: 'object', additionalProperties: false, required: ['data'],
+      properties: { data: { $ref: `#/components/schemas/${componentName}` } },
+    } } },
+  };
+}
+
+function arrayDataResponse(componentName) {
+  return {
+    description: 'Success',
+    content: { 'application/json': { schema: {
+      type: 'object', additionalProperties: false, required: ['data'],
+      properties: { data: { type: 'array', items: { $ref: `#/components/schemas/${componentName}` } } },
+    } } },
+  };
+}
+
+function paginatedResponse(componentName) {
+  return {
+    200: {
+      description: 'Paginated result',
+      content: { 'application/json': { schema: {
+        type: 'object', additionalProperties: false, required: ['data', 'meta'],
+        properties: {
+          data: { type: 'array', items: { $ref: `#/components/schemas/${componentName}` } },
+          meta: {
+            type: 'object', additionalProperties: false, required: ['total', 'page', 'limit'],
+            properties: {
+              total: { type: 'integer', minimum: 0 },
+              page: { type: 'integer', minimum: 1 },
+              limit: { type: 'integer', minimum: 1, maximum: 200 },
+            },
+          },
+        },
+      } } },
+    },
+    422: errorResponse('Invalid query filters'),
+  };
+}
+
+function csvExportResponses(description) {
+  return {
+    200: { description, content: { 'text/csv': { schema: { type: 'string' } } } },
+    403: errorResponse('Export permission denied'),
+    422: errorResponse('Invalid, unbounded, or over-limit export'),
+  };
+}
+
+function dateTimeQueryParameter(name, required = false, description) {
+  return { name, in: 'query', required, description, schema: {
+    type: 'string', format: 'date-time',
+  } };
+}
+
+function sessionQueryParameters() {
+  return [
+    pageParam(), limitParam(),
+    { name: 'contract_id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+    { name: 'client_id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+    { name: 'username', in: 'query', schema: { type: 'string', maxLength: 64 } },
+    { name: 'ip_address', in: 'query', description: 'Assigned IPv4, IPv6 address, or delegated prefix', schema: { type: 'string', maxLength: 64 } },
+    { name: 'nas', in: 'query', description: 'NAS id, name fragment, or IP address', schema: { type: 'string', maxLength: 150 } },
+    { name: 'nas_id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+    { name: 'session_id', in: 'query', schema: { type: 'string', maxLength: 64 } },
+    { name: 'acct_session_id', in: 'query', deprecated: true, schema: { type: 'string', maxLength: 64 } },
+    { name: 'mac', in: 'query', schema: { type: 'string', maxLength: 100 } },
+    { name: 'state', in: 'query', schema: { type: 'string', enum: ['active', 'interim', 'ended'] } },
+    { name: 'event_type', in: 'query', schema: { type: 'string', enum: ['start', 'interim-update', 'stop'] } },
+    dateTimeQueryParameter('date_from', false, 'UTC or explicitly offset ISO-8601 date/time'),
+    dateTimeQueryParameter('date_to', false, 'UTC or explicitly offset ISO-8601 date/time'),
+  ];
+}
+
+function sessionExportQueryParameters() {
+  return sessionQueryParameters()
+    .filter(parameter => !['page', 'limit'].includes(parameter.name))
+    .map(parameter => ['date_from', 'date_to'].includes(parameter.name)
+      ? { ...parameter, required: true }
+      : parameter);
+}
+
+function bindingReportQueryParameters() {
+  return [
+    { name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date' } },
+    { name: 'to', in: 'query', required: true, schema: { type: 'string', format: 'date' } },
+    { name: 'ip', in: 'query', required: false, schema: { type: 'string', maxLength: 45 } },
+    { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'csv'], default: 'json' } },
+  ];
+}
+
+function usageQueryParameters(includePaging) {
+  return [
+    ...(includePaging ? [pageParam(), limitParam()] : []),
+    { name: 'date_from', in: 'query', required: false, schema: { type: 'string', format: 'date' } },
+    { name: 'date_to', in: 'query', required: false, schema: { type: 'string', format: 'date' } },
+    ...(includePaging ? [
+      { name: 'client_id', in: 'query', required: false, schema: { type: 'integer', minimum: 1 } },
+      { name: 'contract_id', in: 'query', required: false, schema: { type: 'integer', minimum: 1 } },
+    ] : [{ name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } }]),
+  ];
+}
+
+function activeSessionQueryParameters() {
+  return [
+    pageParam(), limitParam(),
+    { name: 'username', in: 'query', schema: { type: 'string', maxLength: 64 } },
+    { name: 'ip_address', in: 'query', schema: { type: 'string', maxLength: 64 } },
+    { name: 'nas_ip_address', in: 'query', schema: { type: 'string', maxLength: 45 } },
+    { name: 'nas_port_id', in: 'query', schema: { type: 'string', maxLength: 100 } },
+    { name: 'mac', in: 'query', schema: { type: 'string', maxLength: 100 } },
+  ];
+}
+
+function nullableString(format) {
+  return { type: ['string', 'null'], ...(format ? { format } : {}) };
+}
+
+function nullableInteger() { return { type: ['integer', 'null'] }; }
+
+function connectionSessionSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'organization_id', 'username', 'event_type', 'event_at', 'state', 'session_start'],
+    properties: {
+      id: { type: 'integer' }, organization_id: { type: 'integer' },
+      record_kind: { type: 'string', enum: ['session', 'legacy_event'] },
+      contract_id: nullableInteger(), client_id: nullableInteger(), nas_id: nullableInteger(),
+      client_name: nullableString(), nas_name: nullableString(), username: { type: 'string' },
+      session_id: nullableString(), acct_session_id: nullableString(), radius_session_id: nullableString(),
+      session_instance_id: nullableString(), nas_ip_address: nullableString(), nas_port: nullableInteger(),
+      nas_port_id: nullableString(), called_station_id: nullableString(), calling_station_id: nullableString(), mac: nullableString(),
+      ip_address: nullableString(), framed_ip: nullableString(), assigned_ipv4: nullableString(),
+      framed_ipv6_prefix: nullableString(), ipv6_address: nullableString(), ipv6_delegated_prefix: nullableString(), assigned_ipv6: nullableString(),
+      event_type: { type: 'string', enum: ['start', 'interim-update', 'stop'] },
+      state: { type: 'string', enum: ['active', 'interim', 'ended', 'unknown'] },
+      event_at: { type: 'string', format: 'date-time' }, session_start: { type: 'string', format: 'date-time' },
+      started_at: { type: 'string', format: 'date-time' }, session_end: nullableString('date-time'), ended_at: nullableString('date-time'),
+      last_accounting_at: nullableString('date-time'), last_accounting_received_at: nullableString('date-time'),
+      bytes_in: nullableInteger(), bytes_out: nullableInteger(), packets_in: nullableInteger(), packets_out: nullableInteger(),
+      acct_input_octets_v6: nullableInteger(), acct_output_octets_v6: nullableInteger(),
+      session_duration: nullableInteger(), terminate_cause: nullableString(), acct_delay_seconds: nullableInteger(),
+      usage_accounting_complete: { type: 'integer', enum: [0, 1] }, usage_anomaly_count: { type: 'integer', minimum: 0 },
+      attribution_evidence_complete: { type: 'integer', enum: [0, 1] },
+      attribution_anomaly_reason: nullableString(),
+      usage_last_bytes_in: nullableInteger(), usage_last_bytes_out: nullableInteger(),
+      usage_last_packets_in: nullableInteger(), usage_last_packets_out: nullableInteger(), usage_last_duration: nullableInteger(),
+      retention_at: nullableString('date-time'), stack_type: nullableString(), created_at: nullableString('date-time'),
+    },
+  };
+}
+
+function cgnatBindingInputSchema() {
+  const printableId = { type: 'string', minLength: 1, maxLength: 191, pattern: '^[\\x20-\\x7E]+$' };
+  const eventTime = { type: 'string', format: 'date-time' };
+  const nullablePort = { type: ['integer', 'null'], minimum: 1, maximum: 65535 };
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['event_type', 'binding_key', 'binding_type', 'private_ipv4',
+      'public_ipv4', 'public_port_start', 'public_port_end', 'protocol',
+      'allocated_at', 'exporter_id', 'exporter_boot_id', 'nat_instance_id',
+      'nat_pool_id', 'nat_realm', 'event_id', 'sequence_number', 'device_recorded_at',
+      'session_instance_id'],
+    properties: {
+      event_type: { type: 'string', enum: ['allocate', 'release'] },
+      binding_key: printableId,
+      binding_type: { type: 'string', enum: ['single_port', 'port_block'] },
+      private_ipv4: { type: 'string', format: 'ipv4' },
+      private_port_start: nullablePort, private_port_end: nullablePort,
+      public_ipv4: { type: 'string', format: 'ipv4', description: 'Globally routable unicast IPv4 only' },
+      public_port_start: { type: 'integer', minimum: 1, maximum: 65535 },
+      public_port_end: { type: 'integer', minimum: 1, maximum: 65535 },
+      protocol: { oneOf: [{ type: 'string', enum: ['tcp', 'udp', '6', '17'] }, { type: 'integer', enum: [6, 17] }] },
+      allocated_at: eventTime, released_at: nullableString('date-time'),
+      client_id: nullableInteger(), contract_id: nullableInteger(), username: nullableString(),
+      radius_session_id: nullableString(), session_instance_id: {
+        type: 'string', format: 'uuid',
+        description: 'Canonical session_instance_id returned by the tenant RADIUS accounting ingest',
+      },
+      exporter_nas_id: nullableInteger(), exporter_id: printableId,
+      exporter_ip: nullableString('ipv4'), exporter_boot_id: printableId,
+      nat_instance_id: printableId, nat_pool_id: printableId, nat_realm: printableId,
+      event_id: printableId, sequence_number: { type: 'integer', minimum: 0 },
+      device_recorded_at: eventTime,
+      clock_offset_ms: { type: ['integer', 'null'], minimum: -86400000, maximum: 86400000,
+        description: 'Raw device clock minus UTC in milliseconds' },
+      clock_uncertainty_ms: { type: ['integer', 'null'], minimum: 0, maximum: 300000 },
+      records_lost_before: { type: ['integer', 'null'], minimum: 0 },
+    },
+  };
+}
+
+function cgnatBindingIngestRequestSchema() {
+  return { type: 'object', additionalProperties: false, required: ['bindings'], properties: {
+    bindings: { type: 'array', minItems: 1, maxItems: 1000,
+      items: { $ref: '#/components/schemas/CgnatBindingInput' } },
+  } };
+}
+
+function cgnatBindingIngestResultSchema() {
+  const counter = { type: 'integer', minimum: 0 };
+  return { type: 'object', additionalProperties: false,
+    required: ['received', 'inserted', 'replayed', 'allocated', 'released',
+      'incomplete_metadata', 'sequence'],
+    properties: {
+      received: counter, inserted: counter, replayed: counter, allocated: counter,
+      released: counter, incomplete_metadata: counter,
+      sequence: { type: 'object', additionalProperties: false,
+        required: ['initial', 'contiguous', 'reset', 'gap', 'out_of_order'],
+        properties: { initial: counter, contiguous: counter, reset: counter,
+          gap: counter, out_of_order: counter } },
+    } };
+}
+
+function cgnatExporterConfigProperties() {
+  return {
+    exporter_id: { type: 'string', minLength: 1, maxLength: 191 },
+    exporter_nas_id: nullableInteger(), exporter_ip: nullableString('ipv4'),
+    nat_instance_id: { type: 'string', minLength: 1, maxLength: 191 },
+    nat_pool_id: { type: 'string', minLength: 1, maxLength: 191 },
+    nat_pool_record_id: { type: 'integer', minimum: 1 },
+    nat_realm: { type: 'string', minLength: 1, maxLength: 191 },
+    collector_api_token_id: { type: 'integer', minimum: 1 },
+    purpose_reference: nullableString(), tuple_exclusivity_confirmed: { type: 'boolean' },
+    authoritative_baseline_confirmed: { type: 'boolean' },
+    baseline_reference: nullableString(),
+    is_required: { type: 'boolean' }, enabled: { type: 'boolean' },
+  };
+}
+
+function cgnatExporterConfigInputSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['exporter_id', 'nat_instance_id', 'nat_pool_id', 'nat_pool_record_id',
+      'nat_realm', 'collector_api_token_id', 'tuple_exclusivity_confirmed',
+      'purpose_reference', 'authoritative_baseline_confirmed', 'baseline_reference',
+      'is_required', 'enabled'],
+    properties: cgnatExporterConfigProperties() };
+}
+
+function cgnatExporterConfigSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['id', ...cgnatExporterConfigInputSchema().required,
+      'public_ipv4_start', 'public_ipv4_end'],
+    properties: { ...cgnatExporterConfigProperties(),
+      id: { type: 'integer' }, public_ipv4_start: { type: 'string', format: 'ipv4' },
+      public_ipv4_end: { type: 'string', format: 'ipv4' },
+      recovery_collector_api_token_id: nullableInteger(), recovery_reference: nullableString(),
+      recovery_approved_by: nullableInteger(), recovery_approved_at: nullableString('date-time'),
+      collection_approved_by: nullableInteger(), collection_approved_at: nullableString('date-time'),
+      baseline_confirmed_by: nullableInteger(), baseline_confirmed_at: nullableString('date-time'),
+      retired_at: nullableString('date-time'), retired_by: nullableInteger(),
+      last_binding_received_at: nullableString('date-time'), last_device_recorded_at: nullableString('date-time'),
+      last_corrected_device_at: nullableString('date-time'), coverage_horizon_at: nullableString('date-time'),
+      last_exporter_boot_id: nullableString(), last_sequence_number: nullableInteger(),
+      sequence_gap_events: { type: 'integer' }, sequence_missing_records: { type: 'integer' },
+      out_of_order_events: { type: 'integer' }, reported_lost_records: { type: 'integer' },
+      incomplete_metadata_events: { type: 'integer' }, created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+    } };
+}
+
+function cgnatExporterReleaseRecoveryRequestSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['collector_api_token_id', 'incident_reference'],
+    properties: {
+      collector_api_token_id: { type: 'integer', minimum: 1 },
+      incident_reference: { type: 'string', minLength: 1, maxLength: 500 },
+    } };
+}
+
+function ipAttributionLookupRequestSchema() {
+  const common = {
+    gov_data_request_id: { type: 'integer', minimum: 1 },
+    public_ipv4: { type: 'string', format: 'ipv4', description: 'Globally routable unicast IPv4 only' },
+    observed_at: { type: 'string', format: 'date-time' },
+  };
+  return { oneOf: [
+    { type: 'object', additionalProperties: false,
+      required: ['gov_data_request_id', 'public_ipv4', 'observed_at'], properties: common },
+    { type: 'object', additionalProperties: false,
+      required: ['gov_data_request_id', 'public_ipv4', 'public_port', 'protocol', 'observed_at'],
+      properties: { ...common, public_port: { type: 'integer', minimum: 1, maximum: 65535 },
+        protocol: { oneOf: [{ type: 'string', enum: ['tcp', 'udp', '6', '17'] }, { type: 'integer', enum: [6, 17] }] } } },
+  ] };
+}
+
+function ipAttributionAuthorizationSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['authority_name', 'authority_ref', 'legal_reviewed_at',
+      'legal_reviewed_by', 'legal_basis_hash', 'request_row_hash'],
+    properties: {
+      authority_name: { type: 'string' }, authority_ref: { type: 'string' },
+      legal_reviewed_at: nullableString('date-time'), legal_reviewed_by: nullableInteger(),
+      legal_basis_hash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      request_row_hash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    } };
+}
+
+function directPublicAttributionSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['connection_log_id', 'client_id', 'contract_id', 'username',
+      'radius_session_id', 'session_instance_id', 'public_ipv4', 'assigned_at',
+      'released_at', 'certain_from', 'certain_until',
+      'assignment_evidence_id', 'assignment_evidence_event_at',
+      'assignment_evidence_received_at', 'assignment_evidence_integrity_hash',
+      'closure_evidence_id', 'closure_evidence_event_at',
+      'closure_evidence_received_at', 'closure_evidence_integrity_hash',
+      'last_accounting_event_at', 'accounting_received_at', 'evidence_hash'],
+    properties: {
+      connection_log_id: { type: 'integer' }, client_id: { type: 'integer' },
+      client_name: nullableString(), contract_id: { type: 'integer' },
+      username: { type: 'string' }, radius_session_id: { type: 'string' },
+      session_instance_id: { type: 'string' }, public_ipv4: { type: 'string', format: 'ipv4' },
+      assigned_at: { type: 'string', format: 'date-time' }, released_at: nullableString('date-time'),
+      certain_from: { type: 'string', format: 'date-time' },
+      certain_until: { type: 'string', format: 'date-time' },
+      assignment_evidence_id: { type: 'integer' },
+      assignment_evidence_event_at: { type: 'string', format: 'date-time' },
+      assignment_evidence_received_at: { type: 'string', format: 'date-time' },
+      assignment_evidence_integrity_hash: { type: 'string' }, closure_evidence_id: nullableInteger(),
+      closure_evidence_event_at: nullableString('date-time'),
+      closure_evidence_received_at: nullableString('date-time'),
+      closure_evidence_integrity_hash: nullableString(),
+      last_accounting_event_at: nullableString('date-time'),
+      accounting_received_at: nullableString('date-time'),
+      evidence_hash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    } };
+}
+
+function cgnatAttributionSchema() {
+  const integer = { type: 'integer' };
+  const dateTime = { type: 'string', format: 'date-time' };
+  return { type: 'object', additionalProperties: false,
+    required: ['binding_id', 'binding_type', 'client_id', 'contract_id', 'username',
+      'radius_session_id', 'session_instance_id', 'connection_log_id', 'radius_evidence_id',
+      'radius_evidence_event_at', 'radius_evidence_observed_at',
+      'radius_evidence_integrity_hash', 'private_ipv4',
+      'public_ipv4', 'public_port_start', 'public_port_end', 'protocol', 'allocated_at',
+      'released_at', 'certain_from', 'certain_until',
+      'exporter_id', 'exporter_config_id', 'collector_api_token_id',
+      'allocation_event_id', 'allocation_event_integrity_hash', 'integrity_hash'],
+    properties: {
+      binding_id: integer, binding_type: { type: 'string', enum: ['single_port', 'port_block'] },
+      client_id: integer, client_name: nullableString(), contract_id: integer,
+      username: { type: 'string' }, radius_session_id: { type: 'string' },
+      session_instance_id: { type: 'string' }, connection_log_id: integer,
+      radius_evidence_id: integer, radius_evidence_event_at: dateTime,
+      radius_evidence_observed_at: dateTime,
+      radius_evidence_integrity_hash: { type: 'string' },
+      private_ipv4: { type: 'string', format: 'ipv4' },
+      private_port_start: nullableInteger(), private_port_end: nullableInteger(),
+      public_ipv4: { type: 'string', format: 'ipv4' }, public_port_start: integer,
+      public_port_end: integer, protocol: { type: 'string', enum: ['tcp', 'udp'] },
+      allocated_at: dateTime, released_at: nullableString('date-time'), exporter_id: { type: 'string' },
+      certain_from: dateTime, certain_until: dateTime,
+      exporter_config_id: integer, exporter_public_ipv4_start: { type: 'string', format: 'ipv4' },
+      exporter_public_ipv4_end: { type: 'string', format: 'ipv4' },
+      exporter_purpose_reference: { type: 'string' },
+      exporter_tuple_exclusivity_confirmed: { type: 'boolean' },
+      exporter_authoritative_baseline_confirmed: { type: 'boolean' },
+      exporter_baseline_reference: { type: 'string' }, exporter_baseline_confirmed_by: nullableInteger(),
+      exporter_baseline_confirmed_at: dateTime, exporter_collection_approved_by: nullableInteger(),
+      exporter_collection_approved_at: dateTime, exporter_epoch_created_at: dateTime,
+      exporter_epoch_retired_at: nullableString('date-time'),
+      exporter_last_device_recorded_at: nullableString('date-time'),
+      exporter_last_corrected_device_at: nullableString('date-time'),
+      exporter_coverage_horizon_at: nullableString('date-time'),
+      exporter_sequence_gap_events: integer, exporter_sequence_missing_records: integer,
+      exporter_out_of_order_events: integer, exporter_reported_lost_records: integer,
+      exporter_incomplete_metadata_events: integer, collector_api_token_id: integer,
+      exporter_boot_id: { type: 'string' }, nat_instance_id: { type: 'string' },
+      nat_pool_id: { type: 'string' }, nat_realm: { type: 'string' },
+      allocation_event_id: { type: 'string' }, allocation_event_integrity_hash: { type: 'string' },
+      allocation_sequence_number: integer, allocation_sequence_status: { type: 'string' },
+      allocation_device_recorded_at: dateTime, allocation_received_at: dateTime,
+      release_event_id: nullableString(), release_event_integrity_hash: nullableString(),
+      release_sequence_number: nullableInteger(), release_sequence_status: nullableString(),
+      release_device_recorded_at: nullableString('date-time'), release_received_at: nullableString('date-time'),
+      allocation_clock_offset_ms: nullableInteger(), allocation_clock_uncertainty_ms: nullableInteger(),
+      allocation_records_lost_before: nullableInteger(), release_clock_offset_ms: nullableInteger(),
+      release_clock_uncertainty_ms: nullableInteger(), release_records_lost_before: nullableInteger(),
+      access_session_state: { type: 'string', enum: ['active', 'ended'] },
+      access_session_last_accounting_at: nullableString('date-time'),
+      access_session_last_accounting_received_at: nullableString('date-time'),
+      access_session_stop_evidence_id: nullableInteger(),
+      access_session_stop_event_at: nullableString('date-time'),
+      access_session_stop_observed_at: nullableString('date-time'),
+      access_session_stop_integrity_hash: nullableString(), integrity_hash: { type: 'string' },
+    } };
+}
+
+function ipAttributionLookupResultSchema() {
+  return { type: 'object', additionalProperties: false,
+    required: ['gov_data_request_id', 'query', 'status', 'reason', 'candidate_count', 'attributionMethod'],
+    properties: {
+      gov_data_request_id: { type: 'integer' },
+      query: { type: 'object', additionalProperties: false,
+        required: ['public_ipv4', 'public_port', 'protocol', 'observed_at'],
+        properties: { public_ipv4: { type: 'string', format: 'ipv4' },
+          public_port: nullableInteger(), protocol: nullableString(), observed_at: { type: 'string', format: 'date-time' } } },
+      status: { type: 'string', enum: ['matched', 'unavailable', 'ambiguous'] },
+      reason: nullableString(), candidate_count: { type: 'integer', minimum: 0 },
+      attributionMethod: { type: ['string', 'null'], enum: ['direct_public_assignment', 'cgnat_binding', null] },
+      attribution: { oneOf: [
+        { $ref: '#/components/schemas/DirectPublicAttribution' },
+        { $ref: '#/components/schemas/CgnatAttribution' },
+      ], description: 'Present only for a unique matched result' },
+      evidence_snapshot_hash: nullableString(),
+      authorization: { $ref: '#/components/schemas/IpAttributionAuthorization' },
+    } };
+}
+
+function connectionLoggingReadinessSchema() {
+  const status = { type: 'string', enum: ['ready', 'partial', 'not_applicable', 'not_configured', 'waiting_for_traffic'] };
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['ready', 'status', 'checked_at', 'database_scope', 'active_nas',
+      'active_contracts', 'session_logger', 'cgnat_attribution', 'retention', 'caveats'],
+    properties: {
+      ready: { type: 'boolean' }, status, checked_at: { type: 'string', format: 'date-time' },
+      database_scope: { type: 'string', enum: ['shared', 'isolated'] },
+      active_nas: { type: 'integer' }, maintenance_nas: { type: 'integer' },
+      active_contracts: { type: 'integer' }, unattributed_legacy_sessions: { type: 'integer' },
+      session_logger: { type: 'object', additionalProperties: false,
+        required: ['configured', 'status', 'ready', 'receiving', 'healthy',
+          'lifecycle_evidence_24h', 'active_sessions', 'attributable_active_sessions',
+          'evidence_anchored_active_sessions',
+          'covered_sources', 'total_sources', 'source_coverage_complete',
+          'direct_public_attribution_ready', 'timeline_current'], properties: {
+          configured: { type: 'boolean' },
+          status: { type: 'string', enum: ['receiving', 'incomplete', 'waiting_for_traffic', 'not_configured'] },
+          ready: { type: 'boolean' }, receiving: { type: 'boolean' }, healthy: { type: 'boolean' },
+          last_received_at: nullableString('date-time'), last_event_at: nullableString('date-time'),
+          lifecycle_evidence_24h: { type: 'integer' }, active_sessions: { type: 'integer' },
+          attributable_active_sessions: { type: 'integer' },
+          evidence_anchored_active_sessions: { type: 'integer' }, covered_sources: { type: 'integer' },
+          total_sources: { type: 'integer' }, source_coverage_complete: { type: 'boolean' },
+          direct_public_attribution_ready: { type: 'boolean' },
+          last_projection_at: nullableString('date-time'),
+          timeline_current: { type: 'boolean' },
+        } },
+      cgnat_attribution: { oneOf: [
+        { type: 'object', additionalProperties: false, required: ['authorized', 'status'],
+          properties: { authorized: { const: false }, status: { const: 'not_authorized' } } },
+        { type: 'object', additionalProperties: false,
+          required: ['ready', 'configured', 'status', 'collector_tokens', 'expected_exporters',
+            'expected_pools', 'active_cgnat_pools', 'enabled_exporters',
+            'approved_exporters', 'receiving_exporters',
+            'complete_exporters', 'invalid_bound_exporter_tokens',
+            'overlapping_required_pool_pairs', 'coverage_status', 'bindings_24h', 'events_24h',
+            'open_bindings', 'stale_open_bindings', 'incomplete_metadata_24h',
+            'sequence_gap_events_24h', 'reported_lost_records_24h', 'clock_status',
+            'max_clock_offset_ms', 'loss_status', 'active_case_holds', 'supported_nat_mode'],
+          properties: {
+            ready: { type: 'boolean' }, configured: { type: 'boolean' },
+            status: { type: 'string', enum: ['receiving', 'incomplete', 'waiting_for_traffic', 'configuration_incomplete', 'not_configured'] },
+            collector_tokens: { type: 'integer' }, expected_exporters: { type: 'integer' },
+            expected_pools: { type: 'integer' }, active_cgnat_pools: { type: 'integer' },
+            enabled_exporters: { type: 'integer' },
+            approved_exporters: { type: 'integer' }, receiving_exporters: { type: 'integer' },
+            complete_exporters: { type: 'integer' }, invalid_bound_exporter_tokens: { type: 'integer' },
+            overlapping_required_pool_pairs: { type: 'integer' },
+            coverage_status: { type: 'string', enum: ['complete', 'incomplete', 'not_configured'] },
+            last_received_at: nullableString('date-time'), last_device_recorded_at: nullableString('date-time'),
+            last_corrected_device_at: nullableString('date-time'),
+            coverage_horizon_at: nullableString('date-time'),
+            bindings_24h: { type: 'integer' }, events_24h: { type: 'integer' },
+            open_bindings: { type: 'integer' }, stale_open_bindings: { type: 'integer' },
+            incomplete_metadata_24h: { type: 'integer' }, sequence_gap_events_24h: { type: 'integer' },
+            reported_lost_records_24h: { type: 'integer' },
+            clock_status: { type: 'string', enum: ['reported', 'incomplete', 'unknown'] },
+            max_clock_offset_ms: nullableInteger(), loss_status: { type: 'string', enum: ['clear', 'unresolved'] },
+            active_case_holds: { type: 'integer' },
+            supported_nat_mode: { const: 'endpoint_independent_tcp_udp_public_tuple' },
+          } },
+      ] },
+      retention: { type: 'object', additionalProperties: false,
+        required: ['session_months', 'effective_policies', 'last_run_at', 'last_status',
+          'partition_event_enabled', 'event_scheduler_status', 'radius_partitions'], properties: {
+          session_months: nullableInteger(), cgnat_months: nullableInteger(),
+          effective_policies: { type: 'object', additionalProperties: {
+            type: 'object', additionalProperties: false, required: ['value', 'unit'],
+            properties: { value: { type: 'integer', minimum: 1 },
+              unit: { type: 'string', enum: ['DAY', 'MONTH'] } },
+          } },
+          last_run_at: nullableString('date-time'), last_status: nullableString(),
+          partition_event_enabled: { type: 'boolean' }, event_scheduler_status: nullableString(),
+          radius_partitions: { type: 'integer' },
+        } },
+      caveats: { type: 'array', items: { type: 'string' } },
+    },
+  };
+}
+
+function radiusAccountingRequestSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    properties: {
+      'Acct-Status-Type': { type: 'string', enum: ['Start', 'Interim-Update', 'Stop', 'Accounting-On', 'Accounting-Off'] },
+      'User-Name': { type: 'string', maxLength: 64 }, 'Acct-Session-Id': { type: 'string', maxLength: 64 },
+      'NAS-IP-Address': { type: 'string', maxLength: 45 }, 'NAS-Port': { type: 'integer', minimum: 0 },
+      'NAS-Port-Id': { type: 'string', maxLength: 100 }, 'Called-Station-Id': { type: 'string', maxLength: 100 },
+      'Calling-Station-Id': { type: 'string', maxLength: 100 }, 'Framed-IP-Address': { type: 'string', format: 'ipv4' },
+      'Framed-IPv6-Prefix': { type: 'string', maxLength: 64 }, 'Acct-Input-Octets': { type: 'integer', minimum: 0 },
+      'Acct-Output-Octets': { type: 'integer', minimum: 0 }, 'Acct-Input-Gigawords': { type: 'integer', minimum: 0 },
+      'Acct-Output-Gigawords': { type: 'integer', minimum: 0 }, 'Acct-Input-Packets': { type: 'integer', minimum: 0 },
+      'Acct-Output-Packets': { type: 'integer', minimum: 0 }, 'Acct-Session-Time': { type: 'integer', minimum: 0 },
+      'Acct-Terminate-Cause': { oneOf: [{ type: 'integer', minimum: 1 }, { type: 'string', maxLength: 64 }] },
+      'Acct-Delay-Time': { type: 'integer', minimum: 0 },
+      'Event-Timestamp': { oneOf: [{ type: 'integer', minimum: 0 }, { type: 'string', description: 'Unix seconds or timezone-qualified ISO-8601 date/time' }] },
+    },
+    required: ['Acct-Status-Type'],
+  };
+}
+
+function radiusAccountingIngestResultSchema() {
+  return { type: 'object', additionalProperties: false, required: ['ok', 'action'], properties: {
+    ok: { const: true }, action: { type: 'string', enum: ['insert', 'update', 'noop'] }, id: nullableInteger(),
+    reason: nullableString(), macMove: { type: ['boolean', 'null'] },
+    session_instance_id: nullableString(),
+  } };
+}
+
+function accountingIngestResponses() {
+  return {
+    200: dataOrRootResponse('RadiusAccountingIngestResult'),
+    401: errorResponse('Collector authentication failed'),
+    403: errorResponse('Collector authorization failed'),
+    422: errorResponse('Invalid or unattributable accounting record'),
+  };
+}
+
+function dataOrRootResponse(componentName) {
+  return { description: 'Accepted or idempotent replay', content: { 'application/json': { schema: { $ref: `#/components/schemas/${componentName}` } } } };
 }
 function speedMeasurementSchema() {
   return {

@@ -15,6 +15,7 @@
 const rateLimit = require('express-rate-limit');
 const config = require('../config');
 const cacheService = require('../services/cacheService');
+const { AppError } = require('../utils/errors');
 
 const rl = config.rateLimit;
 
@@ -43,9 +44,11 @@ const makeLimiter = (max, msg, extra = {}) => rateLimit({
 // user to the login screen.
 const SESSION_PATH_RE = /^\/api(?:\/v1)?\/(?:auth|portal\/auth)\/(?:me|refresh|logout|switch-organization)\/?$/;
 const isSessionPath = (req) => SESSION_PATH_RE.test((req.originalUrl || req.url || '').split('?')[0]);
+const COLLECTOR_PATH_RE = /^\/api(?:\/v1)?\/(?:radius\/accounting(?:\/tenant)?|connection-logs\/cgnat-attribution\/bindings\/ingest)\/?$/;
+const isCollectorPath = req => COLLECTOR_PATH_RE.test((req.originalUrl || req.url || '').split('?')[0]);
 
 /** General API rate limiter — configurable via RATE_LIMIT_API (default 1000). */
-const apiLimiter = makeLimiter(rl.api, undefined, { skip: isSessionPath });
+const apiLimiter = makeLimiter(rl.api, undefined, { skip: req => isSessionPath(req) || isCollectorPath(req) });
 
 /**
  * Session-keepalive endpoints — configurable via RATE_LIMIT_SESSION (default 240).
@@ -134,15 +137,12 @@ const webhookLimiter = makeLimiter(rl.webhook, 'Too many webhook requests, pleas
 
 /**
  * express-rate-limit store backed by cacheService (Redis or in-memory LRU).
- * Stores per-key hit counts and sliding-window reset times.
- *
- * Note: the get+set pair is not atomic on Redis, so counts may be slightly
- * imprecise under extreme concurrency.  For rate limiting purposes this
- * trade-off is acceptable — correctness at the margins matters less than
- * avoiding the need for a dedicated rate-limit Redis library.
+ * Stores per-key hit counts and fixed-window reset times. Redis increments are
+ * atomic across app instances; the memory implementation is process-local and
+ * intended for development/single-instance deployments.
  */
 class CacheStore {
-  constructor(prefix = 'rl_tenant:') {
+  constructor(prefix = 'rl2_tenant:') {
     this.prefix = prefix;
     this.windowMs = null;
   }
@@ -159,23 +159,8 @@ class CacheStore {
    */
   async increment(key) {
     const storeKey = this.prefix + key;
-    const now = Date.now();
-    const windowMs = this.windowMs;
-    const ttlSeconds = Math.ceil(windowMs / 1000);
-
-    const existing = await cacheService.get(storeKey);
-
-    if (!existing || existing.resetTime <= now) {
-      // First hit in this window (or window has already expired)
-      const resetTime = new Date(now + windowMs);
-      await cacheService.set(storeKey, { hits: 1, resetTime: resetTime.getTime() }, ttlSeconds);
-      return { totalHits: 1, resetTime };
-    }
-
-    const hits = existing.hits + 1;
-    const remainingTtl = Math.ceil((existing.resetTime - now) / 1000);
-    await cacheService.set(storeKey, { hits, resetTime: existing.resetTime }, remainingTtl > 0 ? remainingTtl : ttlSeconds);
-    return { totalHits: hits, resetTime: new Date(existing.resetTime) };
+    const result = await cacheService.incrementFixedWindow(storeKey, this.windowMs);
+    return { totalHits: result.count, resetTime: new Date(result.resetAt) };
   }
 
   /**
@@ -183,13 +168,7 @@ class CacheStore {
    * @param {string} key
    */
   async decrement(key) {
-    const storeKey = this.prefix + key;
-    const existing = await cacheService.get(storeKey);
-    if (!existing || existing.hits <= 0) return;
-    const remainingTtl = Math.ceil((existing.resetTime - Date.now()) / 1000);
-    if (remainingTtl > 0) {
-      await cacheService.set(storeKey, { hits: existing.hits - 1, resetTime: existing.resetTime }, remainingTtl);
-    }
+    await cacheService.decrementFixedWindow(this.prefix + key);
   }
 
   /**
@@ -207,6 +186,113 @@ class CacheStore {
   }
 }
 
+// api_key_rate_limits predates the collector endpoints. NULL columns mean the
+// table defaults, not "unlimited"; the route-specific collectors still retain
+// their independent hard ceilings outside this policy layer.
+const API_TOKEN_RATE_LIMIT_DEFAULTS = Object.freeze({
+  requests_per_minute: 60,
+  requests_per_hour: 1000,
+  requests_per_day: 10000,
+  burst_size: 20,
+});
+
+const API_TOKEN_RATE_LIMIT_WINDOWS = Object.freeze([
+  { field: 'burst_size', name: 'burst', windowMs: 1000, max: 65535 },
+  { field: 'requests_per_minute', name: 'minute', windowMs: 60 * 1000, max: 0xFFFFFFFF },
+  { field: 'requests_per_hour', name: 'hour', windowMs: 60 * 60 * 1000, max: 0xFFFFFFFF },
+  { field: 'requests_per_day', name: 'day', windowMs: 24 * 60 * 60 * 1000, max: 0xFFFFFFFF },
+]);
+
+function positiveDatabaseId(value, field) {
+  const normalized = typeof value === 'bigint' ? value.toString() : String(value ?? '');
+  if (!/^[1-9]\d*$/.test(normalized)) {
+    throw new AppError(`Invalid ${field} for API token rate limiting`, 503, 'RATE_LIMIT_CONFIGURATION_INVALID');
+  }
+  return normalized;
+}
+
+function activeConfiguration(value) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  throw new AppError('API token rate-limit configuration is invalid', 503, 'RATE_LIMIT_CONFIGURATION_INVALID');
+}
+
+function configuredLimit(row, window) {
+  const value = row[window.field] ?? API_TOKEN_RATE_LIMIT_DEFAULTS[window.field];
+  const normalized = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > window.max) {
+    throw new AppError('API token rate-limit configuration is invalid', 503, 'RATE_LIMIT_CONFIGURATION_INVALID');
+  }
+  return normalized;
+}
+
+/**
+ * Enforce an active api_key_rate_limits row for an authenticated API token.
+ *
+ * This middleware must run after authenticate + orgScope. Authentication reads
+ * the policy in the same live primary-control-plane query that validates token
+ * revocation and binds the organization. Counters use the same atomic shared
+ * fixed-window primitive as the outer collector ceilings. The one-second burst
+ * window is deliberately an abuse burst cap; minute/hour/day are separate
+ * longer-lived ceilings. Missing or inactive policy rows leave only the outer
+ * route ceilings in force.
+ */
+async function apiTokenConfiguredLimiter(req, res, next) {
+  if (!req.user?.apiTokenId) return next();
+
+  try {
+    const tokenId = positiveDatabaseId(req.user.apiTokenId, 'API token ID');
+    const organizationId = positiveDatabaseId(req.orgId, 'organization ID');
+    const policy = req.user.apiTokenRateLimitPolicy;
+    if (policy === null || policy === undefined) return next();
+    if (typeof policy !== 'object' || Array.isArray(policy)) {
+      throw new AppError('API token rate-limit configuration is invalid', 503, 'RATE_LIMIT_CONFIGURATION_INVALID');
+    }
+    if (!activeConfiguration(policy.is_active)) return next();
+
+    const windows = API_TOKEN_RATE_LIMIT_WINDOWS.map(window => ({
+      ...window,
+      limit: configuredLimit(policy, window),
+    }));
+    const counters = await Promise.all(windows.map(window => cacheService.incrementFixedWindow(
+      `rl_api_token_policy:${organizationId}:${tokenId}:${window.name}`,
+      window.windowMs,
+    )));
+
+    const invalidCounter = counters.some(counter => !counter
+      || !Number.isSafeInteger(Number(counter.count)) || Number(counter.count) < 1
+      || !Number.isFinite(Number(counter.resetAt)));
+    if (invalidCounter) {
+      throw new AppError('API token rate limiter is unavailable', 503, 'RATE_LIMIT_UNAVAILABLE');
+    }
+
+    const exceededIndex = counters.findIndex((counter, index) => Number(counter.count) > windows[index].limit);
+    if (exceededIndex === -1) return next();
+
+    const exceeded = windows[exceededIndex];
+    const retryAfterSeconds = Math.max(1, Math.ceil((Number(counters[exceededIndex].resetAt) - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(429).json(RATE_LIMITED_BODY(`API token ${exceeded.name} rate limit exceeded`));
+  } catch (err) {
+    if (err instanceof AppError) return next(err);
+    return next(new AppError('API token rate limiter is unavailable', 503, 'RATE_LIMIT_UNAVAILABLE'));
+  }
+}
+
+// Pre-authentication abuse ceiling for machine collectors. Successful
+// collector traffic is carved out of the staff/API bucket and receives
+// token-scoped limits at the routes; invalid keys remain bounded by IP here.
+// CacheStore is Redis-atomic when REDIS_URL is configured (the production
+// template does so) and retains a process-local development fallback.
+const collectorIngressLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Math.min(Math.max(Number.parseInt(process.env.RATE_LIMIT_COLLECTOR_INGRESS_PER_MINUTE || '6000', 10) || 6000, 1), 60000),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: RATE_LIMITED_BODY('Collector ingress rate exceeded'),
+  store: new CacheStore('rl_collector_ingress:'),
+});
+
 /**
  * Per-organization rolling-24h RECIPIENT-count budget for POST /bulk/email.
  *
@@ -217,8 +303,8 @@ class CacheStore {
  * CacheStore.increment above), not extended on every call, so a steady
  * trickle of requests cannot keep pushing the reset time forward forever.
  *
- * Same non-atomic get+set trade-off as CacheStore: acceptable for an abuse
- * cap, not a hard security boundary (see rateLimit.js module docs above).
+ * This recipient-cost path still uses get+set because its increment is not a
+ * fixed cost of one. It is an abuse cap, not an accounting/security boundary.
  *
  * @param {number|string} orgId Organization ID (req.orgId).
  * @param {number} count Number of recipients this request would add.
@@ -274,6 +360,9 @@ module.exports = {
   portalPasswordResetLimiter,
   sessionLimiter,
   isSessionPath,
+  isCollectorPath,
+  collectorIngressLimiter,
+  apiTokenConfiguredLimiter,
   publicLimiter,
   uploadLimiter,
   exportLimiter,

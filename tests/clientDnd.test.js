@@ -43,6 +43,15 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (_req, _res, next) => next(),
   sseLimiter: (_req, _res, next) => next(),
   webhookLimiter: (_req, _res, next) => next(),
+  collectorIngressLimiter: (_req, _res, next) => next(),
+  apiTokenConfiguredLimiter: (_req, _res, next) => next(),
+  isCollectorPath: () => false,
+  CacheStore: class {
+    init() {}
+    async increment() { return { totalHits: 1, resetTime: new Date(Date.now() + 60000) }; }
+    async decrement() {}
+    async resetKey() {}
+  },
 }));
 
 const request = require('supertest');

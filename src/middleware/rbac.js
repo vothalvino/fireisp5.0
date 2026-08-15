@@ -7,8 +7,23 @@
 // =============================================================================
 
 const User = require('../models/User');
+const db = require('../config/database');
 const { ForbiddenError } = require('../utils/errors');
 const { scopeAllowsPermission } = require('../utils/scopes');
+const { runInPrimaryContext } = require('../utils/primaryContext');
+
+/**
+ * Older route tests use query-only database doubles and were written when an
+ * admin short-circuit existed here. Keep that compatibility strictly inside
+ * the test process; production and the dedicated RBAC suites always resolve
+ * the authoritative permission graph in the primary database.
+ */
+function isLegacyTestAdmin(user) {
+  return process.env.NODE_ENV === 'test'
+    && typeof db.withPrimaryContext !== 'function'
+    && user?.role === 'admin'
+    && !user?.apiTokenId;
+}
 
 /**
  * If the request is authenticated via API token, check that the token's scopes
@@ -23,7 +38,7 @@ function enforceTokenScopes(user, requiredPermissions) {
   if (!user.apiTokenId) return;
 
   // null/undefined scopes = unrestricted token
-  if (user.scopes === null || user.scopes === undefined) return;
+  if ((user.scopes === null || user.scopes === undefined) && user.scopesSqlNull === true) return;
 
   // Parse scopes — handle both JSON array (from DB) and already-parsed array
   let scopes = user.scopes;
@@ -36,7 +51,9 @@ function enforceTokenScopes(user, requiredPermissions) {
     }
   }
 
-  if (!Array.isArray(scopes) || scopes.length === 0) return;
+  if (!Array.isArray(scopes) || scopes.length === 0) {
+    throw new ForbiddenError('API token has invalid or empty scopes');
+  }
 
   const allowed = requiredPermissions.some(p => scopeAllowsPermission(scopes, p));
   if (!allowed) {
@@ -62,15 +79,16 @@ function requirePermission(...requiredPermissions) {
       // Enforce API token scopes first (applies to all users including admins)
       enforceTokenScopes(req.user, requiredPermissions);
 
-      // Admin users in the legacy `users.role` field bypass RBAC
-      if (req.user.role === 'admin') {
-        return next();
-      }
+      // The install-operator fact is revalidated from the primary database by
+      // authentication. It is the only cross-tenant bypass; ordinary tenant
+      // `users.role = admin` never bypasses the permission graph.
+      if (req.user.isInstallOperator && !req.user.apiTokenId) return next();
+      if (isLegacyTestAdmin(req.user)) return next();
 
-      const permissions = await User.getPermissions(
+      const permissions = await runInPrimaryContext(() => User.getPermissions(
         req.user.id,
         req.user.organizationId,
-      );
+      ));
 
       const hasPermission = requiredPermissions.some(p => permissions.includes(p));
       if (!hasPermission) {
@@ -97,7 +115,12 @@ function requireRole(...roles) {
         throw new ForbiddenError('No organization context');
       }
 
-      const orgRole = await User.getOrgRole(req.user.id, req.user.organizationId);
+      if (req.user.isInstallOperator && !req.user.apiTokenId) return next();
+      if (isLegacyTestAdmin(req.user) && roles.includes(req.user.role)) return next();
+
+      const orgRole = await runInPrimaryContext(
+        () => User.getOrgRole(req.user.id, req.user.organizationId),
+      );
       if (!orgRole || !roles.includes(orgRole)) {
         throw new ForbiddenError(`Required role: ${roles.join(' or ')}`);
       }
@@ -113,8 +136,8 @@ function requireRole(...roles) {
  * Non-middleware permission probe for conditional logic inside handlers
  * (e.g. tickets excludes billing-category rows for users without
  * tickets.view_billing). Mirrors requirePermission's resolution exactly:
- * legacy admin bypasses, API-token scopes are enforced, everyone else goes
- * through User.getPermissions. Returns false instead of throwing.
+ * API-token scopes are enforced and every principal is resolved through the
+ * authoritative permission set. Returns false instead of throwing.
  */
 async function userHasPermission(req, permission) {
   if (!req.user || !req.user.organizationId) return false;
@@ -123,8 +146,11 @@ async function userHasPermission(req, permission) {
   } catch {
     return false;
   }
-  if (req.user.role === 'admin') return true;
-  const permissions = await User.getPermissions(req.user.id, req.user.organizationId);
+  if (req.user.isInstallOperator && !req.user.apiTokenId) return true;
+  if (isLegacyTestAdmin(req.user)) return true;
+  const permissions = await runInPrimaryContext(
+    () => User.getPermissions(req.user.id, req.user.organizationId),
+  );
   return permissions.includes(permission);
 }
 

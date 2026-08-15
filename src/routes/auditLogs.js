@@ -12,6 +12,10 @@ const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
+// Audit and report-access ledgers are control-plane records. Keep reads and
+// writes in primary so an isolated tenant sees the same trail that sensitive
+// connection/flow export routes append.
+router.use((_req, _res, next) => db.withPrimaryContext(() => next()));
 
 // List audit logs with filters
 router.get('/', requirePermission('audit_logs.view'), async (req, res, next) => {
@@ -75,9 +79,10 @@ router.get('/export', requirePermission('audit_export.view'), async (req, res, n
 
     // Log to report_access_logs
     await db.query(
-      `INSERT INTO report_access_logs (organization_id, user_id, report_type, entity_type, parameters, ip_address, user_agent, accessed_at)
-       VALUES (?, ?, 'audit_export', 'audit_logs', ?, ?, ?, NOW())`,
-      [req.orgId, req.user.id, JSON.stringify(req.query), req.ip || null, req.get('user-agent') || null],
+      `INSERT INTO report_access_logs (organization_id, user_id, api_token_id, report_type, entity_type, parameters, ip_address, user_agent, accessed_at)
+       VALUES (?, ?, ?, 'audit_export', 'audit_logs', ?, ?, ?, NOW())`,
+      [req.orgId, req.user.id, req.user.apiTokenId || null,
+        JSON.stringify(req.query), req.ip || null, req.get('user-agent') || null],
     );
 
     res.json({

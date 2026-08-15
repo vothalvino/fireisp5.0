@@ -1,6 +1,6 @@
 # ISP Management Software — Functions & Features Reference
 
-> Comprehensive feature specification for an integrated ISP platform covering CRM, NMS, and Regulatory Compliance. Covers subscriber management, network operations, billing, and Mexican regulatory requirements (IFT/ATDT).
+> Comprehensive feature specification for an integrated ISP platform covering CRM, NMS, and regulatory-support workflows. Covers subscriber management, network operations, billing, and references to the current Mexican LMTR/ATDT/CRT framework; product features are not legal certification. Applicability, source currentness, known gaps, and operator-only validation are tracked in the central [`docs/legal-regulatory-register.md`](docs/legal-regulatory-register.md).
 
 > ### Box legend — re-verified against code 2026-07-26
 >
@@ -191,7 +191,7 @@
 - [x] IPv4 address pool creation per NAS / per region per service type
 - [x] IPv6 prefix delegation pools (/64, /56, /48)
 - [x] Dynamic IP assignment and static IP reservation
-- [x] IP-to-customer binding (logging for compliance)
+- [x] Tenant-scoped address-to-subscriber session evidence for documented operational or lawful-response purposes
 - [x] Pool utilization monitoring and alerts at 75%/90%
 - [x] Excluded IP ranges (gateway, servers, static leases)
 - [x] Overlapping pool detection
@@ -578,7 +578,7 @@
 - [x] Churn revenue impact
 - [x] Agent commission calculations
 - [x] Tax reports (IVA, ISR)
-- [x] SAT-compliant reports for Mexico
+- [x] Mexico tax-report and CFDI-support exports; current SAT/accounting validity remains taxpayer/accountant/PAC controlled
 
 ### 15.2 Operational Reports
 - [x] Subscriber count (active, suspended, cancelled) over time
@@ -601,10 +601,11 @@
 - [x] PON port utilization forecast
 
 ### 15.4 Compliance Reports
-- [x] Data retention compliance report
-- [x] IP assignment log (court order ready)
+- [x] Operational data-retention status report (not a legal certification)
+- [x] Tenant-scoped IP assignment log; a legal response still requires case review
 - [x] Subscriber identity verification report
-- [x] Traffic interception capability readiness
+- [x] Operational connection-logging/IP-attribution readiness (compatibility
+  report name only; not traffic-interception capability or legal certification)
 - [x] Regulatory filing data export
 
 ### 15.5 Report Engine
@@ -619,46 +620,46 @@
 ## 16. Regulatory Compliance (Mexico)
 
 ### 16.1 Legal Framework (Reference)
-- [x] **Ley Federal de Telecomunicaciones y Radiodifusion (LFTR)** — governing law
-- [x] **IFT (Instituto Federal de Telecomunicaciones)** — replaced July 2025 by new regulatory bodies:
-  - [x] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) — policy, licensing, spectrum
-  - [x] **CRT** (Comision Reguladora de Telecomunicaciones) — regulatory enforcement, compliance, sanctions
+- [x] **Ley en Materia de Telecomunicaciones y Radiodifusion (LMTR)** — current governing federal telecommunications statute; the former LFTR is historical
+- [x] **IFT (Instituto Federal de Telecomunicaciones)** — extinct former regulator whose non-conflicting instruments continue only under the LMTR transitional rule until replaced:
+  - [x] **ATDT** (Agencia de Transformacion Digital y Telecomunicaciones) — federal digital-transformation and telecommunications-policy body
+  - [x] **CRT** (Comision Reguladora de Telecomunicaciones) — telecommunications regulatory commission under the 2025 framework
 - [x] **Ley Federal de Proteccion de Datos Personales en Posesion de los Particulares (LFPDPPP)** — data privacy
 - [x] **Codigo Penal Federal** — telecommunications crimes
 - [x] **CFDI 4.0** — SAT digital invoicing requirements
 
 ### 16.2 User Data Management
 - [x] Customer identity verification (INE/IFE or CURP validation)
-- [x] Registration of all subscriber details per legal requirements
+- [x] Operator-configured subscriber identity fields and verification records; counsel determines the fields required for each service and purpose
 - [x] Personal consent tracking for data processing (LFPDPPP Aviso de Privacidad)
 - [x] Data subject access request (DSAR) handling
-- [x] Right to erasure (with legal hold exceptions)
-- [x] Data minimization and purpose limitation enforcement
+- [x] ARCO/DSAR request and cancellation-review workflow; blocking, suppression, erasure, legal exceptions, and external storage require record-by-record operator review
+- [x] Data-minimization and purpose-limitation support controls; operator inventory, configuration, notices, processor controls, and legal validation remain required
 
 ### 16.3 IP Log Retention & Interception
-- [x] **Mandatory IP-to-subscriber mapping log retention** (per Mexican telecom law)
-  - [x] Minimum retention period: per current legislation (verify with ATDT/CRT for latest)
-  - [x] Log: timestamp, subscriber ID, IP address, session start/end, NAS identifier
-  - [x] Tamper-proof storage with integrity checks (WORM/append-only)
-- [x] **Lawful interception capability**:
-  - [x] Real-time traffic mirroring capability on request from authorities
-  - [x] IP assignment traceability (which subscriber had which IP at what time)
-  - [x] CDR (Call Detail Records) export in required format
-  - [x] API endpoint for authorized law enforcement queries
-  - [x] Audit log of all government data requests
+- [x] **Operator-configured subscriber/access-session evidence**
+  - [x] RADIUS session timing, assigned address, subscriber/account and NAS evidence
+  - [x] Privacy-minimal CGNAT public-IP/port/protocol/time attribution, anchored to the canonical tenant RADIUS `session_instance_id`, without destination or content fields
+  - [x] Exact lookup reports matched, unavailable, or ambiguous instead of guessing
+  - [x] Tenant-scoped government-request case and access/export audit
+- [ ] **Operator legal determination and production acceptance**:
+  - [ ] Counsel confirms which LMTR Article 183 duties apply to the operator's services; the statute does not expressly enumerate CGNAT bindings
+  - [ ] Operator approves purpose, privacy notice, field minimum, retention and legal-hold procedure
+  - [ ] Every CGNAT gateway/pool/exporter is covered; corrected-minus-uncertainty horizons, quiet-feed staleness, boot rebaselines and source gaps are monitored; and a live lookup exercise passes
+  - [ ] Any real-time interception or traffic mirroring is separately authorized, designed and tested; the request register is not an interception system
 
 ### 16.4 Numbering and Addressing
 - [x] Phone number inventory management (if offering VoIP)
 - [x] Number portability support
-- [x] CNMC (Mexican numbering) block management
+- [x] Telephone-number inventory and block metadata (operator validates the applicable Mexican CRT numbering source; CNMC is Spain's regulator and is not the Mexican authority)
 - [x] Address standardization (SEPOMEX / INEGI codes)
 
 ### 16.5 Quality of Service Requirements
-- [x] SLA monitoring against regulatory minimums
-- [x] Complaint handling with mandated response times
+- [x] SLA monitoring against operator-configured thresholds; FireISP does not determine a regulatory minimum
+- [x] Complaint handling against operator-configured response targets; the applicable legal/contract deadline must be supplied and validated
 - [x] Service availability tracking
 - [x] Speed guarantee monitoring (advertised vs. delivered)
-- [x] Quarterly/annual compliance report generation
+- [x] Quarterly/annual regulatory-support report generation; output format, applicability, submission, and acceptance remain external
 
 ### 16.6 Universal Service Contribution
 - [x] Tracking of universal service obligations
@@ -669,19 +670,19 @@
 - [x] Terms of service / contract template management
 - [x] Mandatory consumer right information
 - [x] Dispute resolution tracking
-- [x] Service modification notification tracking (regulatory-mandated notice periods)
+- [x] Service-modification notice records with operator-configured periods; current workflow does not itself transmit or prove delivery
 
 ### 16.8 Data Localization
-- [x] Primary data storage within Mexico (recommended; verify latest ATDT/CRT rules)
-- [x] Backup and disaster recovery location compliance
-- [x] Cross-border transfer restrictions monitoring
+- [x] Operator-entered primary-storage country declaration; this is not infrastructure verification
+- [x] Backup and disaster-recovery location fields/guidance; deployment evidence remains operator-owned
+- [x] Cross-border transfer decision tracking; this is not technical blocking or legal approval
 
 ### 16.9 Audit Trail
-- [x] Complete audit log for all system actions
+- [x] Audit records for instrumented application actions; route coverage and privileged-database controls require validation
 - [x] Admin action logging (who deleted/modified what and when)
 - [x] Report access logging (who downloaded subscriber data)
-- [x] Retention period compliance automation
-- [x] Read-only audit export for regulatory inspections
+- [x] Configurable retention-policy automation; periods and successful deletion must be validated per record class
+- [x] Read-only audit export for operator review; this is not regulator acceptance or complete evidentiary coverage
 
 ---
 
@@ -1188,16 +1189,16 @@ Beyond customer-facing AI, the same engine assists NOC staff:
 ## Appendix B — Compliance Checklist (Mexico)
 
 - [x] Subscriber identity capture (INE/IFE/CURP) — identity_verification_records + CURP checksum + verify/reject endpoints (regulatoryCompliance.js:231-324) + UI tab.
-- [ ] LFPDPPP Aviso de Privacidad displayed and accepted — API + subscriber_consents table exist (regulatoryCompliance.js:41-113) but **nothing ever displays the notice or captures acceptance**; staff tab is read-only. Queued as jobdesk work.
-- [x] IP-to-subscriber log retention configured and verified — connection_logs monthly partitions + scheduled purge_radius_accounting (taskRunner.js:149-151, migration 233) + 2-year partition-drop procedure.
-- [x] Log integrity protection (append-only / WORM) — DB-level BEFORE UPDATE/DELETE SIGNAL triggers on audit_logs (schema.sql:7601-7620); row_hash on gov_data_requests.
-- [x] Lawful interception capability documented and operational — gov_data_requests (migration 315) with intake/fulfill/reject workflow; docs/compliance-mexico.md §4.
+- [x] LFPDPPP privacy-notice presentation and acceptance workflow — versioned notice/consent records and portal presentation exist; operator counsel must approve the deployed content, purposes, collection points, and withdrawal path.
+- [ ] Subscriber/CGNAT attribution production-verified — FireISP provides tenant-scoped RADIUS evidence and privacy-minimal bindings, but the operator must prove live collector coverage, exact lookup behavior, retention and legal holds on every real egress path.
+- [x] Consistency and audit controls — selected evidence and government-request rows have hashes/markers and access logs; these are not tamper-proof WORM storage against a privileged database operator.
+- [ ] Lawful-interception process — `gov_data_requests` is a case register, not traffic-mirroring/interception capability. The operator must validate authority, restrict access and separately implement any lawfully ordered interception.
 - [x] CFDI 4.0 invoicing integration with PAC — stamp + cancel against SW and Finkok with failover, local sealing, CFDI de Egreso (#528); both PACs sandbox-proven.
 - [x] Tax regimen facturacion (regimen fiscal) properly configured — org + client regimen_fiscal validated against the sat_regimen_fiscal catalog, enforced at stamp time (cfdiService.js:116-123).
 - [x] Complaint response SLA configured — sla_definitions + ticket_sla_events + scheduled sla_breach_check (taskRunner.js:171-172); profeco_complaints rides the same machinery.
 - ⊘ Consumer terms template compliant with PROFECO — **operator action** (legal drafting with your counsel). Software already stores/versions templates (contract_templates_mx) and handles complaints (profeco_complaints).
-- [x] Data backup within Mexican territory (verify latest rules) — data_residency_config (default MX) + dataResidency CRUD + /check + UI tab. Self-attestation by design in a self-hosted product.
-- [x] Audit trail activated for all administrative actions — auditLog service writing to the WORM audit_logs table, wired in 18 route modules.
+- [x] Data-residency self-declaration workflow — `data_residency_config`, CRUD, `/check`, and UI record operator assertions; it does not verify databases, replicas, backups, processors, support access, or physical location.
+- [ ] Audit coverage verified for every sensitive administrative action — FireISP writes application audit/access records on covered paths, but they are not WORM storage and the operator must test route coverage and privileged-database controls.
 - [x] Access control policy documented and enforced — docs/rbac-permissions.md + requirePermission() on every route.
 - [x] Incident response plan documented — docs/runbook.md:237+ "Incident Response (P1.9)": severity matrix, declaration criteria, workflow, SEV1 scenarios.
 - ⊘ Annual compliance self-assessment scheduled — **operator action** (calendar). Automated inputs exist (DSAR-overdue check, data-residency /check) but the review itself is yours.
@@ -1205,5 +1206,5 @@ Beyond customer-facing AI, the same engine assists NOC staff:
 
 ---
 
-*Document version: 1.1 | Created: 2026-05-31 | Updated: 2026-05-31 (added Section 21 AI Support)*
-*Next review: After ATDT/CRT regulatory updates are published*
+*Document version: 1.2 | Created: 2026-05-31 | Updated: 2026-08-15 (privacy-minimal IP-attribution and current-law review)*
+*Next review: When ATDT/CRT rules replace or materially amend the preserved IFT lineamientos*

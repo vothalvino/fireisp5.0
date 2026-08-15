@@ -8,6 +8,7 @@
 const db = require('../config/database');
 const { computeClientBalance } = require('./clientBalanceService');
 const logger = require('../utils/logger').child({ service: 'supportBillingModule' });
+const { buildUnverifiableSessionOverlap } = require('../utils/accountingUsageCompleteness');
 
 // ---------------------------------------------------------------------------
 // Keyword dispatch table
@@ -187,34 +188,75 @@ async function _planUpgrade(context, messageContent, orgId) {
   }
 }
 
-async function _dataUsage(context) {
+async function _dataUsage(context, _messageContent, orgId) {
   try {
-    const usage = context?.billing?.dataUsage ?? null;
-    if (usage !== null) {
+    const clientId = context?.customer?.id;
+    const organizationId = orgId || context?.customer?.orgId;
+    if (!clientId || !organizationId) {
       return {
-        response: `Tu consumo actual es de ${usage} GB.`,
+        response: 'No puedo confirmar tu consumo porque no pude identificar la cuenta y la organización.',
         requiresConfirmation: false,
         actionType: 'data_usage',
-        actionData: { usage },
+        actionData: { available: false, usageComplete: false, observedRows: 0 },
       };
     }
 
-    // Fall back to direct DB query on connection_logs
+    // Fall back to the monotonic accounting usage rollup. Mutable cumulative
+    // session projections and unqualified values preloaded in conversation
+    // context cannot be safely summed or treated as complete evidence.
     const [rows] = await db.query(
-      `SELECT ROUND(SUM(bytes_in + bytes_out) / 1073741824, 2) AS usage_gb
-         FROM connection_logs cl
-         JOIN contracts c ON c.id = cl.contract_id
-         JOIN clients cli ON cli.id = c.client_id
-        WHERE cli.id = ?
-          AND cl.event_at >= DATE_FORMAT(NOW(), '%Y-%m-01')`,
-      [context?.customer?.id],
+      `SELECT COUNT(*) AS observed_rows,
+              COALESCE(SUM(u.is_complete = 0), 0) AS incomplete_rows,
+              ROUND(COALESCE(SUM(u.bytes_in_delta + u.bytes_out_delta), 0) / 1073741824, 2) AS usage_gb,
+              (SELECT COUNT(*) FROM connection_logs unverifiable
+                WHERE unverifiable.organization_id = ? AND unverifiable.client_id = ?
+                  AND ${buildUnverifiableSessionOverlap(
+    'unverifiable',
+    "DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01')",
+    'UTC_TIMESTAMP(3)',
+  )}) AS unverifiable_session_rows
+         FROM radius_accounting_usage_daily u
+         JOIN contracts c ON c.id = u.contract_id AND c.organization_id = u.organization_id
+         JOIN clients cli ON cli.id = c.client_id AND cli.organization_id = u.organization_id
+        WHERE u.organization_id = ?
+          AND cli.id = ?
+          AND cli.organization_id = u.organization_id
+          AND u.usage_date >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01')`,
+      [organizationId, clientId, organizationId, clientId],
     );
-    const usageGb = rows[0]?.usage_gb ?? 0;
+    const observedRows = Number(rows[0]?.observed_rows || 0);
+    const incompleteRows = Number(rows[0]?.incomplete_rows || 0);
+    const unverifiableSessionRows = Number(rows[0]?.unverifiable_session_rows || 0);
+    if (observedRows === 0 || incompleteRows > 0 || unverifiableSessionRows > 0) {
+      return {
+        response: observedRows === 0
+          ? 'Todavía no hay datos de contabilidad suficientes para confirmar tu consumo de este mes.'
+          : 'El registro de consumo de este mes está incompleto; no puedo darte una cifra confiable en este momento.',
+        requiresConfirmation: false,
+        actionType: 'data_usage',
+        actionData: {
+          available: false,
+          usageComplete: false,
+          observedRows,
+          incompleteRows,
+          unverifiableSessionRows,
+        },
+      };
+    }
+
+    const usageGb = Number(rows[0].usage_gb || 0);
     return {
       response: `Tu consumo este mes es de ${usageGb} GB.`,
       requiresConfirmation: false,
       actionType: 'data_usage',
-      actionData: { usageGb },
+      actionData: {
+        available: true,
+        usageComplete: true,
+        observedRows,
+        incompleteRows,
+        unverifiableSessionRows,
+        usageGb,
+      },
     };
   } catch (err) {
     logger.warn({ err }, 'billingModule: dataUsage query failed');

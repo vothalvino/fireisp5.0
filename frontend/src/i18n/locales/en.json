@@ -162,7 +162,7 @@
     "serviceAreas": "Service Areas",
     "outages": "Outages",
     "speedTests": "Speed Tests",
-    "connectionLogs": "Connection Logs",
+    "connectionLogs": "Connection evidence",
     "networkHealth": "Network Health",
     "snmpProfiles": "SNMP Profiles",
     "deviceConfigBackups": "Config Backups",
@@ -3839,7 +3839,22 @@
     "ponUtilization": "PON Utilization",
     "complianceReports": "Compliance Reports",
     "dataRetention": "Data Retention",
-    "interceptionReadiness": "Interception Readiness"
+    "operationalConnectionLoggingReadiness": "Operational Connection-Logging Readiness",
+    "connectionLogging": {
+      "activeNas": "Active NAS available",
+      "sessionAccountingConfigured": "Session accounting configured",
+      "operationalStatus": "Operational status",
+      "yes": "Yes",
+      "no": "No",
+      "statuses": {
+        "ready": "Receiving records",
+        "waitingForTraffic": "Waiting for records",
+        "notConfigured": "Not configured",
+        "notApplicable": "Not applicable",
+        "unknown": "Unknown"
+      },
+      "disclaimerFallback": "Operational signal only. It does not certify legal compliance or complete record coverage."
+    }
   },
   "analyticsDashboard": {
     "title": "Analytics Dashboard",
@@ -3857,9 +3872,11 @@
   "regulatoryCompliance": {
     "title": "Regulatory Compliance",
     "titleMx": "Regulatory Compliance (Mexico)",
+    "accessDenied": "No compliance tools are available with your current permissions.",
     "tabs": {
       "consent": "Consent Management",
       "dsar": "DSAR Requests",
+      "government": "Government Requests",
       "identity": "Identity Verification",
       "numbering": "Phone & Numbering",
       "uso": "Universal Service",
@@ -3918,6 +3935,63 @@
         "portability": "Portability",
         "rectification": "Rectification",
         "restriction": "Restriction"
+      }
+    },
+    "government": {
+      "help": "Create a narrowly scoped IP-traceability case, validate its official reference and legal basis, then start processing before opening the exact attribution lookup.",
+      "workflowHelp": "Required order: while the case is Processing, run the exact lookup and download any required audited CSV; only then mark it fulfilled or rejected. Terminal cases cannot run or export attribution again.",
+      "formLabel": "Create an IP-traceability government request",
+      "authority": "Requesting authority",
+      "officialReference": "Official reference",
+      "legalBasis": "Cited legal basis",
+      "subjectScope": "Authorized subject scope",
+      "subjectClient": "Client #{{id}}",
+      "subjectContract": "Contract #{{id}}",
+      "caseNotes": "Case notes",
+      "assignmentMode": "Assignment mode",
+      "modeCgnat": "CGNAT / shared public IPv4",
+      "modeDirect": "Direct public IPv4 assignment",
+      "publicIpv4": "Authorized public IPv4",
+      "publicPort": "Authorized public source port",
+      "protocol": "Authorized protocol",
+      "selectProtocol": "Select protocol",
+      "exactTimestamp": "Authorized exact timestamp",
+      "timezoneHelp": "Enter local time to the second; FireISP stores the exact UTC instant using your browser timezone ({{timezone}}).",
+      "create": "Create case",
+      "saving": "Saving…",
+      "created": "The IP-traceability case was created for validation.",
+      "createError": "The case could not be created. Check every required scope field.",
+      "loadError": "Government requests could not be loaded.",
+      "processingStarted": "The validated case is now in processing.",
+      "processError": "The case could not enter processing. Confirm its reference, legal basis, and exact scope.",
+      "releaseHelp": "After a case is fulfilled or rejected, an authorized manager may release its preserved-evidence hold with a recorded reason. Release does not delete evidence immediately; it returns the records to the approved retention schedule.",
+      "releaseReason": "Evidence-hold release reason",
+      "releaseReasonPlaceholder": "Required release reason",
+      "releaseEvidenceHold": "Release evidence hold",
+      "releaseConfirm": "Release this terminal case's preserved-evidence hold? The recorded reason will be audited.",
+      "releaseSuccess": "Evidence-hold release recorded for {{count}} preserved record(s).",
+      "releaseError": "The evidence hold could not be released. Confirm the case is fulfilled or rejected and enter a reason.",
+      "releaseRecorded": "Evidence hold released",
+      "authorizedLookup": "Authorized lookup",
+      "status": "Status",
+      "actions": "Actions",
+      "startProcessing": "Validate and start",
+      "openLookup": "Open exact lookup",
+      "fulfill": "Mark fulfilled",
+      "reject": "Reject case",
+      "rejectReason": "Case rejection reason",
+      "rejectReasonPlaceholder": "Required rejection reason",
+      "fulfillConfirm": "Mark this case fulfilled? First complete its exact lookup and any required audited CSV export; a fulfilled case cannot run or export attribution again.",
+      "rejectConfirm": "Reject this case? Complete any required exact lookup and audited CSV export first; rejection ends attribution access and records the reason in the audit trail.",
+      "fulfillSuccess": "The government request was marked fulfilled.",
+      "rejectSuccess": "The government request was rejected.",
+      "closeError": "The government request could not be closed from its current status.",
+      "statuses": {
+        "received": "Received",
+        "processing": "Processing",
+        "fulfilled": "Fulfilled",
+        "rejected": "Rejected",
+        "pending_legal_review": "Pending legal review"
       }
     },
     "identity": {
@@ -5409,5 +5483,240 @@
       "custom": "Custom"
     },
     "mxOnly": "Legal document templates are available for MX-locale organizations only — this organization uses the global compliance profile."
+  },
+  "dsarTool": {
+    "title": "Data Subject Access Request Export",
+    "intro": "Enter a client ID to assemble the enumerated FireISP datasets attributed to that client within your organization. Review the declared scope and external systems separately, then use the JSON document as part of the LFPDPPP (MX) or GDPR (EU) request workflow.",
+    "form": {
+      "ariaLabel": "Assemble a client data-access export",
+      "clientId": "Client ID",
+      "placeholder": "e.g. 42",
+      "assemble": "Assemble export",
+      "assembling": "Assembling…",
+      "download": "Download JSON",
+      "downloadAria": "Download the client data-access JSON export"
+    },
+    "error": "Could not assemble the export. Check the client ID and try again.",
+    "values": {
+      "yes": "Yes",
+      "no": "No",
+      "notReported": "Not reported"
+    },
+    "summary": {
+      "ariaLabel": "Export metadata",
+      "email": "Email",
+      "noEmail": "No email on file",
+      "generated": "Generated",
+      "schema": "Schema",
+      "requestedBy": "Requested by"
+    },
+    "scope": {
+      "ariaLabel": "Export scope",
+      "title": "Export scope",
+      "framing": "This snapshot covers only the enumerated FireISP datasets shown below. Verify external and integrated systems separately before relying on it.",
+      "serverDescription": "Server-declared scope",
+      "serverDescriptionFallback": "No additional server scope description was provided.",
+      "completeForEnumeratedDatasets": "Complete for enumerated datasets",
+      "organizationScoped": "Organization scoped",
+      "allStorageSystemsCovered": "All storage systems covered",
+      "externalSystemsReview": "No — review external and integrated systems separately",
+      "connectionAttribution": "Connection attribution",
+      "compatibilityViews": "Compatibility views"
+    },
+    "cancellation": {
+      "ariaLabel": "Cancellation and erasure review",
+      "title": "Cancellation or erasure review required.",
+      "framing": "This export does not itself delete data. Review approved retention duties and legal holds before any cancellation or erasure action.",
+      "automaticDeletionPerformed": "Automatic deletion performed",
+      "handling": "Handling",
+      "handlingValues": {
+        "reviewRequired": "Review required"
+      },
+      "serverNotice": "Server notice",
+      "serverNoticeFallback": "No additional server cancellation guidance was provided."
+    },
+    "table": {
+      "ariaLabel": "Export record totals",
+      "caption": "Record totals reported by the server for this export snapshot.",
+      "section": "Section",
+      "records": "Records",
+      "present": "Present"
+    },
+    "sections": {
+      "mxProfile": "MX fiscal profile",
+      "contacts": "Contacts",
+      "mxProfiles": "MX fiscal profile records",
+      "contracts": "Contracts",
+      "invoices": "Invoices",
+      "payments": "Payments",
+      "tickets": "Tickets",
+      "connectionLogs": "Connection session records",
+      "radiusAccountingEvents": "RADIUS accounting evidence",
+      "radiusAccountingUsageDaily": "Daily accounting usage",
+      "cgnatAttributionBindings": "CGNAT address and port assignment evidence",
+      "cgnatAttributionEvents": "CGNAT collector source events",
+      "ipAssignments": "IP assignments",
+      "aiReplyLogs": "AI reply logs"
+    }
+  },
+  "connection_logs": {
+    "title": "Connection evidence",
+    "subtitle": "Review subscriber accounting and perform case-bound IP attribution from the minimum retained evidence.",
+    "accessDenied": "No connection-evidence tools are available with your current permissions.",
+    "total": "Total: {{count}}",
+    "tabs": { "label": "Connection evidence types", "sessions": "Subscriber sessions", "attribution": "IP attribution" },
+    "sessions": {
+      "title": "Subscriber sessions",
+      "help": "RADIUS accounting links an authenticated subscriber account to assigned addresses, access server, timing, and usage. It does not provide NAT translation evidence.",
+      "error": "Subscriber sessions could not be loaded.",
+      "empty": "No subscriber sessions match these filters."
+    },
+    "attribution": {
+      "title": "Case-bound IP attribution",
+      "help": "Use an exact public address and instant to find one retained subscriber/access-session assignment. Shared CGNAT addresses also require the source port and transport protocol.",
+      "restrictedTitle": "Restricted legal-response workflow",
+      "restrictedHelp": "Each lookup is permission-controlled, audited, and bound to a validated government request. There is no general mapping browser.",
+      "caseHelp": "The case must be an IP-traceability request in Processing status with an official reference, legal basis, and exactly the same authorized lookup values.",
+      "manageCases": "Manage government requests",
+      "formLabel": "Exact IP attribution lookup",
+      "mode": "Assignment mode",
+      "modeCgnat": "CGNAT / shared public IPv4",
+      "modeDirect": "Direct public IPv4 assignment",
+      "caseId": "Government request ID",
+      "publicIpv4": "Public IPv4",
+      "publicPort": "Public source port",
+      "protocol": "Transport protocol",
+      "selectProtocol": "Select protocol",
+      "exactTimestamp": "Exact timestamp",
+      "timezoneHelp": "Enter the instant to the second. It will be sent as UTC using your browser timezone ({{timezone}}).",
+      "localTimezone": "local time",
+      "search": "Run exact lookup",
+      "searching": "Checking evidence…",
+      "clear": "Clear lookup",
+      "resultCase": "Government request #{{id}}",
+      "notPersonProof": "This result attributes a retained network assignment to a subscriber account and access session. It does not prove which person used the connection or any act by that person.",
+      "planScope": "A service plan controls address-pool assignment only; it is not attribution evidence.",
+      "validation": {
+        "caseRequired": "Enter a valid government request ID.",
+        "ipv4Invalid": "Enter a valid public IPv4 address.",
+        "portInvalid": "Enter a public source port from 1 to 65535.",
+        "protocolRequired": "Select TCP or UDP.",
+        "timestampRequired": "Enter a valid exact timestamp."
+      },
+      "errors": {
+        "caseNotFound": "That government request was not found for this organization.",
+        "caseType": "The request is not an IP-traceability case.",
+        "caseStatus": "The request must be validated and moved to Processing before a lookup.",
+        "caseIncomplete": "Add the official reference and legal basis before using this case.",
+        "scopeMismatch": "The lookup values do not exactly match the values authorized by this case.",
+        "permission": "You do not have permission to use this restricted lookup.",
+        "rateLimited": "Too many restricted lookups were attempted. Wait and try again.",
+        "server": "The attribution lookup could not be completed. No attribution was inferred."
+      },
+      "results": {
+        "unique": { "title": "One assignment found", "help": "Exactly one retained assignment covers the authorized address and instant." },
+        "unavailable": { "title": "No assignment available", "help": "No retained assignment satisfies the exact authorized lookup. Do not infer an account." },
+        "ambiguous": { "title": "Attribution is ambiguous", "help": "{{count}} candidate assignments overlap the lookup. No candidate is selected or displayed." },
+        "incomplete": { "title": "Evidence is incomplete", "help": "The available evidence cannot support an exact attribution. No account is inferred." },
+        "unknown": { "title": "Attribution unavailable", "help": "The server returned an unrecognized result. No account is inferred." }
+      },
+      "export": {
+        "download": "Download case evidence CSV",
+        "preparing": "Preparing case CSV…",
+        "help": "This repeats the exact authorized case lookup and creates an audited export containing only its attribution outcome and evidence. FireISP verifies the downloaded bytes against the server's SHA-256 before saving the file.",
+        "error": "The case evidence CSV could not be prepared. No file was downloaded.",
+        "checksumInvalid": "The server did not provide a valid evidence checksum. No file was downloaded.",
+        "checksumMismatch": "The CSV failed SHA-256 verification. No file was downloaded; retry and investigate the transfer.",
+        "verificationUnavailable": "This browser could not verify the CSV checksum. No file was downloaded.",
+        "checksum": "Evidence SHA-256: {{checksum}}"
+      },
+      "methods": {
+        "direct_public": "Direct public assignment",
+        "direct_public_assignment": "Direct public assignment",
+        "cgnat": "CGNAT mapping",
+        "cgnat_mapping": "CGNAT mapping",
+        "cgnat_binding": "CGNAT binding",
+        "unknown": "Not reported"
+      },
+      "evidence": {
+        "subscriberAccount": "Subscriber account record",
+        "serviceRecord": "Service record",
+        "accessUsername": "Access username",
+        "accessSession": "RADIUS access session",
+        "privateTuple": "Private address / port allocation",
+        "publicAssignment": "Assigned public IPv4",
+        "publicMapping": "Public address / port allocation",
+        "protocol": "Protocol",
+        "attributionMethod": "Attribution method",
+        "allocationWindow": "Assignment window",
+        "windowValue": "{{from}} to {{to}}",
+        "activeOpen": "active / no release received",
+        "mappingKind": "Mapping type",
+        "poolRealm": "NAT pool / realm",
+        "gateway": "CGNAT or access gateway",
+        "exporter": "Evidence source",
+        "lookupInstant": "Authorized lookup instant",
+        "deviceRecordedAt": "Device-recorded event time",
+        "receivedAt": "Collector receipt time",
+        "connectionLogId": "Accounting evidence ID",
+        "bindingId": "Evidence record ID",
+        "integrityHash": "Consistency hash"
+      }
+    },
+    "filters": {
+      "sessionsLabel": "Filter subscriber sessions",
+      "dateFrom": "From", "dateTo": "To", "clientId": "Client ID", "contractId": "Contract ID", "username": "Username",
+      "assignedIp": "Assigned IPv4 or IPv6", "nas": "Access server", "sessionId": "RADIUS session ID", "mac": "Subscriber MAC",
+      "state": "Session state", "allStates": "All states",
+      "apply": "Apply filters", "clear": "Clear filters"
+    },
+    "columns": {
+      "client": "Client", "contract": "Contract", "username": "Username", "ipv4": "Assigned IPv4", "ipv6": "Assigned IPv6",
+      "state": "State", "started": "Started", "ended": "Ended", "duration": "Duration", "nas": "Access server",
+      "nasIp": "NAS IP", "nasPort": "NAS port", "mac": "MAC", "sessionId": "Session ID", "download": "Download",
+      "upload": "Upload", "terminateCause": "Terminate cause"
+    },
+    "states": { "active": "Active", "interim": "In progress", "ended": "Ended", "unknown": "Unknown" },
+    "terminateCauses": {
+      "userRequest": "User request", "lostCarrier": "Carrier lost", "lostService": "Service lost",
+      "idleTimeout": "Idle timeout", "sessionTimeout": "Session timeout", "adminReset": "Administrator reset",
+      "adminReboot": "Administrator reboot", "portError": "Port error", "nasError": "NAS error",
+      "nasRequest": "NAS request", "nasReboot": "NAS reboot", "portUnneeded": "Port no longer needed",
+      "portPreempted": "Port preempted", "portSuspended": "Port suspended", "serviceUnavailable": "Service unavailable",
+      "callback": "Callback", "userError": "User error", "hostRequest": "Host request",
+      "supplicantRestart": "Supplicant restart", "reauthenticationFailure": "Reauthentication failed",
+      "portReinitialized": "Port reinitialized", "portAdministrativelyDisabled": "Port administratively disabled"
+    },
+    "duration": {
+      "daysHours": "{{days}}d {{hours}}h", "hoursMinutes": "{{hours}}h {{minutes}}m",
+      "minutesSeconds": "{{minutes}}m {{seconds}}s", "seconds": "{{seconds}}s"
+    },
+    "export": {
+      "sessions": "Export sessions CSV", "preparing": "Preparing CSV…",
+      "error": "The CSV export could not be prepared.",
+      "sessionGuidance": "CSV exports require an applied From and To range of no more than 366 days. Session browsing can remain unbounded.",
+      "datesRequired": "Set both From and To, then apply the filters before exporting.",
+      "invalidDates": "Enter valid From and To dates, then apply the filters before exporting.",
+      "dateOrder": "For export, To must not be before From.",
+      "windowTooLong": "Session CSV exports can cover no more than 366 days."
+    },
+    "readiness": {
+      "title": "Evidence readiness", "subtitle": "Operational signals only—not a legal-compliance certification. Verify every source before relying on an attribution.",
+      "error": "Logging readiness could not be checked.", "sessionsTitle": "Subscriber accounting",
+      "attributionTitle": "IP attribution evidence", "retentionTitle": "Configured retention", "lastReceived": "Last received",
+      "records24h": "Records in 24 hours", "source": "Source", "sourceRadius": "RADIUS accounting", "sourceAttribution": "CGNAT / address-assignment collector", "coverage": "Complete source coverage", "coverageValue": "{{covered}} of {{total}}",
+      "coverageStatus": "Coverage status", "clockStatus": "Clock status", "clockOffset": "max {{milliseconds}} ms", "lossStatus": "Delivery / loss status",
+      "sequenceGaps24h": "Sequence-gap events in 24 hours", "lostRecords24h": "Reported lost records in 24 hours", "incompleteMetadata24h": "Incomplete records in 24 hours",
+      "sessionsGuidance": "Configure RADIUS accounting start, interim, and stop messages on every access server, then confirm recent events arrive.",
+      "sessionsReceiving": "Recent subscriber accounting is arriving. Check source coverage whenever access servers are added or changed.",
+      "attributionGuidance": "Configure every direct-address and CGNAT egress source to send assignment or mapping evidence with synchronized clocks and loss reporting. Enabled CGNAT exporter configurations require authoritative_baseline_confirmed and a nonblank baseline_reference; every CGNAT event requires session_instance_id. Missing coverage, time accuracy, or records prevents reliable attribution.",
+      "attributionReceiving": "Recent attribution evidence is arriving. Receiving data alone is insufficient: coverage, clock, metadata, and loss indicators must also be complete. Keep authoritative_baseline_confirmed, baseline_reference, and each event's session_instance_id complete.",
+      "attributionRestricted": "Attribution readiness is restricted. Subscriber accounting remains available separately.",
+      "sessionRetention": "Subscriber sessions", "attributionRetention": "IP attribution evidence", "retentionValue": "{{months}} months",
+      "retentionGuidance": "Confirm both cleanup windows match the organization's approved legal and privacy schedule.",
+      "sessionRetentionBelowBaseline": "Subscriber-session retention is {{months}} months, below FireISP's 24-month Mexico policy baseline. Confirm the organization's approved legal schedule before relying on these records.",
+      "health": { "complete": "Complete", "partial": "Partial", "missing": "Missing", "synchronized": "Synchronized", "reported": "Reported", "healthy": "No reported loss", "degraded": "Needs attention", "unknown": "Not reported" },
+      "status": { "ready": "Receiving", "waiting": "Needs attention", "notConfigured": "Not configured", "unknown": "Unknown" }
+    }
   }
 }

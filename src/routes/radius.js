@@ -3,10 +3,11 @@
 // =============================================================================
 
 const { Router } = require('express');
+const rateLimit = require('express-rate-limit');
 const Radius = require('../models/Radius');
 const Nas = require('../models/Nas');
 const routerProvisioningService = require('../services/routerProvisioningService');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, ForbiddenError } = require('../utils/errors');
 const { crudController } = require('../controllers/crudController');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -20,12 +21,29 @@ const {
 } = require('../services/radiusService');
 const { createRoute, updateWalledGarden } = require('../middleware/schemas/radius');
 const db = require('../config/database');
-const { exportCdr, listMacMoveEvents } = require('../services/radiusAccountingService');
+const {
+  exportCdr, listMacMoveEvents, ingestAccounting, recordInfrastructureAccounting,
+} = require('../services/radiusAccountingService');
+const { normalizeAccountingBody } = require('./radiusAccounting');
 const { sendRadiusPacket } = require('../services/suspensionService');
 const radiusServerService = require('../services/radiusServerService');
 const auditLog = require('../services/auditLog');
+const config = require('../config');
+const { CacheStore, exportLimiter, apiTokenConfiguredLimiter } = require('../middleware/rateLimit');
+const SESSION_LIVENESS_MINUTES = Number.isSafeInteger(config.radiusSessionLivenessMinutes)
+  && config.radiusSessionLivenessMinutes > 0
+  ? Math.min(config.radiusSessionLivenessMinutes, 1440) : 60;
 
 const router = Router();
+const accountingIngestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Math.min(Math.max(Number.parseInt(process.env.RADIUS_ACCOUNTING_REQUESTS_PER_MINUTE || '6000', 10) || 6000, 1), 60000),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: req => `accounting:${req.orgId}:${req.user?.apiTokenId || 'missing-token'}`,
+  message: { error: { code: 'RATE_LIMITED', message: 'Accounting collector request rate exceeded' } },
+  store: new CacheStore('rl_radius_collector:'),
+});
 // Strip the cleartext PPPoE `password` column from list/get responses.
 // Full-credential access is gated separately by `radius.credentials.view`
 // (see the /contract/:contractId/credentials and /:id/credentials routes
@@ -42,6 +60,73 @@ router.use(orgScope);
 // -----------------------------------------------------------------------------
 router.get('/server-status', requirePermission('devices.view'), (_req, res) => {
   res.json({ data: radiusServerService.getStatus() });
+});
+
+// Recommended tenant-explicit machine path. Unlike the compatibility shared-
+// secret endpoint, the API token fixes the organization before NAS lookup.
+// Shared-primary NAS addresses remain installation-wide unique; isolated
+// tenant databases may reuse RFC1918 values without making this lookup ambiguous.
+router.post('/accounting/tenant', accountingIngestLimiter, apiTokenConfiguredLimiter, requirePermission('connection_logs.ingest'), async (req, res, next) => {
+  try {
+    if (!req.user.apiTokenId) {
+      throw new ForbiddenError('Tenant accounting ingest requires an organization API token (X-API-Key)');
+    }
+    let scopes = req.user.scopes;
+    if (typeof scopes === 'string') {
+      try { scopes = JSON.parse(scopes); } catch { scopes = null; }
+    }
+    if (!Array.isArray(scopes) || scopes.length !== 1 || scopes[0] !== 'connection_logs:ingest') {
+      throw new ForbiddenError('Collector token must contain only connection_logs:ingest');
+    }
+
+    const attrs = normalizeAccountingBody(req.body || {});
+    attrs.provenance = {
+      source: 'radius_tenant_api',
+      apiTokenId: req.user.apiTokenId,
+      requestId: req.id,
+      sourceIp: req.ip,
+      userAgent: req.get('user-agent'),
+    };
+    const normalised = String(attrs.acctStatusType || '').trim();
+    const infrastructureStatus = normalised === 'Accounting-On' || normalised === 'Accounting-Off';
+    if (!infrastructureStatus && !['Start', 'Stop', 'Interim-Update'].includes(normalised)) {
+      throw new ValidationError('Acct-Status-Type must be Start, Stop, Interim-Update, Accounting-On, or Accounting-Off');
+    }
+    if (!attrs.nasIpAddress || (!infrastructureStatus && (!attrs.userName || !attrs.acctSessionId))) {
+      throw new ValidationError('User-Name, Acct-Session-Id, and NAS-IP-Address are required');
+    }
+
+    const [nasRows] = await db.query(
+      `SELECT id, organization_id FROM nas
+        WHERE organization_id = ? AND ip_address = ?
+          AND status = 'active' AND deleted_at IS NULL
+        LIMIT 2`,
+      [req.orgId, attrs.nasIpAddress],
+    );
+    if (nasRows.length !== 1) {
+      throw new ValidationError('NAS-IP-Address must identify one active NAS in the token organization');
+    }
+    if (infrastructureStatus) {
+      await recordInfrastructureAccounting({
+        organizationId: req.orgId,
+        nasId: nasRows[0].id,
+        acctStatusType: normalised,
+        provenance: attrs.provenance,
+      });
+      return res.status(200).json({ ok: true, action: 'noop', reason: normalised });
+    }
+    const result = await ingestAccounting({
+      ...attrs,
+      acctStatusType: normalised,
+      organizationId: req.orgId,
+      nasId: nasRows[0].id,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ ok: true, action: result.action, id: result.id,
+      macMove: result.macMove, session_instance_id: result.sessionInstanceId });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // -----------------------------------------------------------------------------
@@ -172,19 +257,26 @@ router.post('/:id/disconnect', requirePermission('devices.update'), validate(dis
       // (refused) rather than resolved by row order, and a session recorded
       // both with and without a NAS IP coalesces to the non-null one.
       const [sessionRows] = await db.query(
-        `SELECT DISTINCT cl.session_id, cl.nas_ip_address
+        `SELECT DISTINCT COALESCE(cl.acct_session_id, cl.session_id) AS session_id, cl.nas_ip_address
            FROM connection_logs cl
-          WHERE cl.contract_id = ? AND cl.session_id = ?
+          WHERE cl.organization_id = ? AND cl.contract_id = ?
+            AND COALESCE(cl.acct_session_id, cl.session_id) = ?
             AND (? IS NULL OR cl.nas_ip_address = ?)
             AND cl.event_type IN ('start', 'interim-update')
-            AND NOT EXISTS (
-              SELECT 1 FROM connection_logs cl2
-              WHERE cl2.session_id = cl.session_id
-                AND cl2.contract_id = cl.contract_id
-                AND cl2.event_type = 'stop'
-            )
+            AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)
+                >= DATE_SUB(NOW(), INTERVAL ${SESSION_LIVENESS_MINUTES} MINUTE)
+            AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+              SELECT legacy_latest.id FROM connection_logs legacy_latest
+               WHERE legacy_latest.organization_id = cl.organization_id
+                 AND legacy_latest.session_instance_id IS NULL
+                 AND legacy_latest.nas_id <=> cl.nas_id
+                 AND legacy_latest.username = cl.username
+                 AND legacy_latest.contract_id = cl.contract_id
+                 AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                     <=> COALESCE(cl.acct_session_id, cl.session_id)
+               ORDER BY legacy_latest.event_at DESC, legacy_latest.id DESC LIMIT 1))
           LIMIT 25`,
-        [contractId, acctSessionId, nasIpAddress ?? null, nasIpAddress ?? null],
+        [req.orgId, contractId, acctSessionId, nasIpAddress ?? null, nasIpAddress ?? null],
       );
       if (!sessionRows.length) {
         return res.status(404).json({ error: 'Session not found or already stopped' });
@@ -464,7 +556,7 @@ router.post('/kick-sessions', requirePermission('radius.kick_sessions'), async (
 // CDR Export (item 20)
 // =============================================================================
 
-router.get('/cdr', requirePermission('radius.cdr_export'), async (req, res, next) => {
+router.get('/cdr', exportLimiter, requirePermission('radius.cdr_export'), requirePermission('connection_logs.export'), async (req, res, next) => {
   try {
     const { from, to, username, format = 'json' } = req.query;
 
@@ -480,14 +572,25 @@ router.get('/cdr', requirePermission('radius.cdr_export'), async (req, res, next
       organizationId: req.orgId,
     });
 
-    await auditLog.log({
+    await db.withPrimaryContext(() => auditLog.log({
       userId: req.user?.id,
       organizationId: req.orgId,
       action: 'export',
       tableName: 'connection_logs',
       recordId: 0,
       newValues: { from, to, username: username || null, format },
-    });
+    }));
+    await db.withPrimaryContext(() => db.query(
+      `INSERT INTO report_access_logs
+         (organization_id, user_id, api_token_id, report_type, entity_type, parameters,
+          ip_address, user_agent, accessed_at)
+       VALUES (?, ?, ?, 'legacy_radius_cdr_export', 'connection_logs', ?, ?, ?, NOW())`,
+      [req.orgId, req.user?.id, req.user?.apiTokenId || null,
+        JSON.stringify({ from, to, username: username || null, format }),
+        req.ip || null, req.get('user-agent') || null],
+    ));
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
 
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
@@ -497,6 +600,19 @@ router.get('/cdr', requirePermission('radius.cdr_export'), async (req, res, next
 
     res.json({ data: result.rows });
   } catch (err) {
+    if (err.exportTotal) {
+      try {
+        await db.withPrimaryContext(() => db.query(
+          `INSERT INTO report_access_logs
+             (organization_id, user_id, api_token_id, report_type, entity_type, parameters,
+              ip_address, user_agent, accessed_at)
+           VALUES (?, ?, ?, 'legacy_radius_cdr_export_denied_too_large', 'connection_logs', ?, ?, ?, NOW())`,
+          [req.orgId, req.user?.id, req.user?.apiTokenId || null,
+            JSON.stringify({ ...req.query, total: err.exportTotal, max: err.exportMax }),
+            req.ip || null, req.get('user-agent') || null],
+        ));
+      } catch (_auditError) { /* Preserve the explicit export error. */ }
+    }
     next(err);
   }
 });
@@ -625,20 +741,27 @@ router.post('/sessions/disconnect-batch', requirePermission('radius.batch_discon
       // than 1 distinct combos, so capping a pathological result set
       // changes nothing.)
       const [rows] = await db.query(
-        `SELECT DISTINCT cl.contract_id, cl.nas_ip_address, cl.session_id
+        `SELECT DISTINCT cl.contract_id, cl.nas_ip_address,
+                COALESCE(cl.acct_session_id, cl.session_id) AS session_id
            FROM connection_logs cl
-           JOIN contracts c ON c.id = cl.contract_id
-          WHERE cl.session_id = ? AND cl.event_type IN ('start', 'interim-update')
+          WHERE cl.organization_id = ?
+            AND COALESCE(cl.acct_session_id, cl.session_id) = ?
+            AND cl.event_type IN ('start', 'interim-update')
             AND (? IS NULL OR cl.nas_ip_address = ?)
-            AND (? IS NULL OR c.organization_id = ?)
-            AND NOT EXISTS (
-              SELECT 1 FROM connection_logs cl2
-              WHERE cl2.session_id = cl.session_id
-                AND cl2.contract_id = cl.contract_id
-                AND cl2.event_type = 'stop'
-            )
+            AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at)
+                >= DATE_SUB(NOW(), INTERVAL ${SESSION_LIVENESS_MINUTES} MINUTE)
+            AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+              SELECT legacy_latest.id FROM connection_logs legacy_latest
+               WHERE legacy_latest.organization_id = cl.organization_id
+                 AND legacy_latest.session_instance_id IS NULL
+                 AND legacy_latest.nas_id <=> cl.nas_id
+                 AND legacy_latest.username = cl.username
+                 AND legacy_latest.contract_id = cl.contract_id
+                 AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                     <=> COALESCE(cl.acct_session_id, cl.session_id)
+               ORDER BY legacy_latest.event_at DESC, legacy_latest.id DESC LIMIT 1))
           LIMIT 25`,
-        [target.session_id, target.nas_ip_address, target.nas_ip_address, req.orgId ?? null, req.orgId ?? null],
+        [req.orgId, target.session_id, target.nas_ip_address, target.nas_ip_address],
       );
       // Use the DB-canonical session_id, not the raw request string: the PAD
       // SPACE collation matches 'abc   ' to the stored 'abc', and sending the

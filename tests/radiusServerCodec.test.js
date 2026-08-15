@@ -17,6 +17,7 @@ const {
   getString,
   getInt,
   getIp,
+  getIpv6Prefix,
   decodePapPassword,
   encodePapPassword,
   verifyChap,
@@ -145,6 +146,22 @@ describe('radiusServerCodec', () => {
 
     test('getIp returns null for a missing attribute', () => {
       expect(getIp(attrs, ATTR.NAS_IP_ADDRESS)).toBeNull();
+    });
+  });
+
+  describe('getIpv6Prefix()', () => {
+    test('decodes an exact RFC 3162 prefix payload', () => {
+      const value = Buffer.from([0, 64, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 1]);
+      expect(getIpv6Prefix([{ type: ATTR.FRAMED_IPV6_PREFIX, value }])).toBe('2001:db8:0:1::/64');
+    });
+
+    test.each([
+      Buffer.from([1, 64, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 1]),
+      Buffer.from([0, 64]),
+      Buffer.from([0, 65, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 1, 0x7f]),
+    ])('rejects malformed reserved, truncated, or host-bit payloads', (value) => {
+      expect(() => getIpv6Prefix([{ type: ATTR.FRAMED_IPV6_PREFIX, value }]))
+        .toThrow(/Malformed Framed-IPv6-Prefix/);
     });
   });
 

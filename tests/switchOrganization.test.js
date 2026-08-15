@@ -13,14 +13,19 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
+}));
+jest.mock('../src/services/orgPrincipalService', () => ({
+  resolveOrgPrincipal: jest.fn(),
 }));
 
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../src/config/database');
 const config = require('../src/config');
+const { resolveOrgPrincipal } = require('../src/services/orgPrincipalService');
 const authService = require('../src/services/authService');
 
 
@@ -43,7 +48,16 @@ const FUTURE = () => new Date(Date.now() + 86400000).toISOString();
 const PAST = () => new Date(Date.now() - 60000).toISOString();
 
 describe('authService.switchOrganization', () => {
-  beforeEach(() => { jest.clearAllMocks(); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resolveOrgPrincipal.mockImplementation(async (user, organizationId) => ({
+      organizationId: Number(organizationId),
+      organizationName: Number(organizationId) === 5 ? 'Beta ISP' : 'Acme ISP',
+      membershipRole: user.role,
+      authorizationRole: user.role,
+      isInstallOperator: false,
+    }));
+  });
 
   test('returns new token pair bound to the requested organization for a member', async () => {
     const rt = crypto.randomBytes(32).toString('hex');
@@ -51,8 +65,6 @@ describe('authService.switchOrganization', () => {
 
     db.query
       .mockResolvedValueOnce([[{ id: 1, email: 'jane@acme.test', role: 'support', status: 'active', organization_id: 1 }]]) // findById
-      .mockResolvedValueOnce([[{ id: 7, name: 'Acme ISP' }]]) // org exists
-      .mockResolvedValueOnce([[{ membership_role: 'support' }]]) // membership
       .mockResolvedValueOnce([[{ id: 99, token_hash: rtHash, user_id: 1, token_family: 'fam-xyz', expires_at: FUTURE() }]]); // session
     mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 100 }]);
 
@@ -74,11 +86,15 @@ describe('authService.switchOrganization', () => {
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
 
     db.query
-      .mockResolvedValueOnce([[{ id: 1, email: 'admin@x', role: 'admin', status: 'active', organization_id: 1 }]]) // findById
-      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
-      .mockResolvedValueOnce([[]]) // NO membership
-      .mockResolvedValueOnce([[{ is_install_operator: 1 }]]) // ...but they run the install
+      .mockResolvedValueOnce([[{ id: 1, email: 'admin@x', role: 'admin', status: 'active', organization_id: 1, is_install_operator: 1 }]]) // findById
       .mockResolvedValueOnce([[{ id: 5, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: FUTURE() }]]);
+    resolveOrgPrincipal.mockResolvedValueOnce({
+      organizationId: 42,
+      organizationName: 'Other ISP',
+      membershipRole: 'admin',
+      authorizationRole: 'admin',
+      isInstallOperator: true,
+    });
     mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 6 }]);
 
     const result = await authService.switchOrganization(1, 42, rt);
@@ -91,32 +107,26 @@ describe('authService.switchOrganization', () => {
   test('a TENANT admin cannot — same legacy role, no operator flag (j67)', async () => {
     // This is the case the old carve-out could not distinguish: users.role
     // ='admin' is the per-tenant admin persona, so every organisation has one.
-    db.query
-      .mockResolvedValueOnce([[{ id: 9, email: 'admin@tenant', role: 'admin', status: 'active', organization_id: 3 }]])
-      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]])
-      .mockResolvedValueOnce([[]])                              // no membership
-      .mockResolvedValueOnce([[{ is_install_operator: 0 }]]);   // not the operator
+    db.query.mockResolvedValueOnce([[{ id: 9, email: 'admin@tenant', role: 'admin', status: 'active', organization_id: 3 }]]);
+    resolveOrgPrincipal.mockResolvedValueOnce(null);
 
     await expect(authService.switchOrganization(9, 42, 'rt')).rejects.toThrow(/not a member/i);
   });
 
   test('non-admin CANNOT switch to an org they are not a member of', async () => {
-    db.query
-      .mockResolvedValueOnce([[{ id: 2, email: 'u@x', role: 'support', status: 'active' }]]) // findById
-      .mockResolvedValueOnce([[{ id: 42, name: 'Other ISP' }]]) // org exists
-      .mockResolvedValueOnce([[]]); // no membership
+    db.query.mockResolvedValueOnce([[{ id: 2, email: 'u@x', role: 'support', status: 'active' }]]);
+    resolveOrgPrincipal.mockResolvedValueOnce(null);
 
     await expect(authService.switchOrganization(2, 42, 'rt'))
       .rejects.toThrow('User is not a member of the requested organization');
   });
 
   test('throws ForbiddenError when the target org does not exist', async () => {
-    db.query
-      .mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active' }]]) // findById
-      .mockResolvedValueOnce([[]]); // org not found
+    db.query.mockResolvedValueOnce([[{ id: 1, role: 'admin', status: 'active' }]]);
+    resolveOrgPrincipal.mockResolvedValueOnce(null);
 
     await expect(authService.switchOrganization(1, 999, 'rt'))
-      .rejects.toThrow('Organization not found');
+      .rejects.toThrow('User is not a member of the requested organization');
   });
 
   test('throws ValidationError when organizationId is missing', async () => {
@@ -139,9 +149,7 @@ describe('authService.switchOrganization', () => {
 
   test('throws when refresh token is missing', async () => {
     db.query
-      .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
-      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ membership_role: 'admin' }]]);
+      .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]]);
     await expect(authService.switchOrganization(1, 7, ''))
       .rejects.toThrow('Refresh token required to switch organizations');
   });
@@ -150,8 +158,6 @@ describe('authService.switchOrganization', () => {
     const rt = crypto.randomBytes(32).toString('hex');
     db.query
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
-      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
       .mockResolvedValueOnce([[]]); // session empty
     await expect(authService.switchOrganization(1, 7, rt))
       .rejects.toThrow('Invalid or expired refresh token');
@@ -161,8 +167,6 @@ describe('authService.switchOrganization', () => {
     const rt = crypto.randomBytes(32).toString('hex');
     db.query
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
-      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
       .mockResolvedValueOnce([[]]);
     await expect(authService.switchOrganization(1, 7, rt)).rejects.toThrow();
 
@@ -178,8 +182,6 @@ describe('authService.switchOrganization', () => {
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
     db.query
       .mockResolvedValueOnce([[{ id: 1, email: 'a@b.c', role: 'admin', status: 'active' }]])
-      .mockResolvedValueOnce([[{ id: 7, name: 'Acme' }]])
-      .mockResolvedValueOnce([[{ membership_role: 'admin' }]])
       .mockResolvedValueOnce([[{ id: 55, token_hash: rtHash, user_id: 1, token_family: 'fam', expires_at: PAST() }]])
       .mockResolvedValueOnce([{ affectedRows: 1 }]); // DELETE expired
     await expect(authService.switchOrganization(1, 7, rt)).rejects.toThrow('Refresh token expired');
@@ -195,8 +197,6 @@ describe('authService.switchOrganization', () => {
     const rtHash = crypto.createHash('sha256').update(rt).digest('hex');
     db.query
       .mockResolvedValueOnce([[{ id: 2, email: 'b@b.c', role: 'billing', status: 'active', organization_id: 1 }]]) // findById
-      .mockResolvedValueOnce([[{ id: 5, name: 'Beta ISP' }]]) // org
-      .mockResolvedValueOnce([[{ membership_role: 'billing' }]]) // membership
       .mockResolvedValueOnce([[{ id: 80, token_hash: rtHash, user_id: 2, token_family: 'fam-rotate', expires_at: FUTURE() }]]);
     const conn = mockSessionTxn([{ affectedRows: 1 }], [{ insertId: 81 }]);
 

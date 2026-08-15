@@ -6,6 +6,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: jest.fn(callback => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));

@@ -54,6 +54,24 @@ class MemoryCache {
     this.store.delete(key);
   }
 
+  async incrementFixedWindow(key, windowMs) {
+    const now = Date.now();
+    const entry = this.store.get(key);
+    if (!entry || entry.expiresAt <= now) {
+      const resetAt = now + windowMs;
+      this.store.set(key, { value: 1, expiresAt: resetAt });
+      return { count: 1, resetAt };
+    }
+    entry.value = Number(entry.value || 0) + 1;
+    return { count: entry.value, resetAt: entry.expiresAt };
+  }
+
+  async decrementFixedWindow(key) {
+    const entry = this.store.get(key);
+    if (!entry || entry.expiresAt <= Date.now()) return;
+    entry.value = Math.max(0, Number(entry.value || 0) - 1);
+  }
+
   async flush() {
     this.store.clear();
   }
@@ -104,6 +122,32 @@ class RedisCache {
     } catch (err) {
       logger.warn({ err, key }, 'Cache del failed');
     }
+  }
+
+  async incrementFixedWindow(key, windowMs) {
+    // Atomic across app instances. An error intentionally propagates: a hard
+    // collector ceiling must fail closed when its configured shared store is
+    // unavailable.
+    const result = await this.client.eval(
+      `local count = redis.call('INCR', KEYS[1])
+       if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+       return {count, redis.call('PTTL', KEYS[1])}`,
+      1,
+      key,
+      String(windowMs),
+    );
+    const ttlMs = Math.max(1, Number(result[1]));
+    return { count: Number(result[0]), resetAt: Date.now() + ttlMs };
+  }
+
+  async decrementFixedWindow(key) {
+    await this.client.eval(
+      `local value = tonumber(redis.call('GET', KEYS[1]) or '0')
+       if value > 0 then return redis.call('DECR', KEYS[1]) end
+       return value`,
+      1,
+      key,
+    );
   }
 
   async flush() {
@@ -202,6 +246,8 @@ module.exports = {
   get: (key) => getCache().get(key),
   set: (key, value, ttl) => getCache().set(key, value, ttl),
   del: (key) => getCache().del(key),
+  incrementFixedWindow: (key, windowMs) => getCache().incrementFixedWindow(key, windowMs),
+  decrementFixedWindow: key => getCache().decrementFixedWindow(key),
   flush: () => getCache().flush(),
   close: () => getCache().close(),
   wrap,

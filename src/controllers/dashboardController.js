@@ -250,33 +250,36 @@ async function throughput(req, res, next) {
  */
 async function liveSessions(req, res, next) {
   try {
+    const livenessMinutes = Math.min(Math.max(
+      Number.parseInt(process.env.RADIUS_SESSION_LIVENESS_MINUTES || '60', 10) || 60, 1,
+    ), 1440);
     const [[row]] = await db.queryReplica(
       `SELECT
          (
            SELECT COUNT(*)
            FROM connection_logs cl
-           LEFT JOIN clients c ON c.id = cl.client_id
-           WHERE cl.event_type = 'start'
-             AND cl.session_id IS NOT NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM connection_logs cl2
-               WHERE cl2.session_id = cl.session_id
-                 AND cl2.contract_id = cl.contract_id
-                 AND cl2.event_type = 'stop'
-             )
-             AND (
-               c.organization_id = ?
-               OR (c.id IS NULL AND EXISTS (
-                 SELECT 1 FROM nas n WHERE n.id = cl.nas_id AND n.organization_id = ?
-               ))
-             )
+           WHERE cl.organization_id = ?
+             AND cl.event_type IN ('start', 'interim-update')
+             AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at) >=
+                 DATE_SUB(NOW(), INTERVAL ${livenessMinutes} MINUTE)
+             AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+               SELECT legacy_latest.id FROM connection_logs legacy_latest
+                WHERE legacy_latest.organization_id = cl.organization_id
+                  AND legacy_latest.session_instance_id IS NULL
+                  AND legacy_latest.nas_id <=> cl.nas_id
+                  AND legacy_latest.username = cl.username
+                  AND legacy_latest.contract_id = cl.contract_id
+                  AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                      <=> COALESCE(cl.acct_session_id, cl.session_id)
+                ORDER BY COALESCE(legacy_latest.last_accounting_received_at, legacy_latest.last_accounting_at, legacy_latest.event_at) DESC,
+                         legacy_latest.id DESC LIMIT 1))
          ) AS live_sessions,
          (
            SELECT COUNT(*)
            FROM contracts
            WHERE organization_id = ? AND status = 'active' AND deleted_at IS NULL
          ) AS subscriber_base`,
-      [req.orgId, req.orgId, req.orgId],
+      [req.orgId, req.orgId],
     );
     const live = Number(row?.live_sessions ?? 0);
     const base = Number(row?.subscriber_base ?? 0);
@@ -337,6 +340,9 @@ async function sitesUtilization(req, res, next) {
  */
 async function networkDevices(req, res, next) {
   try {
+    const livenessMinutes = Math.min(Math.max(
+      Number.parseInt(process.env.RADIUS_SESSION_LIVENESS_MINUTES || '60', 10) || 60, 1,
+    ), 1440);
     const [rows] = await db.queryReplica(
       `SELECT
          d.id, d.name, d.status, d.ip_address, d.type, d.manufacturer, d.model,
@@ -364,18 +370,24 @@ async function networkDevices(req, res, next) {
        LEFT JOIN nas n ON n.ip_address = d.ip_address
          AND n.organization_id <=> d.organization_id AND n.deleted_at IS NULL
        LEFT JOIN (
-         SELECT cl.nas_id, COUNT(*) AS active_clients
+         SELECT cl.organization_id, cl.nas_id, COUNT(*) AS active_clients
          FROM connection_logs cl
-         WHERE cl.event_type = 'start'
-           AND cl.session_id IS NOT NULL
-           AND NOT EXISTS (
-             SELECT 1 FROM connection_logs cl2
-             WHERE cl2.session_id = cl.session_id
-               AND cl2.contract_id = cl.contract_id
-               AND cl2.event_type = 'stop'
-           )
-         GROUP BY cl.nas_id
-       ) ac ON ac.nas_id = n.id
+         WHERE cl.event_type IN ('start', 'interim-update')
+           AND COALESCE(cl.last_accounting_received_at, cl.last_accounting_at, cl.event_at) >=
+               DATE_SUB(NOW(), INTERVAL ${livenessMinutes} MINUTE)
+           AND (cl.session_instance_id IS NOT NULL OR cl.id = (
+             SELECT legacy_latest.id FROM connection_logs legacy_latest
+              WHERE legacy_latest.organization_id = cl.organization_id
+                AND legacy_latest.session_instance_id IS NULL
+                AND legacy_latest.nas_id <=> cl.nas_id
+                AND legacy_latest.username = cl.username
+                AND legacy_latest.contract_id = cl.contract_id
+                AND COALESCE(legacy_latest.acct_session_id, legacy_latest.session_id)
+                    <=> COALESCE(cl.acct_session_id, cl.session_id)
+              ORDER BY COALESCE(legacy_latest.last_accounting_received_at, legacy_latest.last_accounting_at, legacy_latest.event_at) DESC,
+                       legacy_latest.id DESC LIMIT 1))
+         GROUP BY cl.organization_id, cl.nas_id
+       ) ac ON ac.nas_id = n.id AND ac.organization_id = d.organization_id
        WHERE d.organization_id = ? AND d.deleted_at IS NULL
        ORDER BY (d.status = 'online') DESC, d.name ASC
        LIMIT 200`,

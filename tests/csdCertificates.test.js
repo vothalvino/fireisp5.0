@@ -13,6 +13,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
@@ -38,6 +39,37 @@ function makeToken(payload = {}) {
 
 const adminToken = makeToken();
 
+function principalQueryResult(sql) {
+  if (/SELECT id, name FROM organizations/.test(sql)) {
+    return [[{ id: 1, name: 'MX Test ISP' }]];
+  }
+  if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
+    return [[{ membership_role: 'admin' }]];
+  }
+  if (/COALESCE\(group_row\.kind, u\.role\) AS authority_persona/.test(sql)) {
+    return [[{
+      id: 1,
+      email: 'admin@test.com',
+      role: 'admin',
+      organization_id: 1,
+      is_install_operator: 0,
+      authority_persona: 'admin',
+    }]];
+  }
+  if (/SELECT g\.id AS group_id/.test(sql)) {
+    return [[{ group_id: 3, has_access: 1 }]];
+  }
+  if (/SELECT DISTINCT p\.name AS slug/.test(sql)) {
+    return [[
+      { slug: 'csd_certificates.view' },
+      { slug: 'csd_certificates.create' },
+      { slug: 'csd_certificates.update' },
+      { slug: 'csd_certificates.delete' },
+    ]];
+  }
+  return null;
+}
+
 function mockAdminUser() {
   User.findById.mockResolvedValue({
     id: 1,
@@ -46,10 +78,18 @@ function mockAdminUser() {
     role: 'admin',
     organization_id: 1,
   });
+  User.getPermissions.mockResolvedValue([
+    'csd_certificates.view',
+    'csd_certificates.create',
+    'csd_certificates.update',
+    'csd_certificates.delete',
+  ]);
   // requireMxLocale (mounted ahead of the CRUD routes) calls
   // Organization.getLocale(req.orgId), which is a raw `db.query` — the org
   // must be locale='MX' or every request 404s as REGION_DISABLED.
-  db.query.mockResolvedValue([[{ locale: 'MX' }]]);
+  db.query.mockImplementation(async (sql) => (
+    principalQueryResult(sql) || [[{ locale: 'MX' }]]
+  ));
 }
 
 const rawCertRow = {
@@ -150,6 +190,8 @@ describe('CSD upload (real fixture, parsed server-side)', () => {
     };
     db.getConnection.mockResolvedValue(lastConn);
     db.query.mockImplementation(async (sql) => {
+      const principalResult = principalQueryResult(sql);
+      if (principalResult) return principalResult;
       if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/FROM organization_mx_profiles/.test(sql)) return [orgRfc ? [{ rfc: orgRfc }] : []];
       if (/INSERT INTO csd_certificates/.test(sql)) return [{ insertId: 11 }];
@@ -292,6 +334,8 @@ describe('CSD activation (zero-downtime renewal)', () => {
     };
     db.getConnection.mockResolvedValue(conn);
     db.query.mockImplementation(async (sql) => {
+      const principalResult = principalQueryResult(sql);
+      if (principalResult) return principalResult;
       if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/FROM csd_certificates WHERE id/.test(sql)) return [[{ id: 9, status: 'active', valid_to: futureDate(300) }]];
       return [[]];
@@ -308,6 +352,8 @@ describe('CSD activation (zero-downtime renewal)', () => {
 
   test('422 CSD_NOT_ACTIVATABLE for an expired certificate', async () => {
     db.query.mockImplementation(async (sql) => {
+      const principalResult = principalQueryResult(sql);
+      if (principalResult) return principalResult;
       if (/FROM organizations/.test(sql)) return [[{ locale: 'MX' }]];
       if (/FROM csd_certificates WHERE id/.test(sql)) return [[{ id: 9, status: 'active', valid_to: new Date('2020-01-01') }]];
       return [[]];

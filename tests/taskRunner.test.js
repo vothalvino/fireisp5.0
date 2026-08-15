@@ -81,6 +81,7 @@ jest.mock('../src/services/alertService', () => ({
 
 jest.mock('../src/services/retentionService', () => ({
   runAll: jest.fn(),
+  runGeneral: jest.fn(),
 }));
 
 jest.mock('../src/services/paymentRetryService', () => ({
