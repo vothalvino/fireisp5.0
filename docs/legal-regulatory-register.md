@@ -156,6 +156,9 @@ operator-specific applicability conclusion.
 |---|---|---|---|---|
 | `SRC-MX-LMTR` | Ley en Materia de Telecomunicaciones y Radiodifusión | Current new law, published 2025-07-16; no later reform listed | [Cámara de Diputados — LMTR](https://www.diputados.gob.mx/LeyesBiblio/pdf/LMTR.pdf) | Reform, court ruling, concession/service/numbering change |
 | `SRC-MX-LCMSJ` | Lineamientos de Colaboración en Materia de Seguridad y Justicia | IFT instrument amended 2025-02-07; preserved only insofar as compatible under LMTR Transitory Twenty-Eighth | [official integrated text](https://www.ift.org.mx/sites/default/files/lcmsj_07-02-2025.pdf), [2025 DOF amendment](https://dof.gob.mx/abrirPDF.php?anio=2025&archivo=07022025-MAT.pdf&repo=repositorio%2F) | CRT replacement/amendment, authentication transition, telephony/numbering change |
+| `SRC-MX-SNII-RULES` | Lineamientos for delivery, registration, and consultation of SNII information | 2019 IFT instrument, amended in February and September 2024; continued only insofar as compatible under LMTR Transitory Twenty-Eighth | [original lineamientos](https://dof.gob.mx/nota_detalle_popup.php?codigo=5576710), [February 2024 amendment](https://dof.gob.mx/nota_detalle_popup.php?codigo=5718337), [September 2024 amendment](https://www.dof.gob.mx/nota_detalle.php?codigo=5739174&fecha=18/09/2024) | CRT replacement/amendment, reporting calendar, obligated-party or full-load rule change |
+| `SRC-MX-SNII-PROC` | Current CRT initial-delivery and update procedures for the SNII | Listed by the CRT as current reporting procedures; these describe Ventanilla delivery, automated review, correction, and acceptance notices | [CRT reports page](https://portal.crt.gob.mx/informes-y-reportes), [initial-delivery procedure](https://portal.crt.gob.mx/docs-bin/informes-difusion/entrega-inicial-de-informacion-al-sistema-nacional-de-informacion-de-infraestructura.pdf), [update procedure](https://portal.crt.gob.mx/docs-bin/informes-difusion/actualizacion-de-la-informacion-al-sistema-nacional-de-informacion-de-infraestructura.pdf) | Procedure, authority, filing channel, deadline, notice, or evidence change |
+| `SRC-MX-SNII-TECH` | SNII templates, data dictionary, Annex V, loader notes, and user manual | The public IFT technical bundle is a historical archive/reference. The current CRT procedure directs operators to obtain live templates inside authenticated Ventanilla; each live file must therefore be independently reviewed and pinned for a batch. | [historical object-template archive](https://www.ift.org.mx/industria/plantillas-de-descarga-disponibles-para-snii), [historical typed dictionary](https://www.ift.org.mx/sites/default/files/contenidogeneral/industria/diccionariodatosiftvfv2.xlsx), [historical Annex V](https://www.ift.org.mx/sites/default/files/contenidogeneral/industria/anexov.xlsx), [loader notes](https://www.ift.org.mx/sites/default/files/contenidogeneral/industria/notascargasniiv2.pdf), [current CRT procedure](https://portal.crt.gob.mx/docs-bin/informes-difusion/actualizacion-de-la-informacion-al-sistema-nacional-de-informacion-de-infraestructura.pdf) | Ventanilla package, filename, field, catalogue, unit, geometry, format, validation, or portal change |
 | `SRC-MX-CNPP` | Código Nacional de Procedimientos Penales, including Article 303 | Current; latest reform shown 2025-11-28 | [Cámara de Diputados — CNPP](https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf) | Article 303 reform or controlling judgment |
 | `SRC-MX-CPF` | Código Penal Federal | Current; latest reform shown 2026-03-13 | [Cámara de Diputados — CPF](https://www.diputados.gob.mx/LeyesBiblio/pdf/CPF.pdf) | Relevant criminal-law reform or judgment |
 | `SRC-MX-LFPDPPP` | Ley Federal de Protección de Datos Personales en Posesión de los Particulares | Current new law, published 2025-03-20; latest reform shown 2025-11-14 | [Cámara de Diputados — LFPDPPP](https://www.diputados.gob.mx/LeyesBiblio/pdf/LFPDPPP.pdf) | Reform, authority guidance, new purpose/data/vendor/incident |
@@ -173,6 +176,7 @@ operator-specific applicability conclusion.
 | `MON-MX-DOF` | Diario Oficial de la Federación | Primary publication monitor | [DOF](https://www.dof.gob.mx/) | Weekly monitor and alert-driven review |
 | `MON-MX-CAMARA` | Federal current-law and reform index | Consolidated-law monitor | [current laws](https://www.diputados.gob.mx/LeyesBiblio/index.htm), [latest updates](https://www.diputados.gob.mx/LeyesBiblio/actual/ultima.htm) | Monthly monitor and before each full review |
 | `MON-MX-CRT` | CRT consultations and Pleno decisions | Current telecommunications-regulator monitor | [consultations](https://portal.crt.gob.mx/consultapublica), [Pleno decisions](https://portal.crt.gob.mx/BuscadorSesionesPleno/Buscar) | Weekly monitor while proposals affect an operator |
+| `MON-MX-SNII` | CRT SNII procedures and official template set | Operational source monitor for filing and export-contract changes | [CRT reports page](https://portal.crt.gob.mx/informes-y-reportes), [SNII template catalog](https://www.ift.org.mx/industria/plantillas-de-descarga-disponibles-para-snii) | Before every batch and weekly during an applicable filing window |
 
 The former *Ley Federal de Telecomunicaciones y Radiodifusión* and its Article
 190 are historical sources only after the LMTR transition. A legacy reference
@@ -196,6 +200,7 @@ operator must maintain its own applicability decision and deployment status.
 | `MX-TEL-006` | Lawful interception and content collection | `CONDITIONAL` | `NOT_SUPPORTED` | `NOT_EVALUATED` | `CRITICAL` | Operator legal | 2026-11-15 |
 | `MX-TEL-007` | Statistics, QoS, coverage, and periodic filings | `UNASSESSED` | `PARTIAL` | `GAP` | `HIGH` | Regulatory reporting | 2026-09-15 |
 | `MX-TEL-008` | Numbering, portability, mobile-line identity | `CONDITIONAL` | `PARTIAL` | `NOT_EVALUATED` | `HIGH` | Regulatory reporting | 2026-11-15 |
+| `MX-TEL-009` | SNII infrastructure inventory, preparation artifacts, and filing evidence | `CONDITIONAL` | `PARTIAL` | `READY_FOR_VALIDATION` | `HIGH` | Regulatory reporting | 2026-09-15 |
 | `MX-PRIV-001` | Privacy notice, purpose, consent, and minimization | `CONDITIONAL` | `PARTIAL` | `NOT_EVALUATED` | `HIGH` | Privacy owner | 2026-11-15 |
 | `MX-PRIV-002` | ARCO/DSAR intake, deadlines, and fulfillment | `CONDITIONAL` | `PARTIAL` | `GAP` | `HIGH` | Privacy owner | 2026-09-15 |
 | `MX-PRIV-003` | Security program and breach response | `CONDITIONAL` | `PARTIAL` | `GAP` | `CRITICAL` | Incident commander | 2026-09-15 |
@@ -351,6 +356,59 @@ means counsel has not made an operator-specific decision.
 - **Limits:** no currentness validation, external registry submission, or proof
   that a fixed-Internet-only operator is in scope.
 - **Decision ref:** none; reassess on service/numbering changes.
+
+### `MX-TEL-009` — SNII infrastructure inventory and filing evidence
+
+- **Sources/provisions:** LMTR Articles 174–181 and Transitory Twenty-Eighth;
+  `SRC-MX-LMTR`, `SRC-MX-SNII-RULES`, `SRC-MX-SNII-PROC`,
+  `SRC-MX-SNII-TECH`, and `MON-MX-SNII`.
+- **Trigger and scope:** legal applicability depends on the entity's title or
+  authorization, services, infrastructure it owns or uses, third-party
+  reporting facts, and electronic folio. An `MX` locale only limits product
+  availability; it is not the legal applicability decision. Depending on
+  those facts, the official objects cover active infrastructure and
+  transmission media, passive infrastructure and rights of way, and public
+  sites. Private-site registration is an anytime/voluntary particular
+  workflow. Civil-work publication is a distinct event-driven workflow with
+  legally nuanced applicability and timing; neither is inferred from ordinary
+  inventory.
+- **Neutral requirement:** an obligated party delivers the applicable complete
+  object population through the official Ventanilla using the current exact
+  templates, dictionary, catalogues, units, and geometry. Current initial-load
+  guidance distinguishes the electronic-folio calendar, a 120-business-day
+  branch for acquiring concessionaire or authorized status, and a
+  180-business-day branch for new concessions, authorizations, or
+  modifications. The operator must determine the applicable branch. A
+  correction is a new complete load, not an in-place mutation or a
+  product-invented row action.
+- **Product posture:** `PARTIAL` / `READY_FOR_VALIDATION`. The MX-scoped
+  preparation workflow can record an applicability profile, review inventory
+  candidates, freeze an approved full-load snapshot, prepare versioned
+  artifacts through a dated adapter-to-live-package reconciliation, hash them,
+  and atomically preserve external filing/prevention/correction/acceptance
+  evidence with server-computed hashes. Details and the 39-file supported-object contract are
+  in [`mx-snii-reporting.md`](mx-snii-reporting.md).
+- **Explicit limits:** FireISP does not decide that an asset or operator is in
+  scope, authenticate to the CRT, file automatically, receive an authoritative
+  portal state, or certify compliance. Artifact generation or upload success
+  is not acceptance. Dummy/test assets, customer CPE/ONUs/drops, generic
+  devices, and organization-null inventory must not be auto-reported.
+- **Confidentiality:** LMTR Article 174 treats the georeferenced database as
+  reserved. Exact coordinates and preparation artifacts require strict MX-org
+  isolation, least privilege, access/export audit, encryption, and an approved
+  storage, backup, retention, and legal-hold boundary.
+- **Validation evidence:** counsel applicability decision; the current
+  authenticated Ventanilla package's pinned source references, file hashes,
+  and versions (not merely the historical public archive); a dated, hashed
+  adapter-to-live-package reconciliation; source-to-object
+  mapping and exclusion review;
+  representative exact-format fixtures; full-population reconciliation;
+  separation-of-duties and cross-tenant negative tests; real CRT portal
+  validation log; each prevention and corrected attempt; Ventanilla filing
+  folio; and the original acceptance notice.
+- **Decision ref:** none. `READY_FOR_VALIDATION` describes product controls
+  awaiting independent and real-portal validation, not operator compliance or
+  authority acceptance.
 
 ### `MX-PRIV-001` — Notice, purpose, consent, and minimization
 
@@ -682,6 +740,7 @@ must not be confused with resolved work.
 | `LEGAL-GAP-011` | `MX-AI-001` | Privacy/processor inventory does not yet cover every AI surface or provider fallback. | `HIGH` | AI/privacy | TBD | 2026-09-15 |
 | `LEGAL-GAP-012` | `MX-CONS-004` | README wording was narrowed; full manual/assistive-technology/color-contrast conformance evidence remains absent. | `MEDIUM` | Accessibility | This documentation change; audit issue TBD | 2026-11-15 |
 | `LEGAL-GAP-013` | `MX-COMM-001`, `MX-COMM-002` | Signature/hash records are useful evidence but comments and copy can imply unsupported certified/legal sufficiency. | `HIGH` | Contracts/legal | TBD | 2026-11-15 |
+| `LEGAL-GAP-014` | `MX-TEL-009` | The SNII preparation workflow and official object adapters have not yet been independently reconciled against a complete operator inventory or accepted through the live CRT Ventanilla. | `HIGH` | Regulatory reporting | Development-stage implementation and automated tests; operator validation evidence TBD | 2026-09-15 |
 
 When a gap is fixed, preserve its row, add the issue/PR, tested commit, validation
 evidence reference, closure date, and residual risk. Do not delete history.
@@ -746,6 +805,7 @@ should identify, as applicable:
 | Change ID | Logged | Published/effective | Official source | Affected IDs | Assessment | Action/PR refs | Decision ref | State |
 |---|---|---|---|---|---|---|---|---|
 | `LEGAL-CHANGE-0001` | 2026-08-15 | Register baseline | Sources cataloged above | All initial IDs | Initial product/source inventory; operator applicability remains unassessed or conditional | This document | none | `IN_REVIEW` |
+| `LEGAL-CHANGE-0002` | 2026-08-15 | Current SNII source and procedure baseline | `SRC-MX-LMTR`, `SRC-MX-SNII-RULES`, `SRC-MX-SNII-PROC`, `SRC-MX-SNII-TECH` | `MX-TEL-009`, `LEGAL-GAP-014` | Added a distinct, conditional infrastructure-reporting requirement and limited product posture to preparation/evidence readiness pending counsel, inventory reconciliation, security testing, and live CRT acceptance evidence | [`mx-snii-reporting.md`](mx-snii-reporting.md) and the development-stage implementation and automated tests | none | `IN_REVIEW` |
 
 ## Template for a new or revised record
 
@@ -780,6 +840,11 @@ Copy this template; do not invent an unlisted status.
 - [Connection logging and evidence operations](connection-logging-compliance.md)
   — RADIUS, direct public IP, privacy-minimal CGNAT, case gating, readiness,
   retention, and deployment limitations.
+- [Mexico SNII infrastructure reporting](mx-snii-reporting.md) — conditional
+  applicability, the versioned reference and pinned Ventanilla contract,
+  MX-scoped candidate
+  review, full-load preparation, external Ventanilla filing, and evidence
+  validation boundaries.
 - [Privacy and PII inventory](privacy.md) — data categories, purposes, ARCO/DSAR,
   processors, retention, AI, security, and deployment verification.
 - [CFDI sandbox testing](cfdi-sandbox-testing.md) — fiscal integration test

@@ -183,13 +183,14 @@ describe('readonly', () => {
   // all along but was unreachable) then skips the `roles[]` allowlist too.
   // Permission-bound pages are the exception: a read-only principal should
   // not discover a sensitive page whose every tab would reject it.
-  it('sees the admin tree except for permission-bound Regulatory Compliance', () => {
+  it('sees the admin tree except for permission-bound regulatory workflows', () => {
     const expected = {
       ...adminNav,
       compliance: {
         ...adminNav.compliance,
-        count: adminNav.compliance.count - 1,
-        items: adminNav.compliance.items.filter(path => path !== '/regulatory-compliance'),
+        count: adminNav.compliance.count - 2,
+        items: adminNav.compliance.items.filter(path =>
+          path !== '/regulatory-compliance' && path !== '/snii-infrastructure'),
       },
     };
     expect(nav).toEqual(expected);

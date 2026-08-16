@@ -90,9 +90,11 @@ jobs:
         # The main jest process aggregates coverage maps for all 330+ suites in
         # memory; with the fiscal-stack heavyweights (saxon-js + compiled SAT
         # stylesheet, pdfkit, fast-xml-parser) that crossed Node's 4GB default
-        # heap. ubuntu-latest runners have 16GB — give jest 6.
+        # heap. The 6 GiB ceiling was exhausted after migration 457; hosted
+        # ubuntu-latest runners have 16 GiB, so leave headroom for the OS while
+        # giving the single coverage process 10 GiB.
         env:
-          NODE_OPTIONS: --disable-warning=DEP0040 --disable-warning=DEP0169 --max-old-space-size=6144
+          NODE_OPTIONS: --disable-warning=DEP0040 --disable-warning=DEP0169 --max-old-space-size=10240
         run: pnpm exec jest --detectOpenHandles --forceExit --ci --coverage --coverageReporters=text --coverageReporters=lcov --coverageReporters=json-summary
 
       - name: Check coverage threshold
@@ -334,6 +336,159 @@ jobs:
           pnpm run migrate
           node src/scripts/migration-smoke-test.js
           echo "✓ Rollback round-trip succeeded"
+
+  mariadb-compatibility:
+    name: MariaDB 10.6 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: fireisp_test
+      DB_NAME: fireisp_mariadb_migrate
+      JWT_SECRET: mariadb-test-jwt-secret-for-github-actions-only
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start MariaDB 10.6
+        run: |
+          docker run -d --name ci-mariadb \
+            -e MARIADB_ROOT_PASSWORD=fireisp_test \
+            -e MARIADB_DATABASE=fireisp_mariadb_migrate \
+            -p 3306:3306 \
+            --health-cmd="healthcheck.sh --connect --innodb_initialized" \
+            --health-interval=2s \
+            --health-timeout=5s \
+            --health-retries=60 \
+            --health-start-period=10s \
+            mariadb:10.6.27 \
+            mariadbd \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci \
+            --skip-name-resolve
+
+      - name: Wait for MariaDB
+        run: |
+          for attempt in $(seq 1 90); do
+            if [ "$(docker inspect --format='{{.State.Running}}' ci-mariadb)" != "true" ]; then
+              docker logs ci-mariadb
+              exit 1
+            fi
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' ci-mariadb)
+            if [ "$STATUS" = "healthy" ]; then
+              exit 0
+            fi
+            if [ "$STATUS" = "unhealthy" ]; then
+              docker logs ci-mariadb
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs ci-mariadb
+          exit 1
+
+      - name: Load schema.sql directly
+        run: |
+          docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --execute="CREATE DATABASE fireisp_mariadb_schema CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          docker exec -i ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --database=fireisp_mariadb_schema \
+            < database/schema.sql
+
+          EXPECTED=$(grep -c '^CREATE TABLE' database/schema.sql)
+          ACTUAL=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names \
+            --execute="SELECT COUNT(*) FROM information_schema.tables
+                       WHERE table_schema='fireisp_mariadb_schema'
+                         AND table_type='BASE TABLE';")
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Apply migrations and prove idempotency
+        run: |
+          pnpm run migrate
+
+          BEFORE=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names --database="$DB_NAME" \
+            --execute="SELECT COUNT(*) FROM schema_migrations;")
+          EXPECTED=$(find database/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')
+          test "$BEFORE" = "$EXPECTED"
+
+          pnpm run migrate
+
+          AFTER=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names --database="$DB_NAME" \
+            --execute="SELECT COUNT(*) FROM schema_migrations;")
+          test "$AFTER" = "$BEFORE"
+
+      - name: Migration smoke parity
+        run: node src/scripts/migration-smoke-test.js
+
+      - name: Roll back migration 458 and reapply
+        run: |
+          node src/scripts/rollback.js --to 457
+
+          MARKER=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names --database="$DB_NAME" \
+            --execute="SELECT COUNT(*) FROM schema_migrations
+                       WHERE filename='458_mx_snii_infrastructure_reporting.sql';")
+          test "$MARKER" = "0"
+
+          # Rollback 458 intentionally retains regulatory evidence storage.
+          TABLES=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names \
+            --execute="SELECT COUNT(*) FROM information_schema.tables
+                       WHERE table_schema='$DB_NAME'
+                         AND table_name IN (
+                           'snii_reporting_profiles',
+                           'snii_element_applicability',
+                           'snii_asset_registry',
+                           'snii_report_batches',
+                           'snii_report_items',
+                           'snii_report_artifacts',
+                           'snii_evidence_uploads',
+                           'snii_filing_events',
+                           'snii_audit_events'
+                         );")
+          test "$TABLES" = "9"
+
+          pnpm run migrate
+
+          MARKER=$(docker exec ci-mariadb mariadb \
+            --protocol=socket --user=root --password=fireisp_test \
+            --batch --skip-column-names --database="$DB_NAME" \
+            --execute="SELECT COUNT(*) FROM schema_migrations
+                       WHERE filename='458_mx_snii_infrastructure_reporting.sql';")
+          test "$MARKER" = "1"
+
+          node src/scripts/migration-smoke-test.js
+
+      - name: MariaDB logs on failure
+        if: failure()
+        run: docker logs ci-mariadb
 
   frontend-test:
     if: github.event_name != 'pull_request'  # local-first: runs on main push only

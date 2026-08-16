@@ -270,6 +270,17 @@ export const ROUTES: RouteDef[] = [
   { path: '/concession-titles', labelKey: 'nav.concessionTitles', section: 'compliance', guard: 'billing', sub: 'ift', rail: true, roles: ['billing'], requiredLocale: 'MX' },
   { path: '/ift-statistical-reports', labelKey: 'nav.iftStatisticalReports', section: 'compliance', guard: 'billing', sub: 'ift', rail: true, roles: ['billing'], requiredLocale: 'MX' },
   { path: '/profeco-complaints', labelKey: 'nav.profecoComplaints', section: 'compliance', guard: 'billing', sub: 'consumer', rail: true, roles: ['billing'], requiredLocale: 'MX' },
+  {
+    path: '/snii-infrastructure',
+    labelKey: 'nav.sniiInfrastructure',
+    section: 'compliance',
+    guard: 'any',
+    sub: 'ift',
+    rail: true,
+    requiredLocale: 'MX',
+    requiredAnyPermissions: ['snii_reporting.view'],
+    keywords: ['snii', 'crt', 'torres', 'infraestructura', 'fiber', 'towers'],
+  },
   // deliberately NOT MX-gated — Compliance still renders for non-Mexico orgs
   {
     path: '/regulatory-compliance', labelKey: 'nav.regulatoryCompliance', section: 'compliance', guard: 'any', sub: 'general', rail: true,

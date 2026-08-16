@@ -121,6 +121,7 @@ import { PaymentReminderSettings } from '@/pages/PaymentReminderSettings';
 import { Settings } from '@/pages/Settings';
 import { ProfecoComplaints } from '@/pages/ProfecoComplaints';
 import RegulatoryCompliancePage from '@/pages/RegulatoryCompliancePage';
+import { SniiInfrastructureReportingPage } from '@/pages/SniiInfrastructureReportingPage';
 import { SlaDefinitionList } from '@/pages/SlaDefinitionList';
 import { RoleList } from '@/pages/RoleList';
 import { ApiTokenList } from '@/pages/ApiTokenList';
@@ -264,6 +265,9 @@ export function App() {
                 {/* Tab visibility and every API operation are permission-gated;
                     this route also supports custom legal-response principals. */}
                 <Route path="regulatory-compliance" element={<RegulatoryCompliancePage />} />
+                {/* Exact infrastructure geolocation and every action are
+                    permission-gated inside the MX-only SNII workflow. */}
+                <Route path="snii-infrastructure" element={<SniiInfrastructureReportingPage />} />
               </Route>
             </Route>
 
