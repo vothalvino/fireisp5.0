@@ -118,6 +118,7 @@ function generateSpec() {
       { name: 'Metrics', description: 'Prometheus metrics' },
       { name: 'FireRelay', description: 'Multi-node cluster management' },
       { name: 'Regulatory', description: 'Regulatory compliance filings' },
+      { name: 'SNII Reporting MX', description: 'MX-only, interactive-member preparation and immutable evidence workflow for restricted SNII infrastructure data; never automatic filing or certification' },
       { name: 'PROFECO Complaints', description: 'PROFECO consumer complaint register and export' },
       { name: 'Communication', description: 'Bulk campaigns, delivery tracking, and DND preferences — §1.4' },
       { name: 'AI Assistant', description: 'AI reply assistant — policy, providers, phrase library, reply generation, audit logs' },
@@ -1187,6 +1188,62 @@ function generateSpec() {
       ...crudPaths('concession-titles', 'Regulatory', 'ConcessionTitle'),
       ...crudPaths('regulatory-filings', 'Regulatory', 'RegulatoryFiling'),
       ...crudPaths('ift-statistical-reports', 'Regulatory', 'IftStatisticalReport'),
+      '/snii-reporting/catalog': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Get the versioned SNII preparation catalog and current-source posture', operationId: 'getSniiReportingCatalog', security: [{ bearerAuth: [] }], responses: r200('SNII catalog') },
+      },
+      '/snii-reporting/profile': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Get the MX SNII profile, applicability decisions and current readiness blockers', operationId: 'getSniiReportingProfile', security: [{ bearerAuth: [] }], responses: r200('SNII profile envelope') },
+        put: { tags: ['SNII Reporting MX'], summary: 'Create or update independently pinned current-Ventanilla source evidence', operationId: 'upsertSniiReportingProfile', security: [{ bearerAuth: [] }], requestBody: jsonBody('sniiReporting_upsertProfile'), responses: r200('SNII profile') },
+      },
+      '/snii-reporting/profile/applicability/{elementType}': {
+        put: { tags: ['SNII Reporting MX'], summary: 'Review an object type applicability and population decision', operationId: 'reviewSniiElementApplicability', security: [{ bearerAuth: [] }], parameters: [{ name: 'elementType', in: 'path', required: true, schema: { type: 'string' } }], requestBody: jsonBody('sniiReporting_setApplicability'), responses: r200('SNII applicability decision') },
+      },
+      '/snii-reporting/profile/subject-applicability': {
+        put: { tags: ['SNII Reporting MX'], summary: 'Review the organization-level SNII applicability decision', operationId: 'reviewSniiSubjectApplicability', security: [{ bearerAuth: [] }], requestBody: jsonBody('sniiReporting_setSubjectApplicability'), responses: r200('SNII profile') },
+      },
+      '/snii-reporting/candidates': {
+        get: { tags: ['SNII Reporting MX'], summary: 'List sanitized operational infrastructure candidates requiring explicit review', operationId: 'listSniiCandidates', security: [{ bearerAuth: [] }], responses: r200('SNII candidate list') },
+      },
+      '/snii-reporting/assets': {
+        get: { tags: ['SNII Reporting MX'], summary: 'List explicit tenant asset registry decisions', operationId: 'listSniiAssets', security: [{ bearerAuth: [] }], responses: r200('SNII asset registry') },
+        post: { tags: ['SNII Reporting MX'], summary: 'Create an unreviewed or explicitly classified asset mapping', operationId: 'createSniiAsset', security: [{ bearerAuth: [] }], requestBody: jsonBody('sniiReporting_createAsset'), responses: r201('SNII asset mapping') },
+      },
+      '/snii-reporting/assets/{id}': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Get audited sensitive classification detail for review or approval', operationId: 'getSniiAssetDetail', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SNII asset classification detail') },
+        patch: { tags: ['SNII Reporting MX'], summary: 'Classify an asset; any decision becomes pending separate approval', operationId: 'classifySniiAsset', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sniiReporting_updateAsset'), responses: r200('SNII asset mapping') },
+      },
+      '/snii-reporting/assets/{id}/approve': {
+        post: { tags: ['SNII Reporting MX'], summary: 'Separately approve an unchanged source classification', operationId: 'approveSniiAsset', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sniiReporting_approveAsset'), responses: r200('Approved SNII asset mapping') },
+      },
+      '/snii-reporting/batches': {
+        get: { tags: ['SNII Reporting MX'], summary: 'List immutable full-load preparation batches', operationId: 'listSniiBatches', security: [{ bearerAuth: [] }], responses: r200('SNII batch list') },
+        post: { tags: ['SNII Reporting MX'], summary: 'Freeze a first batch or a directly linked replacement revision', description: 'A filing series is identified by profile, workflow, year, exact period and frequency. Distinct voluntary anytime periods may each begin at revision 1; recurring windows remain single-series. Replacing a draft or validated revision atomically marks it superseded and requires supersession_reason. A correction_required predecessor starts an immutable correction root carried through internal replacement hops, preserving filing identity, period and authority-attempt lineage. Every predecessor remains immutable and undeletable.', operationId: 'createSniiBatch', security: [{ bearerAuth: [] }], requestBody: jsonBody('sniiReporting_createBatch'), responses: r201('SNII batch') },
+      },
+      '/snii-reporting/batches/{id}': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Get audited metadata-only batch detail, artifacts and filing events', description: 'The sanitized approval context includes the frozen concession-title and applicability snapshots, correction-root/predecessor lineage, source-review actor/time/freshness policy, pinned package versions and hashes, and the immutable batch hash; exact coordinates remain excluded.', operationId: 'getSniiBatch', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SNII batch detail') },
+      },
+      '/snii-reporting/batches/{id}/validate': {
+        post: { tags: ['SNII Reporting MX'], summary: 'Validate frozen content and current review/source state', operationId: 'validateSniiBatch', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Validated SNII batch') },
+      },
+      '/snii-reporting/batches/{id}/approve': {
+        post: { tags: ['SNII Reporting MX'], summary: 'Separately approve an unchanged validated full-load snapshot', operationId: 'approveSniiBatch', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sniiReporting_approveBatch'), responses: r200('Approved SNII batch') },
+      },
+      '/snii-reporting/batches/{id}/artifacts': {
+        post: { tags: ['SNII Reporting MX'], summary: 'Generate one deterministic artifact from its immutable reconciled contract snapshot', description: 'The batch remains approved until every due object artifact exists, then changes to exported. Generation never records filing or acceptance.', operationId: 'generateSniiArtifact', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('sniiReporting_generateArtifact'), responses: r201('SNII artifact metadata') },
+      },
+      '/snii-reporting/artifacts/{id}/download': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Download an audited restricted SNII artifact', operationId: 'downloadSniiArtifact', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'CSV or KML bytes with X-Evidence-SHA256 and no-store headers', headers: { 'X-Evidence-SHA256': { schema: { type: 'string', pattern: '^[a-f0-9]{64}$' } } }, content: { 'text/csv': { schema: { type: 'string' } }, 'application/vnd.google-earth.kml+xml': { schema: { type: 'string' } } } } } },
+      },
+      '/snii-reporting/batches/{id}/filing-events': {
+        get: { tags: ['SNII Reporting MX'], summary: 'List immutable operator-recorded filing and authority evidence', operationId: 'listSniiFilingEvents', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('SNII filing events') },
+        post: { tags: ['SNII Reporting MX'], summary: 'Atomically preserve evidence bytes and record a filing or authority event', operationId: 'createSniiFilingEvent', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['evidence_file', 'event_type', 'attempt_no', 'occurred_at', 'occurred_timezone', 'authority_reference'], properties: { evidence_file: { type: 'string', format: 'binary', description: 'PDF, XML, TXT, CSV, JPEG, or PNG; maximum 10 MiB' }, event_type: { type: 'string', enum: ['submitted', 'acuse_received', 'accepted', 'rejected', 'correction_requested', 'corrected_submission'] }, attempt_no: { type: 'integer', minimum: 1, maximum: 65535 }, occurred_at: { type: 'string', format: 'date-time', example: '2026-08-15T10:00:00-06:00', description: 'Explicit offset must match occurred_timezone' }, occurred_timezone: { type: 'string', example: 'America/Chihuahua' }, authority_reference: { type: 'string', maxLength: 191 }, notes: { type: 'string', maxLength: 2000 } } } } } }, responses: r201('SNII filing event with server-computed evidence SHA-256') },
+      },
+      '/snii-reporting/filing-events/{id}/evidence/download': {
+        get: { tags: ['SNII Reporting MX'], summary: 'Download audited immutable filing evidence', operationId: 'downloadSniiFilingEvidence', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: { 200: { description: 'Original evidence bytes with attachment, no-store, and X-Evidence-SHA256 headers', headers: { 'X-Evidence-SHA256': { schema: { type: 'string', pattern: '^[a-f0-9]{64}$' } } }, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } } } },
+      },
+      '/snii-reporting/audit-events': {
+        get: { tags: ['SNII Reporting MX'], summary: 'List the tenant-local immutable SNII audit ledger', operationId: 'listSniiAuditEvents', security: [{ bearerAuth: [] }], responses: r200('SNII audit events') },
+      },
 
       // ---- PROFECO Complaints ----
       ...crudPaths('profeco-complaints', 'PROFECO Complaints', 'ProfecoComplaint'),

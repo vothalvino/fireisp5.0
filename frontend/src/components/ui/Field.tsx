@@ -17,6 +17,8 @@ export interface FieldProps {
   hint?: string;
   required?: boolean;
   disabled?: boolean;
+  step?: string | number;
+  maxLength?: number;
   id?: string;
   style?: CSSProperties;
 }
@@ -31,6 +33,8 @@ export function Field({
   hint,
   required = false,
   disabled = false,
+  step,
+  maxLength,
   id: idProp,
   style,
 }: FieldProps) {
@@ -86,6 +90,8 @@ export function Field({
         placeholder={placeholder}
         required={required}
         disabled={disabled}
+        step={step}
+        maxLength={maxLength}
         style={inputStyle}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}

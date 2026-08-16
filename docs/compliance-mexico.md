@@ -156,7 +156,99 @@ Operational CGNAT attribution systems are not automatically brought into that
 telecom rule, but still require a separate LFPDPPP residency/transfer
 assessment.
 
-## 3. Privacy and security
+## 3. SNII infrastructure reporting (MX organizations only)
+
+The **Sistema Nacional de Información de Infraestructura (SNII)** is distinct
+from connection attribution and statistical reporting. LMTR Articles 174–181
+address a reserved, georeferenced inventory of applicable active
+infrastructure and transmission media, passive infrastructure and rights of
+way, and public sites. Examples in the official object set include towers,
+transmission sites, central facilities, OLTs, microwave antennas and links,
+fiber routes, ducts, poles, and manholes. The exact applicable population must
+come from the operator's title, services, network, ownership/use arrangements,
+and counsel decision—not from every device in FireISP.
+
+Primary operational sources:
+
+- [SNII lineamientos — original 2019 text](https://dof.gob.mx/nota_detalle_popup.php?codigo=5576710)
+- [February 2024 amendment](https://dof.gob.mx/nota_detalle_popup.php?codigo=5718337)
+- [September 2024 calendar amendment](https://www.dof.gob.mx/nota_detalle.php?codigo=5739174&fecha=18/09/2024)
+- [CRT reports page — current initial and update procedures](https://portal.crt.gob.mx/informes-y-reportes)
+- [Historical public SNII object-template archive](https://www.ift.org.mx/industria/plantillas-de-descarga-disponibles-para-snii)
+- [Historical public data dictionary](https://www.ift.org.mx/sites/default/files/contenidogeneral/industria/diccionariodatosiftvfv2.xlsx)
+- [Historical public Annex V](https://www.ift.org.mx/sites/default/files/contenidogeneral/industria/anexov.xlsx)
+
+The prior IFT lineamientos remain relevant only through LMTR Transitory
+Twenty-Eighth and only insofar as they do not conflict with current law. The
+CRT presently lists both initial-delivery and update procedures, directs the
+operator to obtain current templates inside authenticated Ventanilla, and the
+public technical pages now serve as a historical archive. Each preparation
+must therefore pin and hash the independently reviewed live Ventanilla
+template, dictionary and Annex package; the bundled 2024 adapter is only a
+bootstrap/reference. A dated, hashed reconciliation must explicitly bind that
+adapter to the pinned live package before preparation readiness can pass; the
+live package bytes do not automatically drive the generator.
+
+FireISP limits this workflow to an organization whose configured locale is
+`MX`, but locale is only a product gate. The operator must separately record
+whether it is an obligated party and which titles, services, assets, third-party
+reporting facts, electronic folio, and period support that conclusion. Private
+site registration is an anytime/voluntary particular workflow. Civil-work
+publication is a distinct event-driven workflow with legally nuanced
+applicability and timing. Neither must be turned on merely because an
+organization is Mexican.
+
+The safe preparation flow is:
+
+1. Discover an inventory item as an unreviewed candidate; never infer that a
+   generic device is a `Central`, `OLT`, `Torre`, or other official object.
+2. Require an evidenced classification, exact official-object mapping, complete
+   field/geometry validation, and a separate authorized approval bound to both
+   the source and complete classification hashes. Exclude
+   dummy/test assets, customer CPE/ONUs/drops, and organization-null records.
+3. Freeze and reconcile the complete applicable population for the reporting
+   period. The current rules use complete loads, not product-invented per-row
+   add/update/delete operations.
+4. Reconcile the versioned adapter with the pinned current Ventanilla package,
+   prepare its filenames and CSV/KML fields, preserve the source versions and
+   snapshot, and store the artifact's SHA-256 and byte size.
+5. Have an authorized representative file outside FireISP through the current
+   CRT Ventanilla, then preserve the external filing folio and each portal
+   validation log, prevention, correction, and acceptance notice. Upload the
+   original evidence atomically with each event so FireISP, rather than the
+   caller, computes and preserves its SHA-256.
+
+The current CRT initial-delivery guidance lists three timing branches: the
+electronic-folio calendar for an ordinary initial load; 120 business days from
+the effective act when an entity acquires concessionaire or authorized status;
+and 180 business days from effectiveness for new concessions, authorizations,
+or modifications. The operator must determine the applicable branch from its
+own title and facts.
+Under the current procedure, corrupt, unintelligible, or nonconforming data can
+produce an error notice within two business days; the operator then has up to
+five business days to reload it or the delivery is treated as not presented.
+Acceptance is a separate notice expected within five business days after a
+valid delivery. These prompts do not replace an operator-specific deadline
+calculation.
+
+FireISP is a preparation and evidence workflow only. It does **not** log into
+the CRT, submit automatically, infer a portal result, or certify compliance.
+Generating or downloading a file is not filing, and upload success is not
+acceptance. Because LMTR Article 174 treats the georeferenced database as
+reserved, exact infrastructure coordinates and artifacts require strict
+tenant isolation, least privilege, access/export audit, encryption, and an
+approved storage, backup, retention, and legal-hold boundary.
+
+The complete engineering contract, object catalog, evidence model, timing
+table, and validation checklist are in
+[`mx-snii-reporting.md`](mx-snii-reporting.md). The tracked legal requirement is
+`MX-TEL-009` in
+[`legal-regulatory-register.md`](legal-regulatory-register.md). Its baseline is
+`PARTIAL` / `READY_FOR_VALIDATION`, meaning the product workflow still requires
+independent mapping, security, representative-data, and real CRT portal
+validation. It is not a compliance finding.
+
+## 4. Privacy and security
 
 The **Ley Federal de Protección de Datos Personales en Posesión de los
 Particulares (LFPDPPP)** applies to private-sector personal-data processing.
@@ -178,7 +270,7 @@ operators should require strong authentication, least privilege, encrypted
 transport and storage, key rotation, monitored exports, tested restoration, and
 separation between normal network operations and legal-response access.
 
-## 4. Criminal-law constraints
+## 5. Criminal-law constraints
 
 The *Código Penal Federal* addresses intervention without competent judicial
 authority (Article 177), disclosure of secrets or private-intervention material
@@ -192,7 +284,7 @@ The hash is a consistency marker, not an immutable chain or protection against
 a privileged database administrator. These records also do not decide whether
 a request is legally valid; the operator's authorized legal team must do so.
 
-## 5. Regulatory institutions
+## 6. Regulatory institutions
 
 - **IFT:** extinct former autonomous regulator. Its non-conflicting instruments
   continue under Transitory 28 until replaced; this is no longer an institutional
@@ -205,7 +297,7 @@ The `concession_titles.regulatory_body` field supports legacy IFT and current
 CRT records. `gov_data_requests.authority_name` records the actual requesting
 authority rather than inferring authority from the organization locale.
 
-## 6. CFDI 4.0
+## 7. CFDI 4.0
 
 SAT fiscal obligations are separate from communications-data retention. FireISP
 supports CFDI workflows through `cfdi_documents`, `cfdi_conceptos`,
@@ -217,6 +309,19 @@ valid CSDs, PAC configuration, tax treatment, and statutory fiscal retention.
 
 - Confirm the legal entity's concession/authorization, covered services, and
   numbering resources with Mexican telecom counsel.
+- For SNII, separately record the obligated-party/object-scope decision,
+  electronic folio and window, infrastructure owned or used, third-party
+  reporting facts, voluntary private-site treatment, and the separate
+  event-driven civil-work applicability/timing decision.
+- Before every SNII batch, pin and verify the current CRT/DOF procedure and the
+  authenticated Ventanilla template, data dictionary, Annex V, loader rules,
+  and filing channel. Reconcile the versioned adapter and frozen full-load
+  snapshot to the approved
+  inventory and prove that dummy/test, customer-premises, and cross-tenant
+  records are absent.
+- Validate representative SNII artifacts in the real CRT Ventanilla and retain
+  the filing folio, validation log, every corrected attempt, and original
+  acceptance notice. Do not treat generation or upload as acceptance.
 - Confirm which Article 183 data applies to the operator's numbered services and
   whether privacy-minimal CGNAT attribution is separately justified; document
   each purpose, field set, access group, and retention rule.

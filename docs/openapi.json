@@ -329,6 +329,10 @@
       "description": "Regulatory compliance filings"
     },
     {
+      "name": "SNII Reporting MX",
+      "description": "MX-only, interactive-member preparation and immutable evidence workflow for restricted SNII infrastructure data; never automatic filing or certification"
+    },
+    {
       "name": "PROFECO Complaints",
       "description": "PROFECO consumer complaint register and export"
     },
@@ -24850,6 +24854,862 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/snii-reporting/catalog": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Get the versioned SNII preparation catalog and current-source posture",
+        "operationId": "getSniiReportingCatalog",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/profile": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Get the MX SNII profile, applicability decisions and current readiness blockers",
+        "operationId": "getSniiReportingProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII profile envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Create or update independently pinned current-Ventanilla source evidence",
+        "operationId": "upsertSniiReportingProfile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_upsertProfile",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SNII profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/profile/applicability/{elementType}": {
+      "put": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Review an object type applicability and population decision",
+        "operationId": "reviewSniiElementApplicability",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "elementType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_setApplicability",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SNII applicability decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/profile/subject-applicability": {
+      "put": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Review the organization-level SNII applicability decision",
+        "operationId": "reviewSniiSubjectApplicability",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_setSubjectApplicability",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SNII profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/candidates": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "List sanitized operational infrastructure candidates requiring explicit review",
+        "operationId": "listSniiCandidates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII candidate list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/assets": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "List explicit tenant asset registry decisions",
+        "operationId": "listSniiAssets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII asset registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Create an unreviewed or explicitly classified asset mapping",
+        "operationId": "createSniiAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_createAsset",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SNII asset mapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/assets/{id}": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Get audited sensitive classification detail for review or approval",
+        "operationId": "getSniiAssetDetail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII asset classification detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Classify an asset; any decision becomes pending separate approval",
+        "operationId": "classifySniiAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_updateAsset",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SNII asset mapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/assets/{id}/approve": {
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Separately approve an unchanged source classification",
+        "operationId": "approveSniiAsset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_approveAsset",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approved SNII asset mapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "List immutable full-load preparation batches",
+        "operationId": "listSniiBatches",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII batch list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Freeze a first batch or a directly linked replacement revision",
+        "description": "A filing series is identified by profile, workflow, year, exact period and frequency. Distinct voluntary anytime periods may each begin at revision 1; recurring windows remain single-series. Replacing a draft or validated revision atomically marks it superseded and requires supersession_reason. A correction_required predecessor starts an immutable correction root carried through internal replacement hops, preserving filing identity, period and authority-attempt lineage. Every predecessor remains immutable and undeletable.",
+        "operationId": "createSniiBatch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_createBatch",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SNII batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches/{id}": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Get audited metadata-only batch detail, artifacts and filing events",
+        "description": "The sanitized approval context includes the frozen concession-title and applicability snapshots, correction-root/predecessor lineage, source-review actor/time/freshness policy, pinned package versions and hashes, and the immutable batch hash; exact coordinates remain excluded.",
+        "operationId": "getSniiBatch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII batch detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches/{id}/validate": {
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Validate frozen content and current review/source state",
+        "operationId": "validateSniiBatch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validated SNII batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches/{id}/approve": {
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Separately approve an unchanged validated full-load snapshot",
+        "operationId": "approveSniiBatch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_approveBatch",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approved SNII batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches/{id}/artifacts": {
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Generate one deterministic artifact from its immutable reconciled contract snapshot",
+        "description": "The batch remains approved until every due object artifact exists, then changes to exported. Generation never records filing or acceptance.",
+        "operationId": "generateSniiArtifact",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "sniiReporting_generateArtifact",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SNII artifact metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/artifacts/{id}/download": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Download an audited restricted SNII artifact",
+        "operationId": "downloadSniiArtifact",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV or KML bytes with X-Evidence-SHA256 and no-store headers",
+            "headers": {
+              "X-Evidence-SHA256": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/vnd.google-earth.kml+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/batches/{id}/filing-events": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "List immutable operator-recorded filing and authority evidence",
+        "operationId": "listSniiFilingEvents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII filing events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Atomically preserve evidence bytes and record a filing or authority event",
+        "operationId": "createSniiFilingEvent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "evidence_file",
+                  "event_type",
+                  "attempt_no",
+                  "occurred_at",
+                  "occurred_timezone",
+                  "authority_reference"
+                ],
+                "properties": {
+                  "evidence_file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "PDF, XML, TXT, CSV, JPEG, or PNG; maximum 10 MiB"
+                  },
+                  "event_type": {
+                    "type": "string",
+                    "enum": [
+                      "submitted",
+                      "acuse_received",
+                      "accepted",
+                      "rejected",
+                      "correction_requested",
+                      "corrected_submission"
+                    ]
+                  },
+                  "attempt_no": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "occurred_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "example": "2026-08-15T10:00:00-06:00",
+                    "description": "Explicit offset must match occurred_timezone"
+                  },
+                  "occurred_timezone": {
+                    "type": "string",
+                    "example": "America/Chihuahua"
+                  },
+                  "authority_reference": {
+                    "type": "string",
+                    "maxLength": 191
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "SNII filing event with server-computed evidence SHA-256",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/filing-events/{id}/evidence/download": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "Download audited immutable filing evidence",
+        "operationId": "downloadSniiFilingEvidence",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original evidence bytes with attachment, no-store, and X-Evidence-SHA256 headers",
+            "headers": {
+              "X-Evidence-SHA256": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snii-reporting/audit-events": {
+      "get": {
+        "tags": [
+          "SNII Reporting MX"
+        ],
+        "summary": "List the tenant-local immutable SNII audit ledger",
+        "operationId": "listSniiAuditEvents",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNII audit events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -72752,6 +73612,590 @@
             ]
           }
         }
+      },
+      "sniiReporting_SOURCE_TYPES": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_DECISIONS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_EXCLUSION_REASONS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          },
+          "6": {
+            "type": "string"
+          },
+          "7": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_OWNERSHIP": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_APPLICABILITY": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_FILING_EVENTS": {
+        "type": "object",
+        "properties": {
+          "0": {
+            "type": "string"
+          },
+          "1": {
+            "type": "string"
+          },
+          "2": {
+            "type": "string"
+          },
+          "3": {
+            "type": "string"
+          },
+          "4": {
+            "type": "string"
+          },
+          "5": {
+            "type": "string"
+          }
+        }
+      },
+      "sniiReporting_upsertProfile": {
+        "type": "object",
+        "properties": {
+          "concession_title_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "electronic_folio": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "source_channel": {
+            "type": "string",
+            "enum": [
+              "crt_ventanilla_current"
+            ]
+          },
+          "source_attestation_reference": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "adapter_reconciliation_reference": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "adapter_reconciliation_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "adapter_reconciled_at": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "template_source_url": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 1000,
+            "pattern": "^https:\\/\\/"
+          },
+          "template_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "template_effective_date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "dictionary_version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "dictionary_source_url": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 1000,
+            "pattern": "^https:\\/\\/"
+          },
+          "dictionary_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "annex_v_version": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "annex_v_source_url": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 1000,
+            "pattern": "^https:\\/\\/"
+          },
+          "annex_v_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "official_sources_reviewed_at": {
+            "type": "string"
+          },
+          "source_freshness_days": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "electronic_folio",
+          "source_channel",
+          "source_attestation_reference",
+          "adapter_reconciliation_reference",
+          "adapter_reconciliation_sha256",
+          "adapter_reconciled_at",
+          "template_version",
+          "template_source_url",
+          "template_sha256",
+          "dictionary_version",
+          "dictionary_source_url",
+          "dictionary_sha256",
+          "annex_v_version",
+          "annex_v_source_url",
+          "annex_v_sha256",
+          "official_sources_reviewed_at"
+        ]
+      },
+      "sniiReporting_setSubjectApplicability": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "applicable",
+              "not_applicable"
+            ]
+          },
+          "applicability_basis": {
+            "type": "string",
+            "maximum": 2000
+          },
+          "external_decision_reference": {
+            "type": "string",
+            "maximum": 500
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "sniiReporting_setApplicability": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "applicable",
+              "not_applicable"
+            ]
+          },
+          "rationale": {
+            "type": "string",
+            "maximum": 1000
+          },
+          "population_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "has_assets",
+              "zero_population"
+            ]
+          },
+          "population_evidence_reference": {
+            "type": "string",
+            "maximum": 500
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "sniiReporting_createAsset": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "site",
+              "device",
+              "network_link",
+              "fiber_route",
+              "infrastructure_point",
+              "manual"
+            ]
+          },
+          "source_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "element_type": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "included",
+              "excluded"
+            ]
+          },
+          "exclusion_reason": {
+            "type": "string",
+            "enum": [
+              "dummy",
+              "test",
+              "cpe",
+              "customer_drop",
+              "duplicate",
+              "not_applicable",
+              "reported_by_owner",
+              "other"
+            ]
+          },
+          "decision_evidence_reference": {
+            "type": "string",
+            "maximum": 500
+          },
+          "official_code": {
+            "type": "string",
+            "maximum": 191
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "owned",
+              "leased",
+              "third_party"
+            ]
+          },
+          "owner_name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "field_overrides": {
+            "type": "object"
+          },
+          "manual_payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "profile_id",
+          "source_type",
+          "element_type"
+        ]
+      },
+      "sniiReporting_updateAsset": {
+        "type": "object",
+        "properties": {
+          "element_type": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "included",
+              "excluded"
+            ]
+          },
+          "exclusion_reason": {
+            "type": "string",
+            "enum": [
+              "dummy",
+              "test",
+              "cpe",
+              "customer_drop",
+              "duplicate",
+              "not_applicable",
+              "reported_by_owner",
+              "other"
+            ]
+          },
+          "decision_evidence_reference": {
+            "type": "string",
+            "maximum": 500
+          },
+          "official_code": {
+            "type": "string",
+            "maximum": 191
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "owned",
+              "leased",
+              "third_party"
+            ]
+          },
+          "owner_name": {
+            "type": "string",
+            "maximum": 255
+          },
+          "field_overrides": {
+            "type": "object"
+          },
+          "manual_payload": {
+            "type": "object"
+          }
+        }
+      },
+      "sniiReporting_approveAsset": {
+        "type": "object",
+        "properties": {
+          "expected_source_snapshot_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expected_classification_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "expected_source_snapshot_hash",
+          "expected_classification_hash"
+        ]
+      },
+      "sniiReporting_createBatch": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "supersedes_batch_id": {
+            "type": "number",
+            "minimum": 1
+          },
+          "supersession_reason": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "period_start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "period_end": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "filing_kind": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "update",
+              "voluntary"
+            ]
+          },
+          "filing_window": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "first_semiannual",
+              "second_combined",
+              "anytime"
+            ]
+          },
+          "filing_year": {
+            "type": "number",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "filing_frequency": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "semiannual",
+              "annual_and_semiannual",
+              "voluntary"
+            ]
+          }
+        },
+        "required": [
+          "profile_id",
+          "period_start",
+          "period_end",
+          "filing_kind",
+          "filing_window",
+          "filing_year",
+          "filing_frequency"
+        ]
+      },
+      "sniiReporting_approveBatch": {
+        "type": "object",
+        "properties": {
+          "expected_snapshot_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "expected_snapshot_hash"
+        ]
+      },
+      "sniiReporting_generateArtifact": {
+        "type": "object",
+        "properties": {
+          "element_type": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "kml"
+            ]
+          }
+        },
+        "required": [
+          "element_type",
+          "format"
+        ]
+      },
+      "sniiReporting_createFilingEvent": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "acuse_received",
+              "accepted",
+              "rejected",
+              "correction_requested",
+              "corrected_submission"
+            ]
+          },
+          "attempt_no": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "occurred_timezone": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "authority_reference": {
+            "type": "string",
+            "minimum": 1,
+            "maximum": 191
+          },
+          "notes": {
+            "type": "string",
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "event_type",
+          "attempt_no",
+          "occurred_at",
+          "occurred_timezone",
+          "authority_reference"
+        ]
       },
       "snmpProfiles_createSnmpProfile": {
         "type": "object",

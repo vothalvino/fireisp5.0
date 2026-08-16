@@ -5,8 +5,12 @@
 jest.mock('../src/models/Organization', () => ({
   getLocale: jest.fn(),
 }));
+jest.mock('../src/utils/primaryContext', () => ({
+  runInPrimaryContext: jest.fn(callback => callback()),
+}));
 
 const Organization = require('../src/models/Organization');
+const { runInPrimaryContext } = require('../src/utils/primaryContext');
 const { requireMxLocale } = require('../src/middleware/orgLocale');
 
 function mockRes() {
@@ -29,8 +33,35 @@ describe('requireMxLocale', () => {
     });
 
     expect(Organization.getLocale).toHaveBeenCalledWith(7);
+    expect(runInPrimaryContext).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledWith();
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  test('resolves the authoritative locale inside primary context', async () => {
+    let insidePrimary = false;
+    runInPrimaryContext.mockImplementationOnce(async callback => {
+      insidePrimary = true;
+      try {
+        return await callback();
+      } finally {
+        insidePrimary = false;
+      }
+    });
+    Organization.getLocale.mockImplementationOnce(async () => {
+      expect(insidePrimary).toBe(true);
+      return 'MX';
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    await new Promise((resolve) => {
+      requireMxLocale({ orgId: 19 }, res, (...args) => { next(...args); resolve(); });
+    });
+
+    expect(runInPrimaryContext).toHaveBeenCalledTimes(1);
+    expect(Organization.getLocale).toHaveBeenCalledWith(19);
+    expect(next).toHaveBeenCalledWith();
   });
 
   test('responds 404 REGION_DISABLED for a global-locale org', async () => {

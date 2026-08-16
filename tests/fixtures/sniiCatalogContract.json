@@ -1,0 +1,3797 @@
+{
+  "metadata": {
+    "catalog_version": "snii-2024-02-14-contract-v1",
+    "posture": "historical_2024_amendment_bootstrap_reference",
+    "historical_template_index_url": "https://www.ift.org.mx/industria/plantillas-de-descarga-disponibles-para-snii",
+    "historical_dictionary_index_url": "https://www.ift.org.mx/industria/diccionarios-de-datos",
+    "current_crt_procedure_url": "https://portal.crt.gob.mx/docs-bin/informes-difusion/actualizacion-de-la-informacion-al-sistema-nacional-de-informacion-de-infraestructura.pdf",
+    "dictionary_workbook_sha256": "8078af00f93fce28f30800fc381ac13fd20c4158ec9ce2e1a796c8efc0547fab",
+    "annex_v_workbook_sha256": "1acaf869c3ba8e7df4e5c20259243a7e77a2096c74825688f8a734ad2756801a",
+    "reviewed_at": "2026-08-15"
+  },
+  "objects": [
+    {
+      "slug": "antena_am",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_am.json",
+        "xlsx": "antena_am.xlsx",
+        "csv": "antena_am.csv",
+        "xml": "antena_am.xml"
+      },
+      "preparation_filename": "antena_am.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_ANTENA": [
+          "Panel",
+          "Tablero",
+          "Monopolo",
+          "Versátil",
+          "Yagi",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_fm",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_fm.json",
+        "xlsx": "antena_fm.xlsx",
+        "csv": "antena_fm.csv",
+        "xml": "antena_fm.xml"
+      },
+      "preparation_filename": "antena_fm.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "MONTAJE",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "MONTAJE",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "MONTAJE": [
+          "Lateral",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_ANTENA": [
+          "Panel",
+          "Tablero",
+          "Versátil",
+          "Yagi",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MONTAJE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_gsm",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_gsm.json",
+        "xlsx": "antena_gsm.xlsx",
+        "csv": "antena_gsm.csv",
+        "xml": "antena_gsm.xml"
+      },
+      "preparation_filename": "antena_gsm.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_ANTENA": [
+          "Tarjeta",
+          "Panel",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PATRON_RADIACION": {
+          "type": "string",
+          "max_length": 1000
+        },
+        "PIRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "GANANCIA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_lte",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "antena_lte.json",
+        "xlsx": "antena_lte.xlsx",
+        "csv": "antena_lte.csv",
+        "xml": "antena_lte.xml"
+      },
+      "preparation_filename": "antena_lte.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_ANTENA": [
+          "Tarjeta",
+          "Panel",
+          "Transmit Diversity",
+          "SU",
+          "AAS",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PATRON_RADIACION": {
+          "type": "string",
+          "max_length": 1000
+        },
+        "PIRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "GANANCIA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_microondas",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_microondas.json",
+        "xlsx": "antena_microondas.xlsx",
+        "csv": "antena_microondas.csv",
+        "xml": "antena_microondas.xml"
+      },
+      "preparation_filename": "antena_microondas.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_tdt",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_tdt.json",
+        "xlsx": "antena_tdt.xlsx",
+        "csv": "antena_tdt.csv",
+        "xml": "antena_tdt.xml"
+      },
+      "preparation_filename": "antena_tdt.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "MONTAJE",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "MONTAJE",
+        "TIPO_ANTENA",
+        "PRA",
+        "ALTURA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "MONTAJE": [
+          "Lateral",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_ANTENA": [
+          "Panel",
+          "Tablero",
+          "Versátil",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MONTAJE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "antena_wcdma",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "antena_wcdma.json",
+        "xlsx": "antena_wcdma.xlsx",
+        "csv": "antena_wcdma.csv",
+        "xml": "antena_wcdma.xml"
+      },
+      "preparation_filename": "antena_wcdma.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "ALTURA",
+        "PATRON_RADIACION",
+        "PIRE",
+        "GANANCIA",
+        "TIPO_ANTENA",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_ANTENA": [
+          "Panel",
+          "Tablero",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PATRON_RADIACION": {
+          "type": "string",
+          "max_length": 1000
+        },
+        "PIRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "GANANCIA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ANTENA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "central",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "central.json",
+        "xlsx": "central.xlsx",
+        "csv": "central.csv",
+        "xml": "central.xml"
+      },
+      "preparation_filename": "central.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TIPO_CENTRAL",
+        "INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TIPO_CENTRAL",
+        "INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_CENTRAL": [
+          "CCA",
+          "CCE",
+          "CCU",
+          "CTI Nacional",
+          "CTI EE.UU",
+          "CTI",
+          "Otro",
+          "No aplica"
+        ],
+        "INTERCONEXION": [
+          "IP",
+          "TDM",
+          "Móvil",
+          "No",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "INTERCONEXION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "cmts",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "cmts.json",
+        "xlsx": "cmts.xlsx",
+        "csv": "cmts.csv",
+        "xml": "cmts.xml"
+      },
+      "preparation_filename": "cmts.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "dslam",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "dslam.json",
+        "xlsx": "dslam.xlsx",
+        "csv": "dslam.csv",
+        "xml": "dslam.xml"
+      },
+      "preparation_filename": "dslam.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "enodeb",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "enodeb.json",
+        "xlsx": "enodeb.xlsx",
+        "csv": "enodeb.csv",
+        "xml": "enodeb.xml"
+      },
+      "preparation_filename": "enodeb.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "VERSION_LTE",
+        "SENSIBILIDAD_RECEPCION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "VERSION_LTE",
+        "SENSIBILIDAD_RECEPCION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VERSION_LTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SENSIBILIDAD_RECEPCION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "mgw",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "mgw.json",
+        "xlsx": "mgw.xlsx",
+        "csv": "mgw.csv",
+        "xml": "mgw.xml"
+      },
+      "preparation_filename": "mgw.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "INTERCONEXION": [
+          "Si",
+          "No",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "INTERCONEXION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "nodob",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "nodob.json",
+        "xlsx": "nodob.xlsx",
+        "csv": "nodob.csv",
+        "xml": "nodob.xml"
+      },
+      "preparation_filename": "nodob.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TECNOLOGIA_CELULAR",
+        "SENSIBILIDAD_RECEPCION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "TECNOLOGIA_CELULAR",
+        "SENSIBILIDAD_RECEPCION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TECNOLOGIA_CELULAR": [
+          "HSDPA",
+          "HSUPA",
+          "HSPA+",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TECNOLOGIA_CELULAR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SENSIBILIDAD_RECEPCION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "olt",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "olt.json",
+        "xlsx": "olt.xlsx",
+        "csv": "olt.csv",
+        "xml": "olt.xml"
+      },
+      "preparation_filename": "olt.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "punto_interconexion",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "punto_interconexion.json",
+        "xlsx": "punto_interconexion.xlsx",
+        "csv": "punto_interconexion.csv",
+        "xml": "punto_interconexion.xml"
+      },
+      "preparation_filename": "punto_interconexion.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "ESPACIO_COUBICACION",
+        "CODIGO_ORIGEN",
+        "CODIGO_DESTINO",
+        "TIPO_PUNTO_INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "CODIGO_ORIGEN",
+        "CODIGO_DESTINO",
+        "TIPO_PUNTO_INTERCONEXION",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "ESPACIO_COUBICACION": [
+          "Externa",
+          "Interna",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_PUNTO_INTERCONEXION": [
+          "IP",
+          "TDM",
+          "Móvil",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_COUBICACION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_ORIGEN": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_DESTINO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_PUNTO_INTERCONEXION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "repetidor",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "repetidor.json",
+        "xlsx": "repetidor.xlsx",
+        "csv": "repetidor.csv",
+        "xml": "repetidor.xml"
+      },
+      "preparation_filename": "repetidor.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PIRE",
+        "PRA",
+        "GANANCIA",
+        "FIGURA_RUIDO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PIRE",
+        "PRA",
+        "GANANCIA",
+        "FIGURA_RUIDO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PIRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "GANANCIA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FIGURA_RUIDO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sector_gsm",
+      "geometry": "Polygon",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "kml": "sector_gsm.kml",
+        "kmz": "sector_gsm.kmz"
+      },
+      "preparation_filename": "sector_gsm.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "BCCH",
+        "BSIC",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "BCCH",
+        "BSIC",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTER_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTRA_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "BCCH": {
+          "type": "string",
+          "max_length": 50
+        },
+        "BSIC": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_ASCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_DESCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sector_lte",
+      "geometry": "Polygon",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "kml": "sector_lte.kml",
+        "kmz": "sector_lte.kmz"
+      },
+      "preparation_filename": "sector_lte.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "PCI",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "FRECUENCIA_CARRIER",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "PCI",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "FRECUENCIA_CARRIER",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTER_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTRA_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PCI": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_ASCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_DESCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_CARRIER": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sector_wcdma",
+      "geometry": "Polygon",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "sector_wcdma.kml",
+        "kmz": "sector_wcdma.kmz"
+      },
+      "preparation_filename": "sector_wcdma.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "PSC",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_TORRE",
+        "CODIGO_SITIO",
+        "VECINOS_INTER_DEFINIDOS",
+        "VECINOS_INTRA_DEFINIDOS",
+        "PSC",
+        "FRECUENCIA_ASCENDENTE",
+        "FRECUENCIA_DESCENDENTE",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTER_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "VECINOS_INTRA_DEFINIDOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PSC": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_ASCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRECUENCIA_DESCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "switch_atm",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "switch_atm.json",
+        "xlsx": "switch_atm.xlsx",
+        "csv": "switch_atm.csv",
+        "xml": "switch_atm.xml"
+      },
+      "preparation_filename": "switch_atm.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "switch_otn",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "switch_otn.json",
+        "xlsx": "switch_otn.xlsx",
+        "csv": "switch_otn.csv",
+        "xml": "switch_otn.xml"
+      },
+      "preparation_filename": "switch_otn.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "transmisor",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "transmisor.json",
+        "xlsx": "transmisor.xlsx",
+        "csv": "transmisor.csv",
+        "xml": "transmisor.xml"
+      },
+      "preparation_filename": "transmisor.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "CANAL_VIRTUAL",
+        "MODO_OPERACION",
+        "SISTEMA_HIBRIDO",
+        "TIPO_INSTALACION_SISTEMA_HIBRIDO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "CODIGO_SITIO",
+        "MARCA",
+        "MODELO",
+        "CANAL_VIRTUAL",
+        "MODO_OPERACION",
+        "SISTEMA_HIBRIDO",
+        "TIPO_INSTALACION_SISTEMA_HIBRIDO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "MODO_OPERACION": [
+          "Principal",
+          "Complementario",
+          "Auxiliar",
+          "Emergente",
+          "Otro",
+          "No aplica"
+        ],
+        "SISTEMA_HIBRIDO": [
+          "Si",
+          "No",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_INSTALACION_SISTEMA_HIBRIDO": [
+          "Líneas separadas",
+          "Línea común",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MARCA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODELO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CANAL_VIRTUAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MODO_OPERACION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SISTEMA_HIBRIDO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_INSTALACION_SISTEMA_HIBRIDO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sala_transmision",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "sala_transmision.json",
+        "xlsx": "sala_transmision.xlsx",
+        "csv": "sala_transmision.csv",
+        "xml": "sala_transmision.xml"
+      },
+      "preparation_filename": "sala_transmision.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "CAPACIDAD_DISPONIBLE_AC",
+        "ESPACIO_DISPONIBLE_AC",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CAPACIDAD_DISPONIBLE_AC": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_DISPONIBLE_AC": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sitio_transmision",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "sitio_transmision.json",
+        "xlsx": "sitio_transmision.xlsx",
+        "csv": "sitio_transmision.csv",
+        "xml": "sitio_transmision.xml"
+      },
+      "preparation_filename": "sitio_transmision.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CAPACIDAD_DISPONIBLE_SE",
+        "UPS",
+        "SUPERFICIE_DISPONIBLE_TERRENO",
+        "TIPO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TIPO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CAPACIDAD_DISPONIBLE_SE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "UPS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SUPERFICIE_DISPONIBLE_TERRENO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "torre",
+      "geometry": "Point",
+      "periodicity": "semiannual",
+      "official_filenames": {
+        "json": "torre.json",
+        "xlsx": "torre.xlsx",
+        "csv": "torre.csv",
+        "xml": "torre.xml"
+      },
+      "preparation_filename": "torre.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "TIPO_TORRE",
+        "USO_TORRE",
+        "SECCION",
+        "ESPACIO_DISPONIBLE",
+        "SERVICIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_SITIO",
+        "TIPO_TORRE",
+        "USO_TORRE",
+        "SECCION",
+        "SERVICIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_TORRE": [
+          "Arriostradas",
+          "Auto soportadas",
+          "Mástiles",
+          "Monopolos",
+          "Otro",
+          "No aplica"
+        ],
+        "USO_TORRE": [
+          "Sistema radiador",
+          "Soporte de antenas",
+          "Otro",
+          "No aplica"
+        ],
+        "SECCION": [
+          "Tubular",
+          "Triangular",
+          "Cuadrada",
+          "Otro",
+          "No aplica"
+        ],
+        "SERVICIO": [
+          "Telecomunicaciones",
+          "Radiodifusión",
+          "Ambas",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "USO_TORRE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SECCION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_DISPONIBLE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "SERVICIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "ducto",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "ducto.kml",
+        "kmz": "ducto.kmz"
+      },
+      "preparation_filename": "ducto.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "AREA_TOTAL",
+        "AREA_MTTO",
+        "AREA_DISPONIBLE",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "AREA_TOTAL",
+        "AREA_MTTO",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "AREA_TOTAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "AREA_MTTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "AREA_DISPONIBLE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "poste",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "poste.json",
+        "xlsx": "poste.xlsx",
+        "csv": "poste.csv",
+        "xml": "poste.xml"
+      },
+      "preparation_filename": "poste.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "PESO_MAXIMO",
+        "ESPACIO_DISPONIBLE",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "PESO_MAXIMO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PESO_MAXIMO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_DISPONIBLE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "pozo",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "pozo.json",
+        "xlsx": "pozo.xlsx",
+        "csv": "pozo.csv",
+        "xml": "pozo.xml"
+      },
+      "preparation_filename": "pozo.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "ESPACIO_DISPONIBLE",
+        "TIPO_POZO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TIPO_POZO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_POZO": [
+          "En arroyo",
+          "En banqueta",
+          "2BOQ",
+          "4BOQ",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_DISPONIBLE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_POZO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "cable_coaxial",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "cable_coaxial.kml",
+        "kmz": "cable_coaxial.kmz"
+      },
+      "preparation_filename": "cable_coaxial.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "ESTANDAR",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "ESTANDAR",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESTANDAR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_ORIGEN": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_DESTINO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "enlace_microondas",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "enlace_microondas.kml",
+        "kmz": "enlace_microondas.kmz"
+      },
+      "preparation_filename": "enlace_microondas.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "BANDA_FRECUENCIAS",
+        "CI_SITIOA",
+        "CI_SITIOB",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "BANDA_FRECUENCIAS",
+        "CI_SITIOA",
+        "CI_SITIOB",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "BANDA_FRECUENCIAS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CI_SITIOA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CI_SITIOB": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "cable_fibra_acceso",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "cable_fibra_acceso.kml",
+        "kmz": "cable_fibra_acceso.kmz"
+      },
+      "preparation_filename": "cable_fibra_acceso.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "TIPO_DESPLIEGUE",
+        "ESTANDAR",
+        "TIPO_FIBRA",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CODIGO_CENTRAL",
+        "TIPO_DESPLIEGUE",
+        "ESTANDAR",
+        "TIPO_FIBRA",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {
+        "TIPO_DESPLIEGUE": [
+          "Aérea",
+          "Subterránea",
+          "Ambos",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_FIBRA": [
+          "Monomodo",
+          "Multimodo",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CODIGO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_DESPLIEGUE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESTANDAR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_FIBRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "cable_fibra_transporte",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "cable_fibra_transporte.kml",
+        "kmz": "cable_fibra_transporte.kmz"
+      },
+      "preparation_filename": "cable_fibra_transporte.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "TIPO_DESPLIEGUE",
+        "ESTANDAR",
+        "TIPO_FIBRA",
+        "NUMERO_HILOS",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "TIPO_DESPLIEGUE",
+        "ESTANDAR",
+        "TIPO_FIBRA",
+        "NUMERO_HILOS",
+        "LONGITUD",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {
+        "TIPO_DESPLIEGUE": [
+          "Aérea",
+          "Subterránea",
+          "Subterránea y Aérea",
+          "Submarina",
+          "Otro",
+          "No aplica"
+        ],
+        "TIPO_FIBRA": [
+          "Monomodo",
+          "Multimodo",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_ORIGEN": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_DESTINO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_DESPLIEGUE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESTANDAR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_FIBRA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NUMERO_HILOS": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "troncal_cobre",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "troncal_cobre.kml",
+        "kmz": "troncal_cobre.kmz"
+      },
+      "preparation_filename": "troncal_cobre.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TIPO_CENTRAL",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "NUMERO_PARES",
+        "LONGITUD_TRAMO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TIPO_CENTRAL",
+        "NODO_ORIGEN",
+        "NODO_DESTINO",
+        "NUMERO_PARES",
+        "LONGITUD_TRAMO",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {
+        "TIPO_CENTRAL": [
+          "CCE",
+          "CTI",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_CENTRAL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_ORIGEN": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NODO_DESTINO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NUMERO_PARES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD_TRAMO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sitio_publico",
+      "geometry": "Point",
+      "periodicity": "annual",
+      "official_filenames": {
+        "json": "sitio_publico.json",
+        "xlsx": "sitio_publico.xlsx",
+        "csv": "sitio_publico.csv",
+        "xml": "sitio_publico.xml"
+      },
+      "preparation_filename": "sitio_publico.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CONECTIVIDAD",
+        "TASA_TRANSMISION_ASCENDENTE",
+        "TASA_TRANSMISION_DESCENDENTE",
+        "CORREO_CONTACTO",
+        "TELEFONO_CONTACTO",
+        "TIPO_SITIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CONECTIVIDAD",
+        "TASA_TRANSMISION_ASCENDENTE",
+        "TASA_TRANSMISION_DESCENDENTE",
+        "CORREO_CONTACTO",
+        "TELEFONO_CONTACTO",
+        "TIPO_SITIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_SITIO": [
+          "Hospital",
+          "Escuela",
+          "Plaza pública",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CONECTIVIDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TASA_TRANSMISION_ASCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TASA_TRANSMISION_DESCENDENTE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_CONTACTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO_CONTACTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "sitio_privado",
+      "geometry": "Point",
+      "periodicity": "voluntary",
+      "official_filenames": {
+        "json": "sitio_privado.json",
+        "xlsx": "sitio_privado.xlsx",
+        "csv": "sitio_privado.csv",
+        "xml": "sitio_privado.xml"
+      },
+      "preparation_filename": "sitio_privado.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TELEFONO_FIJO",
+        "TELEFONO_PRIVADO",
+        "CORREO_ELECTRONICO",
+        "NOMBRE_VIALIDAD",
+        "NUMERO_EXTERIOR",
+        "MUNICIPIO",
+        "ESTADO",
+        "ASENTAMIENTO",
+        "LOCALIDAD",
+        "ESPACIO_DISPONIBLE",
+        "ALTURA",
+        "TIPO_ASENTAMIENTO",
+        "TIPO_SITIO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "TELEFONO_FIJO",
+        "TELEFONO_PRIVADO",
+        "CORREO_ELECTRONICO",
+        "NOMBRE_VIALIDAD",
+        "NUMERO_EXTERIOR",
+        "MUNICIPIO",
+        "ESTADO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {
+        "TIPO_SITIO": [
+          "Terreno",
+          "Azotea",
+          "Otro",
+          "No aplica"
+        ]
+      },
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO_FIJO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO_PRIVADO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_ELECTRONICO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NOMBRE_VIALIDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "NUMERO_EXTERIOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "MUNICIPIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESTADO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ASENTAMIENTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LOCALIDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ESPACIO_DISPONIBLE": {
+          "type": "string",
+          "max_length": 50
+        },
+        "ALTURA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_ASENTAMIENTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_SITIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LATITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "LONGITUD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "derecho_via",
+      "geometry": "LineString",
+      "periodicity": "annual",
+      "official_filenames": {
+        "kml": "derecho_via.kml",
+        "kmz": "derecho_via.kmz"
+      },
+      "preparation_filename": "derecho_via.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CONCESION",
+        "PUNTO_INICIO_TRAMO",
+        "PUNTO_FIN_TRAMO",
+        "FRANJA_TERRENO",
+        "CORREO_CONTACTO",
+        "TELEFONO_CONTACTO",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "CODIGO_IDENTIFICADOR",
+        "CONCESION",
+        "PUNTO_INICIO_TRAMO",
+        "PUNTO_FIN_TRAMO",
+        "FRANJA_TERRENO",
+        "CORREO_CONTACTO",
+        "TELEFONO_CONTACTO",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "CODIGO_IDENTIFICADOR": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CONCESION": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PUNTO_INICIO_TRAMO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PUNTO_FIN_TRAMO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FRANJA_TERRENO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_CONTACTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO_CONTACTO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": true,
+      "preparation_supported": true
+    },
+    {
+      "slug": "obra_civil_area",
+      "geometry": "Polygon",
+      "periodicity": "event_driven",
+      "official_filenames": {
+        "kml": "obra_civil_area.kml",
+        "kmz": "obra_civil_area.kmz"
+      },
+      "preparation_filename": "obra_civil_area.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "DOMICILIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_OBRA_CIVIL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FECHA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_ELECTRONICO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "DATOS_ADICIONALES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "OBSERVACIONES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": false,
+      "preparation_supported": false
+    },
+    {
+      "slug": "obra_civil_lineal",
+      "geometry": "LineString",
+      "periodicity": "event_driven",
+      "official_filenames": {
+        "kml": "obra_civil_lineal.kml",
+        "kmz": "obra_civil_lineal.kmz"
+      },
+      "preparation_filename": "obra_civil_lineal.kml",
+      "generated_format": "kml",
+      "wire_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO"
+      ],
+      "required_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "DOMICILIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_OBRA_CIVIL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FECHA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_ELECTRONICO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "DATOS_ADICIONALES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "OBSERVACIONES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        }
+      },
+      "validation_supported": false,
+      "preparation_supported": false
+    },
+    {
+      "slug": "obra_civil_puntual",
+      "geometry": "Point",
+      "periodicity": "event_driven",
+      "official_filenames": {
+        "json": "obra_civil_puntual.json",
+        "xlsx": "obra_civil_puntual.xlsx",
+        "csv": "obra_civil_puntual.csv",
+        "xml": "obra_civil_puntual.xml"
+      },
+      "preparation_filename": "obra_civil_puntual.csv",
+      "generated_format": "csv",
+      "wire_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "CLAVE_ENTIDAD",
+        "CLAVE_MUNICIPIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "required_headers": [
+        "DOMICILIO",
+        "TIPO_OBRA_CIVIL",
+        "FECHA",
+        "CORREO_ELECTRONICO",
+        "TELEFONO",
+        "DATOS_ADICIONALES",
+        "OBSERVACIONES",
+        "PROPIEDAD",
+        "PROPIETARIO",
+        "LATITUD",
+        "LONGITUD"
+      ],
+      "catalog_values": {},
+      "field_constraints": {
+        "DOMICILIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TIPO_OBRA_CIVIL": {
+          "type": "string",
+          "max_length": 50
+        },
+        "FECHA": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CORREO_ELECTRONICO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "TELEFONO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "DATOS_ADICIONALES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "OBSERVACIONES": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIEDAD": {
+          "type": "string",
+          "max_length": 50
+        },
+        "PROPIETARIO": {
+          "type": "string",
+          "max_length": 50
+        },
+        "CLAVE_ENTIDAD": {
+          "type": "string",
+          "max_length": 5
+        },
+        "CLAVE_MUNICIPIO": {
+          "type": "string",
+          "max_length": 5
+        },
+        "LATITUD": {
+          "type": "float"
+        },
+        "LONGITUD": {
+          "type": "float"
+        }
+      },
+      "validation_supported": false,
+      "preparation_supported": false
+    }
+  ]
+}

@@ -12,13 +12,18 @@
 // =============================================================================
 
 const Organization = require('../models/Organization');
+const { runInPrimaryContext } = require('../utils/primaryContext');
 
 /**
  * Reject the request with 404 REGION_DISABLED unless the active organization's
  * compliance locale is 'MX'.
  */
 function requireMxLocale(req, res, next) {
-  Organization.getLocale(req.orgId)
+  // Organization locale is control-plane configuration.  Resolve it from the
+  // primary database even when orgScope has selected an isolated tenant pool;
+  // an isolated database must never be able to opt itself into an MX-only
+  // regulatory surface by carrying a stale or forged organizations row.
+  runInPrimaryContext(() => Organization.getLocale(req.orgId))
     .then((locale) => {
       if (locale === 'MX') return next();
       return res.status(404).json({
