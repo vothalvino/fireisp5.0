@@ -1,5 +1,6 @@
 'use strict';
 
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { generateSpec } = require('../src/utils/openapi');
@@ -324,6 +325,12 @@ describe('trap forwarding OpenAPI and generated client contract', () => {
   });
 
   test('generated TypeScript exposes the new routes and nullable request fields', () => {
+    execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
+      '--dir',
+      'frontend',
+      'run',
+      'gen:api',
+    ], { cwd: root, stdio: 'pipe' });
     const generated = read('frontend/src/api/schema.d.ts');
     for (const route of [
       '/trap-forwarding-rules/destinations',
