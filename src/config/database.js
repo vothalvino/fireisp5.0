@@ -6,6 +6,7 @@
 // =============================================================================
 
 const mysql = require('mysql2/promise');
+const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { recordDbQuery } = require('../utils/dbMetrics');
 const { decrypt } = require('../utils/encryption');
@@ -47,12 +48,15 @@ const pool = mysql.createPool({
 });
 
 const tenantContext = new AsyncLocalStorage();
-const tenantConfigCache = new Map();
+// An invalidation may race an already-running primary lookup. A generation is
+// captured before each lookup/pool creation and checked again before anything
+// is cached, so an old result can never repopulate routing state after an
+// operator switches the organization back to shared or rotates its database.
+const tenantConfigGenerations = new Map();
 // tenantPoolCache: key -> { pool, lastUsed }. Entries are evicted on an idle TTL
 // and capped with LRU eviction so multi-tenant deployments with many orgs do not
 // accumulate connection pools indefinitely.
 const tenantPoolCache = new Map();
-const TENANT_CACHE_TTL_MS = parseIntEnv('TENANT_DB_CONFIG_CACHE_MS', 60000);
 // Close a tenant pool after it has been idle for this long (0 disables idle eviction).
 const TENANT_POOL_IDLE_MS = parseIntEnv('TENANT_DB_POOL_IDLE_MS', 300000);
 // Maximum number of tenant pools to keep cached before LRU-evicting the oldest.
@@ -115,22 +119,51 @@ function normalizeTenantConfig(row) {
   };
 }
 
-async function getTenantConnectionConfig(orgId) {
+function tenantConfigFingerprint(row) {
+  if (!row || row.isolation_mode !== 'isolated') return 'shared';
+  return crypto.createHash('sha256').update(JSON.stringify([
+    row.organization_id,
+    row.isolation_mode,
+    row.db_host,
+    Number(row.db_port || 3306),
+    row.db_name,
+    row.db_user,
+    row.db_password_encrypted || null,
+    Boolean(row.ssl_enabled),
+  ])).digest('hex');
+}
+
+function tenantConfigGeneration(key) {
+  return tenantConfigGenerations.get(key) || 0;
+}
+
+async function getTenantConnectionConfigSnapshot(orgId) {
   if (!orgId) return null;
   const key = String(orgId);
-  const cached = tenantConfigCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const generation = tenantConfigGeneration(key);
+    const [rows] = await pool.execute(
+      `SELECT organization_id, isolation_mode, db_host, db_port, db_name, db_user,
+              db_password_encrypted, ssl_enabled
+         FROM organization_database_configs
+        WHERE organization_id = ?`,
+      [orgId],
+    );
+    const row = rows[0] || null;
+    const value = normalizeTenantConfig(row);
+    if (tenantConfigGeneration(key) !== generation) continue;
+    // Deliberately no positive config cache: every routed request rechecks the
+    // authoritative primary registry, so a change made by another replica is
+    // visible before this process can reuse a tenant pool.
+    return { value, generation, fingerprint: tenantConfigFingerprint(row) };
+  }
+  const err = new Error('Tenant database configuration changed during resolution');
+  err.code = 'TENANT_DB_CONFIG_CHANGED';
+  throw err;
+}
 
-  const [rows] = await pool.execute(
-    `SELECT organization_id, isolation_mode, db_host, db_port, db_name, db_user,
-            db_password_encrypted, ssl_enabled
-       FROM organization_database_configs
-      WHERE organization_id = ?`,
-    [orgId],
-  );
-  const value = normalizeTenantConfig(rows[0]);
-  tenantConfigCache.set(key, { value, expiresAt: Date.now() + TENANT_CACHE_TTL_MS });
-  return value;
+async function getTenantConnectionConfig(orgId) {
+  return (await getTenantConnectionConfigSnapshot(orgId))?.value || null;
 }
 
 /**
@@ -155,18 +188,28 @@ function evictIdleTenantPools(now = Date.now()) {
 }
 
 async function getTenantPool(orgId) {
-  const config = await getTenantConnectionConfig(orgId);
-  if (!config) return null;
-
+  const snapshot = await getTenantConnectionConfigSnapshot(orgId);
+  const config = snapshot?.value;
   const key = String(orgId);
+  if (!config) {
+    const stale = tenantPoolCache.get(key);
+    if (stale) evictTenantPool(key, stale);
+    return null;
+  }
+  if (tenantConfigGeneration(key) !== snapshot.generation) {
+    return getTenantPool(orgId);
+  }
   const now = Date.now();
   evictIdleTenantPools(now);
 
   let entry = tenantPoolCache.get(key);
-  if (entry) {
+  if (entry
+      && entry.generation === snapshot.generation
+      && entry.fingerprint === snapshot.fingerprint) {
     // Refresh LRU recency by re-inserting at the end of the Map.
     tenantPoolCache.delete(key);
   } else {
+    if (entry) evictTenantPool(key, entry);
     entry = {
       pool: mysql.createPool({
         ...config,
@@ -178,6 +221,8 @@ async function getTenantPool(orgId) {
         enableKeepAlive: true,
         keepAliveInitialDelay: parseIntEnv('DB_KEEP_ALIVE_MS', 30000),
       }),
+      generation: snapshot.generation,
+      fingerprint: snapshot.fingerprint,
       lastUsed: now,
     };
   }
@@ -205,7 +250,7 @@ async function getCurrentPool({ preferReplica = false } = {}) {
 
 async function invalidateTenantDbConfig(orgId) {
   const key = String(orgId);
-  tenantConfigCache.delete(key);
+  tenantConfigGenerations.set(key, tenantConfigGeneration(key) + 1);
   const entry = tenantPoolCache.get(key);
   tenantPoolCache.delete(key);
   if (entry) await entry.pool.end();
@@ -278,7 +323,7 @@ async function close() {
   if (replicaPool) tasks.push(replicaPool.end());
   for (const entry of tenantPoolCache.values()) tasks.push(entry.pool.end());
   tenantPoolCache.clear();
-  tenantConfigCache.clear();
+  tenantConfigGenerations.clear();
   // Use allSettled so that a single pool failing to close does not prevent the
   // remaining pools from being drained during graceful shutdown.
   await Promise.allSettled(tasks);

@@ -28,5 +28,32 @@ data:
   FEATURE_WEBHOOKS: "true"
   FEATURE_SNMP: "true"
 
+  # Internal UDP listener. Expose this only to trusted device-management
+  # networks through a UDP LoadBalancer/NodePort when trap intake is required.
+  SNMP_TRAP_PORT: "1620"
+  # Loopback by default. Change to 0.0.0.0 only with the opt-in UDP Service,
+  # trusted source ranges, and a cluster/host network policy.
+  SNMP_TRAP_BIND_IP: "127.0.0.1"
+  # Fixed-memory overload and graceful-drain limits for unauthenticated UDP.
+  SNMP_TRAP_MAX_IN_FLIGHT: "16"
+  SNMP_TRAP_RATE_PER_SECOND: "50"
+  SNMP_TRAP_RATE_BURST: "100"
+  SNMP_TRAP_RATE_PER_MINUTE: "600"
+  SNMP_TRAP_RATE_MINUTE_BURST: "120"
+  SNMP_TRAP_SOURCE_RATE_PER_MINUTE: "10"
+  SNMP_TRAP_SOURCE_RATE_BURST: "20"
+  SNMP_TRAP_ORG_DAILY_ROW_LIMIT: "10000"
+  SNMP_TRAP_GLOBAL_DAILY_ROW_LIMIT: "100000"
+  SNMP_TRAP_ORG_DAILY_VARBIND_BYTES: "16777216"
+  SNMP_TRAP_GLOBAL_DAILY_VARBIND_BYTES: "134217728"
+  SNMP_TRAP_ORG_DAILY_DELIVERY_LIMIT: "10000"
+  SNMP_TRAP_GLOBAL_DAILY_DELIVERY_LIMIT: "100000"
+  SNMP_TRAP_LOCAL_QUEUE_CAPACITY: "100"
+  SNMP_TRAP_DRAIN_TIMEOUT_MS: "10000"
+
+  # The pod init container migrates the primary and every active isolated
+  # tenant database before any listener starts.
+  MIGRATE_ISOLATED_TENANTS: "true"
+
   # FireRelay — standalone for single-node deployments
   FIRERELAY_MODE: "standalone"

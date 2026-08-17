@@ -9,10 +9,11 @@ FireISP {{ .Chart.AppVersion }} deployed successfully.
   Open http://127.0.0.1:3000
 {{- end }}
 
-2. Run database migrations (first deploy only):
-  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "fireisp.fullname" . }} -- npm run migrate
+2. Database migrations already ran in the pre-start init container. Confirm the
+   application is ready before exposing it:
+  kubectl wait -n {{ .Release.Namespace }} --for=condition=Available deploy/{{ include "fireisp.fullname" . }} --timeout=180s
 
-3. (Optional) Seed demo data:
+3. (Optional, development/demo installations only) Seed demo data:
   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "fireisp.fullname" . }} -- npm run seed
 
 ⚠  IMPORTANT: Replace the placeholder secret values in values.yaml (or a

@@ -183,13 +183,33 @@ async function runTask(taskName, organizationId = null) {
     case 'wireless_ap_sector_poll':
       return { message: 'wireless_ap_sector_poll: redundant with snmp_discovery_poll (the generic poller collects wireless sector OIDs); seeded row disabled by migration 402', deferred: true };
     case 'snmp_trap_receiver_restart':
-      snmpTrapReceiver.stop();
-      snmpTrapReceiver.start();
+      await snmpTrapReceiver.stop();
+      {
+        const status = await snmpTrapReceiver.start();
+        if (status?.enabled === false) {
+          return { message: 'SNMP trap receiver is disabled by feature flag', disabled: true };
+        }
+        if (!status?.ready) {
+          const err = new Error(`SNMP trap receiver is not ready: ${status?.reason || 'unknown'}`);
+          err.code = 'SNMP_TRAP_RECEIVER_NOT_READY';
+          throw err;
+        }
+      }
       return { message: 'SNMP trap receiver restarted' };
     // §6.1: task_name seeded by migration 254 — (re)starts the UDP trap listener
     case 'snmp_trap_receiver':
-      snmpTrapReceiver.stop();
-      snmpTrapReceiver.start();
+      await snmpTrapReceiver.stop();
+      {
+        const status = await snmpTrapReceiver.start();
+        if (status?.enabled === false) {
+          return { message: 'SNMP trap receiver is disabled by feature flag', disabled: true };
+        }
+        if (!status?.ready) {
+          const err = new Error(`SNMP trap receiver is not ready: ${status?.reason || 'unknown'}`);
+          err.code = 'SNMP_TRAP_RECEIVER_NOT_READY';
+          throw err;
+        }
+      }
       return { message: 'SNMP trap receiver started' };
     case 'email_send':
       return emailTransport.processQueue();
@@ -197,7 +217,13 @@ async function runTask(taskName, organizationId = null) {
       return smsTransport.processQueue();
     case 'webhook_delivery':
     case 'webhook_retry':
-      return webhookService.processRetries();
+      return Promise.all([
+        webhookService.processRetries(organizationId),
+        require('./trapForwardingService').processRetries(),
+      ]).then(([webhooks, trapForwarding]) => ({
+        webhooks,
+        trap_forwarding: trapForwarding,
+      }));
     case 'radius_sync':
       return Promise.all([
         radiusService.syncAllAccounts(organizationId),

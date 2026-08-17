@@ -108,6 +108,13 @@ describe('redeploy.sh pulls and never builds', () => {
     expect(tagLine).toMatch(/^\s*TAG="\$\{1:-/);
   });
 
+  it('refuses an application rollback across the migration 459 privacy boundary', () => {
+    expect(script).toMatch(/\[\[ -n "\$\{1:-\$\{FIREISP_IMAGE_TAG:-\}\}" \]\]/);
+    expect(script).toMatch(/cat-file -e "\$\{TAG\}\^\{commit\}:database\/migrations\/459_activate_snmp_trap_forwarding\.sql"/);
+    expect(script).toMatch(/refusing to start an application version that predates migration 459/);
+    expect(script).toMatch(/Roll forward with a corrected post-459 image/);
+  });
+
   it('enforces a retention policy, because a plain prune is inert here', () => {
     // Every pulled image carries a unique :<sha> tag, so NOTHING is ever
     // dangling and `docker image prune` alone reclaims zero. The retained set
@@ -120,19 +127,25 @@ describe('redeploy.sh pulls and never builds', () => {
     expect(script).not.toMatch(/image prune\s+(-\w*a|--all)/);
   });
 
-  it('waits for the container before migrating', () => {
-    // Pulling is fast, so the race the old multi-minute build hid is now real:
-    // `exec` against a crash-looping image fails with a bare "container is not
-    // running", which reads as tooling trouble rather than a bad deploy.
-    // Anchored on the INVOCATION line, not the first textual occurrence —
-    // "migrate.js" also appears in the header comment explaining the rollback
-    // semantics, which sits above everything and would pass trivially.
+  it('drains legacy writers, then migrates before starting new listeners', () => {
+    // Migration 459 removes credentials and tightens audit/delivery invariants.
+    // An old app must not remain writable after the migration starts, and a new
+    // listener must not bind before the migration succeeds.
     const lines = script.split('\n');
-    const migrateAt = lines.findIndex(l => /^\s*dc exec .*migrate\.js/.test(l));
-    const waitAt = lines.findIndex(l => l.includes('become responsive'));
+    const stopAt = lines.findIndex(l => /^\s*dc stop -t 30 app/.test(l));
+    const migrateAt = lines.findIndex(l => /^\s*(?:if ! )?dc run --rm -T -e MIGRATE_ISOLATED_TENANTS=true app node src\/scripts\/migrate\.js/.test(l));
+    const startAt = lines.findIndex(l => /^\s*dc up -d\s*$/.test(l));
+    expect(stopAt).toBeGreaterThanOrEqual(0);
     expect(migrateAt).toBeGreaterThanOrEqual(0);
-    expect(waitAt).toBeGreaterThanOrEqual(0);
-    expect(migrateAt).toBeGreaterThan(waitAt);
+    expect(startAt).toBeGreaterThanOrEqual(0);
+    expect(stopAt).toBeLessThan(migrateAt);
+    expect(migrateAt).toBeLessThan(startAt);
+    expect(script).toMatch(/previous app remains stopped for data safety/);
+  });
+
+  it('requires the real readiness endpoint after startup', () => {
+    expect(script).toContain("fetch('http://127.0.0.1:3000/health/ready')");
+    expect(script).toMatch(/app readiness probe is still failing/);
   });
 });
 
@@ -186,7 +199,7 @@ describe('CI publishes only what it scanned', () => {
     // is sent to an Actions page showing a green tick.
     const guard = steps.find(s => (s.name || '').includes('produced no image'));
     expect(guard).toBeDefined();
-    expect(guard.if).toContain("refs/heads/main");
+    expect(guard.if).toContain('refs/heads/main');
     expect(guard.if).toContain("outcome != 'success'");
     expect(guard.run).toContain('exit 1');
   });
@@ -285,6 +298,52 @@ describe('k8s and Helm point at the image that is actually published', () => {
 
   it('the Helm chart defaults to the published image', () => {
     expect(yaml.load(read('charts/fireisp/values.yaml')).image.repository).toBe(REGISTRY);
+  });
+
+  it('the plain manifest runs migration and app from one immutable release image', () => {
+    const dep = yaml.load(read('k8s/deployment.yaml'));
+    const migration = dep.spec.template.spec.initContainers.find(c => c.name === 'database-migrate');
+    const app = dep.spec.template.spec.containers.find(c => c.name === 'fireisp');
+    expect(migration.image).toBe(app.image);
+    expect(app.image).toBe(`${REGISTRY}:REPLACE_WITH_FULL_COMMIT_SHA`);
+    expect(app.image).not.toMatch(/:latest$/);
+    expect(migration.imagePullPolicy).toBe(app.imagePullPolicy);
+  });
+
+  it('source Helm renders fail closed until a published image SHA is selected', () => {
+    const values = yaml.load(read('charts/fireisp/values.yaml'));
+    expect(values.image.tag).toBe('');
+    expect(read('charts/fireisp/templates/_helpers.tpl')).toMatch(
+      /required "image\.tag is required; use a published full commit SHA/,
+    );
+  });
+
+  it('a version-tag run publishes the chart appVersion image before the chart', () => {
+    const ci = yaml.load(read('.github/workflows/ci.yml'));
+    const scanSteps = ci.jobs['container-scan'].steps;
+    const login = scanSteps.find(s => s.name === 'Log in to ghcr.io');
+    const push = scanSteps.find(s => s.name === 'Push the scanned image');
+    expect(login.if).toContain("startsWith(github.ref, 'refs/tags/v')");
+    expect(push.if).toContain("startsWith(github.ref, 'refs/tags/v')");
+
+    const manifest = ci.jobs['publish-manifest'];
+    expect(manifest.if).toContain("startsWith(github.ref, 'refs/tags/v')");
+    const create = manifest.steps.find(s => s.name === 'Create the multi-arch manifest');
+    expect(create.run).toContain('PUBLISH_TAG="${GITHUB_REF_NAME#v}"');
+    expect(create.run).toContain('TARGET_TAGS=(-t "${RELEASE_IMAGE}:${PUBLISH_TAG}")');
+
+    const helm = ci.jobs['helm-release'];
+    expect(helm.needs).toBe('publish-manifest');
+    const verify = helm.steps.find(s => s.name === 'Verify release tag matches chart and image version');
+    expect(verify.run).toContain('test "$RELEASE_VERSION" = "$CHART_VERSION"');
+    expect(verify.run).toContain('test "$RELEASE_VERSION" = "$APP_VERSION"');
+    const pin = helm.steps.find(s => s.name === 'Pin the packaged chart to its published release image');
+    expect(pin.if).toContain("needs.publish-manifest.result == 'success'");
+    expect(pin.run).toContain(
+      'grep -qx "  tag: \\"${RELEASE_VERSION}\\"" charts/fireisp/values.yaml',
+    );
+    const release = helm.steps.find(s => s.name === 'Run chart-releaser');
+    expect(release.if).toContain("needs.publish-manifest.result == 'success'");
   });
 
   it('the cosign policies verify that same path', () => {

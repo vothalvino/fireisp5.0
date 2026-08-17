@@ -651,6 +651,29 @@ describe('notificationHooks', () => {
     });
   });
 
+  describe('device.trap', () => {
+    beforeEach(() => registerHooks());
+
+    test('keeps device.trap out of both generic SSE and generic external webhook fanout', async () => {
+      await eventBus.emit('device.trap', {
+        organizationId: 42,
+        device: { id: 91, name: 'Tower router' },
+        trapId: 701,
+        trapType: 'linkDown',
+        trapOid: '1.3.6.1.6.3.1.1.5.3',
+        skipWebhookIds: [44, 45],
+        varbinds: [{ value: 'must-not-be-forwarded' }],
+      });
+
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(webhookService.dispatch).not.toHaveBeenCalled();
+      expect(JSON.stringify({
+        broadcast: broadcast.mock.calls,
+        external: webhookService.dispatch.mock.calls,
+      })).not.toMatch(/must-not-be-forwarded|Tower router|1\.3\.6\.1\.6\.3\.1\.1\.5\.3/);
+    });
+  });
+
   // =========================================================================
   // Edge cases
   // =========================================================================

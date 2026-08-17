@@ -65,6 +65,9 @@ describe('retentionService', () => {
         audit_logs: 365,
         alert_events: 90,
         webhook_deliveries: 90,
+        snmp_trap_forwarding_deliveries: 90,
+        snmp_traps: 180,
+        snmp_trap_ingest_daily_usage: 14,
         email_logs: 180,
         sms_logs: 180,
         idempotency_keys: 7,
@@ -87,6 +90,14 @@ describe('retentionService', () => {
       const policies = retentionService.loadPolicies();
       expect(policies.radpostauth).toBe(120);
       expect(policies.pppoe_event_logs).toBe(45);
+    });
+
+    test('allows operators to shorten raw SNMP trap retention', () => {
+      process.env.RETENTION_SNMP_TRAPS_DAYS = '30';
+
+      const policies = retentionService.loadPolicies();
+
+      expect(policies.snmp_traps).toBe(30);
     });
 
     test.each(['0', '-1', 'not-a-number', '30days', '1.5'])(
@@ -137,6 +148,32 @@ describe('retentionService', () => {
 
       expect(db.query.mock.calls[0][0]).toContain('`authdate`');
       expect(db.query.mock.calls[1][0]).toContain('`logged_at`');
+    });
+
+    test('expires raw SNMP trap community and varbind data by received_at', async () => {
+      db.query.mockResolvedValue([{ affectedRows: 0 }]);
+
+      await retentionService.purgeTable('snmp_traps', 180);
+
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('`received_at` < DATE_SUB(NOW(), INTERVAL ? DAY)'),
+        [180],
+      );
+    });
+
+    test('retains unsettled Trap and webhook delivery work regardless of age', async () => {
+      db.query.mockResolvedValue([{ affectedRows: 0 }]);
+
+      await retentionService.purgeTable('snmp_trap_forwarding_deliveries', 90);
+      await retentionService.purgeTable('webhook_deliveries', 90);
+
+      const trapSql = db.query.mock.calls[0][0];
+      expect(trapSql).toContain("`status` IN ('success','dead_letter','cancelled')");
+      expect(trapSql).not.toMatch(/'pending'|'retrying'|'processing'/);
+
+      const webhookSql = db.query.mock.calls[1][0];
+      expect(webhookSql).toContain("`status` IN ('success','failed','dead_letter')");
+      expect(webhookSql).not.toMatch(/'pending'|'retrying'|'processing'/);
     });
 
     test('rejects unknown tables and unapproved date columns', async () => {
@@ -273,7 +310,9 @@ describe('retentionService', () => {
       const isolatedDeletes = db.query.mock.calls.filter(
         ([sql, params]) => sql.startsWith('DELETE') && params.length === 2,
       );
-      expect(isolatedDeletes).toHaveLength(POLICY_COUNT * 2);
+      // The install-wide quota row is purged only in primary. Tenant and
+      // isolated scopes return a safe skipped result without issuing DELETE.
+      expect(isolatedDeletes).toHaveLength((POLICY_COUNT - 1) * 2);
       expect(isolatedDeletes.every(([, params]) => [11, 22].includes(params[1]))).toBe(true);
     });
 
@@ -314,6 +353,11 @@ describe('retentionService', () => {
       }
       const webhookDelete = db.query.mock.calls.find(([sql]) => sql.includes('`webhook_deliveries`'));
       expect(webhookDelete[0]).toContain('SELECT `id` FROM `webhooks`');
+      const trapForwardingDelete = db.query.mock.calls.find(
+        ([sql]) => sql.includes('`snmp_trap_forwarding_deliveries`'),
+      );
+      expect(trapForwardingDelete[0]).toContain('`organization_id` = ?');
+      expect(trapForwardingDelete[1]).toEqual([90, 42]);
     });
 
     test('fails closed for an invalid tenant organization ID', async () => {

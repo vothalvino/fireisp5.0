@@ -68,6 +68,9 @@ services:
       # Embedded RADIUS server (off by default in dev — set RADIUS_SERVER_ENABLED=true)
       - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
       - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
+      # Unsolicited SNMP traps. Devices must send to this host/UDP port.
+      # Keep >=1024 for the non-root development container (default 1620).
+      - '${SNMP_TRAP_PUBLISH_IP:-127.0.0.1}:${SNMP_TRAP_PORT:-1620}:${SNMP_TRAP_PORT:-1620}/udp'
     depends_on:
       db:
         condition: service_healthy
@@ -84,6 +87,9 @@ services:
       RADIUS_SERVER_ENABLED: ${RADIUS_SERVER_ENABLED:-false}
       RADIUS_AUTH_PORT: ${RADIUS_AUTH_PORT:-1812}
       RADIUS_ACCT_PORT: ${RADIUS_ACCT_PORT:-1813}
+      SNMP_TRAP_PORT: ${SNMP_TRAP_PORT:-1620}
+      # Bind inside the container; SNMP_TRAP_PUBLISH_IP above is the host ACL.
+      SNMP_TRAP_BIND_IP: 0.0.0.0
     volumes:
       - ./src:/app/src
       - ./storage:/app/storage

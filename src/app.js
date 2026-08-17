@@ -447,6 +447,38 @@ app.use('/api/v1/whatsapp/webhook', webhookLimiter);
 const relayConfig = require('./config/firerelay');
 const startedAt = new Date();
 
+async function snmpTrapHealthCheck() {
+  const receiver = require('./services/snmpTrapReceiver');
+  const status = await Promise.resolve(receiver.getStatus());
+  if (status.enabled === false) {
+    return {
+      ready: true,
+      enabled: false,
+      schema_ready: null,
+      listening: false,
+      state: 'disabled',
+      reason: null,
+      attribution_ready: false,
+      attribution_reason: 'feature_disabled',
+    };
+  }
+  const { checkSchemaReadiness } = require('./services/trapForwardingReadinessService');
+  const schema = await checkSchemaReadiness();
+  const schemaReady = Boolean(schema.primary?.ready);
+  const listenerReady = Boolean(status.ready && status.listening);
+  const ready = schemaReady && listenerReady;
+  return {
+    ready,
+    enabled: true,
+    schema_ready: schemaReady,
+    listening: Boolean(status.listening),
+    state: status.state,
+    reason: !schemaReady ? 'primary_schema_unavailable' : (listenerReady ? null : status.reason),
+    attribution_ready: ready && Boolean(schema.ready),
+    attribution_reason: ready ? schema.reason : 'listener_not_ready',
+  };
+}
+
 app.get('/health', async (req, res) => {
   const health = {
     status: 'ok',
@@ -455,6 +487,14 @@ app.get('/health', async (req, res) => {
     relay: relayConfig.mode,
     timestamp: new Date().toISOString(),
   };
+
+  try {
+    health.snmpTrap = await snmpTrapHealthCheck();
+    if (!health.snmpTrap.ready) health.status = 'degraded';
+  } catch (_err) {
+    health.status = 'degraded';
+    health.snmpTrap = { ready: false, reason: 'primary_schema_unavailable' };
+  }
 
   // Detailed mode: ?detail=true adds memory + DB latency
   if (req.query.detail === 'true') {
@@ -511,6 +551,14 @@ app.get('/healthz', async (_req, res) => {
     }
   }
 
+  try {
+    checks.snmpTrap = await snmpTrapHealthCheck();
+    if (!checks.snmpTrap.ready) ready = false;
+  } catch (_err) {
+    checks.snmpTrap = { ready: false, reason: 'primary_schema_unavailable' };
+    ready = false;
+  }
+
   res.status(ready ? 200 : 503).json({
     status: ready ? 'ok' : 'degraded',
     checks,
@@ -556,6 +604,14 @@ app.get('/health/ready', async (_req, res) => {
       checks.redis = { connected: false };
       ready = false;
     }
+  }
+
+  try {
+    checks.snmpTrap = await snmpTrapHealthCheck();
+    if (!checks.snmpTrap.ready) ready = false;
+  } catch (_err) {
+    checks.snmpTrap = { ready: false, reason: 'primary_schema_unavailable' };
+    ready = false;
   }
 
   const statusCode = ready ? 200 : 503;
@@ -751,7 +807,7 @@ v1.use('/data-residency', dataResidencyRoutes);
 v1.use('/security-admin', adminIpAllowlist, securityAdminRoutes);
 v1.use('/network-security', networkSecurityRoutes);
 v1.use('/data-security', adminIpAllowlist, dataSecurityRoutes);
-v1.use('/webhook-security', webhookSecurityRoutes);
+v1.use('/webhook-security', requireFeature('webhooks'), webhookSecurityRoutes);
 
 // §18 Automation & Scripting
 v1.use('/automation-rules', automationRulesRoutes);

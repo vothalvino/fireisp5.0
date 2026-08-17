@@ -118,8 +118,126 @@ describe('database tenant routing', () => {
     await db.withTenantContext(7, () => db.query('SELECT 1', []));
     await db.withTenantContext(7, () => db.query('SELECT 2', []));
 
-    // Only one tenant pool is created and reused for the second query.
+    // The pool may be reused, but the routing registry itself is re-read from
+    // primary for every decision so another application replica can revoke or
+    // replace isolation without waiting for a process-local TTL.
+    const registryReads = primaryPool.execute.mock.calls.filter(
+      ([sql]) => /organization_database_configs/.test(sql),
+    );
+    expect(registryReads).toHaveLength(2);
     expect(createPool).toHaveBeenCalledTimes(2);
+  });
+
+  test('tenant routing reads the authoritative primary registry even when a read replica exists', async () => {
+    process.env.DB_REPLICA_HOST = 'read-replica';
+    const primaryPool = makePool();
+    const replicaPool = makePool();
+    const tenantPool = makePool();
+    primaryPool.execute.mockResolvedValueOnce([[
+      {
+        organization_id: 14,
+        isolation_mode: 'isolated',
+        db_host: 'tenant-db',
+        db_port: 3306,
+        db_name: 'fireisp_org_14',
+        db_user: 'tenant_user',
+        db_password_encrypted: 'secret',
+        ssl_enabled: 0,
+      },
+    ], []]);
+    replicaPool.execute.mockRejectedValue(new Error('replica must not route tenant databases'));
+    tenantPool.execute.mockResolvedValueOnce([[{ source: 'isolated-primary-registry' }], []]);
+
+    const { db } = loadDatabaseWithPools([primaryPool, replicaPool, tenantPool]);
+
+    await expect(db.withTenantContext(14, () => db.query('SELECT routed', [])))
+      .resolves.toEqual([[{ source: 'isolated-primary-registry' }], []]);
+    expect(primaryPool.execute).toHaveBeenCalledWith(
+      expect.stringContaining('organization_database_configs'),
+      [14],
+    );
+    expect(replicaPool.execute).not.toHaveBeenCalled();
+    expect(tenantPool.execute).toHaveBeenCalledWith('SELECT routed', []);
+  });
+
+  test('a cross-replica config change replaces a cached tenant pool by fingerprint', async () => {
+    process.env.TENANT_DB_CONFIG_CACHE_MS = '60000';
+    const primaryPool = makePool();
+    const oldTenantPool = makePool();
+    const newTenantPool = makePool();
+    const config = (host, name) => [[{
+      organization_id: 15,
+      isolation_mode: 'isolated',
+      db_host: host,
+      db_port: 3306,
+      db_name: name,
+      db_user: 'tenant_user',
+      db_password_encrypted: 'secret',
+      ssl_enabled: 0,
+    }], []];
+    primaryPool.execute
+      .mockResolvedValueOnce(config('old-tenant-db', 'fireisp_org_15_old'))
+      .mockResolvedValueOnce(config('new-tenant-db', 'fireisp_org_15_new'));
+    oldTenantPool.execute.mockResolvedValueOnce([[{ generation: 'old' }], []]);
+    newTenantPool.execute.mockResolvedValueOnce([[{ generation: 'new' }], []]);
+
+    const { db, createPool } = loadDatabaseWithPools([
+      primaryPool,
+      oldTenantPool,
+      newTenantPool,
+    ]);
+
+    await expect(db.withTenantContext(15, () => db.query('SELECT first', [])))
+      .resolves.toEqual([[{ generation: 'old' }], []]);
+    await expect(db.withTenantContext(15, () => db.query('SELECT second', [])))
+      .resolves.toEqual([[{ generation: 'new' }], []]);
+
+    expect(primaryPool.execute.mock.calls.filter(
+      ([sql]) => /organization_database_configs/.test(sql),
+    )).toHaveLength(2);
+    expect(oldTenantPool.end).toHaveBeenCalledTimes(1);
+    expect(newTenantPool.execute).toHaveBeenCalledWith('SELECT second', []);
+    expect(createPool).toHaveBeenCalledTimes(3);
+  });
+
+  test('an invalidation racing a slow config lookup cannot republish the stale isolated route', async () => {
+    process.env.TENANT_DB_CONFIG_CACHE_MS = '60000';
+    const primaryPool = makePool();
+    const staleTenantPool = makePool();
+    let releaseOldLookup;
+    primaryPool.execute
+      .mockImplementationOnce(() => new Promise(resolve => { releaseOldLookup = resolve; }))
+      .mockResolvedValueOnce([[], []])
+      .mockResolvedValueOnce([[{ source: 'primary-after-switch' }], []]);
+
+    const { db, createPool } = loadDatabaseWithPools([primaryPool, staleTenantPool]);
+    const routedQuery = db.withTenantContext(
+      5,
+      () => db.query('SELECT after_isolation_switch', []),
+    );
+    await new Promise(resolve => global.setImmediate(resolve));
+    expect(releaseOldLookup).toEqual(expect.any(Function));
+
+    await db.invalidateTenantDbConfig(5);
+    releaseOldLookup([[{
+      organization_id: 5,
+      isolation_mode: 'isolated',
+      db_host: 'stale-tenant-db',
+      db_port: 3306,
+      db_name: 'fireisp_org_5_stale',
+      db_user: 'tenant_user',
+      db_password_encrypted: 'secret',
+      ssl_enabled: 0,
+    }], []]);
+
+    await expect(routedQuery).resolves.toEqual([[{ source: 'primary-after-switch' }], []]);
+    expect(primaryPool.execute).toHaveBeenNthCalledWith(
+      3,
+      'SELECT after_isolation_switch',
+      [],
+    );
+    expect(staleTenantPool.execute).not.toHaveBeenCalled();
+    expect(createPool).toHaveBeenCalledTimes(1);
   });
 
   test('LRU-evicts the oldest tenant pool when the cache cap is exceeded', async () => {

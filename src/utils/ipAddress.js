@@ -23,4 +23,24 @@ function canonicalIpv6Prefix(value) {
   return `${canonicalIpv6(match[1])}/${prefixLength}`;
 }
 
-module.exports = { canonicalIpv6, canonicalIpv6Prefix };
+/** Canonicalize valid IPs for exact equality across equivalent text forms. */
+function normalizeIpAddress(value) {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  if (net.isIP(trimmed) === 4) return trimmed;
+  if (net.isIP(trimmed) !== 6) return trimmed.toLowerCase();
+  try {
+    const canonical = canonicalIpv6(trimmed);
+    const mapped = canonical.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (mapped) {
+      const hi = parseInt(mapped[1], 16);
+      const lo = parseInt(mapped[2], 16);
+      return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+    }
+    return canonical;
+  } catch (_) {
+    return trimmed.toLowerCase();
+  }
+}
+
+module.exports = { canonicalIpv6, canonicalIpv6Prefix, normalizeIpAddress };

@@ -5,9 +5,9 @@
 // the global relay, lazily created by init() and NEVER recreated afterwards.
 // Every "global transport" test below therefore shares the SAME sendMail
 // mock (`mockSendMail`, declared once) — mirrors the pre-existing structure
-// of this file. The per-org transports created by getOrgTransport() are NOT
-// singletons in the same way (one per distinct orgId, cached in a Map), so
-// org-specific tests use fresh mocks per org id without this constraint.
+// of this file. Per-org settings are authoritatively re-read for every send.
+// A transport may be reused only while the full settings fingerprint is
+// unchanged, so org-specific tests use a fresh id for each cache scenario.
 // =============================================================================
 
 jest.mock('../src/config/database', () => ({
@@ -34,6 +34,16 @@ const EmailSettings = require('../src/models/EmailSettings');
 const emailTransport = require('../src/services/emailTransport');
 
 describe('emailTransport', () => {
+  const TRAP_DELIVERY_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+  function expectBoundedSmtpTransport(options) {
+    for (const field of ['connectionTimeout', 'greetingTimeout', 'socketTimeout']) {
+      expect(options[field]).toEqual(expect.any(Number));
+      expect(options[field]).toBeGreaterThan(0);
+      expect(options[field]).toBeLessThan(TRAP_DELIVERY_CLAIM_LEASE_MS);
+    }
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     nodemailer.createTransport.mockImplementation(() => ({ sendMail: mockSendMail }));
@@ -43,6 +53,12 @@ describe('emailTransport', () => {
   // sendEmail — global transport (no org config, or org has none)
   // =========================================================================
   describe('sendEmail() — global transport', () => {
+    test('global SMTP cannot outlive the trap-delivery claim lease', () => {
+      emailTransport.init();
+
+      expectBoundedSmtpTransport(nodemailer.createTransport.mock.calls.at(-1)[0]);
+    });
+
     test('sends email and logs success', async () => {
       EmailSettings.findRawByOrgId.mockResolvedValueOnce(null); // no org config -> fall back to global
       mockSendMail.mockResolvedValueOnce({ messageId: '<abc@test>' });
@@ -62,6 +78,99 @@ describe('emailTransport', () => {
       );
     });
 
+    test.each([
+      '127.0.0.1',
+      '169.254.169.254',
+      'rebind.tenant-controlled.example',
+    ])('install-only Trap email never reads or constructs tenant SMTP target %s', async (smtpHost) => {
+      emailTransport.init();
+      const transportCount = nodemailer.createTransport.mock.calls.length;
+      EmailSettings.findRawByOrgId.mockResolvedValue({
+        organization_id: 4200,
+        enabled: 1,
+        smtp_host: smtpHost,
+        smtp_port: 25,
+        smtp_user: 'TENANT_SMTP_SENTINEL',
+        smtp_password_encrypted: 'enc:TENANT_SMTP_PASSWORD_SENTINEL',
+      });
+      mockSendMail.mockResolvedValueOnce({ messageId: '<install-relay@test>' });
+      db.query.mockResolvedValueOnce([{ insertId: 4200 }]);
+
+      await expect(emailTransport.sendEmail({
+        organizationId: 4200,
+        emailFunction: 'noc',
+        to: 'noc@example.com',
+        subject: 'Trap forwarding',
+        text: 'privacy-minimal trap',
+        installTransportOnly: true,
+        sanitizeFailure: true,
+      })).resolves.toEqual({ success: true, messageId: '<install-relay@test>' });
+
+      expect(EmailSettings.findRawByOrgId).not.toHaveBeenCalled();
+      expect(nodemailer.createTransport).toHaveBeenCalledTimes(transportCount);
+      expect(JSON.stringify(nodemailer.createTransport.mock.calls)).not.toContain(smtpHost);
+      expect(JSON.stringify(mockSendMail.mock.calls)).not.toMatch(/TENANT_SMTP_SENTINEL/);
+    });
+
+    test('sanitized Trap SMTP failure never persists raw socket details or codes', async () => {
+      emailTransport.init();
+      const sentinel = 'ECONNREFUSED 127.0.0.1:25 TENANT_SOCKET_SENTINEL';
+      mockSendMail.mockRejectedValueOnce(Object.assign(new Error(sentinel), {
+        code: 'ECONNREFUSED',
+        address: '127.0.0.1',
+        port: 25,
+      }));
+      db.query.mockResolvedValueOnce([{ insertId: 4201 }]);
+
+      await expect(emailTransport.sendEmail({
+        organizationId: 4201,
+        to: 'noc@example.com',
+        subject: 'Trap forwarding',
+        text: 'test',
+        installTransportOnly: true,
+        sanitizeFailure: true,
+      })).resolves.toEqual({ success: false, error: 'Email delivery failed.' });
+
+      expect(JSON.stringify(db.query.mock.calls)).not.toContain(sentinel);
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining("'failed'"),
+        expect.arrayContaining(['Email delivery failed.']),
+      );
+    });
+
+    test('install-only timeout closes the active global relay even with an organization ID', async () => {
+      jest.useFakeTimers();
+      const close = jest.fn();
+      const neverSettles = jest.fn(() => new Promise(() => {}));
+      try {
+        nodemailer.createTransport.mockReturnValueOnce({ sendMail: neverSettles, close });
+        emailTransport.init();
+        db.query.mockResolvedValueOnce([{ insertId: 4202 }]);
+
+        const send = emailTransport.sendEmail({
+          organizationId: 4202,
+          to: 'noc@example.com',
+          subject: 'Bounded install relay',
+          text: 'test',
+          absoluteTimeoutMs: 1000,
+          installTransportOnly: true,
+          sanitizeFailure: true,
+        });
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(1000);
+
+        await expect(send).resolves.toEqual({
+          success: false,
+          error: 'Email delivery failed.',
+          code: 'EMAIL_DELIVERY_TIMEOUT',
+        });
+        expect(EmailSettings.findRawByOrgId).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     test('logs failure when sendMail rejects', async () => {
       EmailSettings.findRawByOrgId.mockResolvedValueOnce(null);
       mockSendMail.mockRejectedValueOnce(new Error('SMTP connection refused'));
@@ -79,6 +188,52 @@ describe('emailTransport', () => {
         expect.stringContaining("'failed'"),
         expect.arrayContaining(['SMTP connection refused']),
       );
+    });
+
+    test('a never-settling SMTP send is aborted by an absolute deadline before the claim lease', async () => {
+      jest.useFakeTimers();
+      const close = jest.fn();
+      const neverSettles = jest.fn(() => new Promise(() => {}));
+      try {
+        EmailSettings.findRawByOrgId.mockResolvedValueOnce({
+          organization_id: 9099,
+          enabled: 1,
+          smtp_host: 'smtp.deadline.example',
+          smtp_port: 587,
+          smtp_secure: 0,
+          smtp_user: 'deadline-user',
+          smtp_password_encrypted: 'enc:deadline-password',
+          from_email: 'noc@example.com',
+        });
+        nodemailer.createTransport.mockReturnValueOnce({ sendMail: neverSettles, close });
+        db.query.mockResolvedValueOnce([{ insertId: 99 }]);
+
+        const send = emailTransport.sendEmail({
+          organizationId: 9099,
+          emailFunction: 'noc',
+          to: 'operator@example.com',
+          subject: 'Bounded trap delivery',
+          text: 'test',
+          absoluteTimeoutMs: 1000,
+        });
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(1000);
+
+        await expect(send).resolves.toEqual({
+          success: false,
+          error: 'Email delivery exceeded its absolute deadline.',
+          code: 'EMAIL_DELIVERY_TIMEOUT',
+        });
+        expect(neverSettles).toHaveBeenCalledTimes(1);
+        expect(close).toHaveBeenCalled();
+        expect(db.query).toHaveBeenCalledWith(
+          expect.stringContaining("'failed'"),
+          expect.arrayContaining(['Email delivery exceeded its absolute deadline.']),
+        );
+        expect(1000).toBeLessThan(TRAP_DELIVERY_CLAIM_LEASE_MS);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     test('writes organization_id/client_id to email_logs when provided', async () => {
@@ -158,27 +313,67 @@ describe('emailTransport', () => {
         secure: true,
         auth: { user: 'orguser', pass: 'orgpass' },
       }));
+      expectBoundedSmtpTransport(nodemailer.createTransport.mock.calls.at(-1)[0]);
     });
 
-    test('caches the resolved transport — a second call does not re-query the DB', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce({
+    test('re-reads authoritative settings but reuses the transport when the fingerprint is unchanged', async () => {
+      const settings = {
         organization_id: 505, enabled: 1, smtp_host: 'smtp.org505.com', smtp_user: 'u',
         smtp_password_encrypted: 'enc:p',
-      });
+      };
+      EmailSettings.findRawByOrgId.mockResolvedValue(settings);
 
-      await emailTransport.getOrgTransport(505);
-      await emailTransport.getOrgTransport(505);
+      const first = await emailTransport.getOrgTransport(505);
+      const second = await emailTransport.getOrgTransport(505);
 
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(1);
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
+      expect(nodemailer.createTransport).toHaveBeenCalledTimes(1);
+      expect(second).toBe(first);
     });
 
-    test('caches a "no config" (null) result too — does not re-query on every send', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce(null);
+    test('re-reads missing config so a remote enable can take effect on the next call', async () => {
+      EmailSettings.findRawByOrgId.mockResolvedValue(null);
 
       await emailTransport.getOrgTransport(506);
       await emailTransport.getOrgTransport(506);
 
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(1);
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
+      expect(nodemailer.createTransport).not.toHaveBeenCalled();
+    });
+
+    test('a settings rotation on another replica replaces and closes the stale cached transport', async () => {
+      let settings = {
+        organization_id: 508,
+        enabled: 1,
+        smtp_host: 'old.smtp.example',
+        smtp_user: 'old-user',
+        smtp_password_encrypted: 'enc:old-password',
+      };
+      EmailSettings.findRawByOrgId.mockImplementation(() => Promise.resolve(settings));
+      const oldTransport = { sendMail: jest.fn(), close: jest.fn() };
+      const newTransport = { sendMail: jest.fn(), close: jest.fn() };
+      nodemailer.createTransport
+        .mockReturnValueOnce(oldTransport)
+        .mockReturnValueOnce(newTransport);
+
+      const first = await emailTransport.getOrgTransport(508);
+      settings = {
+        ...settings,
+        smtp_host: 'new.smtp.example',
+        smtp_user: 'new-user',
+        smtp_password_encrypted: 'enc:new-password',
+      };
+      const second = await emailTransport.getOrgTransport(508);
+
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
+      expect(nodemailer.createTransport).toHaveBeenCalledTimes(2);
+      expect(nodemailer.createTransport.mock.calls[1][0]).toMatchObject({
+        host: 'new.smtp.example',
+        auth: { user: 'new-user', pass: 'new-password' },
+      });
+      expect(first.transporter).toBe(oldTransport);
+      expect(second.transporter).toBe(newTransport);
+      expect(oldTransport.close).toHaveBeenCalledTimes(1);
     });
 
     test('invalidateOrgTransport() clears the cache entry so the next call re-queries', async () => {
@@ -291,6 +486,50 @@ describe('emailTransport', () => {
       }));
       // The global relay's sendMail (shared mockSendMail) was never touched.
       expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    test('a disable committed by another replica stops using the cached org SMTP on the next send', async () => {
+      // Establish a known global fallback independently of earlier test order.
+      emailTransport.init();
+      let settings = {
+        organization_id: 606,
+        enabled: 1,
+        smtp_host: 'old.smtp.org606.example',
+        smtp_user: 'old-user',
+        smtp_password_encrypted: 'enc:old-password',
+        from_email: 'old@org606.example',
+      };
+      EmailSettings.findRawByOrgId.mockImplementation(() => Promise.resolve(settings));
+      const oldOrgSend = jest.fn().mockResolvedValue({ messageId: '<old-org@test>' });
+      const oldClose = jest.fn();
+      nodemailer.createTransport.mockReturnValueOnce({ sendMail: oldOrgSend, close: oldClose });
+      mockSendMail.mockResolvedValue({ messageId: '<global@test>' });
+      db.query.mockResolvedValue([{ insertId: 1 }]);
+
+      await emailTransport.sendEmail({
+        organizationId: 606,
+        to: 'first@example.com',
+        subject: 'Before remote disable',
+        text: 'first',
+      });
+      settings = { ...settings, enabled: 0 };
+      await emailTransport.sendEmail({
+        organizationId: 606,
+        to: 'second@example.com',
+        subject: 'After remote disable',
+        text: 'second',
+      });
+
+      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
+      expect(oldOrgSend).toHaveBeenCalledTimes(1);
+      expect(oldOrgSend).toHaveBeenCalledWith(expect.objectContaining({
+        to: 'first@example.com',
+      }));
+      expect(oldClose).toHaveBeenCalledTimes(1);
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+        to: 'second@example.com',
+      }));
     });
 
     test('routes through the function identity when emailFunction is passed', async () => {

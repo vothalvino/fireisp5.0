@@ -75,6 +75,8 @@ describe('errorTracking', () => {
         init: jest.fn(),
         captureException: jest.fn(),
         setupExpressErrorHandler: jest.fn(),
+        requestDataIntegration: jest.fn(options => ({ name: 'RequestData', options })),
+        httpIntegration: jest.fn(options => ({ name: 'Http', options })),
         withScope: jest.fn((callback) => {
           callback({ setExtras: jest.fn() });
         }),
@@ -112,6 +114,121 @@ describe('errorTracking', () => {
         expect.objectContaining({ environment: 'staging' }),
       );
       delete process.env.SENTRY_ENVIRONMENT;
+    });
+
+    it('disables raw request capture and installs privacy-minimal integrations', () => {
+      const options = mockSentry.init.mock.calls[0][0];
+      expect(options).toMatchObject({
+        sendDefaultPii: false,
+        maxIncomingRequestBodySize: 'none',
+      });
+
+      const transformed = options.integrations([
+        { name: 'RequestData' },
+        { name: 'Http' },
+        { name: 'Other' },
+      ]);
+      expect(transformed.map(item => item.name)).toEqual(['Other', 'RequestData', 'Http']);
+      expect(mockSentry.requestDataIntegration).toHaveBeenCalledWith({
+        include: {
+          cookies: false,
+          data: false,
+          headers: false,
+          ip: false,
+          query_string: false,
+          url: false,
+        },
+      });
+      expect(mockSentry.httpIntegration).toHaveBeenCalledWith({
+        maxIncomingRequestBodySize: 'none',
+        breadcrumbs: false,
+        spans: false,
+        tracePropagation: false,
+      });
+    });
+
+    it('beforeSend removes request secrets, credentials and capability URLs', () => {
+      const { beforeSend } = mockSentry.init.mock.calls[0][0];
+      const safe = beforeSend({
+        request: {
+          method: 'POST',
+          url: 'https://fireisp.example/api/webhooks?token=query-secret',
+          headers: {
+            authorization: 'Bearer bearer-secret',
+            cookie: 'session=session-secret',
+          },
+          cookies: { session: 'session-secret' },
+          query_string: 'token=query-secret',
+          data: {
+            secret: 'hmac-secret',
+            forward_to_url: 'https://capability.example/hooks/tenant-token',
+          },
+        },
+        extra: {
+          requestId: 'request-safe-123',
+          secret_encrypted: 'encrypted-secret-envelope',
+          accessToken: 'opaque-access-credential',
+          nested: {
+            target_url: 'https://private-hook.example/bearer-token',
+            operator_email: 'operator@example.test',
+          },
+        },
+        breadcrumbs: [{
+          category: 'http',
+          message: 'POST https://private-hook.example/bearer-token',
+          data: { authorization: 'Bearer second-secret' },
+        }],
+        exception: {
+          values: [{ value: 'Failed https://private-hook.example/bearer-token with Bearer third-secret' }],
+        },
+      });
+
+      expect(safe.request).toEqual({ method: 'POST' });
+      expect(safe.extra.requestId).toBe('request-safe-123');
+      const encoded = JSON.stringify(safe);
+      for (const secret of [
+        'query-secret',
+        'bearer-secret',
+        'session-secret',
+        'hmac-secret',
+        'tenant-token',
+        'encrypted-secret-envelope',
+        'opaque-access-credential',
+        'operator@example.test',
+        'second-secret',
+        'third-secret',
+      ]) {
+        expect(encoded).not.toContain(secret);
+      }
+      expect(encoded).toContain('[Filtered]');
+    });
+
+    it('beforeSendTransaction strips span endpoint capabilities and transaction paths', () => {
+      const { beforeSendTransaction } = mockSentry.init.mock.calls[0][0];
+      const safe = beforeSendTransaction({
+        transaction: 'POST /internal/hooks/capability-token?secret=query-secret',
+        request: {
+          method: 'POST',
+          url: 'https://fireisp.example/api/webhooks?token=query-secret',
+        },
+        spans: [{
+          description: 'POST https://capability.example/hooks/path-token',
+          data: {
+            'url.full': 'https://capability.example/hooks/path-token',
+            'http.url': 'https://capability.example/hooks/path-token',
+            'http.target': '/hooks/path-token',
+            'server.address': 'tenant-token.capability.example',
+          },
+        }],
+      });
+
+      expect(safe.transaction).toBe('POST [Filtered Transaction]');
+      expect(safe.request).toEqual({ method: 'POST' });
+      const encoded = JSON.stringify(safe);
+      expect(encoded).not.toContain('capability-token');
+      expect(encoded).not.toContain('query-secret');
+      expect(encoded).not.toContain('path-token');
+      expect(encoded).not.toContain('tenant-token');
     });
 
     it('captureException() calls Sentry.captureException without extras', () => {

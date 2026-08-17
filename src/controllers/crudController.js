@@ -24,6 +24,12 @@ function crudController(Model, _options = {}) {
   // (e.g. User.sanitize) from every record before it is returned.  Defaults to
   // identity so existing resources are unaffected.
   const serialize = typeof _options.serialize === 'function' ? _options.serialize : (x) => x;
+  // Optional audit-value sanitizer for resources whose writable records carry
+  // secrets. It changes only the JSON snapshot sent to auditLog; persistence,
+  // hooks, and API serialization continue to receive the original values.
+  const sanitizeAuditValues = typeof _options.sanitizeAuditValues === 'function'
+    ? _options.sanitizeAuditValues
+    : (values) => values;
   // Optional create override — lets a resource customise the insert (e.g. Nas
   // restore-on-create by IP) while keeping org-injection, audit-log, cache-bust
   // and serialize behaviour identical. Defaults to a plain Model.create.
@@ -79,6 +85,13 @@ function crudController(Model, _options = {}) {
   // soft-deleted moments after its egreso was filed at SAT, leaving a filed
   // document pointing at a deleted row.
   const transactionalWrites = _options.transactionalWrites === true;
+  // Some security-bearing resources need the dependent after-update/restore
+  // write to be part of the SAME locked transaction as the primary change.
+  // A post-commit CAS is too late: another writer can alter the row between
+  // commit and the hook, then accidentally receive the dependent marker.
+  // This option is intentionally narrow (update/restore only); create can put
+  // an invariant marker in its single INSERT.
+  const transactionalAfterHooks = _options.transactionalAfterHooks === true;
 
   // A model that OVERRIDES update/findById drops `opts` unless it deliberately
   // forwards it, and the failure is severe and invisible:
@@ -145,6 +158,9 @@ function crudController(Model, _options = {}) {
   // Note the primary row change has already been applied and audit-logged at
   // hook time — the error tells the caller to retry the dependent sync.
   const fatalAfterHooks = _options.fatalAfterHooks === true;
+  if (transactionalAfterHooks && (!transactionalWrites || !fatalAfterHooks)) {
+    throw new Error('transactionalAfterHooks requires transactionalWrites and fatalAfterHooks');
+  }
 
   /**
    * Shared by PUT and PATCH: fetch the row, run the guard, apply the update.
@@ -246,6 +262,9 @@ function crudController(Model, _options = {}) {
       const old = await Model.findByIdOrFail(req.params.id, req.orgId, { exec, forUpdate: true });
       if (beforeUpdateHook) await beforeUpdateHook(old, req, exec);
       const record = await Model.update(req.params.id, req.body, req.orgId, { exec });
+      if (transactionalAfterHooks && afterUpdateHook) {
+        await afterUpdateHook(record, req, exec);
+      }
       await conn.commit();
       return { old, record };
     } catch (err) {
@@ -352,7 +371,7 @@ function crudController(Model, _options = {}) {
           action: 'create',
           tableName: Model.tableName,
           recordId: record.id,
-          newValues: req.body,
+          newValues: sanitizeAuditValues(req.body, req, 'create'),
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
@@ -393,13 +412,13 @@ function crudController(Model, _options = {}) {
           action: 'update',
           tableName: Model.tableName,
           recordId: record.id,
-          oldValues: old,
-          newValues: req.body,
+          oldValues: sanitizeAuditValues(old, req, 'update_old'),
+          newValues: sanitizeAuditValues(req.body, req, 'update_new'),
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
 
-        if (afterUpdateHook) {
+        if (afterUpdateHook && !transactionalAfterHooks) {
           if (fatalAfterHooks) {
             await afterUpdateHook(record, req);
           } else {
@@ -433,13 +452,13 @@ function crudController(Model, _options = {}) {
           action: 'partial_update',
           tableName: Model.tableName,
           recordId: record.id,
-          oldValues: old,
-          newValues: req.body,
+          oldValues: sanitizeAuditValues(old, req, 'partial_update_old'),
+          newValues: sanitizeAuditValues(req.body, req, 'partial_update_new'),
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
 
-        if (afterUpdateHook) {
+        if (afterUpdateHook && !transactionalAfterHooks) {
           if (fatalAfterHooks) {
             await afterUpdateHook(record, req);
           } else {
@@ -481,7 +500,7 @@ function crudController(Model, _options = {}) {
           action: Model.softDelete ? 'soft_delete' : 'delete',
           tableName: Model.tableName,
           recordId: parseInt(req.params.id),
-          oldValues: old,
+          oldValues: sanitizeAuditValues(old, req, 'delete'),
         });
 
         if (cacheResource) await bustCache(req.orgId, cacheResource);
@@ -518,7 +537,11 @@ function crudController(Model, _options = {}) {
         // window is visible to it.
         const record = await inLockedTransaction(req, { needsRow: false }, async (exec) => {
           if (beforeRestoreHook) await beforeRestoreHook(req, exec);
-          return Model.restore(req.params.id, req.orgId, { exec });
+          const restored = await Model.restore(req.params.id, req.orgId, { exec });
+          if (transactionalAfterHooks && afterRestoreHook) {
+            await afterRestoreHook(restored, req, exec);
+          }
+          return restored;
         });
 
         await auditLog.log({
@@ -532,16 +555,21 @@ function crudController(Model, _options = {}) {
         if (cacheResource) await bustCache(req.orgId, cacheResource);
 
         // Run the optional post-restore hook with the restored record. Wrapped
-        // in try/catch so it can NEVER fail the restore response — side-effect
-        // errors are advisory (mirrors afterCreate/afterDelete).
-        if (afterRestoreHook) {
-          try {
+        // in try/catch by default so advisory side effects do not fail restore.
+        // Security-bearing resources may opt into fatalAfterHooks, matching
+        // create/update, so a failed dependent-state CAS is never reported 200.
+        if (afterRestoreHook && !transactionalAfterHooks) {
+          if (fatalAfterHooks) {
             await afterRestoreHook(record, req);
-          } catch (hookErr) {
-            logger.warn(
-              { err: hookErr.message, recordId: record.id, table: Model.tableName },
-              'crudController afterRestore hook failed (non-fatal)',
-            );
+          } else {
+            try {
+              await afterRestoreHook(record, req);
+            } catch (hookErr) {
+              logger.warn(
+                { err: hookErr.message, recordId: record.id, table: Model.tableName },
+                'crudController afterRestore hook failed (non-fatal)',
+              );
+            }
           }
         }
 

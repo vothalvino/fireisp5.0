@@ -1,0 +1,30 @@
+# Optional plain-manifest Service for SNMP trap intake.
+#
+# Do not apply this example unchanged. Copy it into the manifests used by your
+# cluster, replace the documentation-only source range with the trusted
+# device-management CIDR, and verify that the load balancer preserves UDP
+# source addresses. FireISP uses that source address to identify the device and
+# fails closed when it is missing or ambiguous.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fireisp-snmp-trap
+  namespace: fireisp
+  labels:
+    app.kubernetes.io/name: fireisp
+    app.kubernetes.io/component: snmp-trap
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    # Replace before applying. RFC 5737 documentation ranges route no real
+    # device traffic, making an accidental application fail closed.
+    - 192.0.2.0/24
+  selector:
+    app.kubernetes.io/name: fireisp
+    app.kubernetes.io/component: api
+  ports:
+    - name: snmp-trap
+      protocol: UDP
+      port: 162
+      targetPort: snmp-trap

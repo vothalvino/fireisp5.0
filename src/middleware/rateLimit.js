@@ -186,6 +186,19 @@ class CacheStore {
   }
 }
 
+// POST /trap-forwarding-rules/:id/test only. Separate Redis-backed instance so
+// its budget is neither merged with other outbound-email endpoints nor reset
+// independently on each application replica. Mounted after auth + orgScope.
+const trapForwardingTestLimiter = rateLimit({
+  windowMs: rl.windowMs,
+  max: rl.trapForwardingTest,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: RATE_LIMITED_BODY('Too many trap forwarding tests; wait before trying again'),
+  keyGenerator: req => `trap-test:${req.orgId}:${req.user?.id || 'unknown'}`,
+  store: new CacheStore('rl_trap_forward_test:'),
+});
+
 // api_key_rate_limits predates the collector endpoints. NULL columns mean the
 // table defaults, not "unlimited"; the route-specific collectors still retain
 // their independent hard ceilings outside this policy layer.
@@ -368,6 +381,7 @@ module.exports = {
   exportLimiter,
   sseLimiter,
   webhookLimiter,
+  trapForwardingTestLimiter,
   tenantApiLimiter,
   checkBulkEmailDailyBudget,
   CacheStore,

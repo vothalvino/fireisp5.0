@@ -15,6 +15,27 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
+jest.mock('../src/services/snmpTrapReceiver', () => ({
+  getStatus: jest.fn(() => ({
+    enabled: true,
+    ready: true,
+    listening: true,
+    state: 'listening',
+    reason: null,
+  })),
+  start: jest.fn(),
+  stop: jest.fn(),
+}));
+
+jest.mock('../src/services/trapForwardingReadinessService', () => ({
+  checkSchemaReadiness: jest.fn().mockResolvedValue({
+    ready: true,
+    primary: { ready: true },
+    isolated: [],
+    reason: null,
+  }),
+}));
+
 const request = require('supertest');
 
 // ─────────────────────────────────────────────────────────────────────────────

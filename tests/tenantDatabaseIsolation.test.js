@@ -5,11 +5,13 @@
 const mockQuery = jest.fn();
 const mockInvalidateTenantDbConfig = jest.fn();
 const mockTestTenantConnection = jest.fn();
+const mockWithPrimaryContext = jest.fn(callback => callback());
 
 jest.mock('../src/config/database', () => ({
   query: mockQuery,
   invalidateTenantDbConfig: mockInvalidateTenantDbConfig,
   testTenantConnection: mockTestTenantConnection,
+  withPrimaryContext: mockWithPrimaryContext,
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
@@ -225,5 +227,47 @@ describe('tenantDatabaseService connection checks and migrations', () => {
         password: 'secret',
       }),
     }]);
+  });
+
+  test('registry read, write, test, and list stay primary inside an ambient isolated context', async () => {
+    let scope = 'isolated-77';
+    const queryScopes = [];
+    const isolatedRow = {
+      organization_id: 9,
+      isolation_mode: 'isolated',
+      db_host: 'tenant-db',
+      db_port: 3306,
+      db_name: 'fireisp_org_9',
+      db_user: 'tenant_user',
+      db_password_encrypted: 'secret',
+      ssl_enabled: 0,
+    };
+    mockWithPrimaryContext.mockImplementation(async (callback) => {
+      const previous = scope;
+      scope = 'primary';
+      try { return await callback(); } finally { scope = previous; }
+    });
+    mockQuery.mockImplementation(async (sql) => {
+      queryScopes.push(scope);
+      if (/SELECT \* FROM organization_database_configs WHERE organization_id/.test(sql)) {
+        return [[isolatedRow], []];
+      }
+      if (/SELECT \* FROM organization_database_configs[\s\S]*isolation_mode = 'isolated'/.test(sql)) {
+        return [[isolatedRow], []];
+      }
+      return [{ affectedRows: 1 }, []];
+    });
+    mockTestTenantConnection.mockResolvedValue(true);
+
+    await expect(getDatabaseIsolation(9)).resolves.toMatchObject({ isolation_mode: 'isolated' });
+    await expect(saveDatabaseIsolation(9, { db_host: 'tenant-db' }))
+      .resolves.toMatchObject({ isolation_mode: 'isolated' });
+    await expect(testDatabaseIsolation(9)).resolves.toEqual({ ok: true });
+    await expect(listIsolatedMigrationTargets()).resolves.toHaveLength(1);
+
+    expect(queryScopes.length).toBeGreaterThan(0);
+    expect(new Set(queryScopes)).toEqual(new Set(['primary']));
+    expect(scope).toBe('isolated-77');
+    expect(mockWithPrimaryContext.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 });

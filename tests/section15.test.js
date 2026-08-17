@@ -481,10 +481,17 @@ const sampleCustomReport = {
   deleted_at: null,
 };
 
-function mockCustomReportsDb() {
+function mockCustomReportsDb({ installOperator = true } = {}) {
   db.query.mockImplementation((sql) => {
     if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.toLowerCase().includes('report')) {
-      return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
+      return Promise.resolve([[{
+        id: 1,
+        email: 'admin@test.com',
+        role: 'admin',
+        status: 'active',
+        organization_id: 10,
+        is_install_operator: installOperator ? 1 : 0,
+      }]]);
     }
     if (typeof sql === 'string' && sql.includes('INSERT INTO audit_logs')) {
       return Promise.resolve([{ insertId: 99 }]);
@@ -601,6 +608,21 @@ describe('POST /api/v1/custom-reports', () => {
       .send({ name: 'Injection', query_type: 'sql', sql_query: 'SELECT 1; DROP TABLE clients' });
     expect(res.status).toBe(422);
   });
+
+  it('refuses raw SQL report creation to an ordinary tenant admin', async () => {
+    mockCustomReportsDb({ installOperator: false });
+    const res = await request(app)
+      .post('/api/v1/custom-reports')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({ name: 'Cross-tenant probe', query_type: 'sql', sql_query: 'SELECT * FROM webhooks' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+    expect(db.query.mock.calls.some(([sql]) => (
+      typeof sql === 'string' && sql.includes('INSERT INTO custom_reports')
+    ))).toBe(false);
+  });
 });
 
 describe('DELETE /api/v1/custom-reports/:id', () => {
@@ -629,5 +651,19 @@ describe('POST /api/v1/custom-reports/:id/execute', () => {
     expect(res.body).toHaveProperty('meta');
     expect(res.body.meta).toHaveProperty('report_id', 1);
     expect(res.body.meta).toHaveProperty('name', 'Active Clients');
+  });
+
+  it('refuses arbitrary SQL execution to an ordinary tenant admin', async () => {
+    mockCustomReportsDb({ installOperator: false });
+    const res = await request(app)
+      .post('/api/v1/custom-reports/1/execute')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10');
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+    expect(db.queryReplica.mock.calls.some(([sql]) => (
+      typeof sql === 'string' && sql.includes('SELECT id, name FROM clients')
+    ))).toBe(false);
   });
 });

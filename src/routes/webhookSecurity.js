@@ -8,11 +8,17 @@ const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
+const { requirePermission } = require('../middleware/rbac');
 
 const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
+router.use((_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('Pragma', 'no-cache');
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Webhook Signing Verification
@@ -86,15 +92,17 @@ router.post('/verify-signature', async (req, res, next) => {
 });
 
 // GET /delivery-logs — list webhook delivery logs for org
-router.get('/delivery-logs', async (req, res, next) => {
+router.get('/delivery-logs', requirePermission('webhooks.view'), async (req, res, next) => {
   try {
     // webhook_deliveries has no organization_id column — org scoping goes
     // through the parent webhooks row via webhook_id.
     const [rows] = await db.query(
-      `SELECT wd.*
+      `SELECT wd.id, wd.webhook_id, wd.event_name, wd.http_status_code,
+              wd.response_time_ms, wd.attempt_number, wd.status,
+              wd.next_retry_at, wd.delivered_at, wd.created_at
        FROM webhook_deliveries wd
        JOIN webhooks w ON w.id = wd.webhook_id
-       WHERE w.organization_id = ?
+       WHERE w.organization_id = ? AND w.deleted_at IS NULL
        ORDER BY wd.id DESC LIMIT 100`,
       [req.orgId],
     );

@@ -804,7 +804,7 @@ jobs:
           exit 1
 
       - name: Log in to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome == 'success'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && steps.warm.outcome == 'success'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -813,7 +813,7 @@ jobs:
 
       - name: Push the scanned image
         id: publish
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.warm.outcome == 'success'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && steps.warm.outcome == 'success'
         run: |
           set -euo pipefail
           # The per-ARCHITECTURE tag only. The multi-arch :<sha> and :latest tags
@@ -837,7 +837,7 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-manifest:
     needs: container-scan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -856,28 +856,38 @@ jobs:
         id: manifest
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # A released chart defaults to appVersion, so the matching immutable
+            # release image must exist before chart-releaser publishes it.
+            PUBLISH_TAG="${GITHUB_REF_NAME#v}"
+            TARGET_TAGS=(-t "${RELEASE_IMAGE}:${PUBLISH_TAG}")
+          else
+            PUBLISH_TAG="$GITHUB_SHA"
+            TARGET_TAGS=(-t "${RELEASE_IMAGE}:${PUBLISH_TAG}" -t "${RELEASE_IMAGE}:latest")
+          fi
+
           # imagetools reads the two per-arch manifests straight from the
           # registry and writes a manifest list. No image is rebuilt, so the
           # bytes each architecture serves are still the scanned ones.
           docker buildx imagetools create \
-            -t "${RELEASE_IMAGE}:${{ github.sha }}" \
-            -t "${RELEASE_IMAGE}:latest" \
+            "${TARGET_TAGS[@]}" \
             "${RELEASE_IMAGE}:${{ github.sha }}-amd64" \
             "${RELEASE_IMAGE}:${{ github.sha }}-arm64"
 
           # Fail loudly if the list is not actually multi-arch — a manifest that
           # silently lost an architecture would send ARM hosts back to building
           # from source, which is the whole problem this exists to remove.
-          PLATFORMS=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${{ github.sha }}" --raw \
+          PLATFORMS=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${PUBLISH_TAG}" --raw \
             | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' | sort -u)
           echo "platforms: $PLATFORMS"
           echo "$PLATFORMS" | grep -qx 'linux/amd64'
           echo "$PLATFORMS" | grep -qx 'linux/arm64'
 
-          DIGEST=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${{ github.sha }}" \
+          DIGEST=$(docker buildx imagetools inspect "${RELEASE_IMAGE}:${PUBLISH_TAG}" \
             --format '{{json .Manifest}}' | jq -r .digest)
           echo "ref=${RELEASE_IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Image published::${RELEASE_IMAGE}:${{ github.sha }} (linux/amd64 + linux/arm64) — deploy with: sudo redeploy"
+          echo "tag=${PUBLISH_TAG}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Image published::${RELEASE_IMAGE}:${PUBLISH_TAG} (linux/amd64 + linux/arm64)"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.8.1
@@ -1009,6 +1019,8 @@ jobs:
   # ---------------------------------------------------------------------------
   helm-release:
     name: Helm lint & release
+    needs: publish-manifest
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write   # chart-releaser needs to push to gh-pages
@@ -1024,19 +1036,39 @@ jobs:
           version: v3.14.4
 
       - name: Lint Helm chart
-        run: helm lint charts/fireisp --strict
+        run: helm lint charts/fireisp --strict --set-string image.tag=${{ github.sha }}
 
       - name: Template Helm chart (smoke-render)
         run: |
           helm template fireisp charts/fireisp \
+            --set-string image.tag=${{ github.sha }} \
             --set secrets.JWT_SECRET=test-jwt-secret-placeholder \
             --set secrets.ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
             > /dev/null
 
+      - name: Verify release tag matches chart and image version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          CHART_VERSION=$(awk '$1 == "version:" { print $2 }' charts/fireisp/Chart.yaml | tr -d '"')
+          APP_VERSION=$(awk '$1 == "appVersion:" { print $2 }' charts/fireisp/Chart.yaml | tr -d '"')
+          test "$RELEASE_VERSION" = "$CHART_VERSION"
+          test "$RELEASE_VERSION" = "$APP_VERSION"
+          test "${{ needs.publish-manifest.result }}" = success
+
+      - name: Pin the packaged chart to its published release image
+        if: startsWith(github.ref, 'refs/tags/v') && needs.publish-manifest.result == 'success'
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          sed -i '0,/^  tag: ""$/s//  tag: "'"$RELEASE_VERSION"'"/' charts/fireisp/values.yaml
+          grep -qx "  tag: \"${RELEASE_VERSION}\"" charts/fireisp/values.yaml
+
       # chart-releaser publishes packaged charts to the gh-pages branch and
       # generates an updated Helm repo index.yaml.  Only runs on v* tags.
       - name: Run chart-releaser
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && needs.publish-manifest.result == 'success'
         uses: helm/chart-releaser-action@v1.6.0
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

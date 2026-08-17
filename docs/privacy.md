@@ -405,7 +405,7 @@ expires, record the action in `dsar_requests`, and communicate the result.
 |---|---|---|---|
 | PAC provider (for example Finkok) | CFDI stamping | RFC, tax_id, invoice amounts | Applicable processor/service agreement; validate current registration duties with counsel |
 | SMTP provider (Nodemailer + any relay) | Transactional email | Email address, name | Data processing agreement required |
-| Sentry (optional) | Error monitoring | Stack traces and context may contain direct or indirect identifiers even when `SENTRY_SEND_PII=false` | Sentry DPA and tested scrubbing |
+| Sentry (optional) | Error monitoring | Sanitized stack traces and diagnostic context. FireISP suppresses request bodies, cookies, authorization headers, query strings and full URLs, and applies a fail-closed event scrubber; remaining stack/context text can still contain indirect identifiers | Sentry DPA, deployment-specific retention/access controls, and regression-tested scrubbing |
 | AWS S3 / Cloudflare R2 (optional backup) | Database backups | All database data; at-rest encryption, keys, region, lifecycle, and support access depend on the actual bucket/provider configuration and must be verified | AWS DPA / Cloudflare DPA plus deployment evidence |
 | Stripe / Conekta (optional) | Payment processing | Name, email, amount | Their own compliance (PCI-DSS) |
 | Twilio (optional) | SMS | Phone number | Twilio DPA |

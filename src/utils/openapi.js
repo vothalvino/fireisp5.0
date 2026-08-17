@@ -144,6 +144,7 @@ function generateSpec() {
       { name: 'Transition Mechanisms', description: 'IPv6 transition mechanisms: 6rd, DS-Lite, MAP-E/MAP-T, 464XLAT — §5.4' },
       { name: 'Device Groups', description: 'Device group management — logical grouping by type/location/region/OLT — §6.1' },
       { name: 'Discovery Scans', description: 'Network device discovery via SNMP scan — §6.1' },
+      { name: 'SNMP Traps', description: 'Privacy-scoped unsolicited SNMP trap metadata and privileged varbind detail' },
       { name: 'Trap Forwarding Rules', description: 'SNMP trap forwarding rule management — §6.1' },
       { name: 'SNMP Metrics', description: 'Bandwidth graphs, top talkers, interface utilization, error counters — §6.2/6.3' },
       { name: 'Config Templates', description: 'Configuration template management — §6.6' },
@@ -978,14 +979,14 @@ function generateSpec() {
       },
       '/custom-reports': {
         get: { tags: ['Reports'], summary: 'List custom reports', operationId: 'listCustomReports', security: [{ bearerAuth: [] }], responses: r200('CustomReport[]') },
-        post: { tags: ['Reports'], summary: 'Create a custom report', operationId: 'createCustomReport', security: [{ bearerAuth: [] }], requestBody: jsonBody('CustomReport'), responses: r201('CustomReport') },
+        post: { tags: ['Reports'], summary: 'Create a custom report (install operator only)', operationId: 'createCustomReport', security: [{ bearerAuth: [] }], requestBody: jsonBody('CustomReport'), responses: r201('CustomReport') },
       },
       '/custom-reports/{id}': {
         get: { tags: ['Reports'], summary: 'Get a custom report', operationId: 'getCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('CustomReport') },
-        put: { tags: ['Reports'], summary: 'Update a custom report', operationId: 'updateCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('CustomReport'), responses: r200('CustomReport') },
+        put: { tags: ['Reports'], summary: 'Update a custom report (install operator only)', operationId: 'updateCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('CustomReport'), responses: r200('CustomReport') },
         delete: { tags: ['Reports'], summary: 'Delete a custom report', operationId: 'deleteCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
       },
-      '/custom-reports/{id}/execute': { post: { tags: ['Reports'], summary: 'Execute a custom SQL report', operationId: 'executeCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Query results') } },
+      '/custom-reports/{id}/execute': { post: { tags: ['Reports'], summary: 'Execute a custom SQL report (install operator only)', operationId: 'executeCustomReport', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Query results') } },
 
       // ---- Usage ----
       '/usage': { get: { tags: ['Usage'], summary: 'List usage records', operationId: 'listUsage', security: [{ bearerAuth: [] }], responses: r200('Usage[]') } },
@@ -1067,7 +1068,18 @@ function generateSpec() {
       },
 
       // ---- Webhooks ----
-      ...crudPaths('webhooks', 'Webhooks', 'Webhook'),
+      '/webhooks': {
+        get: { tags: ['Webhooks'], summary: 'List privacy-safe webhook configurations', operationId: 'listWebhooks', security: [{ bearerAuth: [] }], parameters: [pageParam(), limitParam()], responses: paginatedResponse('WebhookSafe') },
+        post: { tags: ['Webhooks'], summary: 'Create a public-HTTPS webhook', operationId: 'createWebhook', security: [{ bearerAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/webhooks_createWebhook' }, 'Create webhook'), responses: dataResponses('WebhookSafe', 201) },
+      },
+      '/webhooks/{id}': {
+        get: { tags: ['Webhooks'], summary: 'Get a privacy-safe webhook configuration', operationId: 'getWebhook', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('WebhookSafe') },
+        put: { tags: ['Webhooks'], summary: 'Update a webhook', operationId: 'updateWebhook', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: typedJsonBody({ $ref: '#/components/schemas/webhooks_updateWebhook' }, 'Update webhook'), responses: dataResponses('WebhookSafe') },
+        delete: { tags: ['Webhooks'], summary: 'Delete a webhook', operationId: 'deleteWebhook', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/webhooks/{id}/configuration': {
+        get: { tags: ['Webhooks'], summary: 'Get the raw editable URL (requires webhooks.update; never cached)', operationId: 'getWebhookConfiguration', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('WebhookEditableConfiguration') },
+      },
 
       // ---- Payment Gateways ----
       ...crudPaths('payment-gateways', 'Payment Gateways', 'PaymentGateway'),
@@ -1361,20 +1373,20 @@ function generateSpec() {
 
       // ---- Backup Settings — remote database-backup destination (migration 404) ----
       '/backup-settings': {
-        get: { tags: ['Backup Settings'], summary: 'Get remote backup settings (secret masked), nightly schedule, and latest run', operationId: 'getBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupSettingsOverview') },
-        put: { tags: ['Backup Settings'], summary: 'Update the remote backup destination (S3-compatible: AWS/GCS/B2/R2/MinIO)', operationId: 'updateBackupSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('BackupSettingsUpdate'), responses: r200('BackupSettings') },
+        get: { tags: ['Backup Settings'], summary: 'Get install-wide backup settings (install operator only; secret masked)', operationId: 'getBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupSettingsOverview') },
+        put: { tags: ['Backup Settings'], summary: 'Update the install-wide remote backup destination (install operator only)', operationId: 'updateBackupSettings', security: [{ bearerAuth: [] }], requestBody: jsonBody('BackupSettingsUpdate'), responses: r200('BackupSettings') },
       },
       '/backup-settings/test': {
-        post: { tags: ['Backup Settings'], summary: 'Test the effective remote destination with a probe upload', operationId: 'testBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupTestResult') },
+        post: { tags: ['Backup Settings'], summary: 'Test the effective remote destination (install operator only)', operationId: 'testBackupSettings', security: [{ bearerAuth: [] }], responses: r200('BackupTestResult') },
       },
       '/backup-settings/runs': {
-        get: { tags: ['Backup Settings'], summary: 'List backup run history and local backup files', operationId: 'listBackupRuns', security: [{ bearerAuth: [] }], responses: r200('BackupRunsList') },
+        get: { tags: ['Backup Settings'], summary: 'List install-wide backup runs and files (install operator only)', operationId: 'listBackupRuns', security: [{ bearerAuth: [] }], responses: r200('BackupRunsList') },
       },
       '/backup-settings/run-now': {
-        post: { tags: ['Backup Settings'], summary: 'Trigger a manual database backup (409 when one is already running)', operationId: 'runBackupNow', security: [{ bearerAuth: [] }], responses: { 202: { description: 'Backup started', content: { 'application/json': { schema: { type: 'object' } } } } } },
+        post: { tags: ['Backup Settings'], summary: 'Trigger an install-wide database backup (install operator only)', operationId: 'runBackupNow', security: [{ bearerAuth: [] }], responses: { 202: { description: 'Backup started', content: { 'application/json': { schema: { type: 'object' } } } } } },
       },
       '/backup-settings/download/{filename}': {
-        get: { tags: ['Backup Settings'], summary: 'Download a local backup file (full database dump; audit-logged, backup_settings.download)', operationId: 'downloadBackupFile', security: [{ bearerAuth: [] }], parameters: [{ name: 'filename', in: 'path', required: true, schema: { type: 'string' } }], responses: r200File('application/gzip') },
+        get: { tags: ['Backup Settings'], summary: 'Download a full database backup (install operator only; audit-logged)', operationId: 'downloadBackupFile', security: [{ bearerAuth: [] }], parameters: [{ name: 'filename', in: 'path', required: true, schema: { type: 'string' } }], responses: r200File('application/gzip') },
       },
 
       // ---- Late Fee Rules — §2.2B ----
@@ -1674,8 +1686,65 @@ function generateSpec() {
       },
 
       // ---- Trap Forwarding Rules §6.1 ----
-      ...crudPaths('trap-forwarding-rules', 'Trap Forwarding Rules', 'TrapForwardingRule'),
-      '/trap-forwarding-rules/{id}/restore': { post: { tags: ['Trap Forwarding Rules'], summary: 'Restore a soft-deleted trap forwarding rule', operationId: 'restoreTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('TrapForwardingRule') } },
+      '/trap-forwarding-rules': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'List privacy-safe trap forwarding rules', operationId: 'listTrapForwardingRules', security: [{ bearerAuth: [] }], parameters: [pageParam(), limitParam()], responses: paginatedResponse('TrapForwardingRuleSafe') },
+        post: { tags: ['Trap Forwarding Rules'], summary: 'Create a trap forwarding rule', operationId: 'createTrapForwardingRule', security: [{ bearerAuth: [] }], requestBody: typedJsonBody({ $ref: '#/components/schemas/trapForwardingRules_createTrapForwardingRule' }, 'Create trap forwarding rule'), responses: dataResponses('TrapForwardingRuleSafe', 201) },
+      },
+      '/trap-forwarding-rules/{id}': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'Get a privacy-safe trap forwarding rule', operationId: 'getTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('TrapForwardingRuleSafe') },
+        put: { tags: ['Trap Forwarding Rules'], summary: 'Update a trap forwarding rule', operationId: 'updateTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: typedJsonBody({ $ref: '#/components/schemas/trapForwardingRules_updateTrapForwardingRule' }, 'Update trap forwarding rule'), responses: dataResponses('TrapForwardingRuleSafe') },
+        delete: { tags: ['Trap Forwarding Rules'], summary: 'Delete a trap forwarding rule', operationId: 'deleteTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
+      '/trap-forwarding-rules/readiness': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'Get safe trap-forwarding feature readiness for the current install', operationId: 'getTrapForwardingReadiness', security: [{ bearerAuth: [] }], responses: dataResponses('TrapForwardingReadiness') },
+      },
+      '/trap-forwarding-rules/destinations': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'List safe active registered-webhook choices for the current organization', operationId: 'listTrapForwardingDestinations', security: [{ bearerAuth: [] }], responses: arrayDataResponses('TrapForwardingDestination') },
+      },
+      '/trap-forwarding-rules/{id}/configuration': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'Get full editable destination fields (requires trap_forwarding.update; never cached)', operationId: 'getTrapForwardingConfiguration', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('TrapForwardingEditableConfiguration') },
+      },
+      '/trap-forwarding-rules/{id}/deliveries': {
+        get: { tags: ['Trap Forwarding Rules'], summary: 'List safe recent delivery outcomes for a rule (payload and destination snapshots excluded)', operationId: 'listTrapForwardingDeliveries', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: paginatedResponse('TrapForwardingDelivery') },
+      },
+      '/trap-forwarding-rules/{id}/test': {
+        post: { tags: ['Trap Forwarding Rules'], summary: 'Queue a clearly marked test delivery without creating an SNMP trap', operationId: 'testTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('TrapForwardingTestDelivery', 202) },
+      },
+      '/trap-forwarding-rules/{id}/restore': { post: { tags: ['Trap Forwarding Rules'], summary: 'Restore a soft-deleted trap forwarding rule', operationId: 'restoreTrapForwardingRule', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('TrapForwardingRuleSafe') } },
+
+      // ---- SNMP Traps ----
+      '/snmp-traps': {
+        get: {
+          tags: ['SNMP Traps'],
+          summary: 'List tenant-scoped trap metadata (community and varbind values excluded)',
+          operationId: 'listSnmpTraps',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            pageParam(), limitParam(),
+            { name: 'device_id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+            { name: 'trap_type', in: 'query', schema: { type: 'string', maxLength: 64 } },
+            { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+            { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          ],
+          responses: paginatedResponse('SnmpTrapMetadata'),
+        },
+      },
+      '/snmp-traps/{id}': {
+        get: {
+          tags: ['SNMP Traps'],
+          summary: 'Get raw varbind detail (requires devices.view and snmp_traps.payload.view; community is never returned)',
+          operationId: 'getSnmpTrapPayload',
+          security: [{ bearerAuth: [] }],
+          parameters: [idParam()],
+          responses: dataResponses('SnmpTrapDetail'),
+        },
+      },
+      '/snmp-traps/{id}/acknowledge': {
+        post: { tags: ['SNMP Traps'], summary: 'Acknowledge a trap', operationId: 'acknowledgeSnmpTrap', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: dataResponses('SnmpTrapAcknowledgement') },
+      },
+      '/snmp-traps/{id}/clear': {
+        post: { tags: ['SNMP Traps'], summary: 'Dismiss a trap', operationId: 'clearSnmpTrap', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
+      },
 
       // ---- SNMP Metrics §6.2/6.3 ----
       '/snmp-metrics': {
@@ -3249,6 +3318,17 @@ function generateSpec() {
         CgnatAttribution: cgnatAttributionSchema(),
         IpAttributionLookupResult: ipAttributionLookupResultSchema(),
         ConnectionLoggingReadiness: connectionLoggingReadinessSchema(),
+        TrapForwardingRuleSafe: trapForwardingRuleSafeSchema(),
+        TrapForwardingEditableConfiguration: trapForwardingEditableConfigurationSchema(),
+        TrapForwardingDestination: trapForwardingDestinationSchema(),
+        TrapForwardingDelivery: trapForwardingDeliverySchema(),
+        TrapForwardingTestDelivery: trapForwardingTestDeliverySchema(),
+        TrapForwardingReadiness: trapForwardingReadinessSchema(),
+        WebhookSafe: webhookSafeSchema(),
+        WebhookEditableConfiguration: webhookEditableConfigurationSchema(),
+        SnmpTrapMetadata: snmpTrapMetadataSchema(),
+        SnmpTrapDetail: snmpTrapDetailSchema(),
+        SnmpTrapAcknowledgement: snmpTrapAcknowledgementSchema(),
         RadiusAccountingRequest: radiusAccountingRequestSchema(),
         RadiusAccountingIngestResult: radiusAccountingIngestResultSchema(),
       },
@@ -4407,6 +4487,191 @@ function pppoeEventIngestResponse() {
 function r200(desc) {
   return { 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } };
 }
+
+function dataResponses(componentName, status = 200) {
+  return {
+    [status]: {
+      description: status === 201 ? 'Created' : (status === 202 ? 'Accepted' : 'Success'),
+      content: { 'application/json': { schema: {
+        type: 'object', additionalProperties: false, required: ['data'],
+        properties: { data: { $ref: `#/components/schemas/${componentName}` } },
+      } } },
+    },
+  };
+}
+
+function arrayDataResponses(componentName) {
+  return {
+    200: {
+      description: 'Success',
+      content: { 'application/json': { schema: {
+        type: 'object', additionalProperties: false, required: ['data'],
+        properties: {
+          data: { type: 'array', items: { $ref: `#/components/schemas/${componentName}` } },
+        },
+      } } },
+    },
+  };
+}
+
+function trapForwardingRuleSafeSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'name', 'is_active', 'target_type', 'target_display', 'target_display_code', 'target_needs_attention', 'configuration_reviewed', 'transform_supported'],
+    properties: {
+      id: { type: 'integer' }, organization_id: nullableInteger(), name: { type: 'string', maxLength: 200 },
+      match_trap_type: nullableString(),
+      match_source_ip: { oneOf: [{ type: 'string', format: 'ipv4', maxLength: 15 }, { type: 'null' }] },
+      match_oid_prefix: nullableString(),
+      is_active: { type: 'boolean' }, target_type: { type: ['string', 'null'], enum: ['url', 'email', 'webhook', null] },
+      target_display: { type: ['string', 'null'] },
+      target_display_code: { type: 'string', enum: ['direct_https_url', 'email_recipient', 'registered_webhook', 'review_destination'] },
+      target_needs_attention: { type: 'boolean' },
+      configuration_reviewed: { type: 'boolean' }, transform_supported: { type: 'boolean', const: false },
+      last_delivery_status: { type: ['string', 'null'], enum: ['pending', 'processing', 'retrying', 'success', 'dead_letter', 'cancelled', null] },
+      last_delivery_at: nullableString('date-time'), last_error: nullableString(), last_delivery_is_test: { type: 'boolean' },
+      created_at: nullableString('date-time'), updated_at: nullableString('date-time'), deleted_at: nullableString('date-time'),
+    },
+  };
+}
+
+function trapForwardingEditableConfigurationSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['id', 'forward_to_url', 'forward_to_email', 'forward_to_webhook_id'],
+    properties: {
+      id: { type: 'integer' }, forward_to_url: nullableString('uri'),
+      forward_to_email: nullableString('email'), forward_to_webhook_id: nullableInteger(),
+    },
+  };
+}
+
+function trapForwardingDestinationSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['id', 'label', 'url'],
+    properties: { id: { type: 'integer' }, label: { type: 'string' }, url: { type: 'string', format: 'uri' } },
+  };
+}
+
+function trapForwardingDeliverySchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'target_type', 'is_test', 'status', 'attempt_number', 'max_attempts'],
+    properties: {
+      id: { type: 'integer' }, trap_id: nullableInteger(), target_type: { type: 'string', enum: ['url', 'email', 'webhook'] },
+      is_test: { type: 'boolean' }, status: { type: 'string', enum: ['pending', 'processing', 'retrying', 'success', 'dead_letter', 'cancelled'] },
+      attempt_number: { type: 'integer', minimum: 0 }, max_attempts: { type: 'integer', minimum: 1, maximum: 11 },
+      recovery_count: { type: 'integer', minimum: 0, maximum: 1 },
+      http_status_code: nullableInteger(), response_time_ms: nullableInteger(), last_error: nullableString(),
+      next_attempt_at: nullableString('date-time'), delivered_at: nullableString('date-time'),
+      created_at: nullableString('date-time'), updated_at: nullableString('date-time'),
+    },
+  };
+}
+
+function trapForwardingTestDeliverySchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['id', 'status', 'is_test'],
+    properties: { id: { type: 'integer' }, status: { type: 'string', enum: ['pending'] }, is_test: { type: 'boolean', const: true } },
+  };
+}
+
+function trapForwardingReadinessSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['ready', 'status', 'reason', 'ingest'],
+    properties: {
+      ready: { type: 'boolean' }, status: { type: 'string', enum: ['ready', 'unavailable'] },
+      reason: { type: ['string', 'null'], enum: ['primary_schema_unavailable', 'listener_not_ready', 'invalid_port', 'invalid_bind_ip', 'bind_failed', 'isolated_tenant_attribution_unsupported', 'multi_organization_attribution_unsupported', 'source_attribution_unavailable', 'feature_disabled', null] },
+      ingest: {
+        oneOf: [{
+          type: 'object', additionalProperties: false,
+          required: ['usage_date', 'trap_count', 'trap_limit', 'varbind_bytes', 'varbind_byte_limit', 'delivery_count', 'delivery_limit', 'metadata_only_count', 'dropped_trap_count', 'forwarding_skipped_count'],
+          properties: {
+            usage_date: { type: ['string', 'null'], format: 'date' },
+            trap_count: { type: 'integer', minimum: 0 }, trap_limit: { type: 'integer', minimum: 0 },
+            varbind_bytes: { type: 'integer', minimum: 0 }, varbind_byte_limit: { type: 'integer', minimum: 0 },
+            delivery_count: { type: 'integer', minimum: 0 }, delivery_limit: { type: 'integer', minimum: 0 },
+            metadata_only_count: { type: 'integer', minimum: 0 },
+            dropped_trap_count: { type: 'integer', minimum: 0 },
+            forwarding_skipped_count: { type: 'integer', minimum: 0 },
+          },
+        }, { type: 'null' }],
+      },
+    },
+  };
+}
+
+function webhookSafeSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'is_active', 'has_secret', 'url_configured', 'target_display_code'],
+    properties: {
+      id: { type: 'integer' }, organization_id: nullableInteger(),
+      events: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] },
+      description: nullableString(), max_retries: nullableInteger(), timeout_seconds: nullableInteger(),
+      is_active: { type: 'boolean' }, has_secret: { type: 'boolean' }, url_configured: { type: 'boolean' },
+      target_display_code: { type: 'string', const: 'configured_https_endpoint' },
+      created_at: nullableString('date-time'), updated_at: nullableString('date-time'), deleted_at: nullableString('date-time'),
+    },
+  };
+}
+
+function webhookEditableConfigurationSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['id', 'url'],
+    properties: { id: { type: 'integer' }, url: { type: 'string', format: 'uri', pattern: '^https://' } },
+  };
+}
+
+function snmpTrapMetadataSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['id', 'source_ip', 'trap_type'],
+    properties: {
+      id: { type: 'integer' }, organization_id: nullableInteger(), device_id: nullableInteger(), device_name: nullableString(),
+      source_ip: { type: 'string' }, trap_type: { type: 'string' }, trap_oid: nullableString(), snmp_version: nullableInteger(),
+      varbinds_truncated: { type: 'boolean' },
+      varbinds_original_count: { type: 'integer', minimum: 0, maximum: 65535 },
+      varbinds_truncation_reason: {
+        type: ['string', 'null'],
+        enum: ['count_limit', 'size_limit', 'count_and_size_limit', 'daily_byte_quota', null],
+      },
+      is_acknowledged: { type: 'boolean' }, acknowledged_by: nullableInteger(), acknowledged_by_name: nullableString(),
+      acknowledged_at: nullableString('date-time'), received_at: nullableString('date-time'),
+    },
+  };
+}
+
+function snmpTrapDetailSchema() {
+  const metadata = snmpTrapMetadataSchema();
+  return {
+    ...metadata,
+    required: [
+      ...metadata.required,
+      'varbinds',
+      'varbinds_truncated',
+      'varbinds_original_count',
+      'varbinds_truncation_reason',
+    ],
+    properties: {
+      ...metadata.properties,
+      varbinds: { type: 'array', maxItems: 64, items: {
+        type: 'object', additionalProperties: false, required: ['oid', 'type', 'value'],
+        properties: {
+          oid: { type: 'string', maxLength: 255 },
+          type: { oneOf: [{ type: 'integer' }, { type: 'string', maxLength: 32 }, { type: 'null' }] },
+          value: { type: ['string', 'null'], maxLength: 512, description: 'At most 512 UTF-8 bytes when non-null.' },
+          truncated: { type: 'boolean' },
+        },
+      } },
+    },
+  };
+}
+
+function snmpTrapAcknowledgementSchema() {
+  return {
+    type: 'object', additionalProperties: false, required: ['acknowledged'],
+    properties: { acknowledged: { type: 'boolean' } },
+  };
+}
 function mxContractEnvironmentResponse(includeActiveSource) {
   const properties = {
     contract_environment: { type: 'string', enum: ['sandbox', 'production'] },
@@ -4474,15 +4739,21 @@ function limitParam() {
 /**
  * Generate standard CRUD paths for a resource.
  */
-function crudPaths(basePath, tag, modelName) {
+function crudPaths(basePath, tag, modelName, requestSchemas = {}) {
+  const createBody = requestSchemas.create
+    ? typedJsonBody({ $ref: `#/components/schemas/${requestSchemas.create}` }, `Create ${modelName}`)
+    : jsonBody(modelName);
+  const updateBody = requestSchemas.update
+    ? typedJsonBody({ $ref: `#/components/schemas/${requestSchemas.update}` }, `Update ${modelName}`)
+    : jsonBody(modelName);
   return {
     [`/${basePath}`]: {
       get: { tags: [tag], summary: `List ${basePath}`, operationId: `list${modelName}s`, security: [{ bearerAuth: [] }], responses: r200(`${modelName}[]`) },
-      post: { tags: [tag], summary: `Create a ${modelName}`, operationId: `create${modelName}`, security: [{ bearerAuth: [] }], requestBody: jsonBody(modelName), responses: r201(modelName) },
+      post: { tags: [tag], summary: `Create a ${modelName}`, operationId: `create${modelName}`, security: [{ bearerAuth: [] }], requestBody: createBody, responses: r201(modelName) },
     },
     [`/${basePath}/{id}`]: {
       get: { tags: [tag], summary: `Get a ${modelName}`, operationId: `get${modelName}`, security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200(modelName) },
-      put: { tags: [tag], summary: `Update a ${modelName}`, operationId: `update${modelName}`, security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody(modelName), responses: r200(modelName) },
+      put: { tags: [tag], summary: `Update a ${modelName}`, operationId: `update${modelName}`, security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: updateBody, responses: r200(modelName) },
       delete: { tags: [tag], summary: `Delete a ${modelName}`, operationId: `delete${modelName}`, security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r204() },
     },
   };
@@ -4518,6 +4789,7 @@ function convertSchemaToOpenApi(schema) {
       prop.pattern = rules.pattern instanceof RegExp ? rules.pattern.source : rules.pattern;
     }
     if (rules.format) prop.format = rules.format;
+    if (rules.nullable) prop.type = [prop.type, 'null'];
     if (rules.required) required.push(field);
 
     properties[field] = prop;

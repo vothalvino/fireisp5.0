@@ -81,9 +81,14 @@ docker compose -f /opt/fireisp/docker-compose.prod.yml --env-file /opt/fireisp/.
 ### Updating to a new version
 
 For a standard redeploy, the repo ships **`redeploy.sh`** — it runs the whole
-flow (pull `main` → pull the matching image → migrate → verify) as one command
-and halts on the first failed step, so a rejected git pull or an image that CI
-has not published yet never goes on to migrate against a stale container.
+flow (pull `main` → pull the matching image → migrate with a non-listening
+one-off container → start → verify `/health/ready`) as one command and halts on
+the first failed step. It gracefully stops the previous app before migration,
+then starts the new image's HTTP/RADIUS/SNMP listeners only after migrations
+succeed. This creates a short, explicit maintenance window. If migration fails,
+the previous app deliberately remains stopped because restarting legacy code
+against a partially tightened schema could reintroduce credentials or unsafe
+audit data; fix or roll forward the migration and rerun `redeploy`.
 
 `install.sh` sets this up for you. To add it to an existing install, create a
 **wrapper** (not a copy):
@@ -109,6 +114,17 @@ sudo redeploy
 > the caller — `sudo` resets the environment, so `FIREISP_DIR=… sudo redeploy`
 > is silently discarded. If you already installed a copy, replace it with the
 > wrapper above.
+
+Helm and the plain `k8s/` Deployment use the `Recreate` strategy so all old pods
+drain before a new-image init container runs the same migration command. The
+application container cannot bind HTTP, RADIUS, or SNMP UDP until migration
+succeeds. Concurrent init attempts are additionally serialized through a
+database advisory lock.
+The official Compose, Helm, and plain-Kubernetes paths migrate every active
+isolated tenant database by default. If a custom deployment deliberately turns
+that fan-out off, it must migrate and verify those databases separately before
+starting the new image; schema-dependent features fail closed rather than
+falling back to the shared primary database.
 
 > **Release note — payment webhooks now fail closed.** If you receive Stripe or
 > Conekta webhooks, you **must** set `STRIPE_WEBHOOK_SECRET` / `CONEKTA_WEBHOOK_KEY`
@@ -161,6 +177,14 @@ applied stay applied; `migrate.js` runs from inside the old image and no-ops,
 because that image only knows its own already-applied files. Old code against a
 forward schema is fine for additive migrations and breaks on a `DROP`, `RENAME`
 or narrowed `ENUM` — check what the deploy you are undoing actually migrated.
+
+Migration 459 is an explicit one-way application compatibility boundary.
+`redeploy` refuses any target commit that predates it: an older image would use
+the new AES-GCM webhook envelope as an HMAC key and could persist SNMP
+communities or sensitive legacy audit values again. Roll forward with a fixed
+post-459 image. Going further back requires a separately rehearsed, approved
+full application-and-database restore from a pre-459 backup, not the normal
+one-command image rollback.
 
 #### Installation consent/signing upgrade (migration 451)
 
@@ -1105,65 +1129,25 @@ echo -n 'my-secret-value' | base64
 
 ### Deployment
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: fireisp
-  namespace: fireisp
-  labels:
-    app: fireisp
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: fireisp
-  template:
-    metadata:
-      labels:
-        app: fireisp
-    spec:
-      containers:
-        - name: fireisp
-          image: ghcr.io/vothalvino/fireisp5.0:latest
-          ports:
-            - containerPort: 3000
-              name: http
-          envFrom:
-            - configMapRef:
-                name: fireisp-config
-            - secretRef:
-                name: fireisp-secret
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "512Mi"
-            limits:
-              cpu: "1000m"
-              memory: "1Gi"
-          livenessProbe:
-            httpGet:
-              path: /health/live
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          volumeMounts:
-            - name: storage
-              mountPath: /opt/fireisp/storage
-      volumes:
-        - name: storage
-          persistentVolumeClaim:
-            claimName: fireisp-storage
+Use the maintained [`k8s/deployment.yaml`](../k8s/deployment.yaml). It encodes
+three security requirements that a minimal copied example tends to lose:
+
+- `strategy: Recreate` drains old writers/listeners before a security migration;
+- a pre-start init container migrates the primary and retained isolated schemas;
+- the init container and application use the **same immutable release image**.
+
+Before applying, replace `REPLACE_WITH_FULL_COMMIT_SHA` in both image references
+with the same 40-character commit SHA published by main CI. Never use `:latest`
+for either container: a cached migration image paired with a newer application
+image can start code against the wrong schema.
+
+```bash
+RELEASE_SHA=<full-40-character-main-commit-sha>
+test "${#RELEASE_SHA}" -eq 40
+kubectl apply -f k8s/configmap.yaml
+sed "s/REPLACE_WITH_FULL_COMMIT_SHA/$RELEASE_SHA/g" k8s/deployment.yaml \
+  | kubectl apply -f -
+kubectl rollout status -n fireisp deployment/fireisp --timeout=180s
 ```
 
 ### Service
@@ -1759,6 +1743,7 @@ cd charts/fireisp
 helm dependency update          # no external dependencies currently
 helm install fireisp . \
   --namespace fireisp --create-namespace \
+  --set-string image.tag=<full-40-character-main-commit-sha> \
   -f my-values.yaml
 ```
 
@@ -1802,10 +1787,12 @@ cosignPolicy:
 
 ### Running Migrations
 
-Run migrations once after the first install (or after upgrading):
+The chart's pre-start init container runs migrations automatically, including
+retained isolated tenant schemas. Confirm the deployment becomes ready; do not
+run a second ad-hoc migration after listeners start:
 
 ```bash
-kubectl exec -n fireisp deploy/fireisp -- node src/scripts/migrate.js
+kubectl rollout status -n fireisp deployment/fireisp --timeout=180s
 ```
 
 ### Upgrading
@@ -1953,12 +1940,17 @@ Sealed Secrets workflow and other secret-backend options (ESO / Vault).
 The CI pipeline (`.github/workflows/ci.yml`) includes a `helm-release` job
 that runs on every push of a version tag (`v*.*.*`):
 
-1. Packages the chart with `helm package charts/fireisp`.
-2. Uploads the packaged chart to the `gh-pages` branch via
+1. Builds and scans both application architectures, then publishes the
+   immutable `ghcr.io/vothalvino/fireisp5.0:X.Y.Z` image.
+2. Verifies the git tag, chart `version`, and chart `appVersion` are identical.
+3. Packages the chart and uploads it to the `gh-pages` branch via
    [`helm/chart-releaser-action`](https://github.com/helm/chart-releaser-action).
-3. The updated `index.yaml` is served at
+4. The updated `index.yaml` is served at
    `https://vothalvino.github.io/fireisp5.0` and is immediately available
    to `helm repo update`.
+
+The chart is never released unless its default image has already been
+published successfully.
 
 To cut a new chart release, bump `version` in `charts/fireisp/Chart.yaml`
 (and `appVersion` if the app changed) and push a matching git tag:

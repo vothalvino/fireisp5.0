@@ -134,7 +134,10 @@ async function start() {
 
   // Start the SNMP trap receiver (UDP listener for unsolicited device alerts)
   try {
-    snmpTrapReceiver.start();
+    const trapStatus = await snmpTrapReceiver.start();
+    if (!trapStatus.ready) {
+      logger.warn({ reason: trapStatus.reason }, 'SNMP trap receiver is not ready');
+    }
   } catch (err) {
     logger.warn({ err }, 'SNMP trap receiver failed to start');
   }
@@ -154,12 +157,16 @@ async function start() {
   function gracefulShutdown(signal) {
     logger.info({ signal }, `${signal} received, starting graceful shutdown…`);
 
+    // Stop UDP acceptance at the beginning of shutdown. The returned promise
+    // drains the receiver's bounded in-flight transaction set before DB close.
+    const trapDrain = snmpTrapReceiver.stop();
+
     // Stop accepting new connections; let in-flight requests finish
     server.close(async () => {
       logger.info('HTTP server closed');
       await tunnelServer.close();
       await wsHub.close().catch(() => {});
-      snmpTrapReceiver.stop();
+      await trapDrain;
       radiusServer.stop();
       scheduler.stop();
       await jobQueue.close().catch(() => {});

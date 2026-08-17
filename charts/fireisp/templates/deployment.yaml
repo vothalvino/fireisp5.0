@@ -37,6 +37,31 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.migration.enabled }}
+      initContainers:
+        - name: database-migrate
+          image: {{ include "fireisp.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ['node', 'src/scripts/migrate.js']
+          envFrom:
+            - configMapRef:
+                name: {{ include "fireisp.fullname" . }}-config
+            - secretRef:
+                name: {{ include "fireisp.fullname" . }}-secret
+          env:
+            - name: MIGRATE_ISOLATED_TENANTS
+              value: {{ .Values.migration.migrateIsolatedTenants | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: {{ include "fireisp.image" . }}
@@ -45,13 +70,18 @@ spec:
             - name: http
               containerPort: {{ .Values.config.PORT | default "3000" | int }}
               protocol: TCP
+            - name: snmp-trap
+              containerPort: {{ .Values.config.SNMP_TRAP_PORT | default "1620" | int }}
+              protocol: UDP
           envFrom:
             - configMapRef:
                 name: {{ include "fireisp.fullname" . }}-config
             - secretRef:
                 name: {{ include "fireisp.fullname" . }}-secret
-          {{- with .Values.extraEnv }}
           env:
+            - name: SNMP_TRAP_BIND_IP
+              value: {{ ternary "0.0.0.0" (.Values.config.SNMP_TRAP_BIND_IP | default "127.0.0.1") .Values.snmpTrap.enabled | quote }}
+          {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
           securityContext:

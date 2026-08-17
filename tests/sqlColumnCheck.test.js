@@ -111,7 +111,7 @@ describe('sql-column-check: JS scanner', () => {
   });
 
   test('comments are not scanned for SQL', () => {
-    const { literals } = scanLiterals("// INSERT INTO fake (nope) VALUES (1)\nconst x = 1;");
+    const { literals } = scanLiterals('// INSERT INTO fake (nope) VALUES (1)\nconst x = 1;');
     expect(literals).toHaveLength(0);
   });
 });
@@ -137,6 +137,20 @@ describe('sql-column-check: statement extraction', () => {
     const [st] = cols("UPDATE t SET a = 1, b = 'x' WHERE c = 'not-a-target'");
     expect(st.columns).toEqual(['a', 'b']);
     expect(st.assigns.map((x) => x.col)).toEqual(['a', 'b']);
+  });
+
+  test('a BEFORE UPDATE trigger event is not mistaken for UPDATE table DML', () => {
+    const statements = cols(`
+      CREATE TRIGGER IF NOT EXISTS trg_guard
+      BEFORE UPDATE ON audit_logs
+      FOR EACH ROW
+      BEGIN
+        IF COALESCE(@allow_update, 0) <> 1 THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'immutable';
+        END IF;
+      END
+    `);
+    expect(statements).toEqual([]);
   });
 
   test('ON DUPLICATE KEY UPDATE targets the same table', () => {
@@ -173,7 +187,7 @@ describe('sql-column-check: SELECT column-reference checking', () => {
   test('single-table: bare identifiers in WHERE/SELECT are checked against the sole table', () => {
     const tables = tablesOf({ suspension_rules: ['id', 'organization_id', 'is_active'] });
     const r = extractSelectRefs(
-      "SELECT * FROM suspension_rules WHERE organization_id = ? AND is_enabled = TRUE",
+      'SELECT * FROM suspension_rules WHERE organization_id = ? AND is_enabled = TRUE',
       'f.js', 1, tables,
     );
     expect(r.errors).toHaveLength(1);
@@ -227,7 +241,7 @@ describe('sql-column-check: SELECT column-reference checking', () => {
       invoices: ['id', 'contract_id'],
     });
     const r = extractSelectRefs(
-      `SELECT c.id FROM contracts c JOIN invoices i ON i.contract_id = c.id WHERE nonexistent_bare_column = 1`,
+      'SELECT c.id FROM contracts c JOIN invoices i ON i.contract_id = c.id WHERE nonexistent_bare_column = 1',
       'f.js', 1, tables,
     );
     expect(r.errors).toHaveLength(0);   // ambiguous — skipped, not flagged
@@ -282,7 +296,7 @@ describe('sql-column-check: SELECT column-reference checking', () => {
   test('a nested subquery is not descended into', () => {
     const tables = tablesOf({ clients: ['id', 'organization_id'] });
     const r = extractSelectRefs(
-      `SELECT id FROM clients WHERE id IN (SELECT anything FROM whatever_table)`,
+      'SELECT id FROM clients WHERE id IN (SELECT anything FROM whatever_table)',
       'f.js', 1, tables,
     );
     expect(r.skipped.some((s) => /nested subquery/.test(s.why))).toBe(true);
