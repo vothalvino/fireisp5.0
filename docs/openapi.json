@@ -433,6 +433,10 @@
       "description": "Network device discovery via SNMP scan — §6.1"
     },
     {
+      "name": "SNMP Traps",
+      "description": "Privacy-scoped unsolicited SNMP trap metadata and privileged varbind detail"
+    },
+    {
       "name": "Trap Forwarding Rules",
       "description": "SNMP trap forwarding rule management — §6.1"
     },
@@ -20604,7 +20608,7 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Create a custom report",
+        "summary": "Create a custom report (install operator only)",
         "operationId": "createCustomReport",
         "security": [
           {
@@ -20674,7 +20678,7 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Update a custom report",
+        "summary": "Update a custom report (install operator only)",
         "operationId": "updateCustomReport",
         "security": [
           {
@@ -20747,7 +20751,7 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Execute a custom SQL report",
+        "summary": "Execute a custom SQL report (install operator only)",
         "operationId": "executeCustomReport",
         "security": [
           {
@@ -21740,20 +21744,102 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "List webhooks",
+        "summary": "List privacy-safe webhook configurations",
         "operationId": "listWebhooks",
         "security": [
           {
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Webhook[]",
+            "description": "Paginated result",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WebhookSafe"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -21764,7 +21850,7 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Create a Webhook",
+        "summary": "Create a public-HTTPS webhook",
         "operationId": "createWebhook",
         "security": [
           {
@@ -21772,22 +21858,32 @@
           }
         ],
         "requestBody": {
-          "description": "Webhook",
+          "description": "Create webhook",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/webhooks_createWebhook"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Webhook",
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WebhookSafe"
+                    }
+                  }
                 }
               }
             }
@@ -21800,7 +21896,7 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Get a Webhook",
+        "summary": "Get a privacy-safe webhook configuration",
         "operationId": "getWebhook",
         "security": [
           {
@@ -21819,11 +21915,20 @@
         ],
         "responses": {
           "200": {
-            "description": "Webhook",
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WebhookSafe"
+                    }
+                  }
                 }
               }
             }
@@ -21834,7 +21939,7 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Update a Webhook",
+        "summary": "Update a webhook",
         "operationId": "updateWebhook",
         "security": [
           {
@@ -21852,22 +21957,32 @@
           }
         ],
         "requestBody": {
-          "description": "Webhook",
+          "description": "Update webhook",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/webhooks_updateWebhook"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Webhook",
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WebhookSafe"
+                    }
+                  }
                 }
               }
             }
@@ -21878,7 +21993,7 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Delete a Webhook",
+        "summary": "Delete a webhook",
         "operationId": "deleteWebhook",
         "security": [
           {
@@ -21898,6 +22013,51 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/webhooks/{id}/configuration": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Get the raw editable URL (requires webhooks.update; never cached)",
+        "operationId": "getWebhookConfiguration",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WebhookEditableConfiguration"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -26803,7 +26963,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "Get remote backup settings (secret masked), nightly schedule, and latest run",
+        "summary": "Get install-wide backup settings (install operator only; secret masked)",
         "operationId": "getBackupSettings",
         "security": [
           {
@@ -26827,7 +26987,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "Update the remote backup destination (S3-compatible: AWS/GCS/B2/R2/MinIO)",
+        "summary": "Update the install-wide remote backup destination (install operator only)",
         "operationId": "updateBackupSettings",
         "security": [
           {
@@ -26863,7 +27023,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "Test the effective remote destination with a probe upload",
+        "summary": "Test the effective remote destination (install operator only)",
         "operationId": "testBackupSettings",
         "security": [
           {
@@ -26889,7 +27049,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "List backup run history and local backup files",
+        "summary": "List install-wide backup runs and files (install operator only)",
         "operationId": "listBackupRuns",
         "security": [
           {
@@ -26915,7 +27075,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "Trigger a manual database backup (409 when one is already running)",
+        "summary": "Trigger an install-wide database backup (install operator only)",
         "operationId": "runBackupNow",
         "security": [
           {
@@ -26941,7 +27101,7 @@
         "tags": [
           "Backup Settings"
         ],
-        "summary": "Download a local backup file (full database dump; audit-logged, backup_settings.download)",
+        "summary": "Download a full database backup (install operator only; audit-logged)",
         "operationId": "downloadBackupFile",
         "security": [
           {
@@ -32443,20 +32603,102 @@
         "tags": [
           "Trap Forwarding Rules"
         ],
-        "summary": "List trap-forwarding-rules",
+        "summary": "List privacy-safe trap forwarding rules",
         "operationId": "listTrapForwardingRules",
         "security": [
           {
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "TrapForwardingRule[]",
+            "description": "Paginated result",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TrapForwardingRuleSafe"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -32467,7 +32709,7 @@
         "tags": [
           "Trap Forwarding Rules"
         ],
-        "summary": "Create a TrapForwardingRule",
+        "summary": "Create a trap forwarding rule",
         "operationId": "createTrapForwardingRule",
         "security": [
           {
@@ -32475,22 +32717,32 @@
           }
         ],
         "requestBody": {
-          "description": "TrapForwardingRule",
+          "description": "Create trap forwarding rule",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/trapForwardingRules_createTrapForwardingRule"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "TrapForwardingRule",
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingRuleSafe"
+                    }
+                  }
                 }
               }
             }
@@ -32503,7 +32755,7 @@
         "tags": [
           "Trap Forwarding Rules"
         ],
-        "summary": "Get a TrapForwardingRule",
+        "summary": "Get a privacy-safe trap forwarding rule",
         "operationId": "getTrapForwardingRule",
         "security": [
           {
@@ -32522,11 +32774,20 @@
         ],
         "responses": {
           "200": {
-            "description": "TrapForwardingRule",
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingRuleSafe"
+                    }
+                  }
                 }
               }
             }
@@ -32537,7 +32798,7 @@
         "tags": [
           "Trap Forwarding Rules"
         ],
-        "summary": "Update a TrapForwardingRule",
+        "summary": "Update a trap forwarding rule",
         "operationId": "updateTrapForwardingRule",
         "security": [
           {
@@ -32555,22 +32816,32 @@
           }
         ],
         "requestBody": {
-          "description": "TrapForwardingRule",
+          "description": "Update trap forwarding rule",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/trapForwardingRules_updateTrapForwardingRule"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "TrapForwardingRule",
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingRuleSafe"
+                    }
+                  }
                 }
               }
             }
@@ -32581,7 +32852,7 @@
         "tags": [
           "Trap Forwarding Rules"
         ],
-        "summary": "Delete a TrapForwardingRule",
+        "summary": "Delete a trap forwarding rule",
         "operationId": "deleteTrapForwardingRule",
         "security": [
           {
@@ -32601,6 +32872,269 @@
         "responses": {
           "204": {
             "description": "No content"
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/readiness": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Get safe trap-forwarding feature readiness for the current install",
+        "operationId": "getTrapForwardingReadiness",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingReadiness"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/destinations": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "List safe active registered-webhook choices for the current organization",
+        "operationId": "listTrapForwardingDestinations",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TrapForwardingDestination"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/{id}/configuration": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Get full editable destination fields (requires trap_forwarding.update; never cached)",
+        "operationId": "getTrapForwardingConfiguration",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingEditableConfiguration"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/{id}/deliveries": {
+      "get": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "List safe recent delivery outcomes for a rule (payload and destination snapshots excluded)",
+        "operationId": "listTrapForwardingDeliveries",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TrapForwardingDelivery"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trap-forwarding-rules/{id}/test": {
+      "post": {
+        "tags": [
+          "Trap Forwarding Rules"
+        ],
+        "summary": "Queue a clearly marked test delivery without creating an SNMP trap",
+        "operationId": "testTrapForwardingRule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingTestDelivery"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -32629,14 +33163,282 @@
         ],
         "responses": {
           "200": {
-            "description": "TrapForwardingRule",
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrapForwardingRuleSafe"
+                    }
+                  }
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/snmp-traps": {
+      "get": {
+        "tags": [
+          "SNMP Traps"
+        ],
+        "summary": "List tenant-scoped trap metadata (community and varbind values excluded)",
+        "operationId": "listSnmpTraps",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "device_id",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "trap_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SnmpTrapMetadata"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "total",
+                        "page",
+                        "limit"
+                      ],
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-traps/{id}": {
+      "get": {
+        "tags": [
+          "SNMP Traps"
+        ],
+        "summary": "Get raw varbind detail (requires devices.view and snmp_traps.payload.view; community is never returned)",
+        "operationId": "getSnmpTrapPayload",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SnmpTrapDetail"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-traps/{id}/acknowledge": {
+      "post": {
+        "tags": [
+          "SNMP Traps"
+        ],
+        "summary": "Acknowledge a trap",
+        "operationId": "acknowledgeSnmpTrap",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SnmpTrapAcknowledgement"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snmp-traps/{id}/clear": {
+      "post": {
+        "tags": [
+          "SNMP Traps"
+        ],
+        "summary": "Dismiss a trap",
+        "operationId": "clearSnmpTrap",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
           }
         }
       }
@@ -75735,28 +76537,51 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
           },
           "match_trap_type": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 64
           },
           "match_source_ip": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 15
           },
           "match_oid_prefix": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 255
           },
           "forward_to_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 500
           },
           "forward_to_email": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 255
           },
           "forward_to_webhook_id": {
-            "type": "number"
-          },
-          "transform_template": {
-            "type": "string"
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1
           },
           "is_active": {
             "type": "boolean"
@@ -75770,31 +76595,54 @@
         "type": "object",
         "properties": {
           "match_trap_type": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 64
           },
           "match_source_ip": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 15
           },
           "match_oid_prefix": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 255
           },
           "forward_to_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 500
           },
           "forward_to_email": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "maximum": 255
           },
           "forward_to_webhook_id": {
-            "type": "number"
-          },
-          "transform_template": {
-            "type": "string"
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1
           },
           "is_active": {
             "type": "boolean"
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "minimum": 1,
+            "maximum": 200
           }
         }
       },
@@ -79383,6 +80231,810 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "TrapForwardingRuleSafe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "target_type",
+          "target_display",
+          "target_display_code",
+          "target_needs_attention",
+          "configuration_reviewed",
+          "transform_supported"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "organization_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "match_trap_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "match_source_ip": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "ipv4",
+                "maxLength": 15
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "match_oid_prefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "target_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "url",
+              "email",
+              "webhook",
+              null
+            ]
+          },
+          "target_display": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_display_code": {
+            "type": "string",
+            "enum": [
+              "direct_https_url",
+              "email_recipient",
+              "registered_webhook",
+              "review_destination"
+            ]
+          },
+          "target_needs_attention": {
+            "type": "boolean"
+          },
+          "configuration_reviewed": {
+            "type": "boolean"
+          },
+          "transform_supported": {
+            "type": "boolean",
+            "const": false
+          },
+          "last_delivery_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "pending",
+              "processing",
+              "retrying",
+              "success",
+              "dead_letter",
+              "cancelled",
+              null
+            ]
+          },
+          "last_delivery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_delivery_is_test": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "TrapForwardingEditableConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "forward_to_url",
+          "forward_to_email",
+          "forward_to_webhook_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "forward_to_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "forward_to_email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email"
+          },
+          "forward_to_webhook_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "TrapForwardingDestination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "TrapForwardingDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "target_type",
+          "is_test",
+          "status",
+          "attempt_number",
+          "max_attempts"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "trap_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "url",
+              "email",
+              "webhook"
+            ]
+          },
+          "is_test": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "retrying",
+              "success",
+              "dead_letter",
+              "cancelled"
+            ]
+          },
+          "attempt_number": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 11
+          },
+          "recovery_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "http_status_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "response_time_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivered_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "TrapForwardingTestDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "is_test"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "is_test": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "TrapForwardingReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "status",
+          "reason",
+          "ingest"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unavailable"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "primary_schema_unavailable",
+              "listener_not_ready",
+              "invalid_port",
+              "invalid_bind_ip",
+              "bind_failed",
+              "isolated_tenant_attribution_unsupported",
+              "multi_organization_attribution_unsupported",
+              "source_attribution_unavailable",
+              "feature_disabled",
+              null
+            ]
+          },
+          "ingest": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "usage_date",
+                  "trap_count",
+                  "trap_limit",
+                  "varbind_bytes",
+                  "varbind_byte_limit",
+                  "delivery_count",
+                  "delivery_limit",
+                  "metadata_only_count",
+                  "dropped_trap_count",
+                  "forwarding_skipped_count"
+                ],
+                "properties": {
+                  "usage_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "trap_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "trap_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "varbind_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "varbind_byte_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "delivery_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "delivery_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "metadata_only_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "dropped_trap_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "forwarding_skipped_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "WebhookSafe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "is_active",
+          "has_secret",
+          "url_configured",
+          "target_display_code"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "organization_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "events": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_retries": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "has_secret": {
+            "type": "boolean"
+          },
+          "url_configured": {
+            "type": "boolean"
+          },
+          "target_display_code": {
+            "type": "string",
+            "const": "configured_https_endpoint"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "WebhookEditableConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      },
+      "SnmpTrapMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_ip",
+          "trap_type"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "organization_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "device_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_ip": {
+            "type": "string"
+          },
+          "trap_type": {
+            "type": "string"
+          },
+          "trap_oid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snmp_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "varbinds_truncated": {
+            "type": "boolean"
+          },
+          "varbinds_original_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "varbinds_truncation_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "count_limit",
+              "size_limit",
+              "count_and_size_limit",
+              "daily_byte_quota",
+              null
+            ]
+          },
+          "is_acknowledged": {
+            "type": "boolean"
+          },
+          "acknowledged_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "acknowledged_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "SnmpTrapDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_ip",
+          "trap_type",
+          "varbinds",
+          "varbinds_truncated",
+          "varbinds_original_count",
+          "varbinds_truncation_reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "organization_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "device_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_ip": {
+            "type": "string"
+          },
+          "trap_type": {
+            "type": "string"
+          },
+          "trap_oid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snmp_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "varbinds_truncated": {
+            "type": "boolean"
+          },
+          "varbinds_original_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "varbinds_truncation_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "count_limit",
+              "size_limit",
+              "count_and_size_limit",
+              "daily_byte_quota",
+              null
+            ]
+          },
+          "is_acknowledged": {
+            "type": "boolean"
+          },
+          "acknowledged_by": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "acknowledged_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "varbinds": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oid",
+                "type",
+                "value"
+              ],
+              "properties": {
+                "oid": {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                "type": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 32
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 512,
+                  "description": "At most 512 UTF-8 bytes when non-null."
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "SnmpTrapAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "acknowledged"
+        ],
+        "properties": {
+          "acknowledged": {
+            "type": "boolean"
           }
         }
       },

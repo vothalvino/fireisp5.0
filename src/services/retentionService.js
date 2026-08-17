@@ -29,6 +29,29 @@ const POLICY_CONFIG = Object.freeze({
     defaultDays: 90,
     dateColumn: 'created_at',
     tenantWhere: '`webhook_id` IN (SELECT `id` FROM `webhooks` WHERE `organization_id` = ?)',
+    // Never erase durable work before its owner worker records an outcome.
+    // `failed` is a legacy terminal status; current retryable work is
+    // represented by pending/retrying/processing.
+    extraWhere: "`status` IN ('success','failed','dead_letter')",
+  },
+  snmp_trap_forwarding_deliveries: {
+    defaultDays: 90,
+    dateColumn: 'created_at',
+    tenantWhere: '`organization_id` = ?',
+    extraWhere: "`status` IN ('success','dead_letter','cancelled')",
+  },
+  snmp_traps: {
+    defaultDays: 180,
+    dateColumn: 'received_at',
+    tenantWhere: '`organization_id` = ?',
+  },
+  snmp_trap_ingest_daily_usage: {
+    defaultDays: 14,
+    dateColumn: 'usage_date',
+    // Install-wide accounting has no tenant owner. A tenant-scoped privacy
+    // purge must leave this operational counter alone.
+    tenantWhere: '1 = 0',
+    globalOnly: true,
   },
   email_logs: {
     defaultDays: 180,
@@ -297,6 +320,9 @@ async function purgeTable(table, retentionDays, dateColumn, options = {}) {
   const organizationId = tenantScoped
     ? normalizeOrganizationId(options.organizationId)
     : null;
+  if (tenantScoped && config.globalOnly) {
+    return { table, deleted: 0, skipped: 'install_wide_only' };
+  }
   const tenantClause = tenantScoped ? ` AND ${config.tenantWhere}` : '';
   const extraClause = config.extraWhere ? ` AND (${config.extraWhere})` : '';
   const params = tenantScoped

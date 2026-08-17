@@ -33,10 +33,12 @@
 # as root without sudo, or `sudo -E` with a SETENV sudoers tag).
 #
 # NOTE ON SCHEMA: rolling the image back does NOT roll the database back.
-# Migrations already applied stay applied, and migrate.js below no-ops because
-# the old image only knows its own (already-applied) files. Old code against a
-# forward schema is fine for additive migrations and breaks on a DROP, RENAME or
-# narrowed ENUM — check what the deploy you are undoing actually migrated.
+# Migrations already applied stay applied. Migration 459 is an explicit
+# compatibility boundary: older code can re-persist SNMP communities, expose
+# legacy audit data, and use an AES-GCM webhook envelope as the HMAC key. This
+# script therefore refuses a target that predates migration 459. Roll forward
+# with a corrected image instead. Other rollback targets still require checking
+# their migrations for DROP/RENAME/narrowed-ENUM compatibility.
 #
 # Non-standard install path? Set it in the environment of a ROOT shell (not as a
 # sudo prefix, for the reason above):
@@ -388,6 +390,25 @@ export FIREISP_IMAGE="${REGISTRY_IMAGE}:${TAG}"
 echo "==> Target image $FIREISP_IMAGE"
 if [[ -n "${1:-}" ]]; then
   echo "    (pinned by argument — this is a ROLLBACK; the database schema is NOT rolled back)"
+elif [[ -n "${FIREISP_IMAGE_TAG:-}" ]]; then
+  echo "    (pinned by environment — the database schema is NOT rolled back)"
+fi
+if [[ -n "${1:-${FIREISP_IMAGE_TAG:-}}" ]]; then
+  if ! git -C "$APP_DIR" cat-file -e "${TAG}^{commit}:database/migrations/459_activate_snmp_trap_forwarding.sql" 2>/dev/null; then
+    cat >&2 <<'EOF'
+error: refusing to start an application version that predates migration 459.
+
+Migration 459 is a one-way application compatibility boundary: the upgraded
+database stores encrypted webhook signing secrets and no longer permits the
+legacy trap/audit privacy behavior. An older image would sign with ciphertext
+and could reintroduce SNMP communities or sensitive audit values.
+
+Roll forward with a corrected post-459 image. Do not restore an old image
+unless you are performing a separately rehearsed full database-and-application
+restore from a pre-459 backup during an approved outage.
+EOF
+    exit 1
+  fi
 fi
 
 # -----------------------------------------------------------------------------
@@ -527,28 +548,53 @@ EOF
   exit 1
 fi
 
+echo "==> Preparing database and Redis dependencies"
+dc up -d db-primary redis
+
+# Migration 459 tightens DB invariants that an older app cannot honor (SNMP
+# community redaction, webhook-secret encryption, audit sanitization, and the
+# single trap-delivery path). Stop and gracefully drain the old app before any
+# new-image migration begins; a rolling writer overlap would be a credential
+# leak, not merely a transient compatibility warning. Nginx may return 502 for
+# this short, explicit maintenance window.
+echo "==> Stopping and draining the previous application before migration"
+dc stop -t 30 app
+
+# Run the NEW image's migrations while no application writer/listener is live.
+# `docker compose run` does not publish HTTP/RADIUS/SNMP ports. On failure the
+# old app deliberately remains stopped: restarting legacy code against a
+# partially tightened schema could reintroduce the secrets the migration just
+# removed. Repair or roll forward the migration, then rerun redeploy.
+echo "==> Running database migrations before application startup"
+if ! dc run --rm -T -e MIGRATE_ISOLATED_TENANTS=true app node src/scripts/migrate.js; then
+  echo "error: database migration failed; the previous app remains stopped for data safety." >&2
+  echo "       Fix or roll forward the migration, then rerun sudo redeploy." >&2
+  exit 1
+fi
+
 echo "==> Starting containers"
 dc up -d
 
-# Wait for the new container to answer before migrating. Without this, a
-# crash-looping image fails at `exec` with a bare "container is not running",
-# which reads like a tooling problem rather than a bad deploy. The old
-# build-based flow got this cover accidentally, from the minutes it spent
-# compiling; pulling is fast enough that the race is now real.
-echo "==> Waiting for the app to become responsive"
+# Require the actual readiness endpoint, not merely a running Node process.
+# This catches a booting/crash-looping image, an unavailable dependency, and a
+# schema readiness failure before the deploy is reported as successful.
+echo "==> Waiting for the app readiness probe"
 for _i in $(seq 1 30); do
-  if dc exec -T app node -e 'process.exit(0)' >/dev/null 2>&1; then break; fi
+  if dc exec -T app node -e \
+    "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" \
+    >/dev/null 2>&1; then
+    break
+  fi
   sleep 2
 done
-if ! dc exec -T app node -e 'process.exit(0)' >/dev/null 2>&1; then
-  echo "error: the app container is not running 60s after start — migrations NOT applied." >&2
+if ! dc exec -T app node -e \
+  "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" \
+  >/dev/null 2>&1; then
+  echo "error: the app readiness probe is still failing 60s after start." >&2
   echo "       Inspect with: docker compose -f $COMPOSE_FILE --env-file $ENV_FILE logs --tail=100 app" >&2
   echo "       Roll back with: sudo redeploy <previous-commit-sha>" >&2
   exit 1
 fi
-
-echo "==> Running database migrations"
-dc exec app node src/scripts/migrate.js
 
 echo "==> App container Node version"
 dc exec app node -v

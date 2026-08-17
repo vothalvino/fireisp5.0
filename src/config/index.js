@@ -80,6 +80,10 @@ const config = {
     // inboxes, the same rationale passwordReset/verifyEmailResend already
     // get their own tighter per-IP budget on top of the shared `api` bucket.
     bulkEmail: parseIntEnv('RATE_LIMIT_BULK_EMAIL', 10),
+    // POST /trap-forwarding-rules/:id/test sends a real email/HTTPS request.
+    // Give it a small, independent per-operator budget instead of letting a
+    // compromised authorized session consume the broad SPA/API allowance.
+    trapForwardingTest: parseIntEnv('RATE_LIMIT_TRAP_FORWARDING_TEST', 10),
     // Per-organization rolling-24h RECIPIENT-count budget for POST
     // /bulk/email (not a request count — one request already fans out to up
     // to 1000 recipients, so request-count alone under-protects against

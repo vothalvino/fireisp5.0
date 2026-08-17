@@ -56,6 +56,18 @@ describe('admin', () => {
   it('opens Clients by default', () => {
     expect(defaultExpandedSection('admin')).toBe('clients');
   });
+  it('shows full-database backups only to the verified install operator', () => {
+    const tenantAdminItems = visibleHubCards(
+      { role: 'admin', organization_locale: 'MX', is_install_operator: false },
+      'admin',
+    ).flatMap(card => card.items.map(item => item.path));
+    const operatorItems = visibleHubCards(
+      { role: 'admin', organization_locale: 'MX', is_install_operator: true },
+      'admin',
+    ).flatMap(card => card.items.map(item => item.path));
+    expect(tenantAdminItems).not.toContain('/backups');
+    expect(operatorItems).toContain('/backups');
+  });
 });
 
 describe('technician', () => {

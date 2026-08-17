@@ -647,7 +647,11 @@ function extractFromLiteral(rawSql, file, line) {
   }
 
   // ---------------- UPDATE <table> [alias] SET ... ----------------
-  const updateRe = /\bUPDATE\s+(?!SET\b)([^\s,;()]+)([\s\S]{0,120}?)\bSET\b/gi;
+  // `CREATE TRIGGER ... BEFORE UPDATE ON table ... SET NEW.col = ...` is DDL,
+  // not an `UPDATE <table> SET ...` statement. Excluding the trigger-event
+  // keyword `ON` keeps a later SET inside the trigger body from being
+  // misidentified as an update against a fictional table named "on".
+  const updateRe = /\bUPDATE\s+(?!SET\b|ON\b)([^\s,;()]+)([\s\S]{0,120}?)\bSET\b/gi;
   while ((m = updateRe.exec(sql))) {
     // ON DUPLICATE KEY UPDATE is handled above, not here.
     if (/\bDUPLICATE\s+KEY\s+$/i.test(sql.slice(Math.max(0, m.index - 24), m.index))) continue;

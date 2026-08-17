@@ -40,6 +40,11 @@ jest.mock('../src/services/pollerEngine', () => ({
   recordPerformanceSnapshot: jest.fn(),
 }));
 
+jest.mock('../src/services/snmpTrapReceiver', () => ({
+  start: jest.fn(),
+  stop: jest.fn(),
+}));
+
 jest.mock('../src/services/paymentPlanService', () => ({
   checkInstallmentsDue: jest.fn(),
 }));
@@ -68,6 +73,10 @@ jest.mock('../src/services/emailTransport', () => ({
 }));
 
 jest.mock('../src/services/webhookService', () => ({
+  processRetries: jest.fn(),
+}));
+
+jest.mock('../src/services/trapForwardingService', () => ({
   processRetries: jest.fn(),
 }));
 
@@ -105,11 +114,14 @@ const radiusService = require('../src/services/radiusService');
 const emailTransport = require('../src/services/emailTransport');
 const snmpPoller = require('../src/services/snmpPoller');
 const pollerEngine = require('../src/services/pollerEngine');
+const snmpTrapReceiver = require('../src/services/snmpTrapReceiver');
 const paymentPlanService = require('../src/services/paymentPlanService');
 const rolloverService = require('../src/services/rolloverService');
 const cpeSessionLogService = require('../src/services/cpeSessionLogService');
 const speedWindowService = require('../src/services/speedWindowService');
 const retentionService = require('../src/services/retentionService');
+const webhookService = require('../src/services/webhookService');
+const trapForwardingService = require('../src/services/trapForwardingService');
 const pppoeEventCollector = require('../src/services/pppoeEventCollector');
 const taskRunner = require('../src/services/taskRunner');
 
@@ -133,6 +145,10 @@ describe('taskRunner', () => {
     jest.resetAllMocks();
     radiusService.syncAllAccounts.mockResolvedValue({ synced: 0, total: 0 });
     emailTransport.sendEmail.mockResolvedValue({});
+    snmpTrapReceiver.stop.mockResolvedValue({ state: 'stopped', ready: false });
+    snmpTrapReceiver.start.mockResolvedValue({
+      state: 'listening', ready: true, listening: true, reason: null,
+    });
   });
 
   // =========================================================================
@@ -189,6 +205,23 @@ describe('taskRunner', () => {
       expect(result).toHaveProperty('synced', 0);
       expect(result).toHaveProperty('total', 0);
     });
+
+    test.each(['webhook_delivery', 'webhook_retry'])(
+      '%s sweep recovers both generic and trap-forwarding deliveries',
+      async taskName => {
+        webhookService.processRetries.mockResolvedValueOnce({ succeeded: 1, total: 1 });
+        trapForwardingService.processRetries.mockResolvedValueOnce({ queued: 2, failed: 0, total: 2 });
+
+        const result = await taskRunner.runTask(taskName);
+
+        expect(result).toEqual({
+          webhooks: { succeeded: 1, total: 1 },
+          trap_forwarding: { queued: 2, failed: 0, total: 2 },
+        });
+        expect(webhookService.processRetries).toHaveBeenCalledTimes(1);
+        expect(trapForwardingService.processRetries).toHaveBeenCalledTimes(1);
+      },
+    );
 
     test('dispatches organization-scoped poll_pppoe_events task', async () => {
       const connection = mockAdvisoryConnection();
@@ -354,6 +387,41 @@ describe('taskRunner', () => {
       expect(pollerEngine.recordPerformanceSnapshot).toHaveBeenCalled();
       expect(result.snapshots).toBe(2);
     });
+
+    test.each(['snmp_trap_receiver_restart', 'snmp_trap_receiver'])(
+      '%s waits for the existing listener to drain before starting a replacement',
+      async (taskName) => {
+        let finishDrain;
+        snmpTrapReceiver.stop.mockImplementationOnce(() => new Promise(resolve => {
+          finishDrain = resolve;
+        }));
+
+        const restart = taskRunner.runTask(taskName);
+        await Promise.resolve();
+
+        expect(snmpTrapReceiver.stop).toHaveBeenCalledTimes(1);
+        expect(snmpTrapReceiver.start).not.toHaveBeenCalled();
+
+        finishDrain({ state: 'stopped', ready: false });
+        await expect(restart).resolves.toMatchObject({ message: expect.any(String) });
+        expect(snmpTrapReceiver.start).toHaveBeenCalledTimes(1);
+        expect(snmpTrapReceiver.stop.mock.invocationCallOrder[0])
+          .toBeLessThan(snmpTrapReceiver.start.mock.invocationCallOrder[0]);
+      },
+    );
+
+    test.each(['snmp_trap_receiver_restart', 'snmp_trap_receiver'])(
+      '%s fails the scheduled task when the replacement listener is not ready',
+      async (taskName) => {
+        snmpTrapReceiver.start.mockResolvedValueOnce({
+          state: 'failed', ready: false, listening: false, reason: 'bind_failed',
+        });
+
+        await expect(taskRunner.runTask(taskName)).rejects.toThrow(/bind_failed/i);
+        expect(snmpTrapReceiver.stop).toHaveBeenCalledTimes(1);
+        expect(snmpTrapReceiver.start).toHaveBeenCalledTimes(1);
+      },
+    );
 
     // Previously-dead migration-seeded tasks now wired to real implementations
     test('dispatches check_installments_due', async () => {

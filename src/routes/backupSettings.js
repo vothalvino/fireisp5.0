@@ -19,9 +19,9 @@
 //
 // Mounted at /api/v1/backup-settings behind adminIpAllowlist (the dr-drill /
 // users / organizations convention — instance-level infrastructure).
-// backup_settings.view/backup_settings.update are granted to admin +
-// super_admin ONLY (migration 404) — a database-backup credential is
-// instance-wide infrastructure, not a business-role-scoped resource.
+// Every route also requires the DB-revalidated install operator. The existing
+// backup_settings.* permissions and IP allowlist remain defense in depth; a
+// tenant admin must never download or control an all-organization backup.
 // =============================================================================
 
 const { Router } = require('express');
@@ -32,9 +32,24 @@ const { updateBackupSettings } = require('../middleware/schemas/backupSettings')
 const backupSettingsService = require('../services/backupSettingsService');
 const auditLog = require('../services/auditLog');
 const logger = require('../utils/logger').child({ service: 'routes/backupSettings' });
+const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
 
 const router = Router();
 router.use(authenticate);
+
+async function requireInstallOperator(req, res, next) {
+  try {
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'INSTALL_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
+    });
+  } catch (err) { return next(err); }
+}
+
+// Every endpoint below controls or exposes a full-install database backup.
+// Tenant role/permission grants remain defense in depth, but cannot authorize
+// access to data belonging to other organizations.
+router.use(requireInstallOperator);
 
 router.get('/',
   requirePermission('backup_settings.view'),

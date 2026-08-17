@@ -20,12 +20,15 @@ const { assertDeviceClientFk } = require('../services/deviceAuthz');
 const deviceActionsService = require('../services/deviceActionsService');
 const { redactDevice } = require('../utils/deviceSanitize');
 const logger = require('../utils/logger').child({ service: 'routes/devices' });
+const { invalidateDeviceRoutingCache } = require('../services/tenantDeviceResolverService');
 
 const router = Router();
 
 const ctrl = crudController(Device, {
   cacheResource: 'devices',
   beforeUpdate: (_old, req) => assertDeviceClientFk(req.body, req.orgId),
+  afterCreate: invalidateDeviceRoutingCache,
+  afterUpdate: invalidateDeviceRoutingCache,
   serialize: redactDevice,
 });
 
@@ -63,6 +66,7 @@ router.put('/:id', requirePermission('devices.update'), validate(updateDevice), 
       newValues: req.body,
     });
     await bustCache(req.orgId, 'devices');
+    invalidateDeviceRoutingCache();
     if (req.body.status !== undefined && req.body.status !== old.status) {
       pubsub.publish('DEVICE_STATUS_CHANGED', { deviceStatusChanged: record, orgId: req.orgId });
     }
@@ -93,6 +97,7 @@ router.delete('/:id', requirePermission('devices.delete'), async (req, res, next
   try {
     const old = await Device.findByIdOrFail(req.params.id, req.orgId);
     await Device.delete(req.params.id, req.orgId);
+    invalidateDeviceRoutingCache();
     topologyContextService.invalidate(old.id, 'device')
       .catch(err => logger.warn({ err: err.message, deviceId: old.id }, 'topology invalidate failed on device delete'));
     await bustCache(req.orgId, 'devices');
@@ -102,6 +107,7 @@ router.delete('/:id', requirePermission('devices.delete'), async (req, res, next
 router.post('/:id/restore', requirePermission('devices.update'), async (req, res, next) => {
   try {
     const record = await Device.restore(req.params.id, req.orgId);
+    invalidateDeviceRoutingCache();
     topologyContextService.invalidate(record.id, 'device')
       .catch(err => logger.warn({ err: err.message, deviceId: record.id }, 'topology invalidate failed on device restore'));
     await bustCache(req.orgId, 'devices');

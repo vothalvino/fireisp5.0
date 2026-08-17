@@ -827,7 +827,13 @@ CREATE TABLE IF NOT EXISTS devices (
     serial_number VARCHAR(100)    NULL,
     mac_address   VARCHAR(17)     NULL COMMENT 'MAC address in XX:XX:XX:XX:XX:XX format',
     ip_address    VARCHAR(45)     NULL COMMENT 'Management IPv4 address',
+    ip_address_bin VARBINARY(16) GENERATED ALWAYS AS
+        (CASE WHEN IS_IPV4(ip_address) THEN INET6_ATON(ip_address) WHEN IS_IPV6(ip_address) AND IS_IPV4_MAPPED(INET6_ATON(ip_address)) THEN SUBSTR(INET6_ATON(ip_address),13,4) WHEN IS_IPV6(ip_address) THEN INET6_ATON(ip_address) ELSE NULL END) STORED
+                                  COMMENT 'Canonical indexed primary management address for atomic trap-source locking (migration 459)',
     ipv6_address  VARCHAR(45)     NULL COMMENT 'Management IPv6 address (dual-stack)',
+    ipv6_address_bin VARBINARY(16) GENERATED ALWAYS AS
+        (CASE WHEN IS_IPV4(ipv6_address) THEN INET6_ATON(ipv6_address) WHEN IS_IPV6(ipv6_address) AND IS_IPV4_MAPPED(INET6_ATON(ipv6_address)) THEN SUBSTR(INET6_ATON(ipv6_address),13,4) WHEN IS_IPV6(ipv6_address) THEN INET6_ATON(ipv6_address) ELSE NULL END) STORED
+                                  COMMENT 'Canonical indexed secondary management address for atomic trap-source locking (migration 459)',
     firmware      VARCHAR(100)    NULL,
     snmp_enabled  BOOLEAN         NOT NULL DEFAULT FALSE COMMENT 'Enable SNMP polling for this device',
     snmp_community VARCHAR(255)   NULL COMMENT 'SNMP community string (v1/v2c) — store encrypted; decrypt at application layer',
@@ -869,6 +875,8 @@ CREATE TABLE IF NOT EXISTS devices (
     KEY idx_devices_status (status),
     KEY idx_devices_snmp_enabled (snmp_enabled),
     KEY idx_devices_snmp_profile_id (snmp_profile_id),
+    KEY idx_devices_ip_address_bin (ip_address_bin),
+    KEY idx_devices_ipv6_address_bin (ipv6_address_bin),
     KEY idx_devices_firerelay_node_id (firerelay_node_id),
     KEY idx_devices_deleted_at (deleted_at),
     CONSTRAINT fk_devices_organization FOREIGN KEY (organization_id)
@@ -1276,6 +1284,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     privacy_notice      MEDIUMTEXT      NULL COMMENT 'Org-specific privacy notice (markdown). NULL = bundled template (migration 430)',
     privacy_notice_version VARCHAR(20)  NULL COMMENT 'Version compared to subscriber_consents.consent_version; bump to force re-acceptance (migration 430)',
     status              ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    outbound_delivery_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Monotonic fence for queued outbound deliveries (migration 459)',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at      DATETIME        DEFAULT NULL,
@@ -2080,7 +2089,10 @@ CREATE TABLE IF NOT EXISTS snmp_traps (
     trap_type        VARCHAR(64)      NOT NULL DEFAULT 'unknown',
     trap_oid         VARCHAR(255),
     varbinds         JSON,
-    community        VARCHAR(128),
+    varbinds_truncated TINYINT(1) NOT NULL DEFAULT 0,
+    varbinds_original_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    varbinds_truncation_reason ENUM('count_limit','size_limit','count_and_size_limit','daily_byte_quota') NULL,
+    community        VARCHAR(128)      NULL COMMENT 'Legacy column; receiver never persists SNMP community credentials',
     snmp_version     TINYINT UNSIGNED NOT NULL DEFAULT 2,
     is_acknowledged  TINYINT(1)       NOT NULL DEFAULT 0,
     acknowledged_by  BIGINT UNSIGNED,
@@ -2231,6 +2243,11 @@ CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
     forward_to_webhook_id BIGINT UNSIGNED NULL,
     transform_template   TEXT            NULL,
     is_active            BOOLEAN         NOT NULL DEFAULT TRUE,
+    configuration_reviewed_at DATETIME   NULL COMMENT 'Set only after current matcher/destination pass secure validation (migration 459)',
+    last_delivery_status ENUM('pending','processing','retrying','success','dead_letter','cancelled') NULL,
+    last_delivery_at     DATETIME        NULL,
+    last_error           VARCHAR(500)    NULL,
+    last_delivery_is_test TINYINT(1)     NOT NULL DEFAULT 0,
     created_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at           DATETIME        NULL,
@@ -2239,6 +2256,8 @@ CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_rules (
     KEY idx_stfr_org (organization_id),
     KEY idx_stfr_active (is_active),
     KEY idx_stfr_deleted_at (deleted_at),
+    KEY idx_stfr_org_active_deleted (organization_id, is_active, deleted_at),
+    KEY idx_stfr_match_ready (organization_id, is_active, deleted_at, configuration_reviewed_at),
     CONSTRAINT fk_stfr_org FOREIGN KEY (organization_id)
         REFERENCES organizations (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -6571,15 +6590,21 @@ CREATE TABLE IF NOT EXISTS webhooks (
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
     id                BIGINT UNSIGNED     NOT NULL AUTO_INCREMENT,
     webhook_id        BIGINT UNSIGNED     NOT NULL                    COMMENT 'Webhook registration this delivery belongs to',
+    organization_epoch BIGINT UNSIGNED    NOT NULL DEFAULT 0          COMMENT 'Owning organization outbound-delivery epoch at enqueue',
     event_name        VARCHAR(100)        NOT NULL                    COMMENT 'Event type that triggered this delivery, e.g. "invoice.created"',
     payload           JSON                NOT NULL                    COMMENT 'Full event payload sent in the request body',
+    target_url        VARCHAR(2048)       NULL                        COMMENT 'Immutable public-HTTPS destination snapshot; never returned by read APIs',
     http_status_code  SMALLINT UNSIGNED   NULL                        COMMENT 'HTTP status code returned by the target endpoint',
-    response_body     TEXT                NULL                        COMMENT 'Response body from the target endpoint (truncated if large)',
+    response_body     TEXT                NULL                        COMMENT 'Legacy column; upgraded delivery transports never read or persist untrusted response bodies',
     response_time_ms  INT UNSIGNED        NULL                        COMMENT 'Round-trip HTTP request time in milliseconds',
     attempt_number    TINYINT UNSIGNED    NOT NULL DEFAULT 1          COMMENT 'Which attempt this row represents (1 = first try)',
-    status            ENUM('pending','success','failed','retrying','dead_letter')
+    recovery_count    TINYINT UNSIGNED    NOT NULL DEFAULT 0          COMMENT 'Bounded same-attempt recovery after an ambiguous final worker crash',
+    status            ENUM('pending','processing','success','failed','retrying','dead_letter')
                                           NOT NULL DEFAULT 'pending'  COMMENT 'Delivery outcome status',
     next_retry_at     TIMESTAMP           NULL                        COMMENT 'Scheduled time for the next retry attempt; NULL = no retry pending',
+    locked_at         DATETIME            NULL                        COMMENT 'Worker-claim timestamp; stale claims are recovered by the durable sweep',
+    claim_token       CHAR(36)            NULL                        COMMENT 'Per-attempt ownership token used for compare-and-set outcomes',
+    revoked_at        DATETIME            NULL                        COMMENT 'Set when a claimed immutable delivery is revoked; the active claim may finish but cannot be recovered',
     delivered_at      TIMESTAMP           NULL                        COMMENT 'Timestamp of a successful delivery; NULL if not yet succeeded',
     created_at        TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -6588,10 +6613,97 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     KEY idx_webhook_deliveries_event_name (event_name),
     KEY idx_webhook_deliveries_status (status),
     KEY idx_webhook_deliveries_next_retry_at (next_retry_at),
+    KEY idx_webhook_deliveries_processing (status, locked_at),
     KEY idx_webhook_deliveries_status_created (status, created_at),
     KEY idx_webhook_deliveries_dead_letter (status, webhook_id),
     CONSTRAINT fk_webhook_deliveries_webhook FOREIGN KEY (webhook_id)
         REFERENCES webhooks (id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_trap_ingest_daily_usage (migration 459)
+-- Purpose: Durable install-wide UTC-day quota used transactionally before a
+--          trap and its forwarding outbox are persisted.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_trap_ingest_daily_usage (
+    usage_date          DATE NOT NULL,
+    scope_type          ENUM('global','organization') NOT NULL,
+    scope_id            BIGINT UNSIGNED NOT NULL COMMENT '0 for global; organization ID for organization scope',
+    trap_count          BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    varbind_bytes       BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    delivery_count      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    metadata_only_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    dropped_trap_count  BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    forwarding_skipped_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (usage_date, scope_type, scope_id),
+    CONSTRAINT chk_snmp_trap_ingest_scope CHECK (
+        (scope_type = 'global' AND scope_id = 0)
+        OR (scope_type = 'organization' AND scope_id > 0)
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Install-wide UTC-day SNMP ingest quota; transaction-locked before trap/outbox persistence';
+
+-- ---------------------------------------------------------------------------
+-- Table: snmp_trap_forwarding_deliveries (migration 459)
+-- Purpose: Durable, tenant-scoped attempt/retry history for trap forwarding.
+--          Payload contains allowlisted metadata only and is never returned by
+--          the delivery-list API. Defined after webhooks so every referenced
+--          table exists during a fresh schema installation.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS snmp_trap_forwarding_deliveries (
+    id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    organization_id    BIGINT UNSIGNED NOT NULL,
+    organization_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    rule_id             BIGINT UNSIGNED NULL,
+    trap_id             BIGINT UNSIGNED NULL,
+    webhook_id          BIGINT UNSIGNED NULL,
+    target_type         ENUM('url','email','webhook') NOT NULL,
+    target_url          VARCHAR(2048) NULL,
+    target_email        VARCHAR(255) NULL,
+    payload             JSON NOT NULL,
+    is_test             TINYINT(1) NOT NULL DEFAULT 0,
+    status              ENUM('pending','processing','retrying','success','dead_letter','cancelled') NOT NULL DEFAULT 'pending',
+    attempt_number      TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    max_attempts        TINYINT UNSIGNED NOT NULL DEFAULT 4,
+    recovery_count      TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Bounded same-attempt recovery after an ambiguous final worker crash',
+    http_status_code    SMALLINT UNSIGNED NULL,
+    response_time_ms    INT UNSIGNED NULL,
+    last_error          VARCHAR(1000) NULL,
+    next_attempt_at     DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at           DATETIME NULL,
+    claim_token         CHAR(36) NULL COMMENT 'Per-claim UUID used to reject stale worker outcomes',
+    revoked_at          DATETIME NULL COMMENT 'Set when a claimed immutable delivery is revoked; the active claim may finish but cannot be recovered',
+    delivered_at        DATETIME NULL,
+    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_stfd_rule_trap (organization_id, rule_id, trap_id),
+    KEY idx_stfd_org_created (organization_id, created_at),
+    KEY idx_stfd_due (status, next_attempt_at),
+    KEY idx_stfd_processing (status, locked_at),
+    KEY idx_stfd_rule_created (rule_id, created_at),
+    KEY idx_stfd_trap (trap_id),
+    KEY idx_stfd_webhook (webhook_id),
+    CONSTRAINT fk_stfd_org FOREIGN KEY (organization_id)
+        REFERENCES organizations (id) ON DELETE CASCADE ON UPDATE RESTRICT,
+    CONSTRAINT fk_stfd_rule FOREIGN KEY (rule_id)
+        REFERENCES snmp_trap_forwarding_rules (id) ON DELETE SET NULL ON UPDATE RESTRICT,
+    CONSTRAINT fk_stfd_trap FOREIGN KEY (trap_id)
+        REFERENCES snmp_traps (id) ON DELETE SET NULL ON UPDATE RESTRICT,
+    CONSTRAINT fk_stfd_webhook FOREIGN KEY (webhook_id)
+        REFERENCES webhooks (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT chk_stfd_target_shape CHECK (
+        (target_type = 'email' AND target_email IS NOT NULL AND target_url IS NULL AND webhook_id IS NULL)
+        OR (target_type = 'url' AND target_url IS NOT NULL AND target_email IS NULL AND webhook_id IS NULL)
+        OR (target_type = 'webhook' AND target_url IS NOT NULL AND target_email IS NULL AND webhook_id IS NOT NULL)
+    ),
+    CONSTRAINT chk_stfd_attempts CHECK (
+        max_attempts BETWEEN 1 AND 11 AND attempt_number <= max_attempts
+        AND recovery_count <= 1
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -7540,7 +7652,7 @@ VALUES
     (NULL,
      'webhook_retry',
      'webhook_retry',
-     'Process due webhook retry deliveries — picks up retrying rows whose next_retry_at <= NOW(), makes one HTTP attempt per row, reschedules or dead-letters based on attempt count.',
+     'Process due registered-webhook and SNMP trap-forwarding deliveries, rescheduling retryable failures and dead-lettering exhausted attempts.',
      '*/5 * * * *',
      'normal',
      1,
@@ -7586,6 +7698,7 @@ BEGIN
     END IF;
 END$$
 DELIMITER ;
+
 CALL _schema_add_expenses_currency();
 DROP PROCEDURE IF EXISTS _schema_add_expenses_currency;
 
@@ -7836,6 +7949,217 @@ FOR EACH ROW
 BEGIN
     SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Audit logs are immutable and cannot be deleted';
+END$$
+
+-- A rule is eligible to forward only after the current configuration has
+-- passed the secure API validator. Any older application writer that changes
+-- operational fields automatically invalidates that review marker.
+DROP TRIGGER IF EXISTS trg_stfr_clear_review_bu$$
+CREATE TRIGGER trg_stfr_clear_review_bu
+BEFORE UPDATE ON snmp_trap_forwarding_rules
+FOR EACH ROW
+BEGIN
+    IF NOT (BINARY NEW.match_trap_type <=> BINARY OLD.match_trap_type)
+       OR NOT (BINARY NEW.match_source_ip <=> BINARY OLD.match_source_ip)
+       OR NOT (BINARY NEW.match_oid_prefix <=> BINARY OLD.match_oid_prefix)
+       OR NOT (BINARY NEW.forward_to_url <=> BINARY OLD.forward_to_url)
+       OR NOT (BINARY NEW.forward_to_email <=> BINARY OLD.forward_to_email)
+       OR NOT (NEW.forward_to_webhook_id <=> OLD.forward_to_webhook_id)
+       OR NOT (NEW.is_active <=> OLD.is_active)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at) THEN
+        SET NEW.configuration_reviewed_at = NULL;
+        SET NEW.last_delivery_status = 'cancelled';
+        SET NEW.last_delivery_at = NOW();
+        SET NEW.last_error = 'Forwarding rule configuration changed.';
+        SET NEW.last_delivery_is_test = FALSE;
+    END IF;
+END$$
+
+-- Bound generic webhook fan-out with a race-safe activation check. Locking the
+-- organization row serializes concurrent inserts/enables for the same tenant.
+DROP TRIGGER IF EXISTS trg_stfr_active_limit_bi$$
+CREATE TRIGGER trg_stfr_active_limit_bi
+BEFORE INSERT ON snmp_trap_forwarding_rules
+FOR EACH ROW
+BEGIN
+    DECLARE v_owner BIGINT UNSIGNED;
+    DECLARE v_active BIGINT UNSIGNED;
+    IF NEW.is_active = 1 AND NEW.deleted_at IS NULL THEN
+        SELECT id INTO v_owner FROM organizations
+         WHERE id = NEW.organization_id FOR UPDATE;
+        SELECT COUNT(*) INTO v_active FROM snmp_trap_forwarding_rules
+         WHERE organization_id = NEW.organization_id
+           AND is_active = 1 AND deleted_at IS NULL;
+        IF v_active >= 100 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'An organization may have at most 100 active trap forwarding rules';
+        END IF;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_stfr_active_limit_bu$$
+CREATE TRIGGER trg_stfr_active_limit_bu
+BEFORE UPDATE ON snmp_trap_forwarding_rules
+FOR EACH ROW
+BEGIN
+    DECLARE v_owner BIGINT UNSIGNED;
+    DECLARE v_active BIGINT UNSIGNED;
+    IF NEW.is_active = 1 AND NEW.deleted_at IS NULL
+       AND (OLD.is_active <> 1 OR OLD.deleted_at IS NOT NULL) THEN
+        SELECT id INTO v_owner FROM organizations
+         WHERE id = NEW.organization_id FOR UPDATE;
+        SELECT COUNT(*) INTO v_active FROM snmp_trap_forwarding_rules
+         WHERE organization_id = NEW.organization_id
+           AND is_active = 1 AND deleted_at IS NULL AND id <> OLD.id;
+        IF v_active >= 100 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'An organization may have at most 100 active trap forwarding rules';
+        END IF;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_webhooks_active_limit_bi$$
+CREATE TRIGGER trg_webhooks_active_limit_bi
+BEFORE INSERT ON webhooks
+FOR EACH ROW
+BEGIN
+    DECLARE v_owner BIGINT UNSIGNED;
+    DECLARE v_active BIGINT UNSIGNED;
+    IF NEW.is_active = 1 AND NEW.deleted_at IS NULL THEN
+        SELECT id INTO v_owner FROM organizations
+         WHERE id = NEW.organization_id FOR UPDATE;
+        SELECT COUNT(*) INTO v_active FROM webhooks
+         WHERE organization_id = NEW.organization_id
+           AND is_active = 1 AND deleted_at IS NULL;
+        IF v_active >= 50 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'An organization may have at most 50 active webhooks';
+        END IF;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_webhooks_active_limit_bu$$
+CREATE TRIGGER trg_webhooks_active_limit_bu
+BEFORE UPDATE ON webhooks
+FOR EACH ROW
+BEGIN
+    DECLARE v_owner BIGINT UNSIGNED;
+    DECLARE v_active BIGINT UNSIGNED;
+    IF NEW.is_active = 1 AND NEW.deleted_at IS NULL
+       AND (OLD.is_active <> 1 OR OLD.deleted_at IS NOT NULL) THEN
+        SELECT id INTO v_owner FROM organizations
+         WHERE id = NEW.organization_id FOR UPDATE;
+        SELECT COUNT(*) INTO v_active FROM webhooks
+         WHERE organization_id = NEW.organization_id
+           AND is_active = 1 AND deleted_at IS NULL AND id <> OLD.id;
+        IF v_active >= 50 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'An organization may have at most 50 active webhooks';
+        END IF;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_stfr_cancel_unclaimed_bu$$
+CREATE TRIGGER trg_stfr_cancel_unclaimed_bu
+AFTER UPDATE ON snmp_trap_forwarding_rules
+FOR EACH ROW
+BEGIN
+    IF NOT (BINARY NEW.match_trap_type <=> BINARY OLD.match_trap_type)
+       OR NOT (BINARY NEW.match_source_ip <=> BINARY OLD.match_source_ip)
+       OR NOT (BINARY NEW.match_oid_prefix <=> BINARY OLD.match_oid_prefix)
+       OR NOT (BINARY NEW.forward_to_url <=> BINARY OLD.forward_to_url)
+       OR NOT (BINARY NEW.forward_to_email <=> BINARY OLD.forward_to_email)
+       OR NOT (NEW.forward_to_webhook_id <=> OLD.forward_to_webhook_id)
+       OR NOT (NEW.is_active <=> OLD.is_active)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at) THEN
+        UPDATE snmp_trap_forwarding_deliveries
+           SET status = 'cancelled', next_attempt_at = NULL,
+               locked_at = NULL, claim_token = NULL,
+               last_error = 'Forwarding rule configuration changed.'
+         WHERE rule_id = OLD.id AND organization_id = OLD.organization_id
+           AND status IN ('pending','retrying');
+        UPDATE snmp_trap_forwarding_deliveries
+           SET revoked_at = COALESCE(revoked_at, NOW())
+         WHERE rule_id = OLD.id AND organization_id = OLD.organization_id
+           AND status = 'processing';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_webhooks_cancel_trap_unclaimed_bu$$
+CREATE TRIGGER trg_webhooks_cancel_trap_unclaimed_bu
+AFTER UPDATE ON webhooks
+FOR EACH ROW
+BEGIN
+    IF NOT (BINARY NEW.url <=> BINARY OLD.url)
+       OR NOT (NEW.is_active <=> OLD.is_active)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at) THEN
+        UPDATE snmp_trap_forwarding_deliveries
+           SET status = 'cancelled', next_attempt_at = NULL,
+               locked_at = NULL, claim_token = NULL,
+               last_error = 'Registered webhook configuration changed.'
+         WHERE webhook_id = OLD.id AND organization_id = OLD.organization_id
+           AND status IN ('pending','retrying');
+        UPDATE snmp_trap_forwarding_deliveries
+           SET revoked_at = COALESCE(revoked_at, NOW())
+         WHERE webhook_id = OLD.id AND organization_id = OLD.organization_id
+           AND status = 'processing';
+        UPDATE webhook_deliveries
+           SET status = 'dead_letter', next_retry_at = NULL,
+               locked_at = NULL, claim_token = NULL, response_body = NULL
+         WHERE webhook_id = OLD.id
+           AND status IN ('pending','retrying');
+        UPDATE webhook_deliveries
+           SET revoked_at = COALESCE(revoked_at, NOW())
+         WHERE webhook_id = OLD.id AND status = 'processing';
+        UPDATE snmp_trap_forwarding_rules
+           SET last_delivery_status = 'cancelled', last_delivery_at = NOW(),
+               last_error = 'Registered webhook configuration changed.',
+               last_delivery_is_test = FALSE
+         WHERE organization_id = OLD.organization_id
+           AND forward_to_webhook_id = OLD.id AND deleted_at IS NULL;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_organizations_outbound_epoch_bu$$
+CREATE TRIGGER trg_organizations_outbound_epoch_bu
+BEFORE UPDATE ON organizations
+FOR EACH ROW
+BEGIN
+    IF NOT (NEW.status <=> OLD.status)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at) THEN
+        SET NEW.outbound_delivery_epoch = OLD.outbound_delivery_epoch + 1;
+    ELSE
+        SET NEW.outbound_delivery_epoch = OLD.outbound_delivery_epoch;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_organizations_cancel_outbound_au$$
+CREATE TRIGGER trg_organizations_cancel_outbound_au
+AFTER UPDATE ON organizations
+FOR EACH ROW
+BEGIN
+    IF NEW.outbound_delivery_epoch <> OLD.outbound_delivery_epoch THEN
+        UPDATE snmp_trap_forwarding_deliveries
+           SET status = 'cancelled', next_attempt_at = NULL,
+               locked_at = NULL, claim_token = NULL,
+               last_error = 'Organization lifecycle changed after this delivery was queued.'
+         WHERE organization_id = OLD.id
+           AND organization_epoch <> NEW.outbound_delivery_epoch
+           AND status IN ('pending','retrying');
+        UPDATE webhook_deliveries wd
+          JOIN webhooks w ON w.id = wd.webhook_id
+           SET wd.status = 'dead_letter', wd.next_retry_at = NULL,
+               wd.locked_at = NULL, wd.claim_token = NULL,
+               wd.response_body = NULL
+         WHERE w.organization_id = OLD.id
+           AND wd.organization_epoch <> NEW.outbound_delivery_epoch
+           AND wd.status IN ('pending','retrying');
+        UPDATE snmp_trap_forwarding_rules
+           SET last_delivery_status = 'cancelled', last_delivery_at = NOW(),
+               last_error = 'Organization lifecycle changed after this delivery was queued.',
+               last_delivery_is_test = FALSE
+         WHERE organization_id = OLD.id AND deleted_at IS NULL;
+    END IF;
 END$$
 
 DELIMITER ;
@@ -15921,3 +16245,17 @@ BEGIN
 END//
 
 DELIMITER ;
+
+-- ---------------------------------------------------------------------------
+-- Seed: privileged raw SNMP trap payload permission (migration 459)
+-- Community credentials are never stored or returned. Raw varbind values are
+-- restricted to admin/super_admin and excluded from readonly/auditor wildcard
+-- grants by seeding this permission after those role grants.
+-- ---------------------------------------------------------------------------
+INSERT IGNORE INTO permissions (name, description, module) VALUES
+    ('snmp_traps.payload.view', 'View raw SNMP trap varbind values (community is never stored)', 'monitoring');
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+  ON p.name = 'snmp_traps.payload.view'
+WHERE r.name IN ('admin', 'super_admin') AND r.deleted_at IS NULL;

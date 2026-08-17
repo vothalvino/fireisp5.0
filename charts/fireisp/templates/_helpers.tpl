@@ -50,11 +50,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Resolve the container image tag: use .Values.image.tag when set, otherwise
-fall back to .Chart.AppVersion so the chart always ships a deterministic default.
+Resolve the container image tag. Source-tree installs must explicitly select a
+published full commit SHA. The release workflow injects its verified semantic
+version into the packaged chart after the matching image exists.
 */}}
 {{- define "fireisp.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion }}
+{{- $tag := required "image.tag is required; use a published full commit SHA (release charts provide their verified release tag)" .Values.image.tag }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
 {{- end }}
 

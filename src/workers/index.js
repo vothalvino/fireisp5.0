@@ -36,7 +36,26 @@ function registerWorkers() {
   // ---- Webhook delivery ---------------------------------------------------
   jobQueue.process('webhook-delivery', async (job) => {
     const webhookService = require('../services/webhookService');
-    return webhookService.deliverForWorker(job);
+    const db = require('../config/database');
+    const organizationId = Number(job.data?.organizationId);
+    const run = () => webhookService.deliverForWorker(job);
+    return Number.isSafeInteger(organizationId) && organizationId > 0
+      && typeof db.withTenantContext === 'function'
+      ? db.withTenantContext(organizationId, run)
+      : run();
+  });
+
+  // ---- SNMP trap forwarding delivery ------------------------------------
+  // The delivery row already exists before this job is queued. If the queue
+  // loses the job, the scheduled retry sweep finds the durable pending row.
+  jobQueue.process('trap-forwarding-delivery', async (job) => {
+    const trapForwardingService = require('../services/trapForwardingService');
+    const db = require('../config/database');
+    const { deliveryId, organizationId } = job.data;
+    const run = () => trapForwardingService.attemptDelivery(deliveryId, organizationId);
+    return typeof db.withPrimaryContext === 'function'
+      ? db.withPrimaryContext(run)
+      : run();
   });
 
   // ---- SMS send -----------------------------------------------------------

@@ -62,6 +62,8 @@ export interface RouteDef {
   requiredAnyPermissions?: string[];
   /** Only shown when the active org's compliance locale matches. */
   requiredLocale?: 'MX';
+  /** Install-wide infrastructure that tenant admins must not see or open. */
+  installOperatorOnly?: boolean;
   /**
    * Extra command-palette search terms (untranslated: domain jargon and
    * Spanish synonyms operators actually type — "iva", "corte", "timbrado").
@@ -313,7 +315,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/ai-support', labelKey: 'nav.aiSupport', section: 'admin', guard: 'admin', card: 'ai' },
   { path: '/dsar', labelKey: 'nav.dsar', section: 'admin', guard: 'admin', card: 'governance' },
   { path: '/dr-drill', labelKey: 'nav.drDrill', section: 'admin', guard: 'admin', card: 'governance' },
-  { path: '/backups', labelKey: 'nav.backups', section: 'admin', guard: 'admin', card: 'governance' },
+  { path: '/backups', labelKey: 'nav.backups', section: 'admin', guard: 'admin', card: 'governance', installOperatorOnly: true },
   { path: '/admin/user-tunnels', labelKey: 'nav.adminUserTunnels', section: 'admin', guard: 'admin', card: 'governance' },
 ];
 
@@ -325,13 +327,15 @@ export interface NavUser {
   role: string;
   organization_locale?: string;
   permissions?: string[];
+  is_install_operator?: boolean;
 }
 
 export function canSee(
   user: NavUser,
-  node: { guard?: Guard; roles?: Role[]; requiredLocale?: 'MX'; requiredAnyPermissions?: string[] },
+  node: { guard?: Guard; roles?: Role[]; requiredLocale?: 'MX'; requiredAnyPermissions?: string[]; installOperatorOnly?: boolean },
 ): boolean {
   if (node.requiredLocale && user.organization_locale !== node.requiredLocale) return false;
+  if (node.installOperatorOnly && user.is_install_operator !== true) return false;
   if (user.role === 'admin') return true;
   if (node.requiredAnyPermissions
       && !node.requiredAnyPermissions.some(permission => user.permissions?.includes(permission))) return false;

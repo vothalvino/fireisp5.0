@@ -26,7 +26,7 @@ jest.mock('../src/config/database', () => ({
 
 jest.mock('../src/middleware/auth', () => ({
   authenticate: (req, _res, next) => {
-    req.user = { id: 7, email: 'admin@test.com', role: 'admin' };
+    req.user = { id: 7, email: 'admin@test.com', role: 'admin', is_install_operator: 1 };
     req.userId = 7;
     next();
   },

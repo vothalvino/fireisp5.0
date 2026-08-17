@@ -16,8 +16,38 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
+const mockGetTrapStatus = jest.fn();
+const mockStartTrapReceiver = jest.fn();
+const mockStopTrapReceiver = jest.fn();
+jest.mock('../src/services/snmpTrapReceiver', () => ({
+  getStatus: mockGetTrapStatus,
+  start: mockStartTrapReceiver,
+  stop: mockStopTrapReceiver,
+}));
+
+const mockCheckTrapSchemaReadiness = jest.fn();
+jest.mock('../src/services/trapForwardingReadinessService', () => ({
+  checkSchemaReadiness: mockCheckTrapSchemaReadiness,
+}));
+
 const db = require('../src/config/database');
 const app = require('../src/app');
+
+beforeEach(() => {
+  mockGetTrapStatus.mockReturnValue({
+    enabled: true,
+    ready: true,
+    listening: true,
+    state: 'listening',
+    reason: null,
+  });
+  mockCheckTrapSchemaReadiness.mockResolvedValue({
+    ready: true,
+    primary: { ready: true },
+    isolated: [],
+    reason: null,
+  });
+});
 
 describe('Health Check', () => {
   test('GET /health returns ok', async () => {
@@ -96,6 +126,89 @@ describe('Readiness Probe', () => {
       if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
       else process.env.REDIS_URL = previousRedisUrl;
     }
+  });
+
+  test.each([
+    ['/healthz', 'ok'],
+    ['/health/ready', 'ready'],
+  ])('%s includes listener/schema status and remains deployable when only attribution is unavailable', async (path, status) => {
+    db.query.mockResolvedValueOnce([[]]);
+    mockCheckTrapSchemaReadiness.mockResolvedValueOnce({
+      ready: false,
+      primary: { ready: true },
+      isolated: [{
+        organization_id: 22,
+        ready: false,
+        reason: 'isolated_tenant_attribution_unsupported',
+      }],
+      reason: 'isolated_tenant_attribution_unsupported',
+    });
+
+    const res = await request(app).get(path);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe(status);
+    expect(res.body.checks.snmpTrap).toEqual({
+      ready: true,
+      enabled: true,
+      schema_ready: true,
+      listening: true,
+      state: 'listening',
+      reason: null,
+      attribution_ready: false,
+      attribution_reason: 'isolated_tenant_attribution_unsupported',
+    });
+  });
+
+  test.each([
+    ['/healthz', 'degraded'],
+    ['/health/ready', 'not_ready'],
+  ])('%s fails readiness when the primary trap schema is unavailable', async (path, status) => {
+    db.query.mockResolvedValueOnce([[]]);
+    mockCheckTrapSchemaReadiness.mockResolvedValueOnce({
+      ready: false,
+      primary: { ready: false },
+      isolated: [],
+      reason: 'primary_schema_unavailable',
+    });
+
+    const res = await request(app).get(path);
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe(status);
+    expect(res.body.checks.snmpTrap).toMatchObject({
+      ready: false,
+      schema_ready: false,
+      reason: 'primary_schema_unavailable',
+      attribution_ready: false,
+    });
+  });
+
+  test.each([
+    ['/healthz', 'degraded'],
+    ['/health/ready', 'not_ready'],
+  ])('%s fails readiness when the UDP listener is not bound', async (path, status) => {
+    db.query.mockResolvedValueOnce([[]]);
+    mockGetTrapStatus.mockReturnValueOnce({
+      ready: false,
+      listening: false,
+      state: 'failed',
+      reason: 'bind_failed',
+    });
+
+    const res = await request(app).get(path);
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe(status);
+    expect(res.body.checks.snmpTrap).toMatchObject({
+      ready: false,
+      schema_ready: true,
+      listening: false,
+      state: 'failed',
+      reason: 'bind_failed',
+      attribution_ready: false,
+      attribution_reason: 'listener_not_ready',
+    });
   });
 });
 

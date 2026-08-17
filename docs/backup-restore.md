@@ -215,8 +215,8 @@ tar xzf storage-20260401.tar.gz -C /path/to/fireisp5.0/
 FireISP uploads every backup to an S3-compatible destination automatically —
 no extra tooling on the app server. Configure it either way:
 
-* **UI (recommended)** — **Admin → Backups** (`/backups`, permission
-  `backup_settings.view`/`.update`, admin-only): pick a provider, fill in
+* **UI (recommended)** — **Admin → Backups** (`/backups`, DB-revalidated
+  install operator plus `backup_settings.view`/`.update`): pick a provider, fill in
   bucket/region/keys, **Test connection** (uploads + deletes a probe object),
   enable, save. The secret key is AES-256-GCM encrypted at rest and never
   returned by the API. The same page shows the run history — including

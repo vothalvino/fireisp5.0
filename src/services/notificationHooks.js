@@ -682,26 +682,12 @@ function registerHooks() {
   });
 
   // --- Device Trap (unsolicited SNMP trap) ---
-  eventBus.on('device.trap', async ({ organizationId, device, trapId, trapType, trapOid }) => {
-    try {
-      getBroadcast()(`org:${organizationId}:notifications`, 'device.trap', {
-        trap_id:    trapId,
-        device_id:  device.id,
-        device_name: device.name,
-        trap_type:  trapType,
-        trap_oid:   trapOid,
-      });
-
-      await webhookService.dispatch(organizationId, 'device.trap', {
-        trap_id:   trapId,
-        device_id: device.id,
-        name:      device.name,
-        trap_type: trapType,
-        trap_oid:  trapOid,
-      });
-    } catch (err) {
-      logger.error({ err, event: 'device.trap' }, 'Notification hook error');
-    }
+  eventBus.on('device.trap', () => {
+    // Trap Forwarding Rules are the sole external-delivery path for SNMP
+    // traps. Do not publish trap/device metadata on the generic SSE stream:
+    // that stream is shared by organization staff and has no per-event
+    // devices.view authorization boundary. The dedicated traps API remains
+    // permission-scoped and the frontend refreshes it normally.
   });
 
   // --- Alert Triggered (monitoring rule breach) ---

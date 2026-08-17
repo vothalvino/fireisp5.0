@@ -3,6 +3,7 @@
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
+const { encrypt } = require('../utils/encryption');
 
 /**
  * Serialize an event subscription list into the JSON-array string the
@@ -52,8 +53,7 @@ class Webhook extends BaseModel {
   /**
    * Normalize an incoming create/update payload onto the real webhooks columns:
    *  - map the request's `secret` field onto the `secret_encrypted` column
-   *    (stored as-is — the delivery service reads it directly as the HMAC key;
-   *    no encryption layer is applied here)
+   *    encrypted with the standard AES-256-GCM envelope before persistence
    *  - serialize `events` (CSV string or array) into the JSON-array string the
    *    JSON NOT NULL `events` column requires
    * @param {object} data
@@ -61,8 +61,11 @@ class Webhook extends BaseModel {
    */
   static normalizeInput(data) {
     const out = { ...data };
+    // Never accept the storage column from an API/direct model caller. Only
+    // the plaintext `secret` input below may produce an encrypted envelope.
+    delete out.secret_encrypted;
     if (out.secret !== undefined) {
-      out.secret_encrypted = out.secret;
+      out.secret_encrypted = encrypt(out.secret);
       delete out.secret;
     }
     if (out.events !== undefined) {
@@ -79,13 +82,23 @@ class Webhook extends BaseModel {
     return super.update(id, this.normalizeInput(data), orgId);
   }
 
-  static async getDeliveries(webhookId) {
+  static async getDeliveries(webhookId, organizationId) {
     const db = require('../config/database');
     const [rows] = await db.query(
-      'SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT 50',
-      [webhookId],
+      `SELECT wd.id, wd.webhook_id, wd.event_name, wd.http_status_code,
+              wd.response_time_ms, wd.attempt_number, wd.status,
+              wd.next_retry_at, wd.delivered_at, wd.created_at,
+              w.organization_id AS webhook_organization_id
+         FROM webhook_deliveries wd
+         JOIN webhooks w ON w.id = wd.webhook_id
+        WHERE wd.webhook_id = ? AND w.organization_id = ?
+          AND w.deleted_at IS NULL
+        ORDER BY wd.created_at DESC LIMIT 50`,
+      [webhookId, organizationId],
     );
-    return rows;
+    return rows
+      .filter(row => Number(row.webhook_organization_id) === Number(organizationId))
+      .map(({ webhook_organization_id: _organizationId, ...row }) => row);
   }
 }
 

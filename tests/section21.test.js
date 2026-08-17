@@ -44,6 +44,7 @@ jest.mock('../src/middleware/rateLimit', () => ({
   exportLimiter: (req, res, next) => next(),
   sseLimiter: (req, res, next) => next(),
   webhookLimiter: (req, res, next) => next(),
+  trapForwardingTestLimiter: (req, res, next) => next(),
   collectorIngressLimiter: (req, res, next) => next(),
   apiTokenConfiguredLimiter: (req, res, next) => next(),
   isCollectorPath: () => false,

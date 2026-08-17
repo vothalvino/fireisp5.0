@@ -1347,7 +1347,9 @@ interface CustomReportForm {
 
 function CustomTab() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const qc = useQueryClient();
+  const mayManageSql = user?.is_install_operator === true;
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CustomReportForm>({ name: '', query_type: 'sql', sql_query: '' });
   const [createError, setCreateError] = useState('');
@@ -1402,10 +1404,14 @@ function CustomTab() {
     <div style={styles.tabContent}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h3 style={{ ...styles.sectionTitle, margin: 0 }}>{t('reports.customReports')}</h3>
-        <button onClick={() => setShowCreate(true)} style={styles.btnPrimary}>
-          + {t('reports.createCustomReport')}
-        </button>
+        {mayManageSql && (
+          <button onClick={() => setShowCreate(true)} style={styles.btnPrimary}>
+            + {t('reports.createCustomReport')}
+          </button>
+        )}
       </div>
+
+      {!mayManageSql && <p style={styles.muted}>{t('reports.customReportsOperatorOnly')}</p>}
 
       {isFetching && <p style={styles.muted}>Loading…</p>}
       {error && <p style={styles.error}>{String(error)}</p>}
@@ -1432,13 +1438,15 @@ function CustomTab() {
                 </span>
               </td>
               <td style={{ ...styles.td, display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => execMut.mutate(r.id)}
-                  disabled={execMut.isPending}
-                  style={styles.btnSm}
-                >
-                  {t('reports.execute')}
-                </button>
+                {mayManageSql && (
+                  <button
+                    onClick={() => execMut.mutate(r.id)}
+                    disabled={execMut.isPending}
+                    style={styles.btnSm}
+                  >
+                    {t('reports.execute')}
+                  </button>
+                )}
                 <button
                   onClick={() => deleteMut.mutate(r.id)}
                   disabled={deleteMut.isPending}
@@ -1494,7 +1502,7 @@ function CustomTab() {
         </>
       )}
 
-      {showCreate && (
+      {showCreate && mayManageSql && (
         <Modal
           title={t('reports.createCustomReport')}
           onClose={() => { setShowCreate(false); setCreateError(''); }}

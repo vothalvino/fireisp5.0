@@ -9,7 +9,9 @@ image:
   ## The old default (fireisp/fireisp) resolved to Docker Hub, a namespace
   ## this project does not control, and never matched the signature policy.
   repository: ghcr.io/vothalvino/fireisp5.0
-  ## Defaults to the chart appVersion when blank.
+  ## Required for installs from the source tree: use a full commit SHA published
+  ## by main CI. The version-tag workflow injects its verified X.Y.Z image into
+  ## the packaged release chart only after that image exists.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -47,19 +49,42 @@ securityContext:
     drop:
       - ALL
 
-## Rolling-update strategy.
+## Database migrations may tighten invariants that an older application cannot
+## honor. Recreate drains every old pod before a new-image init migration runs.
+## This deliberately creates a short maintenance window instead of overlapping
+## legacy writers/listeners with the upgraded schema.
 strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxSurge: 1
-    maxUnavailable: 0
+  type: Recreate
 
 terminationGracePeriodSeconds: 30
+
+## Run database migrations in an init container before each new application
+## pod can bind HTTP/RADIUS/SNMP listeners. Concurrent rollout pods serialize
+## through the migration runner's database advisory lock.
+migration:
+  enabled: true
+  migrateIsolatedTenants: true
 
 service:
   type: ClusterIP
   port: 80
   targetPort: 3000
+
+## Optional UDP service for unsolicited SNMP traps. Keep this disabled until
+## the load balancer/firewall is restricted to trusted device-management
+## networks. Network devices normally send to port 162; FireISP listens on the
+## non-privileged container port configured by SNMP_TRAP_PORT (default 1620).
+snmpTrap:
+  enabled: false
+  type: LoadBalancer
+  port: 162
+  nodePort: null
+  externalTrafficPolicy: Local
+  annotations: {}
+  loadBalancerSourceRanges: []
+  ## Unsafe escape hatch for environments whose trusted-source ACL is enforced
+  ## outside Kubernetes (including NodePort). Never enable without that ACL.
+  allowUnrestrictedSources: false
 
 ingress:
   enabled: true
@@ -156,6 +181,28 @@ config:
   FEATURE_WEBHOOKS: "true"
   FEATURE_SNMP: "true"
   FEATURE_SSO: "false"
+
+  ## Internal UDP listener used by the optional snmpTrap Service.
+  SNMP_TRAP_PORT: "1620"
+  ## Loopback unless the opt-in snmpTrap Service is enabled; the Deployment
+  ## then overrides this to 0.0.0.0 behind the chart's source-range guard.
+  SNMP_TRAP_BIND_IP: "127.0.0.1"
+  ## Fixed-memory overload and graceful-drain limits for unauthenticated UDP.
+  SNMP_TRAP_MAX_IN_FLIGHT: "16"
+  SNMP_TRAP_RATE_PER_SECOND: "50"
+  SNMP_TRAP_RATE_BURST: "100"
+  SNMP_TRAP_RATE_PER_MINUTE: "600"
+  SNMP_TRAP_RATE_MINUTE_BURST: "120"
+  SNMP_TRAP_SOURCE_RATE_PER_MINUTE: "10"
+  SNMP_TRAP_SOURCE_RATE_BURST: "20"
+  SNMP_TRAP_ORG_DAILY_ROW_LIMIT: "10000"
+  SNMP_TRAP_GLOBAL_DAILY_ROW_LIMIT: "100000"
+  SNMP_TRAP_ORG_DAILY_VARBIND_BYTES: "16777216"
+  SNMP_TRAP_GLOBAL_DAILY_VARBIND_BYTES: "134217728"
+  SNMP_TRAP_ORG_DAILY_DELIVERY_LIMIT: "10000"
+  SNMP_TRAP_GLOBAL_DAILY_DELIVERY_LIMIT: "100000"
+  SNMP_TRAP_LOCAL_QUEUE_CAPACITY: "100"
+  SNMP_TRAP_DRAIN_TIMEOUT_MS: "10000"
 
   ## Embedded RADIUS server (FireISP answers RADIUS auth/accounting itself —
   ## docs/radius-server.md). Off by default here; to expose it externally on

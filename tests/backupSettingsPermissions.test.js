@@ -1,10 +1,10 @@
 // =============================================================================
 // FireISP 5.0 — Backup Settings RBAC enforcement (real auth + rbac, no mocks)
 // =============================================================================
-// Verifies the migration 404 permission grant matrix end-to-end through the
+// Verifies the install-operator boundary and permission matrix end-to-end through the
 // REAL authenticate/rbac middleware chain (not the bypassed mock used by
 // tests/backupSettings.test.js): backup_settings.view/update must be
-// admin/super_admin ONLY — a role with plenty of other *.view grants
+// install-operator ONLY — a role with plenty of other *.view grants
 // (mirroring readonly/billing/support/technician, none of which are seeded
 // for this slug per migration 404) must still be refused. A database-backup
 // credential is instance-wide infrastructure; sweeping it into a readonly
@@ -39,7 +39,7 @@ function tokenFor(role) {
  * would otherwise match the user-lookup clause and return a user row as the
  * settings row.
  */
-function mockAuthAndPermissions({ role, grantedSlugs = [] }) {
+function mockAuthAndPermissions({ role, grantedSlugs = [], installOperator = false }) {
   db.query.mockImplementation((sql) => {
     if (typeof sql !== 'string') return Promise.resolve([[]]);
 
@@ -56,7 +56,14 @@ function mockAuthAndPermissions({ role, grantedSlugs = [] }) {
       return Promise.resolve([grantedSlugs.map((slug) => ({ slug }))]);
     }
     if (sql.includes('WHERE id = ?')) {
-      return Promise.resolve([[{ id: 2, email: 'user@test.com', role, status: 'active', organization_id: 1 }]]);
+      return Promise.resolve([[{
+        id: 2,
+        email: 'user@test.com',
+        role,
+        status: 'active',
+        organization_id: 1,
+        is_install_operator: installOperator ? 1 : 0,
+      }]]);
     }
     return Promise.resolve([[]]);
   });
@@ -67,8 +74,17 @@ beforeEach(() => {
 });
 
 describe('backup_settings RBAC', () => {
-  it('legacy admin bypass can read settings', async () => {
+  it('an ordinary tenant admin cannot read install-wide backup settings', async () => {
     mockAuthAndPermissions({ role: 'admin', grantedSlugs: [] });
+    const res = await request(app)
+      .get('/api/v1/backup-settings')
+      .set('Authorization', `Bearer ${tokenFor('admin')}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+  });
+
+  it('the verified install operator can read settings', async () => {
+    mockAuthAndPermissions({ role: 'admin', grantedSlugs: [], installOperator: true });
     const res = await request(app)
       .get('/api/v1/backup-settings')
       .set('Authorization', `Bearer ${tokenFor('admin')}`);
@@ -86,12 +102,12 @@ describe('backup_settings RBAC', () => {
     expect(res.status).toBe(403);
   });
 
-  it('backup_settings.view grants GET but not PUT', async () => {
+  it('a tenant permission grant cannot cross the install-operator boundary', async () => {
     mockAuthAndPermissions({ role: 'support', grantedSlugs: ['backup_settings.view'] });
     const get = await request(app)
       .get('/api/v1/backup-settings')
       .set('Authorization', `Bearer ${tokenFor('support')}`);
-    expect(get.status).toBe(200);
+    expect(get.status).toBe(403);
 
     const put = await request(app)
       .put('/api/v1/backup-settings')
@@ -127,7 +143,7 @@ describe('backup_settings RBAC', () => {
     expect(res.status).toBe(403);
   });
 
-  it('backup_settings.download grants the download route (404 for a missing file, not 403)', async () => {
+  it('backup_settings.download alone cannot expose the full-install backup', async () => {
     mockAuthAndPermissions({
       role: 'billing',
       grantedSlugs: ['backup_settings.download'],
@@ -135,6 +151,15 @@ describe('backup_settings RBAC', () => {
     const res = await request(app)
       .get('/api/v1/backup-settings/download/fireisp_2026-01-01T00-00-00.sql.gz')
       .set('Authorization', `Bearer ${tokenFor('billing')}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INSTALL_OPERATOR_ONLY');
+  });
+
+  it('the install operator reaches the download handler (404 for a missing file)', async () => {
+    mockAuthAndPermissions({ role: 'admin', installOperator: true });
+    const res = await request(app)
+      .get('/api/v1/backup-settings/download/fireisp_2026-01-01T00-00-00.sql.gz')
+      .set('Authorization', `Bearer ${tokenFor('admin')}`);
     expect(res.status).toBe(404);
   });
 });

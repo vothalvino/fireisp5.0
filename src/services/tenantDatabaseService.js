@@ -6,6 +6,12 @@ const OrganizationDatabaseConfig = require('../models/OrganizationDatabaseConfig
 const db = require('../config/database');
 const { ValidationError } = require('../utils/errors');
 
+function withPrimary(callback) {
+  return typeof db.withPrimaryContext === 'function'
+    ? db.withPrimaryContext(callback)
+    : callback();
+}
+
 function validateIsolationPayload(payload, existing = null) {
   const body = payload || {};
   const mode = body.isolation_mode || existing?.isolation_mode || 'shared';
@@ -47,50 +53,56 @@ function validateIsolationPayload(payload, existing = null) {
 }
 
 async function getDatabaseIsolation(orgId) {
-  return OrganizationDatabaseConfig.findByOrgId(orgId);
+  return withPrimary(() => OrganizationDatabaseConfig.findByOrgId(orgId));
 }
 
 async function saveDatabaseIsolation(orgId, payload) {
-  const existing = await OrganizationDatabaseConfig.findByOrgId(orgId);
-  const fields = validateIsolationPayload(payload, existing);
-  return OrganizationDatabaseConfig.upsert(orgId, fields);
+  return withPrimary(async () => {
+    const existing = await OrganizationDatabaseConfig.findByOrgId(orgId);
+    const fields = validateIsolationPayload(payload, existing);
+    return OrganizationDatabaseConfig.upsert(orgId, fields);
+  });
 }
 
 async function testDatabaseIsolation(orgId, payload = null) {
-  const raw = await OrganizationDatabaseConfig.findRawByOrgId(orgId);
-  const publicExisting = OrganizationDatabaseConfig.toPublic(raw) || OrganizationDatabaseConfig.defaultForOrg(orgId);
-  const fields = payload ? validateIsolationPayload(payload, publicExisting) : publicExisting;
-  const candidate = payload
-    ? {
-      ...raw,
-      organization_id: Number(orgId),
-      isolation_mode: fields.isolation_mode,
-      db_host: fields.db_host ?? raw?.db_host,
-      db_port: fields.db_port ?? raw?.db_port ?? 3306,
-      db_name: fields.db_name ?? raw?.db_name,
-      db_user: fields.db_user ?? raw?.db_user,
-      db_password_encrypted: fields.db_password !== undefined
-        ? require('../utils/encryption').encrypt(fields.db_password)
-        : raw?.db_password_encrypted,
-      ssl_enabled: fields.ssl_enabled ?? raw?.ssl_enabled ?? false,
-    }
-    : raw;
+  return withPrimary(async () => {
+    const raw = await OrganizationDatabaseConfig.findRawByOrgId(orgId);
+    const publicExisting = OrganizationDatabaseConfig.toPublic(raw) || OrganizationDatabaseConfig.defaultForOrg(orgId);
+    const fields = payload ? validateIsolationPayload(payload, publicExisting) : publicExisting;
+    const candidate = payload
+      ? {
+        ...raw,
+        organization_id: Number(orgId),
+        isolation_mode: fields.isolation_mode,
+        db_host: fields.db_host ?? raw?.db_host,
+        db_port: fields.db_port ?? raw?.db_port ?? 3306,
+        db_name: fields.db_name ?? raw?.db_name,
+        db_user: fields.db_user ?? raw?.db_user,
+        db_password_encrypted: fields.db_password !== undefined
+          ? require('../utils/encryption').encrypt(fields.db_password)
+          : raw?.db_password_encrypted,
+        ssl_enabled: fields.ssl_enabled ?? raw?.ssl_enabled ?? false,
+      }
+      : raw;
 
-  const config = OrganizationDatabaseConfig.toConnectionConfig(candidate);
-  if (!config) throw new ValidationError('No isolated database configuration is enabled for this organization');
+    const config = OrganizationDatabaseConfig.toConnectionConfig(candidate);
+    if (!config) throw new ValidationError('No isolated database configuration is enabled for this organization');
 
-  await db.testTenantConnection(config);
-  await OrganizationDatabaseConfig.markVerified(orgId);
-  return { ok: true };
+    await db.testTenantConnection(config);
+    await OrganizationDatabaseConfig.markVerified(orgId);
+    return { ok: true };
+  });
 }
 
 async function listIsolatedMigrationTargets() {
-  const rows = await OrganizationDatabaseConfig.listIsolatedRaw();
-  return rows.map(row => ({
-    organizationId: row.organization_id,
-    database: row.db_name,
-    connectionConfig: OrganizationDatabaseConfig.toConnectionConfig(row),
-  }));
+  return withPrimary(async () => {
+    const rows = await OrganizationDatabaseConfig.listIsolatedRaw();
+    return rows.map(row => ({
+      organizationId: row.organization_id,
+      database: row.db_name,
+      connectionConfig: OrganizationDatabaseConfig.toConnectionConfig(row),
+    }));
+  });
 }
 
 module.exports = {

@@ -294,6 +294,76 @@ describe('crudController', () => {
   });
 
   // =========================================================================
+  // sanitizeAuditValues option
+  // =========================================================================
+  describe('sanitizeAuditValues option', () => {
+    const sanitize = jest.fn((values) => {
+      if (!values) return values;
+      const { secret: _secret, ...safe } = values;
+      return safe;
+    });
+
+    beforeEach(() => sanitize.mockClear());
+
+    test('create sanitizes only the audit snapshot, retaining the original write and response flow', async () => {
+      const created = { id: 10, name: 'New', organization_id: 42 };
+      db.query
+        .mockResolvedValueOnce([{ insertId: 10 }])
+        .mockResolvedValueOnce([[created]]);
+      const sanitizedCtrl = crudController(TestEntity, { sanitizeAuditValues: sanitize });
+      const { req, res, next } = mockReqRes({ body: { name: 'New', secret: 'create-secret' } });
+
+      await sanitizedCtrl.create(req, res, next);
+
+      expect(auditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'create',
+        newValues: { name: 'New', organization_id: 42 },
+      }));
+      expect(sanitize).toHaveBeenCalledWith(req.body, req, 'create');
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    test('update sanitizes both the old row and submitted new values', async () => {
+      const old = { id: 1, name: 'Old', secret: 'old-secret', organization_id: 42 };
+      const updated = { id: 1, name: 'Updated', organization_id: 42 };
+      db.query
+        .mockResolvedValueOnce([[old]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }])
+        .mockResolvedValueOnce([[updated]]);
+      const sanitizedCtrl = crudController(TestEntity, { sanitizeAuditValues: sanitize });
+      const { req, res, next } = mockReqRes({ body: { name: 'Updated', secret: 'new-secret' } });
+
+      await sanitizedCtrl.update(req, res, next);
+
+      expect(auditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'update',
+        oldValues: { id: 1, name: 'Old', organization_id: 42 },
+        newValues: { name: 'Updated' },
+      }));
+      expect(sanitize).toHaveBeenCalledWith(old, req, 'update_old');
+      expect(sanitize).toHaveBeenCalledWith(req.body, req, 'update_new');
+    });
+
+    test('delete sanitizes the pre-delete row snapshot', async () => {
+      const old = { id: 1, name: 'Old', secret: 'delete-secret', organization_id: 42 };
+      db.query
+        .mockResolvedValueOnce([[old]])
+        .mockResolvedValueOnce([{ affectedRows: 1 }]);
+      const sanitizedCtrl = crudController(TestEntity, { sanitizeAuditValues: sanitize });
+      const { req, res, next } = mockReqRes();
+
+      await sanitizedCtrl.destroy(req, res, next);
+
+      expect(auditLog.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'delete',
+        oldValues: { id: 1, name: 'Old', organization_id: 42 },
+      }));
+      expect(sanitize).toHaveBeenCalledWith(old, req, 'delete');
+      expect(res.status).toHaveBeenCalledWith(204);
+    });
+  });
+
+  // =========================================================================
   // afterDelete hook
   // =========================================================================
   describe('afterDelete hook', () => {

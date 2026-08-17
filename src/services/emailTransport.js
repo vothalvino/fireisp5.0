@@ -22,14 +22,18 @@
 // =============================================================================
 
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const db = require('../config/database');
 const { decrypt } = require('../utils/encryption');
 
 let transporter = null;
 
-// "orgId:function" (String) -> { transporter, from } | null (null = "no
-// config for this function or its general fallback, use global"). Mirrors
-// src/config/database.js's tenantConfigCache Map-keyed pattern.
+// "orgId:function" (String) -> { fingerprint, value }, where value is
+// { transporter, from } or null (use global). The settings row itself is never
+// positively cached: every send re-reads its authoritative database, then
+// reuses an SMTP transport only when the full configuration fingerprint still
+// matches. This makes a disable/rotation performed on another application
+// replica effective on this process's very next send.
 const orgTransportCache = new Map();
 
 // Per-org generation counter, bumped by invalidateOrgTransport. A getOrgTransport
@@ -40,9 +44,59 @@ const orgTransportCache = new Map();
 const orgCacheGen = new Map();
 
 const DEFAULT_FUNCTION = 'general';
+// Every SMTP transport must settle before the five-minute trap-delivery claim
+// lease. These Nodemailer bounds cover connect, greeting and socket inactivity;
+// the trap worker additionally applies an absolute logical deadline.
+const SMTP_CONNECTION_TIMEOUT_MS = 30000;
+const SMTP_GREETING_TIMEOUT_MS = 30000;
+const SMTP_SOCKET_TIMEOUT_MS = 60000;
+
+function smtpTimeoutOptions() {
+  return {
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
+  };
+}
 
 function cacheKey(orgId, emailFunction) {
   return `${orgId}:${emailFunction}`;
+}
+
+function closeTransport(entry) {
+  const candidate = entry?.value?.transporter;
+  if (!candidate || typeof candidate.close !== 'function') return;
+  try { candidate.close(); } catch (_) { /* already closed */ }
+}
+
+function settingsFingerprint(emailFunction, row) {
+  return crypto.createHash('sha256').update(JSON.stringify([
+    emailFunction,
+    Boolean(row?.enabled),
+    row?.smtp_host || null,
+    Number(row?.smtp_port || 587),
+    Boolean(row?.smtp_secure),
+    row?.smtp_user || null,
+    row?.smtp_password_encrypted || null,
+    row?.from_email || null,
+    row?.from_name || null,
+  ])).digest('hex');
+}
+
+async function loadEffectiveSettings(organizationId, emailFunction) {
+  // Lazy require avoids the EmailSettings.upsert() -> invalidate cache cycle.
+  const EmailSettings = require('../models/EmailSettings');
+  const requested = await EmailSettings.findRawByOrgId(organizationId, emailFunction);
+  if (requested?.enabled && requested.smtp_host) {
+    return { sourceFunction: emailFunction, row: requested };
+  }
+  if (emailFunction !== DEFAULT_FUNCTION) {
+    const general = await EmailSettings.findRawByOrgId(organizationId, DEFAULT_FUNCTION);
+    if (general?.enabled && general.smtp_host) {
+      return { sourceFunction: DEFAULT_FUNCTION, row: general };
+    }
+  }
+  return { sourceFunction: emailFunction, row: null };
 }
 
 /**
@@ -57,6 +111,7 @@ function init() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     } : undefined,
+    ...smtpTimeoutOptions(),
   });
 }
 
@@ -68,51 +123,47 @@ function init() {
  */
 async function getOrgTransport(organizationId, emailFunction = DEFAULT_FUNCTION) {
   const key = cacheKey(organizationId, emailFunction);
-  if (orgTransportCache.has(key)) {
-    return orgTransportCache.get(key);
-  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const genAtStart = orgCacheGen.get(organizationId) || 0;
+    const effective = await loadEffectiveSettings(organizationId, emailFunction);
+    if ((orgCacheGen.get(organizationId) || 0) !== genAtStart) continue;
 
-  // Snapshot the org's cache generation BEFORE the async read; if an
-  // invalidation fires while we're resolving, we return the fresh value but
-  // do not write it to the cache (a later call re-resolves cleanly).
-  const genAtStart = orgCacheGen.get(organizationId) || 0;
-  const cacheIfCurrent = (entry) => {
-    if ((orgCacheGen.get(organizationId) || 0) === genAtStart) {
-      orgTransportCache.set(key, entry);
+    const fingerprint = settingsFingerprint(effective.sourceFunction, effective.row);
+    const cached = orgTransportCache.get(key);
+    if (cached?.fingerprint === fingerprint) return cached.value;
+
+    let value = null;
+    const row = effective.row;
+    if (row) {
+      const orgTransporter = nodemailer.createTransport({
+        host: row.smtp_host,
+        port: row.smtp_port || 587,
+        secure: Boolean(row.smtp_secure),
+        auth: row.smtp_user ? {
+          user: row.smtp_user,
+          pass: decrypt(row.smtp_password_encrypted),
+        } : undefined,
+        ...smtpTimeoutOptions(),
+      });
+      const from = row.from_name
+        ? `${row.from_name} <${row.from_email || row.smtp_user}>`
+        : (row.from_email || row.smtp_user);
+      value = { transporter: orgTransporter, from };
     }
-    return entry;
-  };
 
-  // Lazy require to avoid a require cycle (EmailSettings.upsert() requires
-  // this module to invalidate the cache on save).
-  const EmailSettings = require('../models/EmailSettings');
-  const row = await EmailSettings.findRawByOrgId(organizationId, emailFunction);
-
-  if (!row || !row.enabled || !row.smtp_host) {
-    // This function isn't configured — inherit the org's 'general' identity
-    // (unless we ARE resolving 'general', in which case fall through to
-    // global). Cache the resolved value under this function's key.
-    const entry = emailFunction === DEFAULT_FUNCTION
-      ? null
-      : await getOrgTransport(organizationId, DEFAULT_FUNCTION);
-    return cacheIfCurrent(entry);
+    // A local save may have completed while Nodemailer was being constructed.
+    // Never publish or use that stale transport for the current delivery.
+    if ((orgCacheGen.get(organizationId) || 0) !== genAtStart) {
+      closeTransport({ value });
+      continue;
+    }
+    if (cached) closeTransport(cached);
+    orgTransportCache.set(key, { fingerprint, value });
+    return value;
   }
-
-  const orgTransporter = nodemailer.createTransport({
-    host: row.smtp_host,
-    port: row.smtp_port || 587,
-    secure: Boolean(row.smtp_secure),
-    auth: row.smtp_user ? {
-      user: row.smtp_user,
-      pass: decrypt(row.smtp_password_encrypted),
-    } : undefined,
-  });
-
-  const from = row.from_name
-    ? `${row.from_name} <${row.from_email || row.smtp_user}>`
-    : (row.from_email || row.smtp_user);
-
-  return cacheIfCurrent({ transporter: orgTransporter, from });
+  const err = new Error('Organization email settings changed during resolution.');
+  err.code = 'EMAIL_SETTINGS_CHANGED';
+  throw err;
 }
 
 /**
@@ -127,19 +178,39 @@ function invalidateOrgTransport(organizationId) {
   // re-cache a now-stale value (see cacheIfCurrent).
   orgCacheGen.set(organizationId, (orgCacheGen.get(organizationId) || 0) + 1);
   const prefix = `${organizationId}:`;
+  const closed = new Set();
   for (const key of orgTransportCache.keys()) {
-    if (key.startsWith(prefix)) orgTransportCache.delete(key);
+    if (!key.startsWith(prefix)) continue;
+    const entry = orgTransportCache.get(key);
+    const candidate = entry?.value?.transporter;
+    if (candidate && !closed.has(candidate)) {
+      closeTransport(entry);
+      closed.add(candidate);
+    }
+    orgTransportCache.delete(key);
   }
 }
 
 /**
  * Send a single email and log it to email_logs.
  */
-async function sendEmail({ to, subject, html, text, attachments, organizationId, clientId, emailFunction = DEFAULT_FUNCTION }) {
+async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  attachments,
+  organizationId,
+  clientId,
+  emailFunction = DEFAULT_FUNCTION,
+  absoluteTimeoutMs = null,
+  installTransportOnly = false,
+  sanitizeFailure = false,
+}) {
   let activeTransporter = transporter;
   let from = process.env.SMTP_FROM || 'noreply@fireisp.local';
 
-  if (organizationId) {
+  if (organizationId && !installTransportOnly) {
     const org = await getOrgTransport(organizationId, emailFunction);
     if (org) {
       activeTransporter = org.transporter;
@@ -153,7 +224,37 @@ async function sendEmail({ to, subject, html, text, attachments, organizationId,
   }
 
   try {
-    const info = await activeTransporter.sendMail({ from, to, subject, html, text, attachments });
+    const sendPromise = activeTransporter.sendMail({ from, to, subject, html, text, attachments });
+    let timer = null;
+    const info = absoluteTimeoutMs
+      ? await Promise.race([
+        sendPromise,
+        new Promise((_, reject) => {
+          const timeout = Math.max(1000, Math.min(120000, Number(absoluteTimeoutMs) || 60000));
+          timer = setTimeout(() => {
+            const err = Object.assign(new Error('Email delivery exceeded its absolute deadline.'), {
+              code: 'EMAIL_DELIVERY_TIMEOUT',
+            });
+            // Nodemailer's promise is not cancellable. Closing its transport is
+            // the supported way to destroy live SMTP sockets so a timed-out
+            // trap worker never leaves an orphan that can send after its claim
+            // lease has been released.
+            if (organizationId && !installTransportOnly) {
+              // Invalidation closes the cached organization transport exactly
+              // once and prevents it from being reused after this timeout.
+              invalidateOrgTransport(organizationId);
+            } else {
+              try { activeTransporter.close(); } catch (_) { /* already closed */ }
+              if (activeTransporter === transporter) transporter = null;
+            }
+            reject(err);
+          }, timeout);
+          if (typeof timer.unref === 'function') timer.unref();
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      })
+      : await sendPromise;
 
     await db.query(
       `INSERT INTO email_logs (recipient, subject, channel, status, sent_at, organization_id, client_id)
@@ -163,13 +264,20 @@ async function sendEmail({ to, subject, html, text, attachments, organizationId,
 
     return { success: true, messageId: info.messageId };
   } catch (err) {
+    const safeError = sanitizeFailure
+      ? 'Email delivery failed.'
+      : String(err?.message || 'Email delivery failed.');
     await db.query(
       `INSERT INTO email_logs (recipient, subject, channel, status, error_message, organization_id, client_id)
        VALUES (?, ?, 'email', 'failed', ?, ?, ?)`,
-      [to, subject, err.message, organizationId || null, clientId || null],
+      [to, subject, safeError, organizationId || null, clientId || null],
     );
 
-    return { success: false, error: err.message };
+    const rawCode = String(err?.code || '');
+    const code = sanitizeFailure
+      ? (rawCode === 'EMAIL_DELIVERY_TIMEOUT' ? rawCode : undefined)
+      : (/^[A-Z0-9_]{2,40}$/.test(rawCode) ? rawCode : undefined);
+    return { success: false, error: safeError, ...(code && { code }) };
   }
 }
 
@@ -221,4 +329,13 @@ async function processQueue() {
   return { sent, failed, total: queued.length };
 }
 
-module.exports = { init, sendEmail, processQueue, getOrgTransport, invalidateOrgTransport };
+module.exports = {
+  init,
+  sendEmail,
+  processQueue,
+  getOrgTransport,
+  invalidateOrgTransport,
+  SMTP_CONNECTION_TIMEOUT_MS,
+  SMTP_GREETING_TIMEOUT_MS,
+  SMTP_SOCKET_TIMEOUT_MS,
+};

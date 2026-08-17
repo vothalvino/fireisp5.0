@@ -11,7 +11,7 @@ class TrapForwardingRule extends BaseModel {
     return [
       'organization_id', 'name', 'match_trap_type', 'match_source_ip', 'match_oid_prefix',
       'forward_to_url', 'forward_to_email', 'forward_to_webhook_id',
-      'transform_template', 'is_active',
+      'is_active', 'configuration_reviewed_at',
     ];
   }
 

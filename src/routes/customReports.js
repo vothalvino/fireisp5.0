@@ -7,13 +7,25 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const db = require('../config/database');
+const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
 
 const router = Router();
 router.use(authenticate);
 router.use(orgScope);
 
+async function requireInstallOperator(req, res, next) {
+  try {
+    if (await isInstallOperator(req)) return next();
+    return res.status(403).json({
+      error: { code: 'INSTALL_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
+    });
+  } catch (err) { return next(err); }
+}
+
 /**
- * Validate that a SQL query is read-only (SELECT only, no dangerous keywords).
+ * Validate that an install-operator SQL query is read-only. Regex filtering is
+ * defense in depth, not a tenant boundary: arbitrary SELECT can read any table
+ * in a shared database, so creation, editing, and execution are operator-only.
  */
 function validateReadOnlyQuery(sql) {
   const trimmed = sql.trim();
@@ -67,7 +79,7 @@ router.get('/:id', requirePermission('custom_reports.view'), async (req, res, ne
 });
 
 // POST /api/custom-reports
-router.post('/', requirePermission('custom_reports.create'), async (req, res, next) => {
+router.post('/', requirePermission('custom_reports.create'), requireInstallOperator, async (req, res, next) => {
   try {
     const { name, description, query_type = 'sql', sql_query, visual_config, is_public = 0 } = req.body;
 
@@ -95,7 +107,7 @@ router.post('/', requirePermission('custom_reports.create'), async (req, res, ne
 });
 
 // PUT /api/custom-reports/:id
-router.put('/:id', requirePermission('custom_reports.manage'), async (req, res, next) => {
+router.put('/:id', requirePermission('custom_reports.manage'), requireInstallOperator, async (req, res, next) => {
   try {
     const [existing] = await db.queryReplica(
       'SELECT * FROM custom_reports WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
@@ -145,7 +157,7 @@ router.delete('/:id', requirePermission('custom_reports.manage'), async (req, re
 });
 
 // POST /api/custom-reports/:id/execute — execute the SQL query
-router.post('/:id/execute', requirePermission('custom_reports.execute'), async (req, res, next) => {
+router.post('/:id/execute', requirePermission('custom_reports.execute'), requireInstallOperator, async (req, res, next) => {
   try {
     const [existing] = await db.queryReplica(
       `SELECT * FROM custom_reports

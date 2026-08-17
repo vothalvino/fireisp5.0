@@ -80,6 +80,13 @@ describe('taskRunner — snmp_discovery_poll (migration 254, rerouted by migrati
 
 describe('taskRunner — snmp_trap_receiver (migration 254)', () => {
   it('stops and starts the trap receiver', async () => {
+    mockTrapStart.mockResolvedValueOnce({
+      ready: true,
+      listening: true,
+      state: 'listening',
+      reason: null,
+    });
+
     const result = await runTask('snmp_trap_receiver');
 
     expect(mockTrapStop).toHaveBeenCalledTimes(1);

@@ -280,6 +280,12 @@ services:
       RADIUS_AUTH_PORT:      ${RADIUS_AUTH_PORT:-1812}
       RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
       RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
+      # UDP listener for unsolicited SNMP traps. The production container runs
+      # as root for WireGuard, so operators may choose standard port 162; the
+      # non-privileged default remains 1620.
+      SNMP_TRAP_PORT:        ${SNMP_TRAP_PORT:-1620}
+      # Bind inside the container; SNMP_TRAP_PUBLISH_IP below restricts the host.
+      SNMP_TRAP_BIND_IP:     0.0.0.0
       # WireGuard hub — ON by default in production; the dial-in endpoint auto-derives
       # from DOMAIN (the TLS host), so a normal redeploy activates it with no extra
       # config. Opt out by setting WG_SERVER_ENABLED=false in .env.prod.
@@ -303,15 +309,17 @@ services:
       - storage:/app/storage
       # Server WireGuard keypairs — generated on first boot, persist here, never in git/image.
       - wg_keys:/etc/wireguard
-    # HTTP (3000) stays internal behind Nginx. The RADIUS auth/accounting
-    # listeners are UDP and must be published directly (Nginx proxies HTTP only).
+    # HTTP (3000) stays internal behind Nginx. RADIUS and SNMP trap listeners
+    # are UDP and must be published directly (Nginx proxies HTTP only).
     # NOTE: these are fixed host ports — keep the app at replicas:1, or front
-    # RADIUS with a UDP load balancer, if you scale the app tier (--scale app=N).
+    # the RADIUS/SNMP listeners with a UDP load balancer if you scale the app
+    # tier (--scale app=N).
     expose:
       - '3000'
     ports:
       - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
       - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
+      - '${SNMP_TRAP_PUBLISH_IP:-127.0.0.1}:${SNMP_TRAP_PORT:-1620}:${SNMP_TRAP_PORT:-1620}/udp'
       # WireGuard dial-in (host:container kept identical so the app's bind port always
       # matches the published port). Inert until WG_SERVER_ENABLED=true.
       - '${WG_LISTEN_PORT:-51820}:${WG_LISTEN_PORT:-51820}/udp'

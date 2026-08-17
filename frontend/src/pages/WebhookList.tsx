@@ -18,12 +18,17 @@ import { styles, modalStyles, RequiredMark } from './crudStyles';
 
 interface Webhook {
   id: number;
+  events?: string | string[];
+  is_active: boolean;
+  has_secret: boolean;
+  url_configured: boolean;
+  target_display_code: 'configured_https_endpoint';
+  max_retries?: number | null;
+  timeout_seconds?: number | null;
+}
+
+interface EditableWebhook extends Webhook {
   url: string;
-  events: string | string[];
-  is_enabled?: number | boolean;
-  is_active?: number | boolean;
-  max_retries: number;
-  timeout_seconds: number;
 }
 
 interface WebhooksResponse {
@@ -50,29 +55,49 @@ const DEFAULT_PAGE_SIZE = 25;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function eventsToString(events: string | string[]): string {
+function eventsToString(events?: string | string[]): string {
   if (Array.isArray(events)) return events.join(', ');
   return events ?? '';
 }
 
 function isEnabled(w: Webhook): boolean {
-  return Boolean(w.is_enabled ?? w.is_active);
+  return Boolean(w.is_active);
 }
 
 async function fetchWebhooks(page: number): Promise<WebhooksResponse> {
-  const query = { page, limit: DEFAULT_PAGE_SIZE };
-  const res = await api.GET('/webhooks', { params: { query: query as never } });
-  if (res.error) throw new Error('Failed to load webhooks');
-  return res.data as unknown as WebhooksResponse;
+  const res = await api.GET('/webhooks', {
+    params: { query: { page, limit: DEFAULT_PAGE_SIZE } },
+  });
+  if (res.error || !res.data) throw new Error('Failed to load webhooks');
+  const { data, meta } = res.data;
+  return {
+    data,
+    meta: {
+      ...meta,
+      totalPages: Math.max(1, Math.ceil(meta.total / Math.max(1, meta.limit))),
+    },
+  };
 }
 
 async function createWebhook(body: WebhookBody): Promise<void> {
-  const res = await api.POST('/webhooks', { body: body as never });
+  const res = await api.POST('/webhooks', { body });
   if (res.error) throw new Error('Failed to create webhook');
 }
 
+async function fetchWebhookConfiguration(id: number): Promise<{ id: number; url: string }> {
+  const res = await api.GET('/webhooks/{id}/configuration', {
+    params: { path: { id } },
+  });
+  if (res.error || !res.data) throw new Error('Failed to load webhook configuration');
+  const configuration = res.data.data;
+  if (configuration.id !== id || typeof configuration.url !== 'string') {
+    throw new Error('Invalid webhook configuration');
+  }
+  return { id, url: configuration.url };
+}
+
 async function updateWebhook(id: number, body: Partial<WebhookBody>): Promise<void> {
-  const res = await api.PUT('/webhooks/{id}', { params: { path: { id } }, body: body as never });
+  const res = await api.PUT('/webhooks/{id}', { params: { path: { id } }, body });
   if (res.error) throw new Error('Failed to update webhook');
 }
 
@@ -110,7 +135,7 @@ function EnabledBadge({ enabled }: { enabled: boolean }) {
 // ---------------------------------------------------------------------------
 
 interface WebhookModalProps {
-  webhook: Webhook | null;
+  webhook: EditableWebhook | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -171,7 +196,7 @@ function WebhookModal({ webhook, onClose, onSaved }: WebhookModalProps) {
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={isEdit ? `Edit webhook ${webhook.url}` : 'New webhook'}
+        aria-label={isEdit ? `Edit webhook #${webhook.id}` : 'New webhook'}
       >
         <div style={modalStyles.header}>
           <h2 style={modalStyles.title}>{isEdit ? `📝 Edit Webhook #${webhook.id}` : '🔗 New Webhook'}</h2>
@@ -303,7 +328,9 @@ export function WebhookList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [showNew, setShowNew] = useState(false);
-  const [editWebhook, setEditWebhook] = useState<Webhook | null>(null);
+  const [editWebhook, setEditWebhook] = useState<EditableWebhook | null>(null);
+  const [editingLoadingId, setEditingLoadingId] = useState<number | null>(null);
+  const [configurationError, setConfigurationError] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const webhooksQ = useQuery({
@@ -318,6 +345,19 @@ export function WebhookList() {
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+  }
+
+  async function openEditor(webhook: Webhook) {
+    setConfigurationError(false);
+    setEditingLoadingId(webhook.id);
+    try {
+      const configuration = await fetchWebhookConfiguration(webhook.id);
+      setEditWebhook({ ...webhook, url: configuration.url });
+    } catch {
+      setConfigurationError(true);
+    } finally {
+      setEditingLoadingId(null);
+    }
   }
 
   const webhooks = webhooksQ.data?.data ?? [];
@@ -338,6 +378,11 @@ export function WebhookList() {
           Action failed. Please try again.
         </p>
       )}
+      {configurationError && (
+        <p role="alert" style={{ color: '#ef4444', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+          The editable destination could not be loaded. Nothing was changed. Try again.
+        </p>
+      )}
 
       <div style={styles.tableCard}>
         {webhooksQ.isLoading ? (
@@ -352,7 +397,7 @@ export function WebhookList() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['ID', 'URL', 'Events', 'Status', 'Actions'].map(
+                    {['ID', 'Destination', 'Events', 'Status', 'Actions'].map(
                       h => <th key={h} style={styles.th}>{h}</th>,
                     )}
                   </tr>
@@ -361,12 +406,14 @@ export function WebhookList() {
                   {webhooks.map(w => (
                     <tr key={w.id} style={styles.tr}>
                       <td style={styles.td}>#{w.id}</td>
-                      <td style={{ ...styles.td, fontWeight: 500, maxWidth: 280, overflowWrap: 'anywhere' }}>{w.url}</td>
+                      <td style={{ ...styles.td, fontWeight: 500, maxWidth: 280, overflowWrap: 'anywhere' }}>
+                        {w.url_configured ? 'Configured HTTPS endpoint' : 'Destination needs attention'}
+                      </td>
                       <td style={styles.td}>{eventsToString(w.events)}</td>
                       <td style={styles.td}><EnabledBadge enabled={isEnabled(w)} /></td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                        <button style={styles.actionBtn} onClick={() => setEditWebhook(w)} title="Edit this webhook">
-                          ✏️ Edit
+                        <button style={styles.actionBtn} onClick={() => openEditor(w)} title="Edit this webhook" disabled={editingLoadingId !== null}>
+                          {editingLoadingId === w.id ? 'Loading…' : '✏️ Edit'}
                         </button>
                         <button
                           style={{ ...styles.actionBtn, color: '#991b1b' }}

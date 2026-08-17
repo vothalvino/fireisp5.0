@@ -1,0 +1,38 @@
+{{- if .Values.snmpTrap.enabled }}
+{{- $external := or (eq .Values.snmpTrap.type "LoadBalancer") (eq .Values.snmpTrap.type "NodePort") }}
+{{- $hasLoadBalancerRanges := and (eq .Values.snmpTrap.type "LoadBalancer") (gt (len .Values.snmpTrap.loadBalancerSourceRanges) 0) }}
+{{- if and $external (not $hasLoadBalancerRanges) (not (default false .Values.snmpTrap.allowUnrestrictedSources)) }}
+{{- fail "snmpTrap external exposure requires non-empty loadBalancerSourceRanges, or the explicit unsafe override snmpTrap.allowUnrestrictedSources=true after an external firewall/ACL is verified" }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fireisp.fullname" . }}-snmp-trap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "fireisp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: snmp-trap
+  {{- with .Values.snmpTrap.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.snmpTrap.type }}
+  {{- if and .Values.snmpTrap.externalTrafficPolicy (or (eq .Values.snmpTrap.type "LoadBalancer") (eq .Values.snmpTrap.type "NodePort")) }}
+  externalTrafficPolicy: {{ .Values.snmpTrap.externalTrafficPolicy }}
+  {{- end }}
+  {{- with .Values.snmpTrap.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    {{- include "fireisp.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: snmp-trap
+      port: {{ .Values.snmpTrap.port }}
+      targetPort: snmp-trap
+      protocol: UDP
+      {{- if and .Values.snmpTrap.nodePort (eq .Values.snmpTrap.type "NodePort") }}
+      nodePort: {{ .Values.snmpTrap.nodePort }}
+      {{- end }}
+{{- end }}

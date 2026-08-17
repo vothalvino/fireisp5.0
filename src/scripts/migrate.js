@@ -11,6 +11,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 const db = require('../config/database');
 const logger = require('../utils/logger').child({ script: 'migrate' });
@@ -40,6 +41,16 @@ function splitStatements(sql) {
   let delimiter = ';';
   let current = '';
 
+  // A DELIMITER directive can follow a file header made entirely of comments.
+  // Sending that header as COM_QUERY produces ER_EMPTY_QUERY on MySQL. Remove
+  // ordinary comments only for this emptiness check; preserve MySQL executable
+  // comments (`/*! ... */`) and optimizer hints (`/*+ ... */`).
+  const hasExecutableSql = value => value
+    .replace(/\/\*(?![!+])[\s\S]*?\*\//g, '')
+    .replace(/^\s*--(?:\s|$).*$/gm, '')
+    .replace(/^\s*#.*$/gm, '')
+    .trim().length > 0;
+
   // Process line by line so DELIMITER directives are easy to detect at line start.
   for (const rawLine of sql.split('\n')) {
     const trimmed = rawLine.trim();
@@ -49,10 +60,10 @@ function splitStatements(sql) {
     if (delimMatch) {
       // Flush any accumulated text before the directive change.
       const pending = current.trim();
-      if (pending) {
+      if (pending && hasExecutableSql(pending)) {
         statements.push(pending);
-        current = '';
       }
+      current = '';
       delimiter = delimMatch[1];
       continue;
     }
@@ -66,7 +77,7 @@ function splitStatements(sql) {
     if (trimmedCurrent.endsWith(delimiter)) {
       // Strip the trailing delimiter before pushing.
       const stmt = trimmedCurrent.slice(0, trimmedCurrent.length - delimiter.length).trim();
-      if (stmt) {
+      if (stmt && hasExecutableSql(stmt)) {
         statements.push(stmt);
       }
       current = '';
@@ -75,7 +86,7 @@ function splitStatements(sql) {
 
   // Flush any remaining content (e.g. files that don't end with a delimiter).
   const tail = current.trim();
-  if (tail) {
+  if (tail && hasExecutableSql(tail)) {
     statements.push(tail);
   }
 
@@ -97,8 +108,27 @@ function createMigrationPool(connectionConfig) {
 async function applyMigrations(migrationPool, label = 'primary') {
 
   let conn;
+  let migrationLockName;
+  let migrationLockHeld = false;
   try {
     conn = await migrationPool.getConnection();
+
+    // Helm/Kubernetes may start more than one new pod at once. Every pod uses
+    // the same image-level migration command before its application process,
+    // so serialize writers per target database with a server advisory lock.
+    // The hash keeps the lock below MySQL/MariaDB's 64-character limit while
+    // making the name stable across processes that target the same label.
+    const [databaseRows] = await conn.execute('SELECT DATABASE() AS database_name');
+    const lockTarget = databaseRows?.[0]?.database_name || label;
+    migrationLockName = `fireisp:migrate:${crypto.createHash('sha256').update(String(lockTarget)).digest('hex').slice(0, 40)}`;
+    const [lockRows] = await conn.execute(
+      'SELECT GET_LOCK(?, 300) AS acquired',
+      [migrationLockName],
+    );
+    if (Number(lockRows?.[0]?.acquired) !== 1) {
+      throw new Error(`Could not acquire the migration lock for ${label}`);
+    }
+    migrationLockHeld = true;
 
     // Ensure schema_migrations table exists (migration 052 creates it, but
     // we need it before running any migrations on a fresh DB).
@@ -149,6 +179,13 @@ async function applyMigrations(migrationPool, label = 'primary') {
       logger.info({ count, target: label }, 'Migrations applied');
     }
   } finally {
+    if (conn && migrationLockHeld) {
+      try {
+        await conn.execute('SELECT RELEASE_LOCK(?) AS released', [migrationLockName]);
+      } catch (err) {
+        logger.warn({ err, target: label }, 'Could not explicitly release migration lock; connection close will release it');
+      }
+    }
     if (conn) conn.release();
   }
 }

@@ -18,6 +18,27 @@ jest.mock('../src/config/database', () => ({
   pool: { end: jest.fn() },
 }));
 
+jest.mock('../src/services/snmpTrapReceiver', () => ({
+  getStatus: jest.fn(() => ({
+    enabled: true,
+    ready: true,
+    listening: true,
+    state: 'listening',
+    reason: null,
+  })),
+  start: jest.fn(),
+  stop: jest.fn(),
+}));
+
+jest.mock('../src/services/trapForwardingReadinessService', () => ({
+  checkSchemaReadiness: jest.fn().mockResolvedValue({
+    ready: true,
+    primary: { ready: true },
+    isolated: [],
+    reason: null,
+  }),
+}));
+
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------
@@ -81,7 +102,7 @@ describe('Health endpoints — no secret leakage', () => {
   test('GET /health?detail=true response fields are limited to safe metadata', async () => {
     const res = await request(app).get('/health?detail=true');
     const allowedTopLevelKeys = new Set([
-      'status', 'version', 'uptime', 'relay', 'timestamp', 'memory', 'db',
+      'status', 'version', 'uptime', 'relay', 'timestamp', 'memory', 'db', 'snmpTrap',
     ]);
     Object.keys(res.body).forEach(key => {
       expect(allowedTopLevelKeys).toContain(key);

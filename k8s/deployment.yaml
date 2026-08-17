@@ -13,10 +13,10 @@ spec:
       app.kubernetes.io/name: fireisp
       app.kubernetes.io/component: api
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    # Migration 459 and later security migrations may not be safe while an old
+    # writer/listener remains live. Recreate provides an explicit maintenance
+    # window: old pods drain first, then the new image migrates and starts.
+    type: Recreate
   template:
     metadata:
       labels:
@@ -30,6 +30,39 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: database-migrate
+          # Replace this token in BOTH containers with one full commit SHA that
+          # main CI has published. Leaving it unchanged fails closed on pull.
+          image: ghcr.io/vothalvino/fireisp5.0:REPLACE_WITH_FULL_COMMIT_SHA
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'src/scripts/migrate.js']
+          envFrom:
+            - configMapRef:
+                name: fireisp-config
+            - secretRef:
+                name: fireisp-secret
+          env:
+            # Keep the security-migration fan-out explicit here as well as in
+            # the ConfigMap so a custom ConfigMap cannot silently skip tenants.
+            - name: MIGRATE_ISOLATED_TENANTS
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: fireisp
           # ghcr.io/vothalvino/fireisp5.0 is what CI actually publishes and
@@ -37,11 +70,15 @@ spec:
           # docker.io/fireisp/fireisp — a namespace this project does not
           # control, so a squatter there would have been pulled and run, and
           # the signature policy would never have matched the running image.
-          image: ghcr.io/vothalvino/fireisp5.0:latest
+          image: ghcr.io/vothalvino/fireisp5.0:REPLACE_WITH_FULL_COMMIT_SHA
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
               protocol: TCP
+            - name: snmp-trap
+              containerPort: 1620
+              protocol: UDP
           envFrom:
             - configMapRef:
                 name: fireisp-config

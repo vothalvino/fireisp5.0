@@ -13,12 +13,26 @@
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
-const { requirePermission } = require('../middleware/rbac');
+const { requirePermission, requireRole } = require('../middleware/rbac');
 const db = require('../config/database');
 
 const router = Router();
 router.use(authenticate);
 router.use(orgScope);
+// Received traps and their forwarding outbox are canonical primary-database
+// records. Keep the permission/org predicates below, but never let an
+// isolated request context redirect these reads or acknowledgements to a
+// same-shaped shadow table.
+router.use((_req, _res, next) => (
+  typeof db.withPrimaryContext === 'function'
+    ? db.withPrimaryContext(() => next())
+    : next()
+));
+router.use((_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('Pragma', 'no-cache');
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // GET /snmp-traps — list traps for the current organisation
@@ -54,7 +68,9 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 
     const [rows] = await db.query(
       `SELECT t.id, t.organization_id, t.device_id, d.name AS device_name,
-              t.source_ip, t.trap_type, t.trap_oid, t.varbinds, t.community,
+              t.source_ip, t.trap_type, t.trap_oid,
+              t.varbinds_truncated, t.varbinds_original_count,
+              t.varbinds_truncation_reason,
               t.snmp_version, t.is_acknowledged, t.acknowledged_by,
               TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name,
               t.acknowledged_at, t.received_at
@@ -67,20 +83,26 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
       params,
     );
 
-    // Parse varbinds JSON for each row if stored as a string
-    for (const row of rows) {
-      if (typeof row.varbinds === 'string') {
-        try { row.varbinds = JSON.parse(row.varbinds); } catch (_) { /* leave as-is */ }
-      }
-    }
-
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM snmp_traps t WHERE ${where}`,
       params,
     );
 
+    // Keep the response allowlist authoritative even if a custom database
+    // adapter returns more columns than the SELECT projection requested.
+    const safeRows = rows.map(row => {
+      const { varbinds: _varbinds, community: _community, ...metadata } = row;
+      return {
+        ...metadata,
+        is_acknowledged: Boolean(metadata.is_acknowledged),
+        varbinds_truncated: Boolean(metadata.varbinds_truncated),
+        varbinds_original_count: Number(metadata.varbinds_original_count || 0),
+        varbinds_truncation_reason: metadata.varbinds_truncation_reason || null,
+      };
+    });
+
     res.json({
-      data: rows,
+      data: safeRows,
       meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
     });
   } catch (err) { next(err); }
@@ -89,31 +111,51 @@ router.get('/', requirePermission('devices.view'), async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // GET /snmp-traps/:id — single trap with full varbinds
 // ---------------------------------------------------------------------------
-router.get('/:id', requirePermission('devices.view'), async (req, res, next) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT t.*, d.name AS device_name,
-              TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name
+router.get(
+  '/:id',
+  requireRole('admin', 'super_admin'),
+  requirePermission('devices.view'),
+  requirePermission('snmp_traps.payload.view'),
+  async (req, res, next) => {
+    try {
+      const [rows] = await db.query(
+        `SELECT t.id, t.organization_id, t.device_id, d.name AS device_name,
+              t.source_ip, t.trap_type, t.trap_oid, t.varbinds,
+              t.varbinds_truncated, t.varbinds_original_count,
+              t.varbinds_truncation_reason,
+              t.snmp_version, t.is_acknowledged, t.acknowledged_by,
+              TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS acknowledged_by_name,
+              t.acknowledged_at, t.received_at
        FROM snmp_traps t
        LEFT JOIN devices d ON d.id = t.device_id
        LEFT JOIN users   u ON u.id = t.acknowledged_by
        WHERE t.id = ? AND t.organization_id = ?`,
-      [req.params.id, req.orgId],
-    );
+        [req.params.id, req.orgId],
+      );
 
-    if (!rows.length) {
-      return res.status(404).json({ error: { message: 'SNMP trap not found' } });
-    }
+      if (!rows.length) {
+        return res.status(404).json({ error: { message: 'SNMP trap not found' } });
+      }
 
-    const trap = rows[0];
-    // Parse varbinds JSON if stored as a string (MySQL may return a string)
-    if (typeof trap.varbinds === 'string') {
-      try { trap.varbinds = JSON.parse(trap.varbinds); } catch (_) { /* leave as-is */ }
-    }
+      const trap = rows[0];
+      // Parse varbinds JSON if stored as a string (MySQL may return a string)
+      if (typeof trap.varbinds === 'string') {
+        try { trap.varbinds = JSON.parse(trap.varbinds); } catch (_) { /* leave as-is */ }
+      }
+      // Community strings are authentication material and are neither newly
+      // persisted nor returned, even if a legacy/custom adapter supplies one.
+      delete trap.community;
+      trap.is_acknowledged = Boolean(trap.is_acknowledged);
+      trap.varbinds_truncated = Boolean(trap.varbinds_truncated);
+      trap.varbinds_original_count = Number(
+        trap.varbinds_original_count || (Array.isArray(trap.varbinds) ? trap.varbinds.length : 0),
+      );
+      trap.varbinds_truncation_reason = trap.varbinds_truncation_reason || null;
 
-    res.json({ data: trap });
-  } catch (err) { next(err); }
-});
+      res.json({ data: trap });
+    } catch (err) { next(err); }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // POST /snmp-traps/:id/acknowledge — mark a trap as acknowledged
