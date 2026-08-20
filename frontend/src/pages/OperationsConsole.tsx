@@ -17,6 +17,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { useWebSocket } from '@/api/useWebSocket';
 import { useOrgCurrency } from '@/auth/useOrgCurrency';
+import { useAuth } from '@/auth/AuthContext';
+import { can } from '@/auth/permissions';
 import { Button, Badge, Modal, Field } from '@/components/ui';
 import {
   resolveModel, buildChart, buildChartFromSeries, hasRealData, type Range,
@@ -24,6 +26,7 @@ import {
   type ThroughputSeries, type ChartModel, type SessionsData, type SiteRow, type DeviceRow,
 } from './operations-console/consoleModel';
 import { KpiRow, ThroughputChart, LiveEvents, SitesStrip, DeviceTable, type DeviceFilter } from './operations-console/consoleWidgets';
+import { canOpenConsoleRoute } from './operations-console/consoleAccess';
 import './operations-console/console.css';
 
 // ---------------------------------------------------------------------------
@@ -76,15 +79,16 @@ async function fetchThroughput(range: Range): Promise<ThroughputSeries | null> {
   }
 }
 
-// Live RADIUS session count. Best-effort → undefined so the KPI shows a placeholder.
-async function fetchSessions(): Promise<SessionsData | undefined> {
+// Live RADIUS session count. React Query requires a concrete result; null is
+// the honest best-effort empty state and the view model maps it to a placeholder.
+async function fetchSessions(): Promise<SessionsData | null> {
   try {
     const res = await api.GET('/dashboard/live-sessions' as never, {} as never) as { error?: unknown; data?: unknown };
-    if (res.error) return undefined;
+    if (res.error) return null;
     const d = (res.data as { data?: SessionsData })?.data;
-    return d && typeof d.value === 'string' ? d : undefined;
+    return d && typeof d.value === 'string' ? d : null;
   } catch {
-    return undefined;
+    return null;
   }
 }
 
@@ -131,6 +135,7 @@ const DEMO_TICKET_BASE = 38;
 export function OperationsConsole() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
 
   // Live-data queries (auto-refresh keeps the "live" feel once real).
   const summaryQ = useQuery({ queryKey: ['dashboard-summary'], queryFn: fetchSummary, refetchInterval: 30_000 });
@@ -167,7 +172,7 @@ export function OperationsConsole() {
       health: healthQ.data,
       overdue: overdueQ.data,
       events: eventsQ.data,
-      sessions: sessionsQ.data,
+      sessions: sessionsQ.data ?? undefined,
       sitesData: sitesQ.data,
       devicesData: devicesQ.data,
       orgCurrency,
@@ -199,18 +204,6 @@ export function OperationsConsole() {
   const [priority, setPriority] = useState<'Low' | 'Normal' | 'High'>('Normal');
   const [err, setErr] = useState('');
 
-  // ⌘K / Ctrl-K focuses the device search
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        document.getElementById('fi-device-search')?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
   // Chart: demo → synthetic sample; real → SNMP series, or an honest empty state.
   const chartModel = useMemo<ChartModel | null>(() => {
     if (model.isDemo) return buildChart(7, range);
@@ -231,8 +224,10 @@ export function OperationsConsole() {
     ? { ...model.kpis, openTickets: { ...model.kpis.openTickets, value: String(DEMO_TICKET_BASE + created) } }
     : model.kpis;
   const events = model.isDemo ? [...localEvents, ...model.events] : model.events;
+  const canCreateTicket = canOpenConsoleRoute(user, '/tickets') && can(user, 'tickets.create');
 
   function onNewTicket() {
+    if (!canCreateTicket) return;
     if (model.isDemo) {
       setSubject(''); setPriority('Normal'); setErr('');
       setModalOpen(true);
@@ -264,7 +259,7 @@ export function OperationsConsole() {
           </Badge>
         )}
         <div className="fi-spacer" />
-        <Button onClick={onNewTicket}>New ticket</Button>
+        {canCreateTicket && <Button onClick={onNewTicket}>New ticket</Button>}
       </div>
 
       {/* KPI row */}
@@ -281,13 +276,14 @@ export function OperationsConsole() {
 
       {/* Devices */}
       <div>
-        {/* Search field feeds the device table filter; ⌘K focuses it. */}
+        {/* Search field feeds the device table filter. Global ⌘/Ctrl-K stays
+            reserved for the application command palette. */}
         <div style={{ marginBottom: 'var(--sp-3)' }}>
           <Field
             label="Search devices"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by name, IP, or type…  (⌘K)"
+            placeholder="Filter by name, IP, or type…"
             id="fi-device-search"
             style={{ maxWidth: 360 }}
           />

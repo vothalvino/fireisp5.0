@@ -15,6 +15,7 @@ import {
   RANGES, CHART_W, CHART_H, CHART_PAD, type Range, type ChartModel,
   type KpiModel, type SiteModel, type DeviceModel, type EventModel, type DeviceStatus,
 } from './consoleModel';
+import { canOpenConsoleRoute } from './consoleAccess';
 
 // Sparkline now lives in @/components/ui/Sparkline (shared across pages);
 // re-exported here so any existing external import of it from this module
@@ -44,25 +45,33 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
   const navigate = useNavigate();
   const role = user?.role ?? '';
 
-  // Clickable-tile affordance: navigates on click/Enter/Space.
-  const linkProps = (to: string, label: string) => ({
-    role: 'link' as const,
-    tabIndex: 0,
-    'aria-label': label,
-    onClick: () => navigate(to),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        navigate(to);
-      }
-    },
-  });
+  // A KPI remains useful as information when its destination is unavailable.
+  // Only add link semantics/affordance when the shared route registry says the
+  // current user may actually open that page.
+  const linkProps = (to: string, label: string) => {
+    if (!canOpenConsoleRoute(user, to)) return {};
+    return {
+      role: 'link' as const,
+      tabIndex: 0,
+      'aria-label': label,
+      onClick: () => navigate(to),
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          navigate(to);
+        }
+      },
+    };
+  };
+
+  const linkClass = (to: string, extra = '') =>
+    `fi-kpi${extra}${canOpenConsoleRoute(user, to) ? ' fi-kpi-link' : ''}`;
 
   return (
     <div className="fi-kpi-grid">
       {/* active clients — admin only, jumps to the client list */}
       {role === 'admin' && (
-        <div className="fi-kpi fi-kpi-link" {...linkProps('/clients', 'Active Clients — open client list')}>
+        <div className={linkClass('/clients')} {...linkProps('/clients', 'Active Clients — open client list')}>
           <div className="fi-kpi-top">
             <span className="fi-kpi-label">Active Clients</span>
             {k.activeClients.trend && <span className="fi-trend">▲ {k.activeClients.trend}</span>}
@@ -85,7 +94,7 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
         <Sparkline points={k.mrr.spark} h={22} />
       </div>
       {/* devices online — jumps to the device map */}
-      <div className="fi-kpi fi-kpi-link" {...linkProps('/devices', 'Devices Online — open device map')}>
+      <div className={linkClass('/devices')} {...linkProps('/devices', 'Devices Online — open device map')}>
         <div className="fi-kpi-top">
           <span className="fi-kpi-label">Devices Online</span>
           <span className="fi-dot" style={{ background: 'var(--success)' }} />
@@ -107,7 +116,7 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
         <span className="fi-kpi-label">{k.liveSessions.note}</span>
       </div>
       {/* open tickets — jumps to the ticket list pre-filtered to open */}
-      <div className="fi-kpi fi-kpi-link" {...linkProps('/tickets?status=open', 'Open Tickets — open ticket list filtered to open')}>
+      <div className={linkClass('/tickets?status=open')} {...linkProps('/tickets?status=open', 'Open Tickets — open ticket list filtered to open')}>
         <div className="fi-kpi-top">
           <span className="fi-kpi-label">Open Tickets</span>
           {k.openTickets.sla && <span className="fi-kpi-label" style={{ color: 'var(--warning)' }}>{k.openTickets.sla}</span>}
@@ -121,7 +130,7 @@ export function KpiRow({ kpis: k }: { kpis: KpiModel }) {
       </div>
       {/* overdue (emphasis) — admin/billing only, jumps to overdue invoices */}
       {(role === 'admin' || role === 'billing') && (
-        <div className="fi-kpi accent fi-kpi-link" {...linkProps('/invoices?status=overdue', 'Overdue — open invoice list filtered to overdue')}>
+        <div className={linkClass('/invoices?status=overdue', ' accent')} {...linkProps('/invoices?status=overdue', 'Overdue — open invoice list filtered to overdue')}>
           <div className="fi-kpi-top">
             <span className="fi-kpi-label" style={{ color: 'var(--warning)' }}>Overdue</span>
             <span className="fi-dot fi-live" style={{ background: 'var(--warning)' }} />

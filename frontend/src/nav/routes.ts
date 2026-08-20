@@ -97,14 +97,14 @@ export const SECTIONS: SectionDef[] = [
 ];
 
 /**
- * Workspace presets — an admin/readonly convenience that prunes the rendered
- * sidebar to one job's sections without touching permissions ("admin, but
- * doing billing today"). 'full' = no pruning. Dashboard is always shown.
+ * Navigation-focus presets — an admin/readonly convenience that puts one job's
+ * sections first without touching permissions or removing any authorized
+ * section ("admin, but doing billing today"). 'full' keeps canonical order.
  */
 export interface WorkspaceDef {
   id: string;
   labelKey: string;
-  /** Sections kept visible; undefined = all. */
+  /** Sections promoted ahead of the remaining authorized areas. */
   sections?: SectionId[];
 }
 
@@ -389,6 +389,17 @@ export function sectionForPath(pathname: string): SectionId | null {
     }
   }
   return best?.section ?? null;
+}
+
+/** Best matching registered route for a pathname (detail pages inherit their list label). */
+export function routeForPath(pathname: string): RouteDef | null {
+  let best: RouteDef | null = null;
+  for (const route of ROUTES) {
+    if (pathname === route.path || pathname.startsWith(`${route.path}/`)) {
+      if (!best || route.path.length > best.path.length) best = route;
+    }
+  }
+  return best;
 }
 
 /** Section auto-opened on first load, per persona. */

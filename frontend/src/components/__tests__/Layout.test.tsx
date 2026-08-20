@@ -5,7 +5,7 @@
 // section headings only appear when the user can see at least one item in them.
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../Layout';
@@ -128,14 +128,18 @@ describe('Layout — grouped sidebar navigation', () => {
     mockUseAuth(makeUser('admin'));
     renderLayout();
     const { fireEvent } = await import('@testing-library/react');
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
 
     // Section headers are always visible; collapsed sections hide their rows.
     for (const heading of ['Dashboard', 'Billing', 'Support', 'Field Work', 'Network', 'Inventory', 'Compliance', 'Administration']) {
-      expect(screen.getByText(heading)).toBeInTheDocument();
+      expect(within(nav).getByText(heading)).toBeInTheDocument();
     }
     // Nothing auto-expands on first load — the sidebar starts fully collapsed.
     expect(screen.queryByText('Leads')).not.toBeInTheDocument();
     expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
+    // The responsive shell mounts one global notification control, rather
+    // than duplicate desktop/mobile copies hidden only by CSS.
+    expect(screen.getAllByRole('button', { name: /^Notifications/ })).toHaveLength(1);
 
     // Clicking a section header opens it.
     fireEvent.click(screen.getByText('Clients'));
@@ -144,6 +148,9 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('Leads')).toBeInTheDocument();
     // Other sections remain collapsed.
     expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
+    // Plain groups expose one disclosure control, not duplicate adjacent
+    // buttons that perform the same action.
+    expect(within(nav).getAllByRole('button', { name: /Clients/ })).toHaveLength(1);
   });
 
   it('gives support only its sections, all collapsed until the support kit is opened', async () => {
@@ -189,6 +196,8 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('Tickets')).toBeInTheDocument();
     // Expanding Network reveals the shortlist and the View-all row to the hub.
     fireEvent.click(screen.getByText('Network'));
+    // Only one section remains open, so the rail cannot accumulate density.
+    expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
     expect(screen.getByText('NAS Devices')).toBeInTheDocument();
     expect(screen.getByText(/View all \d+/)).toBeInTheDocument();
     // The long tail is hub-only, not rail rows.
@@ -215,7 +224,7 @@ describe('Layout — grouped sidebar navigation', () => {
     const { fireEvent } = await import('@testing-library/react');
 
     // Billing opens its own section by clicking the header.
-    fireEvent.click(screen.getByText('Billing'));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByText('Billing'));
     expect(screen.getByText('Invoices')).toBeInTheDocument();
 
     // Switch to a role that can't see Billing at all. The previously-open
@@ -223,7 +232,7 @@ describe('Layout — grouped sidebar navigation', () => {
     // section must open in its place rather than leaving the nav empty.
     mockUseAuth(makeUser('support'));
     rerender(buildTree(qc));
-    expect(screen.queryByText('Billing')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Primary navigation' })).queryByText('Billing')).not.toBeInTheDocument();
     expect(screen.getByText('Tickets')).toBeInTheDocument();
   });
 
@@ -274,26 +283,63 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByRole('combobox', { name: 'Go to page' })).toBeInTheDocument();
   });
 
-  it('offers workspace presets to admins only, and they prune the sidebar', async () => {
+  it('offers navigation focus to multi-area staff and keeps every authorized area available', async () => {
     mockUseAuth(makeUser('technician'));
     const first = renderLayout();
-    expect(screen.queryByLabelText('Workspace')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Navigation focus')).not.toBeInTheDocument();
     first.unmount();
 
     mockUseAuth(makeUser('admin'));
     renderLayout();
     const { fireEvent } = await import('@testing-library/react');
-    const select = screen.getByLabelText('Workspace');
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+    const select = screen.getByLabelText('Navigation focus');
     fireEvent.change(select, { target: { value: 'billing' } });
-    // Billing preset keeps Dashboard + billing-side sections, hides the rest.
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Billing')).toBeInTheDocument();
-    expect(screen.getByText('Compliance')).toBeInTheDocument();
-    expect(screen.queryByText('Network')).not.toBeInTheDocument();
-    expect(screen.queryByText('Field Work')).not.toBeInTheDocument();
-    // Back to full restores everything.
+    // Billing-related areas move first, while unrelated authorized tools stay
+    // discoverable below the explicit All areas divider.
+    expect(within(nav).getByText('Dashboard')).toBeInTheDocument();
+    expect(within(nav).getByText('Billing')).toBeInTheDocument();
+    expect(within(nav).getByText('Compliance')).toBeInTheDocument();
+    expect(within(nav).getByText('Network')).toBeInTheDocument();
+    expect(within(nav).getByText('Field Work')).toBeInTheDocument();
+    expect(within(nav).getByText('Focused areas')).toBeInTheDocument();
+    expect(within(nav).getByText('All areas')).toBeInTheDocument();
+    expect(
+      within(nav).getByText('Billing').compareDocumentPosition(within(nav).getByText('Network'))
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // Back to the full view restores canonical order and removes group dividers.
     fireEvent.change(select, { target: { value: 'full' } });
-    expect(screen.getByText('Network')).toBeInTheDocument();
+    expect(within(nav).getByText('Network')).toBeInTheDocument();
+    expect(within(nav).queryByText('Focused areas')).not.toBeInTheDocument();
+  });
+
+  it('keeps the current route visible when another navigation focus is selected', async () => {
+    mockUseAuth(makeUser('admin'));
+    renderLayout({ initialEntries: ['/network'] });
+    const { fireEvent } = await import('@testing-library/react');
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+
+    fireEvent.change(screen.getByLabelText('Navigation focus'), { target: { value: 'billing' } });
+    const network = within(nav).getByText('Network');
+    const allAreas = within(nav).getByText('All areas');
+    expect(network).toBeInTheDocument();
+    expect(network.compareDocumentPosition(allAreas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(nav).getByText('NAS Devices')).toBeInTheDocument();
+  });
+
+  it('closes the mobile drawer with Escape and restores focus to its opener', async () => {
+    mockUseAuth(makeUser('admin'));
+    renderLayout();
+    const { fireEvent, waitFor } = await import('@testing-library/react');
+    const opener = screen.getByRole('button', { name: 'Open navigation' });
+
+    fireEvent.click(opener);
+    expect(screen.getByRole('button', { name: 'Close navigation' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open navigation' })).toHaveFocus());
+    expect(opener).toHaveAttribute('aria-expanded', 'false');
   });
 
   // A tenant admin carries users.role='admin' too, but cannot switch into an
@@ -302,7 +348,7 @@ describe('Layout — grouped sidebar navigation', () => {
   it('does not offer the all-orgs switcher to a tenant admin', async () => {
     mockUseAuth(makeUser('admin', false));
     renderLayout();
-    await screen.findByText(/Dashboard/i);
+    expect((await screen.findAllByText(/Dashboard/i)).length).toBeGreaterThan(0);
     expect(mockApiGet).not.toHaveBeenCalledWith('/organizations', expect.anything());
   });
 

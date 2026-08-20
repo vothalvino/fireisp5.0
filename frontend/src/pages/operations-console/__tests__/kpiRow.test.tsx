@@ -1,8 +1,9 @@
 // =============================================================================
 // FireISP Operations Console — KPI tile visibility + deep links
 // =============================================================================
-// Active Clients is admin-only; Overdue is admin/billing; Devices Online and
-// Open Tickets are clickable for everyone who sees the console.
+// Active Clients is admin-only and Overdue is admin/billing. KPI values remain
+// visible as designed, but a tile is only interactive when the shared route
+// registry says its destination is available to the current user.
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -57,6 +58,7 @@ describe('KpiRow role visibility', () => {
     renderRow('billing');
     expect(screen.queryByText('Active Clients')).not.toBeInTheDocument();
     expect(screen.getByText('Overdue')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Overdue/ })).toBeInTheDocument();
   });
 
   it('support sees neither Active Clients nor Overdue', () => {
@@ -64,6 +66,20 @@ describe('KpiRow role visibility', () => {
     expect(screen.queryByText('Active Clients')).not.toBeInTheDocument();
     expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
     expect(screen.getByText('Open Tickets')).toBeInTheDocument();
+  });
+
+  it('billing keeps operational values without dead device or ticket links', () => {
+    renderRow('billing');
+    expect(screen.getByText('Devices Online')).toBeInTheDocument();
+    expect(screen.getByText('Open Tickets')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Devices Online/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open Tickets/ })).not.toBeInTheDocument();
+  });
+
+  it('support can open tickets but does not get a dead device link', () => {
+    renderRow('support');
+    expect(screen.getByRole('link', { name: /Open Tickets/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Devices Online/ })).not.toBeInTheDocument();
   });
 });
 
