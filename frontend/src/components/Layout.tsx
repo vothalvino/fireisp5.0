@@ -2,7 +2,7 @@
 // FireISP 5.0 — App Layout (shell + nav)
 // =============================================================================
 
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -23,6 +23,7 @@ import {
   WORKSPACES,
   canSeeHub,
   defaultExpandedSection,
+  routeForPath,
   sectionForPath,
   visibleRailItems,
   visibleSectionCount,
@@ -43,7 +44,10 @@ function loadExpanded(): SectionId[] {
     if (raw) {
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.filter((x): x is SectionId => typeof x === 'string');
+        // Older builds allowed several sections to accumulate. Keep only the
+        // most recently opened one so existing browsers receive the calmer
+        // one-section-at-a-time model immediately.
+        return parsed.filter((x): x is SectionId => typeof x === 'string').slice(-1);
       }
     }
   } catch {
@@ -63,6 +67,9 @@ export function Layout() {
   const qc = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   // Admins can switch their active org to ANY organization (not just ones they're
   // a member of), so for them the switcher lists every org. Non-admins only see
@@ -95,7 +102,7 @@ export function Layout() {
   // the section (not the pathname) so collapsing it while on the route sticks.
   useEffect(() => {
     if (trailSection && trailSection !== 'dashboard') {
-      setExpanded(prev => (prev.includes(trailSection) ? prev : [...prev, trailSection]));
+      setExpanded(prev => (prev.length === 1 && prev[0] === trailSection ? prev : [trailSection]));
     }
   }, [trailSection]);
 
@@ -121,13 +128,13 @@ export function Layout() {
       ).map(s => s.id);
       if (prev.some(id => visibleIds.includes(id))) return prev;
       const primary = defaultExpandedSection(user.role);
-      return primary && visibleIds.includes(primary) ? [...prev, primary] : prev;
+      return primary && visibleIds.includes(primary) ? [primary] : prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
   function toggleSection(id: SectionId) {
-    setExpanded(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+    setExpanded(prev => (prev.includes(id) ? [] : [id]));
   }
 
   // Command palette (Ctrl/Cmd+K) — jumps to any page this role can see.
@@ -143,9 +150,44 @@ export function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Workspace presets: admins/readonly wear many hats — let them prune the
-  // rendered sidebar to one job without touching permissions. The palette
-  // stays unfiltered as the escape hatch.
+  // Treat the mobile drawer as an intentional layer: move focus into it,
+  // close on Escape, and return focus to the opener. CSS visibility keeps its
+  // off-canvas links out of the tab order while it is closed.
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    const focusFrame = window.requestAnimationFrame(() => {
+      sidebarRef.current?.querySelector<HTMLButtonElement>('.nav-search-btn')?.focus();
+    });
+    function onDrawerKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+        window.requestAnimationFrame(() => hamburgerRef.current?.focus());
+        return;
+      }
+      if (e.key !== 'Tab' || !sidebarRef.current) return;
+      const controls = Array.from(sidebarRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (controls.length === 0) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', onDrawerKey);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', onDrawerKey);
+    };
+  }, [sidebarOpen]);
+
+  // Navigation-focus presets: admins/readonly wear many hats. Relevant areas
+  // move first, while every authorized section remains present below them.
   const canUseWorkspaces = user?.role === 'admin' || user?.role === 'readonly';
   const [workspace, setWorkspace] = useState<string>(() => {
     try {
@@ -182,6 +224,7 @@ export function Layout() {
 
   function closeSidebar() {
     setSidebarOpen(false);
+    window.requestAnimationFrame(() => mainRef.current?.focus({ preventScroll: true }));
   }
 
   async function handleOrgChange(e: ChangeEvent<HTMLSelectElement>) {
@@ -207,24 +250,80 @@ export function Layout() {
   const memberships = user?.organizations ?? [];
   const orgs = isAdmin ? (allOrgs ?? memberships) : memberships;
   const showOrgSwitcher = orgs.length > 1;
+  const activeRoute = routeForPath(location.pathname);
+  const activeSection = SECTIONS.find(section => section.id === trailSection);
+  const activeSectionLabel = activeSection ? t(activeSection.labelKey) : null;
+  const pageLabel = activeRoute
+    ? t(activeRoute.labelKey)
+    : activeSectionLabel
+      ? activeSectionLabel
+      : t('nav.dashboard');
+  const sectionLabel = activeSection && activeSection.id !== 'dashboard' && activeSectionLabel !== pageLabel
+    ? activeSectionLabel
+    : null;
+
+  const navigationSections = user
+    ? SECTIONS.flatMap(section => {
+      const items = section.kind === 'link' ? [] : visibleRailItems(user, section.id);
+      const hubVisible = canSeeHub(user, section);
+      if (section.kind !== 'link' && items.length === 0 && !hubVisible) return [];
+      return [{
+        section,
+        items,
+        hubVisible,
+        sectionCount: visibleSectionCount(user, section.id),
+      }];
+    })
+    : [];
+  const dashboardSection = navigationSections.find(entry => entry.section.id === 'dashboard');
+  const areaSections = navigationSections.filter(entry => entry.section.id !== 'dashboard');
+  const focusOrder = workspaceSections
+    ? [
+      ...workspaceSections,
+      ...(trailSection && trailSection !== 'dashboard' && !workspaceSections.includes(trailSection)
+        ? [trailSection]
+        : []),
+    ]
+    : [];
+  const focusedSections = focusOrder.flatMap(sectionId => {
+    const entry = areaSections.find(candidate => candidate.section.id === sectionId);
+    return entry ? [entry] : [];
+  });
+  const focusedIds = new Set(focusedSections.map(entry => entry.section.id));
+  const remainingSections = workspaceSections
+    ? areaSections.filter(entry => !focusedIds.has(entry.section.id))
+    : areaSections;
+
+  function renderNavigationSection(entry: (typeof navigationSections)[number]) {
+    return (
+      <NavSection
+        key={entry.section.id}
+        section={entry.section}
+        items={entry.items}
+        sectionCount={entry.sectionCount}
+        hubVisible={entry.hubVisible}
+        expanded={expanded.includes(entry.section.id)}
+        onTrail={trailSection === entry.section.id}
+        onToggle={toggleSection}
+        onNavigate={closeSidebar}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">{t('layout.skipToContent')}</a>
       {/* Hamburger button — visible only on mobile via CSS */}
       <button
+        ref={hamburgerRef}
         className="hamburger-btn"
         onClick={() => setSidebarOpen(v => !v)}
-        aria-label={sidebarOpen ? t('layout.closeNav') : t('layout.openNav')}
+        aria-label={t('layout.openNav')}
         aria-expanded={sidebarOpen}
+        aria-controls="app-sidebar"
       >
-        {sidebarOpen ? '✕' : '☰'}
+        ☰
       </button>
-
-      {/* Mobile top bar — visible only on mobile via CSS */}
-      <div className="mobile-topbar">
-        {t('layout.brandName')}
-        <span className="mobile-topbar-bell"><NotificationBell /></span>
-      </div>
 
       {/* Backdrop overlay — shown on mobile when sidebar is open */}
       <div
@@ -234,68 +333,80 @@ export function Layout() {
       />
 
       {/* Sidebar */}
-      <aside className={`app-sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
-        <div style={styles.logo}>{t('layout.brandName')}</div>
+      <aside
+        ref={sidebarRef}
+        id="app-sidebar"
+        className={`app-sidebar${sidebarOpen ? ' sidebar-open' : ''}`}
+        aria-label={t('layout.primaryNavigation')}
+      >
+        <div className="sidebar-brand">
+          <div>
+            <div className="sidebar-brand-name">{t('layout.brandName')}</div>
+            <div className="sidebar-brand-subtitle">{t('layout.sidebarSubtitle')}</div>
+          </div>
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => {
+              closeSidebar();
+              window.requestAnimationFrame(() => hamburgerRef.current?.focus());
+            }}
+            aria-label={t('layout.closeNav')}
+          >
+            ✕
+          </button>
+        </div>
 
-        <button className="nav-search-btn" onClick={() => setPaletteOpen(true)}>
+        <button className="nav-search-btn" onClick={() => setPaletteOpen(true)} aria-haspopup="dialog">
           <span className="nav-search-label">{t('nav.palette.searchButton')}</span>
           <kbd className="nav-search-kbd">⌘K</kbd>
         </button>
 
         {canUseWorkspaces && (
-          <select
-            className="nav-workspace-select"
-            aria-label={t('nav.workspaces.label')}
-            value={workspace}
-            onChange={e => setWorkspace(e.target.value)}
-          >
-            {WORKSPACES.map(w => (
-              <option key={w.id} value={w.id}>
-                {t(w.labelKey)}
-              </option>
-            ))}
-          </select>
+          <div className="nav-focus-control">
+            <label htmlFor="nav-focus-select">{t('nav.workspaces.label')}</label>
+            <select
+              id="nav-focus-select"
+              className="nav-workspace-select"
+              value={workspace}
+              onChange={e => setWorkspace(e.target.value)}
+            >
+              {WORKSPACES.map(w => (
+                <option key={w.id} value={w.id}>
+                  {t(w.labelKey)}
+                </option>
+              ))}
+            </select>
+            <span>{t('nav.workspaces.hint')}</span>
+          </div>
         )}
 
-        <nav style={styles.nav}>
-          {user &&
-            SECTIONS.map(section => {
-              if (workspaceSections && section.id !== 'dashboard' && !workspaceSections.includes(section.id)) {
-                return null;
-              }
-              const items = section.kind === 'link' ? [] : visibleRailItems(user, section.id);
-              const hubVisible = canSeeHub(user, section);
-              if (section.kind !== 'link' && items.length === 0 && !hubVisible) return null;
-              return (
-                <NavSection
-                  key={section.id}
-                  section={section}
-                  items={items}
-                  sectionCount={visibleSectionCount(user, section.id)}
-                  hubVisible={hubVisible}
-                  expanded={expanded.includes(section.id)}
-                  onTrail={trailSection === section.id}
-                  onToggle={toggleSection}
-                  onNavigate={closeSidebar}
-                />
-              );
-            })}
+        <nav className="app-nav" aria-label={t('layout.primaryNavigation')}>
+          {dashboardSection && renderNavigationSection(dashboardSection)}
+          {workspaceSections && focusedSections.length > 0 && (
+            <div className="nav-area-label">{t('nav.workspaces.focusedAreas')}</div>
+          )}
+          {focusedSections.map(renderNavigationSection)}
+          {workspaceSections && remainingSections.length > 0 && (
+            <div className="nav-area-label nav-area-label-secondary">{t('nav.workspaces.allAreas')}</div>
+          )}
+          {remainingSections.map(renderNavigationSection)}
         </nav>
 
         {/* User info + logout */}
-        <div style={styles.userArea}>
+        <div className="sidebar-account">
           {user && (
             <>
-              <div style={styles.userName}>{user.name || user.email}</div>
+              <div className="sidebar-user-name">{user.name || user.email}</div>
               {/* Show the user's group name (378); the raw role mirror is the fallback */}
-              <div style={styles.userRole}>{user.group?.name ?? user.role}</div>
+              <div className="sidebar-user-role">{user.group?.name ?? user.role}</div>
               {showOrgSwitcher && (
                 <select
                   aria-label={t('layout.orgSwitcherLabel')}
                   value={user.organization_id ?? ''}
                   onChange={handleOrgChange}
                   disabled={switching}
-                  style={styles.orgSelect}
+                  className="sidebar-org-select"
                 >
                   {orgs.map(org => (
                     <option key={org.id} value={org.id}>
@@ -306,39 +417,44 @@ export function Layout() {
               )}
             </>
           )}
-          <LanguageSwitcher variant="sidebar" style={styles.langSelect} />
-          <button
-            onClick={toggleTheme}
-            style={styles.themeBtn}
-            aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
-            title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
-          >
-            {effectiveTheme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button
-            onClick={toggleAccent}
-            style={styles.accentBtn}
-            aria-label={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
-            title={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
-          >
-            <span style={styles.accentDot} />
-          </button>
-          <ChangelogPanel />
-            <button onClick={handleLogout} style={styles.logoutBtn}>
+          <LanguageSwitcher variant="sidebar" style={{ width: '100%' }} />
+          <div className="sidebar-utility-row">
+            <button
+              onClick={toggleTheme}
+              className="sidebar-utility-btn"
+              aria-label={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+              title={effectiveTheme === 'dark' ? t('darkMode.switchToLight') : t('darkMode.switchToDark')}
+            >
+              {effectiveTheme === 'dark' ? '☀️' : '🌙'}
+            </button>
+            <button
+              onClick={toggleAccent}
+              className="sidebar-utility-btn"
+              aria-label={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
+              title={accent === 'green' ? t('accent.switchToOrange') : t('accent.switchToGreen')}
+            >
+              <span className="sidebar-accent-dot" />
+            </button>
+            <span className="sidebar-changelog"><ChangelogPanel /></span>
+          </div>
+          <button onClick={handleLogout} className="sidebar-signout">
             {t('common.signOut')}
           </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="app-main">
-        {/* Desktop top bar — contextual brand + org status (hidden on mobile) */}
+      <main ref={mainRef} className="app-main" id="main-content" tabIndex={-1}>
+        {/* One responsive top bar keeps page context and global actions stable. */}
         <header className="app-topbar">
-          <span style={styles.topbarBrand}>{t('layout.brandName')}</span>
+          <div className="app-topbar-context">
+            {sectionLabel && <span className="app-topbar-section">{sectionLabel}</span>}
+            <strong className="app-topbar-title">{pageLabel}</strong>
+          </div>
           <span className="app-topbar-spacer" />
           <NotificationBell />
           {user?.organization_id != null && orgs.length > 0 && (
-            <span style={styles.topbarOrg}>
+            <span className="app-topbar-org">
               {orgs.find(o => o.id === user.organization_id)?.name ?? ''}
             </span>
           )}
@@ -362,101 +478,3 @@ export function Layout() {
     </div>
   );
 }
-
-const styles = {
-  logo: {
-    padding: '1.25rem 1rem',
-    fontWeight: 700,
-    fontSize: '1.1rem',
-    color: '#fff',
-    borderBottom: '1px solid var(--sidebar-border)',
-  },
-  topbarBrand: {
-    fontWeight: 700,
-    fontSize: '0.95rem',
-    color: 'var(--text-primary)',
-    letterSpacing: '0.01em',
-  },
-  topbarOrg: {
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-    background: 'var(--bg-subtle)',
-    border: '1px solid var(--border)',
-    borderRadius: 9999,
-    padding: '3px 10px',
-  },
-  nav: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    padding: '0.5rem 0',
-    overflowY: 'auto' as const,
-  },
-  userArea: {
-    padding: '0.75rem 1rem',
-    borderTop: '1px solid var(--sidebar-border)',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 4,
-  },
-  userName: { color: '#fff', fontWeight: 600, fontSize: '0.85rem' },
-  userRole: { color: 'var(--sidebar-fg-dim)', fontSize: '0.75rem', textTransform: 'capitalize' as const },
-  orgSelect: {
-    marginTop: 6,
-    background: 'var(--sidebar-hover-bg)',
-    color: '#fff',
-    border: '1px solid var(--sidebar-border)',
-    borderRadius: 4,
-    padding: '4px 6px',
-    fontSize: '0.8rem',
-    // Sidebar is always dark; keep the native dropdown popup dark so the white
-    // option text stays legible (light theme / Chrome-Windows).
-    colorScheme: 'dark' as const,
-  },
-  langSelect: {
-    marginTop: 6,
-    alignSelf: 'flex-start' as const,
-  },
-  logoutBtn: {
-    marginTop: 6,
-    background: 'transparent',
-    border: '1px solid var(--sidebar-border)',
-    color: 'var(--sidebar-fg-muted)',
-    padding: '4px 10px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    alignSelf: 'flex-start' as const,
-  },
-  themeBtn: {
-    background: 'transparent',
-    border: '1px solid var(--sidebar-border)',
-    color: 'var(--sidebar-fg-muted)',
-    padding: '4px 10px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: '0.9rem',
-    alignSelf: 'flex-start' as const,
-  },
-  accentBtn: {
-    background: 'transparent',
-    border: '1px solid var(--sidebar-border)',
-    padding: '4px 10px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'flex-start' as const,
-  },
-  accentDot: {
-    width: 14,
-    height: 14,
-    borderRadius: '50%',
-    // Live swatch of the current accent — recolours with the toggle + theme.
-    background: 'var(--accent)',
-    border: '1px solid var(--accent-active)',
-    display: 'block',
-  },
-};

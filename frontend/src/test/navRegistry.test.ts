@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_CARDS, ROUTES, SECTIONS, WORKSPACES, type Guard } from '@/nav/routes';
+import { HUB_CARDS, ROUTES, SECTIONS, WORKSPACES, routeForPath, type Guard } from '@/nav/routes';
 import en from '@/i18n/locales/en.json';
 import es from '@/i18n/locales/es.json';
 import ptBR from '@/i18n/locales/pt-BR.json';
@@ -61,6 +61,14 @@ describe('nav registry ↔ App.tsx invariants', () => {
       expect(seen.has(r.path), `duplicate registry entry for ${r.path}`).toBe(false);
       seen.add(r.path);
     }
+  });
+
+  it('uses the most specific registered route for shell page context', () => {
+    expect(routeForPath('/clients')?.path).toBe('/clients');
+    expect(routeForPath('/admin/user-tunnels')?.path).toBe('/admin/user-tunnels');
+    expect(routeForPath('/admin/user-tunnels/42')?.path).toBe('/admin/user-tunnels');
+    expect(routeForPath('/clients/42')?.path).toBe('/clients');
+    expect(routeForPath('/not-a-staff-route')).toBeNull();
   });
 
   it('every staff path routed in App.tsx has exactly one nav home', () => {
@@ -145,7 +153,7 @@ describe('nav registry i18n coverage', () => {
     keys.add('nav.toggleSection');
     for (const w of WORKSPACES) keys.add(w.labelKey);
     for (const k of ['title', 'placeholder', 'searchButton', 'noResults', 'hint']) keys.add(`nav.palette.${k}`);
-    keys.add('nav.workspaces.label');
+    for (const k of ['label', 'hint', 'focusedAreas', 'allAreas']) keys.add(`nav.workspaces.${k}`);
     for (const hub of Object.values(SECTIONS).filter(s => s.kind === 'hub')) {
       keys.add(`nav.hubs.${hub.id}.title`);
       keys.add(`nav.hubs.${hub.id}.hint`);

@@ -7,7 +7,7 @@
 // the Dashboard role-router (admin → OperationsConsole).
 // =============================================================================
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { Dashboard } from '../Dashboard';
@@ -45,9 +45,9 @@ const adminUser: AuthUser = {
   twofa_enabled: false,
 };
 
-function mockUseAuth() {
+function mockUseAuth(user: AuthUser = adminUser) {
   vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-    user: adminUser,
+    user,
     loading: false,
     initialized: true,
     login: vi.fn(),
@@ -129,5 +129,42 @@ describe('Operations Console (dashboard route)', () => {
     await waitFor(() => expect(screen.getByText('8')).toBeInTheDocument());
     expect(screen.queryByText('Demo data')).not.toBeInTheDocument();
     expect(screen.queryByText('12,847')).not.toBeInTheDocument();
+  });
+
+  it('does not show the ticket action to billing, whose registry excludes /tickets', async () => {
+    setupApiMock(summaryWith(0, 0));
+    mockUseAuth({ ...adminUser, role: 'billing' });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Operations Overview')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'New ticket' })).not.toBeInTheDocument();
+  });
+
+  it('shows the ticket action to support when it may view and create tickets', async () => {
+    setupApiMock(summaryWith(0, 0));
+    mockUseAuth({ ...adminUser, role: 'support' });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New ticket' })).toBeInTheDocument());
+  });
+
+  it('hides the ticket action when authoritative permissions omit tickets.create', async () => {
+    setupApiMock(summaryWith(0, 0));
+    mockUseAuth({ ...adminUser, role: 'support', permissions: ['tickets.view'] });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Operations Overview')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'New ticket' })).not.toBeInTheDocument();
+  });
+
+  it('leaves Ctrl+K to the global command palette', async () => {
+    setupApiMock(summaryWith(0, 0));
+    renderDashboard();
+    const ticketButton = await screen.findByRole('button', { name: 'New ticket' });
+    const deviceSearch = screen.getByLabelText('Search devices');
+    ticketButton.focus();
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+
+    expect(ticketButton).toHaveFocus();
+    expect(deviceSearch).not.toHaveFocus();
+    expect(deviceSearch).toHaveAttribute('placeholder', 'Filter by name, IP, or type…');
   });
 });

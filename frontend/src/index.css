@@ -68,9 +68,9 @@
   --sidebar-border:    #27272a;
   --sidebar-fg:        #d4d4d8;
   --sidebar-fg-muted:  #a1a1aa;
-  --sidebar-fg-dim:    #71717a;
+  --sidebar-fg-dim:    #a1a1aa;
   --sidebar-active-bg: var(--accent);
-  --sidebar-active-fg: #ffffff;
+  --sidebar-active-fg: var(--accent-fg);
   --sidebar-hover-bg:  #27272a;
   --topbar-bg:         var(--bg-card);
 
@@ -141,7 +141,7 @@
   --sidebar-border:    #27272a;
   --sidebar-fg:        #d4d4d8;
   --sidebar-fg-muted:  #a1a1aa;
-  --sidebar-fg-dim:    #71717a;
+  --sidebar-fg-dim:    #a1a1aa;
   --sidebar-hover-bg:  #27272a;
   --topbar-bg:         var(--bg-card);
 }
@@ -412,12 +412,34 @@ button:disabled {
 .app-shell {
   display: flex;
   height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-sans);
   font-size: 0.875rem;
 }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+  transition: transform 0.15s ease;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .app-sidebar {
-  width: 220px;
+  width: 248px;
   background: var(--sidebar-bg);
   color: var(--sidebar-fg);
   display: flex;
@@ -426,6 +448,51 @@ button:disabled {
   border-right: 1px solid var(--sidebar-border);
   transition: transform 0.25s ease;
   z-index: 200;
+}
+
+.sidebar-brand {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+.sidebar-brand-name {
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+.sidebar-brand-subtitle {
+  margin-top: 2px;
+  color: var(--sidebar-fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+.sidebar-close-btn {
+  display: none;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  color: var(--sidebar-fg);
+  cursor: pointer;
+}
+
+.app-nav {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* -- Sidebar accordion nav ("Faro") ----------------------------------------- */
@@ -448,6 +515,7 @@ button:disabled {
   min-width: 0;
   align-items: center;
   gap: 9px;
+  min-height: 36px;
   padding: 8px 4px 8px 12px;
   background: none;
   border: none;
@@ -516,6 +584,17 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.nav-sec-count {
+  min-width: 23px;
+  padding: 1px 6px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 999px;
+  color: var(--sidebar-fg-muted);
+  font: 650 0.68rem var(--font-mono);
+  line-height: 1.4;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .nav-chev {
   width: 12px;
   height: 12px;
@@ -526,10 +605,16 @@ button:disabled {
 .nav-chev-btn[aria-expanded='true'] .nav-chev {
   transform: rotate(90deg);
 }
+.nav-sec-disclosure {
+  padding-right: 10px;
+}
+.nav-sec-disclosure[aria-expanded='true'] .nav-chev {
+  transform: rotate(90deg);
+}
 .nav-subhead {
-  padding: 8px 14px 3px 37px;
+  padding: 9px 14px 4px 37px;
   color: var(--sidebar-fg-dim);
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -540,6 +625,7 @@ button:disabled {
 .nav-leaf {
   display: block;
   margin: 1px 6px;
+  min-height: 32px;
   padding: 6px 10px 6px 37px;
   border-radius: 6px;
   color: var(--sidebar-fg-muted);
@@ -570,6 +656,8 @@ button:disabled {
   color: var(--sidebar-fg);
 }
 @media (prefers-reduced-motion: reduce) {
+  .app-sidebar,
+  .skip-link,
   .nav-sec-head,
   .nav-chev-btn,
   .nav-leaf,
@@ -578,14 +666,15 @@ button:disabled {
   }
 }
 
-/* -- Sidebar search button + workspace preset (Faro power layer) ------------ */
+/* -- Sidebar search + navigation-focus control (Faro power layer) ----------- */
 .nav-search-btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 8px 10px 2px;
-  padding: 6px 10px;
+  min-height: 38px;
+  margin: 10px 10px 4px;
+  padding: 7px 10px;
   background: var(--sidebar-hover-bg);
   border: 1px solid var(--sidebar-border);
   border-radius: 6px;
@@ -610,8 +699,10 @@ button:disabled {
   padding: 0 5px;
 }
 .nav-workspace-select {
-  margin: 4px 10px 0;
-  padding: 4px 6px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 8px;
   background: var(--sidebar-hover-bg);
   border: 1px solid var(--sidebar-border);
   border-radius: 6px;
@@ -619,6 +710,125 @@ button:disabled {
   font: 400 0.75rem var(--font-sans);
   /* sidebar is always dark; keep the native popup legible */
   color-scheme: dark;
+}
+.nav-focus-control {
+  display: grid;
+  gap: 4px;
+  margin: 6px 10px 8px;
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+}
+.nav-focus-control label {
+  color: var(--sidebar-fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.nav-focus-control > span {
+  color: var(--sidebar-fg-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.nav-area-label {
+  margin: 10px 12px 4px;
+  color: var(--sidebar-fg-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.nav-area-label-secondary {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.sidebar-account {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 12px 14px 14px;
+  background: rgba(0, 0, 0, 0.12);
+  border-top: 1px solid var(--sidebar-border);
+}
+.sidebar-user-name {
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-user-role {
+  color: var(--sidebar-fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  text-transform: capitalize;
+}
+.sidebar-org-select {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 2px;
+  padding: 6px 8px;
+  background: var(--sidebar-hover-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  color: #fff;
+  color-scheme: dark;
+  font: 400 0.8rem var(--font-sans);
+}
+.sidebar-utility-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.sidebar-utility-btn,
+.sidebar-changelog {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  color: var(--sidebar-fg-muted);
+}
+.sidebar-utility-btn {
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.sidebar-utility-btn:hover,
+.sidebar-signout:hover {
+  background: var(--sidebar-hover-bg);
+  color: #fff;
+}
+.sidebar-accent-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid var(--accent-active);
+  border-radius: 50%;
+}
+.sidebar-changelog > button {
+  width: 100%;
+  height: 100%;
+}
+.sidebar-signout {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 2px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  color: var(--sidebar-fg-muted);
+  cursor: pointer;
+  font: 600 0.8rem var(--font-sans);
 }
 
 /* -- Blocking DR drill alert ------------------------------------------------- */
@@ -809,23 +1019,6 @@ button:disabled {
   font-size: 0.68rem;
   color: var(--text-muted);
 }
-/* the mobile topbar is a flex row: brand left, bell right */
-.mobile-topbar {
-  justify-content: space-between;
-  align-items: center;
-}
-.mobile-topbar-bell {
-  display: inline-flex;
-}
-/* the mobile bar is always dark — restyle the bell for it */
-.mobile-topbar .notif-bell-btn {
-  border-color: var(--sidebar-border);
-  color: var(--sidebar-fg-muted);
-}
-.mobile-topbar .notif-bell-btn:hover {
-  color: #fff;
-}
-
 /* -- Command palette --------------------------------------------------------- */
 .palette-overlay {
   position: fixed;
@@ -910,7 +1103,7 @@ button:disabled {
   flex-direction: column;
 }
 
-/* -- Desktop top bar: contextual actions / status -------------------------- */
+/* -- Responsive top bar: orientation + global actions ---------------------- */
 .app-topbar {
   display: flex;
   align-items: center;
@@ -924,8 +1117,47 @@ button:disabled {
   top: 0;
   z-index: 90;
 }
+.app-topbar-context {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.app-topbar-section {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.app-topbar-section::after {
+  content: '/';
+  margin-left: 8px;
+  color: var(--text-dimmed);
+}
+.app-topbar-title {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .app-topbar-spacer {
   flex: 1;
+}
+.app-topbar-org {
+  max-width: 240px;
+  padding: 3px 10px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* -- Hamburger button (hidden on desktop) ---------------------------------- */
@@ -943,11 +1175,6 @@ button:disabled {
   font-size: 1.2rem;
   cursor: pointer;
   line-height: 1;
-}
-
-/* -- Mobile top bar (hidden on desktop) ------------------------------------ */
-.mobile-topbar {
-  display: none;
 }
 
 /* -- Sidebar overlay backdrop (hidden on desktop) -------------------------- */
@@ -994,34 +1221,56 @@ button:disabled {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 40px;
+    height: 40px;
+    top: 4px;
+    left: 8px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--sidebar-border);
+  }
+  .hamburger-btn[aria-expanded='true'] {
+    visibility: hidden;
   }
 
-  /* Desktop top bar hides on mobile (mobile-topbar takes over) */
+  /* The same contextual top bar remains visible on mobile. */
   .app-topbar {
-    display: none;
-  }
-
-  /* Show mobile top bar */
-  .mobile-topbar {
     display: flex;
-    align-items: center;
     height: 48px;
     background: var(--sidebar-bg);
-    padding: 0 var(--sp-4) 0 3.5rem;
+    padding: 0 10px 0 58px;
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 100;
+    border-bottom-color: var(--sidebar-border);
+    color: var(--sidebar-fg);
+  }
+  .app-topbar-context {
+    flex: 1;
+  }
+  .app-topbar-section {
+    display: none;
+  }
+  .app-topbar-title {
     color: #fff;
-    font-weight: 700;
-    font-size: 1rem;
-    letter-spacing: 0.01em;
+    font-size: 0.88rem;
+  }
+  .app-topbar-org {
+    display: none;
+  }
+  .app-topbar-spacer {
+    display: none;
+  }
+  .app-topbar .notif-bell-btn {
+    border-color: var(--sidebar-border);
+    color: var(--sidebar-fg);
   }
 
   /* Keep notifications inside the dynamic mobile viewport with an obvious,
      touch-sized dismissal action. */
-  .mobile-topbar .notif-panel {
+  .app-topbar .notif-panel {
     position: fixed;
     top: 48px;
     right: 8px;
@@ -1057,13 +1306,37 @@ button:disabled {
     top: 0;
     left: 0;
     bottom: 0;
+    width: min(88vw, 320px);
+    height: 100vh;
+    height: 100dvh;
     transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
   }
 
   /* Sidebar visible state */
   .app-sidebar.sidebar-open {
     transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+  .sidebar-close-btn {
+    display: inline-flex;
+  }
+  .nav-sec-head,
+  .nav-chev-btn,
+  .nav-leaf,
+  .nav-search-btn,
+  .sidebar-utility-btn,
+  .sidebar-signout,
+  .sidebar-org-select,
+  .nav-workspace-select {
+    min-height: 44px;
+  }
+  .nav-leaf {
+    display: flex;
+    align-items: center;
   }
 
   /* Overlay visible when sidebar is open */

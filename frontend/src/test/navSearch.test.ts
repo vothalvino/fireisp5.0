@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildPaletteIndex, resolveRecents, searchPalette } from '@/nav/search';
-import type { NavUser } from '@/nav/routes';
+import { ROUTES, SECTIONS, canSee, canSeeHub, type NavUser } from '@/nav/routes';
 
 const identityT = (key: string) => key;
 
@@ -25,6 +25,18 @@ describe('buildPaletteIndex — role/locale visibility mirrors the sidebar', () 
     expect(paths).toContain('/users');
     expect(paths).toContain('/cfdi');
     expect(paths).toContain('/onu-management');
+  });
+
+  it('indexes every authorized route and hub for the install operator', () => {
+    const user: NavUser = { role: 'admin', organization_locale: 'MX', is_install_operator: true };
+    const actual = new Set(buildPaletteIndex(user, identityT).map(entry => entry.path));
+    const expected = new Set([
+      ...ROUTES.filter(route => canSee(user, route)).map(route => route.path),
+      ...SECTIONS.filter(section => canSeeHub(user, section) && section.hubPath)
+        .map(section => section.hubPath as string),
+    ]);
+
+    expect(actual).toEqual(expected);
   });
 
   it('technician never gets pages that would 403 or NotAllowed', () => {

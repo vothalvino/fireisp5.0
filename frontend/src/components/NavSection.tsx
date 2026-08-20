@@ -10,7 +10,7 @@
 // between consecutive visible items.
 // =============================================================================
 
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { RouteDef, SectionDef } from '@/nav/routes';
 import { SectionIcon } from '@/components/NavIcons';
@@ -42,7 +42,6 @@ export function NavSection({
   onNavigate,
 }: NavSectionProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
 
   if (section.kind === 'link') {
     return (
@@ -59,19 +58,7 @@ export function NavSection({
   }
 
   const isHubLink = section.kind === 'hub' && hubVisible && Boolean(section.hubPath);
-
-  // Hub headers: the label navigates to the overview (and opens the section);
-  // the chevron is a separate button that only toggles, so an opened hub can
-  // always be collapsed again. Plain groups toggle from either.
-  function handleLabelClick() {
-    if (isHubLink) {
-      if (!expanded) onToggle(section.id);
-      navigate(section.hubPath as string);
-      onNavigate();
-      return;
-    }
-    onToggle(section.id);
-  }
+  const bodyId = `nav-section-${section.id}`;
 
   const showViewAll = isHubLink;
 
@@ -80,32 +67,53 @@ export function NavSection({
   return (
     <div className="nav-sec">
       <div className={`nav-sec-row${onTrail ? ' on-trail' : ''}`}>
-        <button
-          type="button"
-          className="nav-sec-head"
-          // For plain groups the label IS a toggle, so it carries the expanded
-          // state; hub labels navigate instead and leave it to the chevron.
-          aria-expanded={isHubLink ? undefined : expanded}
-          onClick={handleLabelClick}
-        >
-          <SectionIcon id={section.id} />
-          <span className="nav-sec-label">{t(section.labelKey)}</span>
-        </button>
-        <button
-          type="button"
-          className="nav-chev-btn"
-          aria-expanded={expanded}
-          aria-label={t('nav.toggleSection', { section: t(section.labelKey) })}
-          onClick={() => onToggle(section.id)}
-        >
-          <svg className="nav-chev" viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        {isHubLink ? (
+          <>
+            <NavLink
+              to={section.hubPath as string}
+              className="nav-sec-head"
+              onClick={() => {
+                if (!expanded) onToggle(section.id);
+                onNavigate();
+              }}
+            >
+              <SectionIcon id={section.id} />
+              <span className="nav-sec-label">{t(section.labelKey)}</span>
+              {sectionCount > 0 && <span className="nav-sec-count" aria-hidden="true">{sectionCount}</span>}
+            </NavLink>
+            <button
+              type="button"
+              className="nav-chev-btn"
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              aria-label={t('nav.toggleSection', { section: t(section.labelKey) })}
+              onClick={() => onToggle(section.id)}
+            >
+              <svg className="nav-chev" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="nav-sec-head nav-sec-disclosure"
+            aria-expanded={expanded}
+            aria-controls={bodyId}
+            onClick={() => onToggle(section.id)}
+          >
+            <SectionIcon id={section.id} />
+            <span className="nav-sec-label">{t(section.labelKey)}</span>
+            {sectionCount > 0 && <span className="nav-sec-count" aria-hidden="true">{sectionCount}</span>}
+            <svg className="nav-chev" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {expanded && (
-        <div className="nav-sec-body">
+        <div className="nav-sec-body" id={bodyId}>
           {items.map(item => {
             const subhead =
               item.sub && item.sub !== lastSub ? (

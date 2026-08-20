@@ -379,7 +379,7 @@ test('mobile blocking alerts and notifications remain dismissible', async ({ pag
   await drillClose.click();
   await expect(drillDialog).not.toBeVisible();
 
-  const mobileTopbar = page.locator('.mobile-topbar');
+  const mobileTopbar = page.locator('.app-topbar');
   await expect(mobileTopbar).toBeVisible();
   await mobileTopbar.getByRole('button', { name: /Notifications/i }).click();
 

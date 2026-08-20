@@ -329,12 +329,15 @@
       "hint": "↑↓ navegar · Enter abrir · Esc cerrar"
     },
     "workspaces": {
-      "label": "Espacio de trabajo",
-      "full": "Espacio completo",
-      "billing": "Espacio de facturación",
-      "field": "Espacio de campo",
-      "support": "Espacio de soporte",
-      "noc": "Espacio NOC"
+      "label": "Enfoque de navegación",
+      "hint": "Áreas relevantes primero · todo sigue disponible",
+      "focusedAreas": "Áreas enfocadas",
+      "allAreas": "Todas las áreas",
+      "full": "Todas las áreas",
+      "billing": "Facturación primero",
+      "field": "Campo primero",
+      "support": "Soporte primero",
+      "noc": "NOC primero"
     },
     "dataImport": "Importar CSV",
     "suspensionConsole": "Consola de suspensión",
@@ -343,6 +346,9 @@
   },
   "layout": {
     "brandName": "🔥 FireISP",
+    "sidebarSubtitle": "Espacio de operaciones",
+    "skipToContent": "Saltar al contenido",
+    "primaryNavigation": "Navegación principal",
     "openNav": "Abrir navegación",
     "closeNav": "Cerrar navegación",
     "orgSwitcherLabel": "Organización activa",
