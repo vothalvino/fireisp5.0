@@ -45,11 +45,11 @@ async function login({ email, password }) {
             portal_password_hash, portal_login_attempts, portal_locked_until
      FROM clients
      WHERE email = ? AND deleted_at IS NULL
-     LIMIT 1`,
+     LIMIT 2`,
     [email.toLowerCase().trim()],
   );
 
-  const client = rows[0];
+  const client = rows.length === 1 ? rows[0] : null;
 
   // Generic error to avoid email enumeration
   const invalidCreds = () => new UnauthorizedError('Invalid email or password');
@@ -246,11 +246,14 @@ async function requestPasswordReset(email) {
     `SELECT id, organization_id, name, email, status, portal_password_hash
      FROM clients
      WHERE email = ? AND deleted_at IS NULL
-     LIMIT 1`,
+     LIMIT 2`,
     [email.toLowerCase().trim()],
   );
 
-  const client = rows[0];
+  // Client email is not globally unique. Ambiguity must follow the same
+  // anti-enumeration branch as a miss; selecting an arbitrary first row could
+  // issue a reset token for the wrong tenant's portal account.
+  const client = rows.length === 1 ? rows[0] : null;
 
   if (!client || !client.portal_password_hash || client.status === 'inactive') {
     return { message: 'If that email exists, a reset link has been sent' };
@@ -259,16 +262,20 @@ async function requestPasswordReset(email) {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-  await db.query(
+  const [updated] = await db.query(
     `UPDATE clients SET portal_reset_token_hash = ?, portal_reset_token_expires = DATE_ADD(NOW(), INTERVAL 1 HOUR)
-     WHERE id = ?`,
-    [tokenHash, client.id],
+     WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL`,
+    [tokenHash, client.id, client.organization_id],
   );
+  if (updated.affectedRows !== 1) {
+    return { message: 'If that email exists, a reset link has been sent' };
+  }
 
   return {
     token,
     email: client.email,
     clientId: client.id,
+    organizationId: client.organization_id,
     userName: client.name,
   };
 }
@@ -318,11 +325,12 @@ async function resetPassword(token, newPassword) {
 
   const [rows] = await db.query(
     `SELECT * FROM clients
-     WHERE portal_reset_token_hash = ? AND portal_reset_token_expires > NOW() AND deleted_at IS NULL`,
+     WHERE portal_reset_token_hash = ? AND portal_reset_token_expires > NOW() AND deleted_at IS NULL
+     LIMIT 2`,
     [tokenHash],
   );
 
-  if (rows.length === 0) {
+  if (rows.length !== 1) {
     throw new UnauthorizedError('Invalid or expired reset token');
   }
 
@@ -334,13 +342,18 @@ async function resetPassword(token, newPassword) {
   // successful reset should also break the portal_login_attempts/
   // portal_locked_until loop from login()'s lockout logic — mirroring
   // authService.resetPassword's lockout-clear.
-  await db.query(
+  const [updated] = await db.query(
     `UPDATE clients
         SET portal_password_hash = ?, portal_reset_token_hash = NULL, portal_reset_token_expires = NULL,
             portal_login_attempts = 0, portal_locked_until = NULL
-      WHERE id = ?`,
-    [passwordHash, client.id],
+      WHERE id = ? AND organization_id <=> ?
+        AND portal_reset_token_hash = ? AND portal_reset_token_expires > NOW()
+        AND deleted_at IS NULL`,
+    [passwordHash, client.id, client.organization_id, tokenHash],
   );
+  if (updated.affectedRows !== 1) {
+    throw new UnauthorizedError('Invalid or expired reset token');
+  }
 
   // Invalidate all outstanding refresh tokens — the portal's equivalent of
   // the staff flow's `DELETE FROM user_sessions`.

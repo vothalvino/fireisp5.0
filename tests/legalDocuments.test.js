@@ -551,8 +551,14 @@ describe('POST /signed-documents/:id/sign', () => {
           locale: 'global', privacy_notice: NOTICE, privacy_notice_version: NOTICE_VERSION,
         }]];
       }
-      if (/SELECT email, phone FROM clients/.test(sql)) {
-        return [[{ email: 'client@example.test', phone: '+526141234567' }]];
+      if (/FROM clients/.test(sql)) {
+        return [[{
+          id: doc.client_id,
+          email: 'client@example.test',
+          phone: '+526141234567',
+          email_contact_epoch: 4,
+          phone_contact_epoch: 7,
+        }]];
       }
       if (/UPDATE signed_documents/.test(sql)) return [{ affectedRows: 1 }];
       if (/SELECT \* FROM signed_documents WHERE id = \?$/.test(String(sql).trim())) {
@@ -578,6 +584,7 @@ describe('POST /signed-documents/:id/sign', () => {
     expect(conn.rollback).not.toHaveBeenCalled();
     const consentWrites = conn.query.mock.calls.filter(([sql]) => /INSERT INTO subscriber_consents/.test(sql));
     expect(consentWrites).toHaveLength(2);
+    expect(consentWrites.map(([, params]) => params.at(-1))).toEqual([4, 7]);
     const signedUpdate = conn.query.mock.calls.find(([sql]) => /UPDATE signed_documents/.test(sql));
     expect(signedUpdate[0]).toMatch(/captured_by = \?/);
     expect(signedUpdate[0]).toMatch(/evidence_sha256 = \?/);

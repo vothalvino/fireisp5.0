@@ -4,6 +4,8 @@
 const {
   assertSafeOutboundUrl,
   resolveSafeOutboundUrl,
+  resolveSafeOutboundHost,
+  resolveTrustedOutboundHost,
   createPinnedLookup,
   isBlockedIp,
 } = require('../src/utils/safeOutboundUrl');
@@ -119,5 +121,61 @@ describe('delivery-time DNS pinning', () => {
         else resolve(address);
       });
     })).rejects.toMatchObject({ code: 'ENOTFOUND' });
+  });
+});
+
+describe('bare outbound host resolution', () => {
+  test('normalizes a tenant SMTP hostname and returns every validated public address', async () => {
+    const lookup = jest.fn().mockResolvedValue([
+      { address: '8.8.8.8', family: 4 },
+      { address: '2606:4700::1111', family: 6 },
+    ]);
+
+    await expect(resolveSafeOutboundHost('SMTP.Example.COM.', 'smtp_host', { lookup }))
+      .resolves.toMatchObject({
+        hostname: 'smtp.example.com',
+        addresses: [
+          { address: '8.8.8.8', family: 4 },
+          { address: '2606:4700::1111', family: 6 },
+        ],
+      });
+    expect(lookup).toHaveBeenCalledWith('smtp.example.com', { all: true, verbatim: true });
+  });
+
+  test('fails closed if any SMTP DNS answer is private', async () => {
+    const lookup = jest.fn().mockResolvedValue([
+      { address: '8.8.8.8', family: 4 },
+      { address: '169.254.169.254', family: 4 },
+    ]);
+
+    await expect(resolveSafeOutboundHost('smtp.example.com', 'smtp_host', { lookup }))
+      .rejects.toMatchObject({ statusCode: 422, code: 'UNSAFE_HOST' });
+  });
+
+  test.each([
+    'smtp://mail.example.com',
+    'user@mail.example.com',
+    'mail.example.com:587',
+    'mail.example.com/path',
+    'mail example.com',
+    ' smtp.example.com',
+    'smtp.example.com\r\n',
+    '[not-an-ip]',
+  ])('rejects ambiguous bare-host syntax: %s', async host => {
+    await expect(resolveSafeOutboundHost(host, 'smtp_host', {
+      lookup: jest.fn(),
+    })).rejects.toMatchObject({ code: 'UNSAFE_HOST' });
+  });
+
+  test('keeps private/local resolution available only through the trusted install-host API', async () => {
+    const lookup = jest.fn().mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+
+    await expect(resolveTrustedOutboundHost('localhost', 'smtp_host', { lookup }))
+      .resolves.toMatchObject({
+        hostname: 'localhost',
+        addresses: [{ address: '127.0.0.1', family: 4 }],
+      });
+    await expect(resolveSafeOutboundHost('localhost', 'smtp_host', { lookup }))
+      .rejects.toMatchObject({ code: 'UNSAFE_HOST' });
   });
 });

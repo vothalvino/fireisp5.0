@@ -199,6 +199,19 @@ const trapForwardingTestLimiter = rateLimit({
   store: new CacheStore('rl_trap_forward_test:'),
 });
 
+// SMTP configuration tests open a real outbound socket. Keep their per-
+// operator-and-organization budget independent from Trap tests and the broad
+// authenticated API allowance.
+const emailSettingsTestLimiter = rateLimit({
+  windowMs: rl.windowMs,
+  max: rl.emailSettingsTest,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: RATE_LIMITED_BODY('Too many email settings tests; wait before trying again'),
+  keyGenerator: req => `email-settings-test:${req.orgId}:${req.user?.id || 'unknown'}`,
+  store: new CacheStore('rl_email_settings_test:'),
+});
+
 // api_key_rate_limits predates the collector endpoints. NULL columns mean the
 // table defaults, not "unlimited"; the route-specific collectors still retain
 // their independent hard ceilings outside this policy layer.
@@ -382,6 +395,7 @@ module.exports = {
   sseLimiter,
   webhookLimiter,
   trapForwardingTestLimiter,
+  emailSettingsTestLimiter,
   tenantApiLimiter,
   checkBulkEmailDailyBudget,
   CacheStore,

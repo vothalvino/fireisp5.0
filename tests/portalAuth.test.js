@@ -315,6 +315,35 @@ describe('POST /portal/auth/password-reset/request', () => {
     expect(emailTransport.sendEmail).not.toHaveBeenCalled();
   });
 
+  test('duplicate email across organizations is treated as ambiguous with no token or email', async () => {
+    const crypto = require('crypto');
+    const randomBytes = jest.spyOn(crypto, 'randomBytes');
+    db.query.mockResolvedValueOnce([[
+      {
+        id: 20, organization_id: 1, name: 'Tenant One', email: 'shared@example.com',
+        status: 'active', portal_password_hash: '$2a$12$x',
+      },
+      {
+        id: 21, organization_id: 2, name: 'Tenant Two', email: 'shared@example.com',
+        status: 'active', portal_password_hash: '$2a$12$y',
+      },
+    ]]);
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset/request')
+      .send({ email: 'shared@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email exists');
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query.mock.calls[0][0]).toMatch(/WHERE email = \?[\s\S]*LIMIT 2/);
+    // Express may use crypto for request IDs; the reset service's token is the
+    // distinctive 32-byte call and must not be reached for an ambiguous email.
+    expect(randomBytes).not.toHaveBeenCalledWith(32);
+    expect(emailTransport.sendEmail).not.toHaveBeenCalled();
+    randomBytes.mockRestore();
+  });
+
   test('known email, portal access never enabled (portal_password_hash NULL) — same generic message, no UPDATE, no email', async () => {
     db.query.mockResolvedValueOnce([[{
       id: 2, organization_id: 1, name: 'Bob', email: 'bob@example.com',
@@ -377,11 +406,41 @@ describe('POST /portal/auth/password-reset', () => {
     expect(updateClientsCall[0]).toContain('portal_reset_token_hash = NULL');
     expect(updateClientsCall[0]).toContain('portal_login_attempts = 0');
     expect(updateClientsCall[0]).toContain('portal_locked_until = NULL');
+    expect(updateClientsCall[0]).toMatch(/WHERE id = \? AND organization_id <=> \?/);
+    expect(updateClientsCall[0]).toMatch(/portal_reset_token_hash = \? AND portal_reset_token_expires > NOW\(\)/);
+    const expectedTokenHash = require('crypto')
+      .createHash('sha256')
+      .update('sometoken')
+      .digest('hex');
+    expect(updateClientsCall[1]).toEqual(['$2a$12$hashedpw', 1, 1, expectedTokenHash]);
 
     const revokeCall = db.query.mock.calls[2];
     expect(revokeCall[0]).toContain('portal_refresh_tokens');
     expect(revokeCall[0]).toContain('revoked_at = NOW()');
     expect(revokeCall[1]).toEqual([1]);
+  });
+
+  test('a lost scoped reset claim returns 401 and does not revoke refresh tokens', async () => {
+    db.query
+      .mockResolvedValueOnce([[
+        {
+          id: 1, organization_id: 7, name: 'Alice', email: 'alice@example.com',
+          status: 'active', portal_reset_token_hash: 'x', portal_reset_token_expires: '2099-01-01 00:00:00',
+        },
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    const res = await request(app)
+      .post('/api/v1/portal/auth/password-reset')
+      .send({ token: 'sometoken', password: 'newpassword123' });
+
+    expect(res.status).toBe(401);
+    expect(db.query).toHaveBeenCalledTimes(2);
+    const [updateSql, updateParams] = db.query.mock.calls[1];
+    expect(updateSql).toMatch(/WHERE id = \? AND organization_id <=> \?/);
+    expect(updateSql).toMatch(/portal_reset_token_hash = \?/);
+    expect(updateParams.slice(0, 3)).toEqual(['$2a$12$hashedpw', 1, 7]);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE portal_refresh_tokens/.test(sql))).toBe(false);
   });
 
   test('expired or unknown token — 401, no mutation', async () => {

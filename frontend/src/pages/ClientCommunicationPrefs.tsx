@@ -69,19 +69,22 @@ function DndChannelRow({
   clientId,
   channel,
   pref,
+  blanketPref,
   canEdit,
   onSaved,
 }: {
   clientId: number;
   channel: Channel;
   pref: DndPref | undefined;
+  blanketPref: DndPref | undefined;
   canEdit: boolean;
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
+  const effectiveBlanket = channel !== 'all' && Boolean(blanketPref?.opt_out);
   const [form, setForm] = useState({
-    opt_out: pref ? (Boolean(pref.opt_out)) : false,
+    opt_out: pref ? Boolean(pref.opt_out) : effectiveBlanket,
     quiet_hours_start: pref?.quiet_hours_start ?? '',
     quiet_hours_end: pref?.quiet_hours_end ?? '',
     reason: pref?.reason ?? '',
@@ -110,7 +113,7 @@ function DndChannelRow({
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('clientDnd.errors.saveFailed')),
   });
 
-  const isOptOut = pref ? Boolean(pref.opt_out) : false;
+  const isOptOut = Boolean(pref?.opt_out) || effectiveBlanket;
 
   if (!editing) {
     return (
@@ -133,7 +136,7 @@ function DndChannelRow({
             : '—'}
         </td>
         <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-          {pref?.reason ?? '—'}
+          {pref?.reason ?? (effectiveBlanket ? blanketPref?.reason : null) ?? '—'}
         </td>
         <td style={tdStyle}>
           {canEdit && (
@@ -228,6 +231,9 @@ export function ClientCommunicationPrefs({ clientId }: { clientId: number }) {
       <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
         {t('clientDnd.description')}
       </p>
+      <p style={{ margin: '-0.5rem 0 1rem', fontSize: '0.78rem', color: 'var(--text-dimmed)' }}>
+        {t('clientDnd.quietHoursRecordedOnly')}
+      </p>
 
       {dndQ.isLoading && <p style={{ fontSize: '0.85rem' }}>{t('common.loading')}</p>}
       {dndQ.error && (
@@ -253,6 +259,7 @@ export function ClientCommunicationPrefs({ clientId }: { clientId: number }) {
                   clientId={clientId}
                   channel={channel}
                   pref={getPref(channel)}
+                  blanketPref={getPref('all')}
                   canEdit={canEdit}
                   onSaved={refresh}
                 />

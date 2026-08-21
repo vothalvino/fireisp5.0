@@ -13,6 +13,7 @@ const { validate } = require('../middleware/validate');
 const { createConsent, createDsarRequest, resolveDsarRequest } = require('../middleware/schemas/regulatoryCompliance');
 const { NotFoundError, ValidationError, ForbiddenError, ConflictError } = require('../utils/errors');
 const auditLog = require('../services/auditLog');
+const communicationPreferences = require('../services/clientCommunicationPreferenceService');
 const { isGloballyRoutableIpv4, normalizeProtocol } = require('../services/cgnatAttributionService');
 const {
   governmentRequestRowHash,
@@ -109,6 +110,7 @@ router.get('/consent', requirePermission('subscriber_consents.view'), async (req
 });
 
 router.post('/consent', requirePermission('subscriber_consents.create'), validate(createConsent), async (req, res, next) => {
+  let conn;
   try {
     const {
       client_id, consent_version, purpose, channel, communication_channel,
@@ -123,28 +125,73 @@ router.post('/consent', requirePermission('subscriber_consents.create'), validat
 
     // client_id is caller-supplied: without this check a staff user could file
     // a consent row against ANOTHER org's client (cross-tenant write).
-    const [clientRows] = await db.query(
-      'SELECT id FROM clients WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL LIMIT 1',
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [clientRows] = await conn.execute(
+      `SELECT id, status, email_contact_epoch, phone_contact_epoch FROM clients
+        WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL
+        LIMIT 1 FOR UPDATE`,
       [client_id, req.orgId],
     );
-    if (clientRows.length === 0) throw new NotFoundError('Client not found');
+    if (clientRows.length === 0) throw new NotFoundError('Client');
+    if (clientRows[0].status === 'inactive') {
+      throw new ValidationError('Marketing consent cannot be granted for an inactive client');
+    }
 
-    const [result] = await db.query(
+    // A new affirmative marketing choice supersedes older active proof for
+    // the same channel. Keeping multiple live rows makes a later withdrawal
+    // ambiguous and can silently reactivate an older grant.
+    if (purpose === 'marketing') {
+      await conn.execute(
+        `UPDATE subscriber_consents
+            SET withdrawn_at = COALESCE(withdrawn_at, NOW())
+          WHERE organization_id <=> ? AND client_id = ?
+            AND purpose = 'marketing' AND communication_channel = ?
+            AND withdrawn_at IS NULL`,
+        [req.orgId, client_id, communication_channel],
+      );
+    }
+
+    const [result] = await conn.execute(
       `INSERT INTO subscriber_consents
          (organization_id, client_id, consent_version, purpose, channel,
           communication_channel, document_hash, notes, ip_address,
-          source_context, captured_by, given_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staff', ?, NOW())`,
+          source_context, captured_by, communication_contact_epoch, given_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staff', ?, ?, NOW())`,
       [
         req.orgId, client_id, consent_version, purpose, channel,
         communication_channel || null, document_hash || null, notes || null,
         req.ip || null, req.user?.id || null,
+        purpose !== 'marketing'
+          ? 0
+          : (communication_channel === 'email'
+            ? clientRows[0].email_contact_epoch
+            : clientRows[0].phone_contact_epoch),
       ],
     );
 
+    if (purpose === 'marketing') {
+      // Positive consent and the mutable DND veto move together. This is the
+      // only staff opt-in path; merely clearing a DND row never manufactures
+      // marketing consent.
+      await communicationPreferences.writePreferenceWithRun(conn.execute.bind(conn), {
+        organizationId: req.orgId,
+        clientId: client_id,
+        channel: communication_channel,
+        optOut: false,
+        reason: 'Marketing consent granted by client',
+      });
+    }
+
+    await conn.commit();
+
     res.status(201).json({ id: result.insertId });
   } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
     next(err);
+  } finally {
+    if (conn) conn.release();
   }
 });
 
@@ -156,19 +203,38 @@ router.put('/consent/:id/withdraw', requirePermission('subscriber_consents.manag
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // Resolve and lock the tenant-owned ledger entry first. Besides preventing
-    // cross-organization writes, this gives marketing withdrawal channel
-    // semantics: revoking one grant revokes every still-active grant for the
-    // same client/channel, so an older duplicate cannot keep bulk sends alive.
+    // Resolve the owner without taking a consent-row lock, then use the same
+    // client -> consent -> DND lock order as every opt-in/opt-out mutation.
+    // A consistent order prevents concurrent grant/withdraw operations from
+    // deadlocking each other.
     const [rows] = await conn.execute(
       `SELECT id, client_id, purpose, communication_channel
          FROM subscriber_consents
-        WHERE id = ? AND organization_id = ?
-        FOR UPDATE`,
+        WHERE id = ? AND organization_id = ?`,
       [id, req.orgId],
     );
     const consent = rows[0];
     if (!consent) throw new NotFoundError('Consent');
+
+    const [clientRows] = await conn.execute(
+      `SELECT id FROM clients
+        WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL
+        LIMIT 1 FOR UPDATE`,
+      [consent.client_id, req.orgId],
+    );
+    if (!clientRows[0]) throw new NotFoundError('Client');
+
+    // Re-read the exact ledger row after acquiring the client lock. A delete
+    // or concurrent withdrawal between the initial resolution and this lock
+    // cannot redirect the operation to another client/channel.
+    const [lockedRows] = await conn.execute(
+      `SELECT id, client_id, purpose, communication_channel
+         FROM subscriber_consents
+        WHERE id = ? AND organization_id = ? AND client_id = ?
+        FOR UPDATE`,
+      [id, req.orgId, consent.client_id],
+    );
+    if (!lockedRows[0]) throw new NotFoundError('Consent');
 
     if (consent.purpose === 'marketing' && consent.communication_channel) {
       await conn.execute(
@@ -181,18 +247,15 @@ router.put('/consent/:id/withdraw', requirePermission('subscriber_consents.manag
       );
 
       // Consent is the positive permission and DND is the mutable safety veto.
-      // Write both sides of a withdrawal atomically so no later queue worker
-      // can interpret a partially-applied revocation as eligible to send.
-      await conn.execute(
-        `INSERT INTO client_dnd_preferences
-           (organization_id, client_id, channel, opt_out, reason)
-         VALUES (?, ?, ?, 1, ?)
-         ON DUPLICATE KEY UPDATE
-           organization_id = VALUES(organization_id),
-           opt_out = 1,
-           reason = VALUES(reason)`,
-        [req.orgId, consent.client_id, consent.communication_channel, 'Marketing consent withdrawn'],
-      );
+      // Write both sides atomically so every email/SMS/WhatsApp transport sees
+      // the withdrawal, not only the campaign subsystem.
+      await communicationPreferences.writePreferenceWithRun(conn.execute.bind(conn), {
+        organizationId: req.orgId,
+        clientId: consent.client_id,
+        channel: consent.communication_channel,
+        optOut: true,
+        reason: 'Marketing consent withdrawn',
+      });
     } else {
       // Non-marketing consent keeps its existing per-ledger-entry withdrawal
       // behavior and must not alter communication suppression preferences.

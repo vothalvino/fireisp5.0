@@ -276,8 +276,8 @@ describe('notificationHooks', () => {
     test('sends warning email to client', async () => {
       await eventBus.emit('suspension.warning', {
         organizationId: 1,
-        _contract: { id: 1 },
-        client: { name: 'Ana Garcia', email: 'ana@example.com' },
+        contract: { id: 1, client_id: 44 },
+        client: { id: 44, name: 'Ana Garcia', email: 'ana@example.com' },
         invoice: { invoice_number: 'INV-100', total: 300, currency: 'MXN', due_date: '2026-03-01T00:00:00Z' },
         daysOverdue: 15,
       });
@@ -285,7 +285,12 @@ describe('notificationHooks', () => {
       expect(templates.suspensionWarningEmail).toHaveBeenCalledWith(
         expect.objectContaining({ clientName: 'Ana Garcia', daysOverdue: 15, invoiceNumber: 'INV-100' }),
       );
-      expect(emailTransport.sendEmail).toHaveBeenCalled();
+      expect(emailTransport.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: 1,
+        clientId: 44,
+        messageClass: 'transactional',
+        to: 'ana@example.com',
+      }));
     });
 
     test('skips email when no client email', async () => {

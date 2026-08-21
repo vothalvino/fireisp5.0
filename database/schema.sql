@@ -63,7 +63,11 @@ CREATE TABLE IF NOT EXISTS clients (
     client_group_id BIGINT UNSIGNED NULL     COMMENT 'Family/account group this client belongs to (see client_groups)',
     name            VARCHAR(255)    NOT NULL,
     email           VARCHAR(255)    NULL,
+    email_contact_epoch BIGINT UNSIGNED NOT NULL DEFAULT 1
+                        COMMENT 'Monotonic email identity used to fence email consent (migration 460)',
     phone           VARCHAR(30)     NULL,
+    phone_contact_epoch BIGINT UNSIGNED NOT NULL DEFAULT 1
+                        COMMENT 'Monotonic phone identity used to fence SMS and WhatsApp consent (migration 460)',
     client_type     ENUM('personal', 'company', 'residential', 'business', 'corporate', 'government', 'wholesale') NOT NULL DEFAULT 'personal',
     locale          ENUM('global', 'MX') NOT NULL DEFAULT 'global'
                         COMMENT 'Regional compliance switch: global = no country-specific requirements; MX = SAT CFDI 4.0 + IFT/CRT compliance required',
@@ -3893,7 +3897,9 @@ CREATE TABLE IF NOT EXISTS client_balance_ledger (
 CREATE TABLE IF NOT EXISTS email_logs (
     id               BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     client_id        BIGINT UNSIGNED  NULL     COMMENT 'Client recipient; NULL for internal messages',
+    client_contact_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Client channel-contact epoch captured for this delivery (migration 460)',
     organization_id  BIGINT UNSIGNED  NULL     COMMENT 'Owning org; NULL for legacy rows and auth flows with no org in scope (migration 386)',
+    organization_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Authoritative organization outbound epoch captured at enqueue/send (migration 460)',
     user_id          BIGINT UNSIGNED  NULL     COMMENT 'Internal user recipient; NULL for client messages',
     channel          ENUM('email', 'sms', 'whatsapp', 'other') NOT NULL DEFAULT 'email',
     recipient        VARCHAR(255)     NOT NULL COMMENT 'Email address or phone number',
@@ -3902,6 +3908,8 @@ CREATE TABLE IF NOT EXISTS email_logs (
     template         VARCHAR(100)     NULL     COMMENT 'Template name used to render the message',
     template_id      BIGINT UNSIGNED  NULL     COMMENT 'Template used to render this message; NULL = ad-hoc / legacy',
     campaign_message_id BIGINT UNSIGNED NULL   COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
+    message_class    ENUM('marketing','transactional','security','support_reply') NULL
+                                          COMMENT 'Server-owned delivery class; NULL legacy client work fails closed at dispatch (migration 460)',
     reference_type   VARCHAR(50)      NULL     COMMENT 'Entity type the message relates to, e.g. invoice, ticket',
     reference_id     BIGINT UNSIGNED  NULL     COMMENT 'ID of the referenced entity',
     status           ENUM('queued', 'sent', 'delivered', 'failed', 'bounced') NOT NULL DEFAULT 'queued',
@@ -5845,6 +5853,31 @@ BEGIN
 END$$
 
 -- ---------------------------------------------------------------------------
+-- clients — bind communication consent to the byte-exact email/phone identity
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_clients_communication_contact_epoch_bu$$
+CREATE TRIGGER trg_clients_communication_contact_epoch_bu
+BEFORE UPDATE ON clients
+FOR EACH ROW
+BEGIN
+    IF NOT (BINARY NEW.email <=> BINARY OLD.email)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at)
+       OR ((NEW.status = 'inactive') <> (OLD.status = 'inactive')) THEN
+        SET NEW.email_contact_epoch = OLD.email_contact_epoch + 1;
+    ELSE
+        SET NEW.email_contact_epoch = OLD.email_contact_epoch;
+    END IF;
+
+    IF NOT (BINARY NEW.phone <=> BINARY OLD.phone)
+       OR NOT (NEW.deleted_at <=> OLD.deleted_at)
+       OR ((NEW.status = 'inactive') <> (OLD.status = 'inactive')) THEN
+        SET NEW.phone_contact_epoch = OLD.phone_contact_epoch + 1;
+    ELSE
+        SET NEW.phone_contact_epoch = OLD.phone_contact_epoch;
+    END IF;
+END$$
+
+-- ---------------------------------------------------------------------------
 -- organizations — prevent locale downgrade from 'MX' to 'global'
 -- ---------------------------------------------------------------------------
 CREATE TRIGGER trg_organizations_locale_downgrade_bu
@@ -7153,7 +7186,9 @@ CREATE TABLE IF NOT EXISTS ticket_sla_events (
 CREATE TABLE IF NOT EXISTS sms_logs (
     id                   BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     organization_id      BIGINT UNSIGNED  NOT NULL                    COMMENT 'Tenant organization that sent/received this message',
+    organization_epoch   BIGINT UNSIGNED  NOT NULL DEFAULT 0          COMMENT 'Authoritative organization outbound epoch captured at enqueue/send (migration 460)',
     client_id            BIGINT UNSIGNED  NULL                        COMMENT 'Client associated with this message; NULL = non-client recipient',
+    client_contact_epoch BIGINT UNSIGNED  NOT NULL DEFAULT 0          COMMENT 'Client channel-contact epoch captured for this delivery (migration 460)',
     phone_number         VARCHAR(20)      NOT NULL                    COMMENT 'Destination or source phone number in E.164 format',
     channel              ENUM('sms','whatsapp')
                                           NOT NULL                    COMMENT 'Delivery channel',
@@ -7161,12 +7196,14 @@ CREATE TABLE IF NOT EXISTS sms_logs (
                                           NOT NULL DEFAULT 'outbound' COMMENT 'Message direction relative to the platform',
     template_id          BIGINT UNSIGNED  NULL                        COMMENT 'Message template used; NULL = ad-hoc message',
     campaign_message_id  BIGINT UNSIGNED  NULL                        COMMENT 'Campaign message this send belongs to; NULL = non-campaign send',
+    message_class        ENUM('marketing','transactional','security','support_reply') NULL
+                                                                    COMMENT 'Server-owned delivery class; NULL legacy client work fails closed at dispatch (migration 460)',
     message_body         TEXT             NOT NULL                    COMMENT 'Full text content of the message',
     provider             VARCHAR(50)      NULL                        COMMENT 'SMS/WhatsApp provider name (e.g. twilio, infobip, messagebird)',
     provider_message_id  VARCHAR(100)     NULL                        COMMENT 'Provider-assigned message identifier for status lookups',
     status               ENUM('queued','sent','delivered','failed','undelivered')
                                           NOT NULL DEFAULT 'queued'   COMMENT 'Delivery status',
-    error_code           VARCHAR(20)      NULL                        COMMENT 'Provider-specific error code on failure',
+    error_code           VARCHAR(64)      NULL                        COMMENT 'Provider or stable application refusal code',
     error_message        TEXT             NULL                        COMMENT 'Human-readable error description from the provider',
     cost                 DECIMAL(8, 5)    NULL                        COMMENT 'Per-message cost charged by the provider',
     sent_at              TIMESTAMP        NULL                        COMMENT 'Timestamp when the message was submitted to the provider',
@@ -9123,8 +9160,12 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     organization_id      BIGINT UNSIGNED NULL
                              COMMENT 'Tenant organization; NULL = single-tenant deployment',
+    organization_epoch   BIGINT UNSIGNED NOT NULL DEFAULT 0
+                             COMMENT 'Authoritative organization outbound epoch captured at campaign dispatch (migration 460)',
     campaign_id          BIGINT UNSIGNED NOT NULL,
     client_id            BIGINT UNSIGNED NULL,
+    client_contact_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0
+                             COMMENT 'Client channel-contact epoch captured at campaign dispatch (migration 460)',
     recipient            VARCHAR(320)    NOT NULL
                              COMMENT 'Email address or phone number',
     channel              ENUM('email','sms','whatsapp')
@@ -9167,7 +9208,7 @@ CREATE TABLE IF NOT EXISTS client_dnd_preferences (
     channel            ENUM('email','sms','whatsapp','all')
                            NOT NULL DEFAULT 'all',
     opt_out            TINYINT(1)      NOT NULL DEFAULT 0
-                           COMMENT '1 = opted out from marketing/bulk sends',
+                           COMMENT '1 = block all client-directed delivery on this channel',
     quiet_hours_start  TIME            NULL
                            COMMENT 'Local time quiet window start (e.g. 22:00:00)',
     quiet_hours_end    TIME            NULL
@@ -12775,6 +12816,8 @@ CREATE TABLE IF NOT EXISTS subscriber_consents (
     channel         ENUM('web','app','paper','phone','email') NOT NULL DEFAULT 'web',
     communication_channel ENUM('email','sms','whatsapp') NULL
                          COMMENT 'Optional delivery channel covered by this consent; channel records the capture medium',
+    communication_contact_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0
+                         COMMENT 'Client communication-contact epoch captured when consent was granted (migration 460)',
     source_context  VARCHAR(40)     NULL
                          COMMENT 'Workflow that captured the choice, for example installation or portal',
     service_order_id BIGINT UNSIGNED NULL

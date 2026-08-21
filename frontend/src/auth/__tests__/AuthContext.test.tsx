@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '../AuthContext';
 import { tokenStore } from '@/api/client';
 
@@ -11,8 +12,16 @@ import { tokenStore } from '@/api/client';
 // Helpers
 // ---------------------------------------------------------------------------
 
+const authTestQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+});
+
 function wrapper({ children }: { children: ReactNode }) {
-  return <AuthProvider>{children}</AuthProvider>;
+  return (
+    <QueryClientProvider client={authTestQueryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  );
 }
 
 function mockFetch(responses: Array<{ ok: boolean; json?: object; status?: number; headers?: Record<string, string> }>) {
@@ -36,6 +45,7 @@ function mockFetch(responses: Array<{ ok: boolean; json?: object; status?: numbe
 describe('AuthContext', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    authTestQueryClient.clear();
     tokenStore.clear();
     localStorage.clear();
     // Clear the CSRF cookie between tests (cookie-first restore reads it).
@@ -89,6 +99,7 @@ describe('AuthContext', () => {
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
+    authTestQueryClient.setQueryData(['private-tenant-record'], { organizationId: 1 });
 
     act(() => {
       window.dispatchEvent(new Event('fireisp:session-expired'));
@@ -96,6 +107,7 @@ describe('AuthContext', () => {
 
     await waitFor(() => expect(result.current.user).toBeNull());
     expect(tokenStore.getAccess()).toBeNull();
+    expect(authTestQueryClient.getQueryData(['private-tenant-record'])).toBeUndefined();
   });
 
   it('honors Retry-After when the bootstrap is rate-limited', async () => {
@@ -190,6 +202,7 @@ describe('AuthContext', () => {
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.initialized).toBe(true));
+    authTestQueryClient.setQueryData(['previous-user-secret'], { value: 'must not survive' });
 
     await act(async () => {
       await result.current.login('user@test.com', 'secret');
@@ -198,6 +211,7 @@ describe('AuthContext', () => {
     expect(result.current.user).toMatchObject({ id: 2, email: 'user@test.com' });
     expect(tokenStore.getAccess()).toBe('acc');
     expect(localStorage.getItem('fireisp_refresh_token')).toBeNull();
+    expect(authTestQueryClient.getQueryData(['previous-user-secret'])).toBeUndefined();
   });
 
   it('login() throws on server error', async () => {
@@ -279,6 +293,7 @@ describe('AuthContext', () => {
       const { result } = renderHook(() => useAuth(), { wrapper });
       await waitFor(() => expect(result.current.initialized).toBe(true));
       expect(tokenStore.getAccess()).toBeNull();
+      authTestQueryClient.setQueryData(['organization', 1, 'smtp'], { hasPassword: true });
 
       // Must NOT throw "Not authenticated".
       await act(async () => { await result.current.switchOrganization(7); });
@@ -288,6 +303,7 @@ describe('AuthContext', () => {
       const headers = (switchCall![1] as RequestInit).headers as Record<string, string>;
       expect(headers['X-CSRF-Token']).toBe('csrf-tok');
       expect(headers.Authorization).toBeUndefined();
+      expect(authTestQueryClient.getQueryData(['organization', 1, 'smtp'])).toBeUndefined();
     });
   });
 });

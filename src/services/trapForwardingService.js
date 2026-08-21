@@ -1233,6 +1233,7 @@ async function attemptDelivery(deliveryId, expectedOrganizationId = null, primar
       const trapType = truncate(payload?.trap?.type || 'test', 64) || 'test';
       const result = await emailTransport.sendEmail({
         organizationId: row.organization_id,
+        operationalRecipient: true,
         emailFunction: 'noc',
         to: row.target_email,
         subject: `FireISP SNMP trap: ${trapType}`,

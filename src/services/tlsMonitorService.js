@@ -247,7 +247,12 @@ async function deliverToOps({ opsEmails, title, body }) {
   let sent = 0;
   for (const to of opsEmails) {
     try {
-      const delivery = await emailTransport.sendEmail({ to, subject: incidentTitle, text: body });
+      const delivery = await emailTransport.sendEmail({
+        operationalRecipient: true,
+        to,
+        subject: incidentTitle,
+        text: body,
+      });
       // emailTransport records SMTP failures and resolves with success:false;
       // it does not reject them. Only retain the de-duplication claim when at
       // least one address really accepted the message.
@@ -323,6 +328,7 @@ async function deliver({ organizationId, type, title, body }) {
 
     if (r.email) {
       await emailTransport.sendEmail({
+        operationalRecipient: true,
         to: r.email, subject: incidentTitle, text: body, organizationId,
       })
         .catch(err => logger.warn({ err: err.message, userId: r.id }, 'TLS alert email failed'));

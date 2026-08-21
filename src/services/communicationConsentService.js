@@ -8,6 +8,7 @@
 // corresponding communication choices (and vice versa).
 
 const { ValidationError } = require('../utils/errors');
+const communicationPreferences = require('./clientCommunicationPreferenceService');
 
 const COMMUNICATION_CHANNELS = ['email', 'sms', 'whatsapp'];
 
@@ -37,12 +38,16 @@ async function recordSignedChoices(run, {
   const normalized = validateChoices(choices);
 
   const [clients] = await run(
-    `SELECT email, phone FROM clients
-      WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT status, email, phone, email_contact_epoch, phone_contact_epoch FROM clients
+      WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL
+      LIMIT 1 FOR UPDATE`,
     [clientId, organizationId],
   );
   const client = clients[0];
   if (!client) throw new ValidationError('The document client no longer exists');
+  if (client.status === 'inactive') {
+    throw new ValidationError('Communication choices cannot be granted for an inactive client');
+  }
   if (normalized.email && !client.email) {
     throw new ValidationError('Email marketing cannot be enabled because the client has no email address');
   }
@@ -52,14 +57,13 @@ async function recordSignedChoices(run, {
 
   // A newly-confirmed channel-by-channel choice supersedes an older blanket
   // DND choice.  The three channel rows written below remain authoritative.
-  await run(
-    `INSERT INTO client_dnd_preferences
-       (organization_id, client_id, channel, opt_out, reason)
-     VALUES (?, ?, 'all', 0, ?)
-     ON DUPLICATE KEY UPDATE organization_id = VALUES(organization_id),
-       opt_out = 0, reason = VALUES(reason)`,
-    [organizationId, clientId, 'Replaced by signed installation communication choices'],
-  );
+  await communicationPreferences.writePreferenceWithRun(run, {
+    organizationId,
+    clientId,
+    channel: 'all',
+    optOut: false,
+    reason: 'Replaced by signed installation communication choices',
+  });
 
   for (const channel of COMMUNICATION_CHANNELS) {
     const granted = normalized[channel];
@@ -75,29 +79,25 @@ async function recordSignedChoices(run, {
       [clientId, organizationId, channel],
     );
 
-    await run(
-      `INSERT INTO client_dnd_preferences
-         (organization_id, client_id, channel, opt_out, reason)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE organization_id = VALUES(organization_id),
-         opt_out = VALUES(opt_out), reason = VALUES(reason)`,
-      [
-        organizationId,
-        clientId,
-        channel,
-        granted ? 0 : 1,
-        granted ? 'Granted during signed installation handoff' : 'Declined during signed installation handoff',
-      ],
-    );
+    await communicationPreferences.writePreferenceWithRun(run, {
+      organizationId,
+      clientId,
+      channel,
+      optOut: !granted,
+      reason: granted
+        ? 'Granted during signed installation handoff'
+        : 'Declined during signed installation handoff',
+    });
 
     if (granted) {
       await run(
         `INSERT INTO subscriber_consents
            (organization_id, client_id, consent_version, purpose, given_at,
             ip_address, channel, document_hash, notes, communication_channel,
-            source_context, service_order_id, work_order_id, signed_document_id, captured_by)
+            source_context, service_order_id, work_order_id, signed_document_id,
+            captured_by, communication_contact_epoch)
          VALUES (?, ?, ?, 'marketing', NOW(), ?, 'app', ?, ?, ?,
-                 'installation_signature', ?, ?, ?, ?)`,
+                 'installation_signature', ?, ?, ?, ?, ?)`,
         [
           organizationId,
           clientId,
@@ -110,6 +110,7 @@ async function recordSignedChoices(run, {
           workOrderId || null,
           signedDocumentId,
           capturedBy || null,
+          channel === 'email' ? client.email_contact_epoch : client.phone_contact_epoch,
         ],
       );
     }

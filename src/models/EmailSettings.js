@@ -10,7 +10,8 @@
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
-const { encrypt } = require('../utils/encryption');
+const { encryptStrict } = require('../utils/encryption');
+const { ValidationError } = require('../utils/errors');
 
 const FUNCTIONS = ['general', 'support', 'billing', 'noc'];
 const DEFAULT_FUNCTION = 'general';
@@ -28,7 +29,7 @@ class EmailSettings extends BaseModel {
   static get fillable() {
     return [
       'organization_id', 'email_function', 'enabled', 'smtp_host', 'smtp_port',
-      'smtp_secure', 'smtp_user', 'smtp_password_encrypted', 'from_email', 'from_name',
+      'smtp_secure', 'smtp_user', 'from_email', 'from_name',
     ];
   }
 
@@ -122,47 +123,81 @@ class EmailSettings extends BaseModel {
   static async upsert(orgId, emailFunction, fields) {
     const db = require('../config/database');
     const fn = normalizeFunction(emailFunction);
-    const existing = await this.findRawByOrgId(orgId, fn);
+    const conn = await db.getConnection();
+    let publicRow;
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute(
+        `SELECT * FROM organization_email_settings
+          WHERE organization_id = ? AND email_function = ?
+          LIMIT 1 FOR UPDATE`,
+        [orgId, fn],
+      );
+      const existing = rows[0] || null;
+      const row = {
+        enabled: fields.enabled ?? existing?.enabled ?? true,
+        smtp_host: fields.smtp_host !== undefined ? (fields.smtp_host || null) : (existing?.smtp_host ?? null),
+        smtp_port: fields.smtp_port !== undefined ? Number(fields.smtp_port) : (existing?.smtp_port ?? 587),
+        smtp_secure: fields.smtp_secure ?? existing?.smtp_secure ?? false,
+        smtp_user: fields.smtp_user !== undefined ? (fields.smtp_user || null) : (existing?.smtp_user ?? null),
+        smtp_password_encrypted: Object.prototype.hasOwnProperty.call(fields, 'smtp_password')
+          ? (fields.smtp_password ? encryptStrict(fields.smtp_password) : null)
+          : existing?.smtp_password_encrypted ?? null,
+        from_email: fields.from_email !== undefined ? (fields.from_email || null) : (existing?.from_email ?? null),
+        from_name: fields.from_name !== undefined ? (fields.from_name || null) : (existing?.from_name ?? null),
+      };
 
-    const row = {
-      enabled: fields.enabled ?? existing?.enabled ?? true,
-      smtp_host: fields.smtp_host !== undefined ? (fields.smtp_host || null) : (existing?.smtp_host ?? null),
-      smtp_port: fields.smtp_port !== undefined ? Number(fields.smtp_port) : (existing?.smtp_port ?? 587),
-      smtp_secure: fields.smtp_secure ?? existing?.smtp_secure ?? false,
-      smtp_user: fields.smtp_user !== undefined ? (fields.smtp_user || null) : (existing?.smtp_user ?? null),
-      smtp_password_encrypted: Object.prototype.hasOwnProperty.call(fields, 'smtp_password')
-        ? (fields.smtp_password ? encrypt(fields.smtp_password) : null)
-        : existing?.smtp_password_encrypted ?? null,
-      from_email: fields.from_email !== undefined ? (fields.from_email || null) : (existing?.from_email ?? null),
-      from_name: fields.from_name !== undefined ? (fields.from_name || null) : (existing?.from_name ?? null),
-    };
+      const connectionChanged = Boolean(existing?.smtp_password_encrypted) && [
+        ['smtp_host', existing.smtp_host || null, row.smtp_host],
+        ['smtp_port', Number(existing.smtp_port || 587), Number(row.smtp_port)],
+        ['smtp_secure', Boolean(existing.smtp_secure), Boolean(row.smtp_secure)],
+        ['smtp_user', existing.smtp_user || null, row.smtp_user],
+      ].some(([, before, after]) => before !== after);
+      if (connectionChanged && !Object.prototype.hasOwnProperty.call(fields, 'smtp_password')) {
+        throw new ValidationError(
+          'Enter a new SMTP password or explicitly clear the saved password when changing the SMTP connection.',
+        );
+      }
 
-    await db.query(
-      `INSERT INTO organization_email_settings
-         (organization_id, email_function, enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, from_email, from_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         enabled = VALUES(enabled),
-         smtp_host = VALUES(smtp_host),
-         smtp_port = VALUES(smtp_port),
-         smtp_secure = VALUES(smtp_secure),
-         smtp_user = VALUES(smtp_user),
-         smtp_password_encrypted = VALUES(smtp_password_encrypted),
-         from_email = VALUES(from_email),
-         from_name = VALUES(from_name)`,
-      [
-        orgId,
-        fn,
-        row.enabled ? 1 : 0,
-        row.smtp_host,
-        row.smtp_port,
-        row.smtp_secure ? 1 : 0,
-        row.smtp_user,
-        row.smtp_password_encrypted,
-        row.from_email,
-        row.from_name,
-      ],
-    );
+      await conn.execute(
+        `INSERT INTO organization_email_settings
+           (organization_id, email_function, enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, from_email, from_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           enabled = VALUES(enabled),
+           smtp_host = VALUES(smtp_host),
+           smtp_port = VALUES(smtp_port),
+           smtp_secure = VALUES(smtp_secure),
+           smtp_user = VALUES(smtp_user),
+           smtp_password_encrypted = VALUES(smtp_password_encrypted),
+           from_email = VALUES(from_email),
+           from_name = VALUES(from_name)`,
+        [
+          orgId,
+          fn,
+          row.enabled ? 1 : 0,
+          row.smtp_host,
+          row.smtp_port,
+          row.smtp_secure ? 1 : 0,
+          row.smtp_user,
+          row.smtp_password_encrypted,
+          row.from_email,
+          row.from_name,
+        ],
+      );
+      publicRow = this.toPublic({
+        ...existing,
+        organization_id: Number(orgId),
+        email_function: fn,
+        ...row,
+      });
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback().catch(() => {});
+      throw err;
+    } finally {
+      conn.release();
+    }
 
     // Take effect on the very next send, not after a TTL — lazy require to
     // avoid a require cycle (emailTransport requires this model to read the
@@ -172,7 +207,7 @@ class EmailSettings extends BaseModel {
       emailTransport.invalidateOrgTransport(orgId);
     }
 
-    return this.findByOrgId(orgId, fn);
+    return publicRow;
   }
 
   static async recordTestResult(orgId, emailFunction, { success, error }) {

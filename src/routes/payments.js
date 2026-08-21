@@ -687,9 +687,10 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
               o.name AS org_name
        FROM payments p
        LEFT JOIN clients cl ON cl.id = p.client_id
-       LEFT JOIN organizations o ON o.id = cl.organization_id
-       WHERE p.id = ? AND p.deleted_at IS NULL`,
-      [paymentId],
+                           AND cl.organization_id <=> p.organization_id
+       LEFT JOIN organizations o ON o.id = p.organization_id
+       WHERE p.id = ? AND p.organization_id <=> ? AND p.deleted_at IS NULL`,
+      [paymentId, req.orgId],
     );
     const payment = rows[0];
     if (!payment) return res.status(404).json({ error: 'Payment not found' });
@@ -713,6 +714,8 @@ router.post('/:id/send-receipt', requirePermission('payments.view'), async (req,
 
     const result = await emailTransport.sendEmail({
       organizationId: req.orgId,
+      clientId: payment.client_id,
+      messageClass: 'transactional',
       emailFunction: 'billing',
       to: payment.client_email,
       subject: template.subject,

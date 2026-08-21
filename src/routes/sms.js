@@ -68,12 +68,12 @@ const sendSchema = {
   to:      { type: 'string', required: true, min: 7, max: 20 },
   body:    { type: 'string', required: true, min: 1, max: 1600 },
   channel: { type: 'string', enum: ['sms', 'whatsapp'] },
-  clientId: { type: 'number' },
+  clientId: { type: 'number', required: true, min: 1 },
   templateId: { type: 'number' },
 };
 
 router.post('/send', requirePermission('sms.send'), validate(sendSchema), async (req, res) => {
-  const { to, body, channel = 'sms', clientId = null, templateId = null } = req.body;
+  const { to, body, channel = 'sms', clientId, templateId = null } = req.body;
 
   const result = await smsTransport.sendSms({
     organizationId: req.orgId,
@@ -82,12 +82,17 @@ router.post('/send', requirePermission('sms.send'), validate(sendSchema), async 
     body,
     channel,
     templateId,
+    messageClass: 'support_reply',
   });
 
   if (result.success) {
     return res.status(200).json({ success: true, messageId: result.messageId });
   }
-  return res.status(502).json({ success: false, error: result.error });
+  return res.status(result.skipped ? 409 : 502).json({
+    success: false,
+    error: result.error,
+    ...(result.code && { code: result.code }),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -103,11 +108,15 @@ router.post('/logs/:id/retry', requirePermission('sms.send'), async (req, res) =
   );
   if (!rows[0]) return res.status(404).json({ error: 'SMS log not found' });
 
-  const result = await smsTransport.retryLog(logId);
+  const result = await smsTransport.retryLog(logId, req.orgId);
   if (result.success) {
     return res.json({ success: true, messageId: result.messageId });
   }
-  return res.status(502).json({ success: false, error: result.error });
+  return res.status(result.skipped ? 409 : 502).json({
+    success: false,
+    error: result.error,
+    ...(result.code && { code: result.code }),
+  });
 });
 
 module.exports = router;

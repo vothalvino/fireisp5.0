@@ -42,7 +42,9 @@ const GLOBAL_ORG = {
   city: 'Panamá', state: 'Panamá', zip_code: '0801', country: 'PA', locale: 'global',
 };
 
-const insertOf = () => db.query.mock.calls.find(c => /INSERT INTO subscriber_consents/.test(c[0]));
+let staffConn;
+const insertOf = () => db.query.mock.calls.find(c => /INSERT INTO subscriber_consents/.test(c[0]))
+  || staffConn?.execute.mock.calls.find(c => /INSERT INTO subscriber_consents/.test(c[0]));
 
 /** Portal-side DB wiring. `consents` answers the active-consent lookup. */
 function wirePortal({ org = MX_ORG, consents = [] } = {}) {
@@ -64,7 +66,10 @@ const accept = () => request(app)
   .post('/api/v1/portal/privacy-notice/accept')
   .set('Authorization', `Bearer ${portalToken()}`);
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  staffConn = null;
+});
 
 describe('GET /portal/privacy-notice — bundled templates', () => {
   it('serves a Spanish aviso for an MX org, filled with the org identity', async () => {
@@ -219,14 +224,25 @@ describe('staff POST /regulatory-compliance/consent — now validated and org-ch
   const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
 
   function wireStaff({ clientInOrg = true } = {}) {
-    db.query.mockImplementation(async (sql) => {
+    const dispatch = async (sql) => {
       if (isUserLookup(sql)) return [[ADMIN]];
-      if (/FROM clients WHERE id = \? AND organization_id <=> \?/.test(sql)) {
-        return [clientInOrg ? [{ id: 42 }] : []];
+      if (/FROM clients[\s\S]*WHERE id = \? AND organization_id <=> \?/.test(sql)) {
+        return [clientInOrg
+          ? [{ id: 42, email_contact_epoch: 3, phone_contact_epoch: 5 }]
+          : []];
       }
       if (/INSERT INTO subscriber_consents/.test(sql)) return [{ insertId: 8 }];
       return [[]];
-    });
+    };
+    db.query.mockImplementation(dispatch);
+    staffConn = {
+      beginTransaction: jest.fn().mockResolvedValue(undefined),
+      execute: jest.fn(dispatch),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+    };
+    db.getConnection.mockResolvedValue(staffConn);
   }
 
   const post = (body) => request(app)
@@ -252,7 +268,7 @@ describe('staff POST /regulatory-compliance/consent — now validated and org-ch
 
   it('422s a missing client_id instead of inserting NULL', async () => {
     wireStaff();
-    const { client_id, ...rest } = GOOD;
+    const { client_id: _clientId, ...rest } = GOOD;
     expect((await post(rest)).status).toBe(422);
   });
 

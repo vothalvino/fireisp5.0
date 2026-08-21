@@ -186,6 +186,16 @@ post-459 image. Going further back requires a separately rehearsed, approved
 full application-and-database restore from a pre-459 backup, not the normal
 one-command image rollback.
 
+Migration 460 is likewise a one-way client-communication privacy boundary.
+It withdraws legacy marketing grants, discards malformed/plaintext SMTP
+credentials, and teaches queues to enforce client contact epochs, organization
+lifecycle epochs, and server-owned message classes. `redeploy` refuses a target
+that predates migration 460 because old workers would ignore those controls.
+Stop and drain every old HTTP process and outbound worker, migrate the primary
+and every retained isolated database with `MIGRATE_ISOLATED_TENANTS=true`, then
+start only the new image. Recover by rolling forward to another post-460 image;
+going pre-460 requires a rehearsed full application-and-database restore.
+
 #### Installation consent/signing upgrade (migration 451)
 
 Migration 451 intentionally fails closed for Mexican installation contracts.

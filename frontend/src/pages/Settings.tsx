@@ -874,17 +874,20 @@ const EMPTY_EMAIL_FORM = {
   from_name: '',
 };
 
-function EmailSettingsTab() {
+function EmailSettingsTab({ userId, organizationId }: { userId: number | null; organizationId: number | null }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [form, setForm] = useState({ ...EMPTY_EMAIL_FORM });
+  const [clearStoredPassword, setClearStoredPassword] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [testTo, setTestTo] = useState('');
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const emailSettingsQueryKey = ['email-settings', userId, organizationId] as const;
   const { data, isLoading, error } = useQuery({
-    queryKey: ['email-settings'],
+    queryKey: emailSettingsQueryKey,
     queryFn: () => apiFetch<{ data: EmailSettingsData }>(`${API_BASE}/email-settings`),
+    enabled: userId !== null,
   });
 
   useEffect(() => {
@@ -900,6 +903,7 @@ function EmailSettingsTab() {
         from_email: d.from_email ?? '',
         from_name: d.from_name ?? '',
       });
+      setClearStoredPassword(false);
     }
   }, [data]);
 
@@ -907,11 +911,13 @@ function EmailSettingsTab() {
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<{ data: EmailSettingsData }>(`${API_BASE}/email-settings`, { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['email-settings'] });
+      qc.invalidateQueries({ queryKey: emailSettingsQueryKey });
+      setForm(current => ({ ...current, smtp_password: '' }));
+      setClearStoredPassword(false);
       setMsg({ type: 'success', text: t('emailSettings.saved') });
       setTimeout(() => setMsg(null), 3000);
     },
-    onError: () => setMsg({ type: 'error', text: t('emailSettings.saveError') }),
+    onError: (err: Error) => setMsg({ type: 'error', text: err.message || t('emailSettings.saveError') }),
   });
 
   const testMutation = useMutation({
@@ -921,7 +927,7 @@ function EmailSettingsTab() {
         body: JSON.stringify({ to }),
       }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['email-settings'] });
+      qc.invalidateQueries({ queryKey: emailSettingsQueryKey });
       if (res.data.success) {
         setTestResult({ type: 'success', text: t('emailSettings.testSuccess') });
       } else {
@@ -934,6 +940,10 @@ function EmailSettingsTab() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setMsg(null);
+    if (connectionChangeNeedsPasswordAction) {
+      setMsg({ type: 'error', text: t('emailSettings.connectionChangeRequiresPassword') });
+      return;
+    }
     const body: Record<string, unknown> = {
       enabled: form.enabled,
       smtp_host: form.smtp_host || null,
@@ -945,7 +955,8 @@ function EmailSettingsTab() {
     };
     // Write-only password field: only send when the operator actually typed
     // something. Omitted -> backend keeps the existing encrypted value.
-    if (form.smtp_password) body.smtp_password = form.smtp_password;
+    if (clearStoredPassword) body.smtp_password = '';
+    else if (form.smtp_password) body.smtp_password = form.smtp_password;
     saveMutation.mutate(body);
   }
 
@@ -958,6 +969,17 @@ function EmailSettingsTab() {
 
   const configured = data?.data?.configured ?? false;
   const hasPassword = data?.data?.has_password ?? false;
+  const saved = data?.data;
+  const normalizedHost = (value: string | null | undefined) => (value ?? '').trim().toLowerCase().replace(/\.+$/, '');
+  const connectionIdentityChanged = Boolean(hasPassword && saved && (
+    normalizedHost(form.smtp_host) !== normalizedHost(saved.smtp_host)
+    || Number(form.smtp_port || 587) !== Number(saved.smtp_port || 587)
+    || form.smtp_secure !== saved.smtp_secure
+    || form.smtp_user.trim() !== (saved.smtp_user ?? '').trim()
+  ));
+  const connectionChangeNeedsPasswordAction = connectionIdentityChanged
+    && !form.smtp_password
+    && !clearStoredPassword;
   const lastTestAt = data?.data?.last_test_at;
   const lastTestStatus = data?.data?.last_test_status;
 
@@ -1009,6 +1031,9 @@ function EmailSettingsTab() {
             {t('emailSettings.smtpSecure')}
           </label>
         </div>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: '-6px 0 0' }}>
+          {t('emailSettings.smtpSecureHint')}
+        </p>
 
         <label style={sty.label}>{t('emailSettings.smtpUser')}
           <input style={sty.input} value={form.smtp_user} autoComplete="off"
@@ -1019,8 +1044,36 @@ function EmailSettingsTab() {
           {t('emailSettings.smtpPassword')} <span style={sty.hint}>({t('emailSettings.smtpPasswordHint')})</span>
           <input style={sty.input} type="password" autoComplete="new-password"
             value={form.smtp_password} placeholder={hasPassword ? '••••••••' : ''}
-            onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} />
+            disabled={clearStoredPassword}
+            onChange={e => {
+              setClearStoredPassword(false);
+              setForm(f => ({ ...f, smtp_password: e.target.value }));
+            }} />
         </label>
+
+        {hasPassword && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.82rem' }}>
+            <input
+              type="checkbox"
+              checked={clearStoredPassword}
+              onChange={e => {
+                setClearStoredPassword(e.target.checked);
+                if (e.target.checked) setForm(f => ({ ...f, smtp_password: '' }));
+              }}
+            />
+            {t('emailSettings.clearStoredPassword')}
+          </label>
+        )}
+        {clearStoredPassword && (
+          <p style={{ fontSize: '0.78rem', color: '#92400e', margin: '-6px 0 0' }}>
+            {t('emailSettings.clearStoredPasswordHint')}
+          </p>
+        )}
+        {connectionChangeNeedsPasswordAction && (
+          <p role="alert" style={{ fontSize: '0.8rem', color: '#991b1b', margin: '-6px 0 0' }}>
+            {t('emailSettings.connectionChangeRequiresPassword')}
+          </p>
+        )}
 
         <div style={sty.row2}>
           <label style={sty.label}>{t('emailSettings.fromEmail')}
@@ -1336,7 +1389,9 @@ export function Settings() {
         {tab === 'alertRules' && <AlertRulesTab />}
         {tab === 'paymentGateways' && <PaymentGatewaysTab />}
         {tab === 'quotas' && <QuotasTab />}
-        {tab === 'emailSettings' && <EmailSettingsTab />}
+        {tab === 'emailSettings' && (
+          <EmailSettingsTab userId={user?.id ?? null} organizationId={user?.organization_id ?? null} />
+        )}
         {tab === 'version' && isInstallOperator && <VersionTab />}
       </div>
     </div>

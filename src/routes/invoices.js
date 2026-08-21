@@ -993,9 +993,10 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
               o.name AS org_name
        FROM invoices i
        LEFT JOIN clients cl ON cl.id = i.client_id
+                           AND cl.organization_id <=> i.organization_id
        LEFT JOIN organizations o ON o.id = i.organization_id
-       WHERE i.id = ? AND i.deleted_at IS NULL`,
-      [invoiceId],
+       WHERE i.id = ? AND i.organization_id <=> ? AND i.deleted_at IS NULL`,
+      [invoiceId, req.orgId],
     );
     const invoice = rows[0];
     if (!invoice) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invoice not found' } });
@@ -1021,6 +1022,8 @@ router.post('/:id/send-email', requirePermission('invoices.view'), async (req, r
 
     const result = await emailTransport.sendEmail({
       organizationId: invoice.organization_id,
+      clientId: invoice.client_id,
+      messageClass: 'transactional',
       emailFunction: 'billing',
       to: invoice.client_email,
       subject: template.subject,

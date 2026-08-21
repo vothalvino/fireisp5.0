@@ -18,6 +18,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { readCsrfCookie } from '@/api/csrf';
 import { tokenStore } from '@/api/client';
 
@@ -100,6 +101,7 @@ interface LoginResponse {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({
     user: null,
     loading: true,
@@ -120,11 +122,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (res.ok) {
         const json = (await res.json()) as { data: AuthUser };
+        // refresh() is also used after impersonation and organization changes.
+        // Never let cached tenant data survive a freshly hydrated auth scope.
+        queryClient.clear();
         setState({ user: json.data, loading: false, initialized: true });
         return true;
       }
       if (res.status === 401 || res.status === 403) {
         tokenStore.clear();
+        queryClient.clear();
         setState({ user: null, loading: false, initialized: true });
         return false;
       }
@@ -137,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState(s => ({ ...s, loading: false, initialized: true }));
       return false;
     }
-  }, []);
+  }, [queryClient]);
 
   // Mid-session dead-session signal: doRefresh (api/client.ts) dispatches
   // this after a definitive double-401 on /auth/refresh. Without it nothing
@@ -146,11 +152,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onSessionExpired = () => {
       tokenStore.clear();
+      queryClient.clear();
       setState({ user: null, loading: false, initialized: true });
     };
     window.addEventListener('fireisp:session-expired', onSessionExpired);
     return () => window.removeEventListener('fireisp:session-expired', onSessionExpired);
-  }, []);
+  }, [queryClient]);
 
   // On mount: attempt silent session restore by calling the refresh endpoint.
   // The httpOnly `fireisp_refresh` cookie is sent automatically by the browser
@@ -179,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isTransient = (status: number) => status === 429 || status >= 500;
     const settleLoggedOut = () => {
       tokenStore.clear();
+      queryClient.clear();
       setState({ user: null, loading: false, initialized: true });
     };
     // When rate-limited, the server says how long to wait — waiting a fixed
@@ -268,7 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // single blip never hard-bounces an active session to login.
       settleLoggedOut();
     })();
-  }, []);
+  }, [queryClient]);
 
   const login = useCallback(
     async (email: string, password: string, totpCode?: string) => {
@@ -289,13 +297,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const json = (await res.json()) as { data: LoginResponse };
+      // A successful login is a hard cache boundary, even when another user
+      // signs in without reloading the SPA on a shared workstation.
+      queryClient.clear();
       // Access token kept in memory; refresh token is managed as an httpOnly
       // cookie by the server — no localStorage write needed.
       tokenStore.setAccess(json.data.accessToken);
 
       setState({ user: json.data.user, loading: false, initialized: true });
     },
-    [],
+    [queryClient],
   );
 
   const logout = useCallback(async () => {
@@ -331,9 +342,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ignore network errors — local state is cleared regardless below.
     } finally {
       tokenStore.clear();
+      queryClient.clear();
       setState({ user: null, loading: false, initialized: true });
     }
-  }, []);
+  }, [queryClient]);
 
   const switchOrganization = useCallback(
     async (organizationId: number) => {
@@ -369,6 +381,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Server rotates the httpOnly refresh cookie in the response headers.
       tokenStore.setAccess(json.data.accessToken);
 
+      // The server has accepted the new tenant context. Purge every cached
+      // response before any component can render data from the previous org.
+      queryClient.clear();
+
       // Re-hydrate the user profile so `organization_id` and org-scoped state
       // reflect the new context. hydrateUser tolerates transient failures by
       // KEEPING the previous user — which right after an org switch would
@@ -383,7 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const switchedOrgId = json.data.organization?.id ?? organizationId;
       setState(s => (s.user ? { ...s, user: { ...s.user, organization_id: switchedOrgId } } : s));
     },
-    [hydrateUser],
+    [hydrateUser, queryClient],
   );
 
   const value = useMemo<AuthContextValue>(

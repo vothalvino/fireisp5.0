@@ -212,9 +212,9 @@ async function runTask(taskName, organizationId = null) {
       }
       return { message: 'SNMP trap receiver started' };
     case 'email_send':
-      return emailTransport.processQueue();
+      return emailTransport.processQueue(organizationId);
     case 'sms_send':
-      return smsTransport.processQueue();
+      return smsTransport.processQueue(organizationId);
     case 'webhook_delivery':
     case 'webhook_retry':
       return Promise.all([
@@ -284,7 +284,7 @@ async function runTask(taskName, organizationId = null) {
     case 'auto_escalate_tickets':
       return interactionService.autoEscalateTickets(organizationId);
     case 'campaign_send':
-      return campaignService.processQueue();
+      return campaignService.processQueue(organizationId);
     case 'apply_late_fees':
       return lateFeeService.applyLateFees(organizationId);
     case 'send_payment_reminders':
@@ -493,6 +493,8 @@ async function runAutoInvoice(organizationId) {
             });
             await emailTransport.sendEmail({
               organizationId: contract.organization_id,
+              clientId: contract.client_id,
+              messageClass: 'transactional',
               to: client.email,
               subject,
               html,
@@ -576,6 +578,8 @@ async function runSuspensionWarnings(organizationId) {
           });
           await emailTransport.sendEmail({
             organizationId: contract.organization_id,
+            clientId: contract.client_id,
+            messageClass: 'transactional',
             to: client.email,
             subject,
             html,
@@ -652,6 +656,8 @@ async function runAutoSuspend(organizationId) {
             });
             await emailTransport.sendEmail({
               organizationId: org.id,
+              clientId: contract.client_id,
+              messageClass: 'transactional',
               to: client.email,
               subject,
               html,
@@ -783,6 +789,7 @@ async function notifyCsdExpiry(cert, threshold, daysLeft = 0) {
     if (r.email) {
       await emailTransport.sendEmail({
         organizationId: cert.organization_id,
+        operationalRecipient: true,
         to: r.email, subject: title,
         html: `<p>${body}</p>`,
       }).catch(err => logger.warn({ err: err.message, certId: cert.id }, 'CSD expiry email failed'));

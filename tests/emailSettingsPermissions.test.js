@@ -15,6 +15,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withTenantContext: jest.fn(async (_organizationId, callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));

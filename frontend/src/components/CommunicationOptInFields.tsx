@@ -31,7 +31,8 @@ interface CommunicationOptInFieldsProps {
 /**
  * Explicit, optional marketing choices captured alongside the customer's
  * handoff signature. All channels deliberately start unchecked in the parent
- * modal; service and billing notices remain separate from these choices.
+ * modal. These choices grant marketing permission only; a channel DND opt-out
+ * remains an overriding veto for every client-directed message class.
  */
 export function CommunicationOptInFields({
   contacts,
