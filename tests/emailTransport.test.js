@@ -1,601 +1,570 @@
-// =============================================================================
-// FireISP 5.0 — Email Transport Service Unit Tests
-// =============================================================================
-// NOTE: emailTransport.js keeps a module-level singleton `transporter` for
-// the global relay, lazily created by init() and NEVER recreated afterwards.
-// Every "global transport" test below therefore shares the SAME sendMail
-// mock (`mockSendMail`, declared once) — mirrors the pre-existing structure
-// of this file. Per-org settings are authoritatively re-read for every send.
-// A transport may be reused only while the full settings fingerprint is
-// unchanged, so org-specific tests use a fresh id for each cache scenario.
-// =============================================================================
+'use strict';
+
+const mockQuery = jest.fn();
+const mockGetConnection = jest.fn();
+const mockWithTenantContext = jest.fn(async (_organizationId, callback) => callback());
+const mockWithPrimaryContext = jest.fn(async callback => callback());
 
 jest.mock('../src/config/database', () => ({
-  query: jest.fn(),
+  query: mockQuery,
+  getConnection: mockGetConnection,
+  withTenantContext: mockWithTenantContext,
+  withPrimaryContext: mockWithPrimaryContext,
 }));
 
+const mockFindRawByOrgId = jest.fn();
 jest.mock('../src/models/EmailSettings', () => ({
-  findRawByOrgId: jest.fn(),
+  findRawByOrgId: mockFindRawByOrgId,
 }));
 
+const mockDecryptStrict = jest.fn(value => `plain:${value}`);
 jest.mock('../src/utils/encryption', () => ({
-  encrypt: (v) => `enc:${v}`,
-  decrypt: (v) => (typeof v === 'string' ? v.replace('enc:', '') : v),
+  decryptStrict: mockDecryptStrict,
 }));
 
-const mockSendMail = jest.fn();
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({ sendMail: mockSendMail })),
+const mockSendTenantSmtp = jest.fn();
+const mockSendTrustedSmtp = jest.fn();
+jest.mock('../src/utils/safeSmtpSender', () => ({
+  sendTenantSmtp: mockSendTenantSmtp,
+  sendTrustedSmtp: mockSendTrustedSmtp,
+  DEFAULT_SMTP_CONNECTION_TIMEOUT_MS: 30000,
+  DEFAULT_SMTP_GREETING_TIMEOUT_MS: 30000,
+  DEFAULT_SMTP_SOCKET_TIMEOUT_MS: 60000,
 }));
 
-const nodemailer = require('nodemailer');
-const db = require('../src/config/database');
+const mockGetOrganizationDeliveryState = jest.fn();
+const mockEvaluateClientCommunication = jest.fn();
+const mockBlockedResult = jest.fn(code => ({
+  success: false,
+  skipped: true,
+  code,
+  error: 'Client communication preference blocks this delivery.',
+}));
+const mockBlockCodes = Object.freeze({
+  ORGANIZATION_INACTIVE: 'ORGANIZATION_INACTIVE',
+  CLIENT_NOT_FOUND: 'CLIENT_NOT_FOUND',
+  CONTACT_MISMATCH: 'CLIENT_COMMUNICATION_CONTACT_MISMATCH',
+  OPTED_OUT: 'CLIENT_COMMUNICATION_OPTED_OUT',
+  CONSENT_REQUIRED: 'CLIENT_MARKETING_CONSENT_REQUIRED',
+});
+jest.mock('../src/services/clientCommunicationPreferenceService', () => ({
+  getOrganizationDeliveryState: mockGetOrganizationDeliveryState,
+  evaluateClientCommunication: mockEvaluateClientCommunication,
+  blockedResult: mockBlockedResult,
+  BLOCK_CODES: mockBlockCodes,
+}));
+
 const EmailSettings = require('../src/models/EmailSettings');
 const emailTransport = require('../src/services/emailTransport');
 
-describe('emailTransport', () => {
-  const TRAP_DELIVERY_CLAIM_LEASE_MS = 5 * 60 * 1000;
+const ACTIVE = { active: true, epoch: 12 };
 
-  function expectBoundedSmtpTransport(options) {
-    for (const field of ['connectionTimeout', 'greetingTimeout', 'socketTimeout']) {
-      expect(options[field]).toEqual(expect.any(Number));
-      expect(options[field]).toBeGreaterThan(0);
-      expect(options[field]).toBeLessThan(TRAP_DELIVERY_CLAIM_LEASE_MS);
+function mockEmailQueueFlow(entry, {
+  claimAffected = 1,
+  invocationAffected = 1,
+  outcomeAffected = 1,
+  outcomeError = null,
+} = {}) {
+  mockQuery.mockImplementation(async (sql) => {
+    if (/FROM organization_database_configs/.test(sql)) return [[]];
+    if (/SET status = 'queued', error_message = NULL/.test(sql)) {
+      return [{ affectedRows: 0 }];
     }
-  }
+    if (/SELECT \* FROM email_logs[\s\S]*status = 'queued'/.test(sql)) return [[entry]];
+    if (/SET status = 'failed', error_message = \?, sent_at = NOW\(\)/.test(sql)) {
+      return [{ affectedRows: claimAffected }];
+    }
+    if (/UPDATE email_logs SET error_message = \?, sent_at = NOW\(\)/.test(sql)) {
+      return [{ affectedRows: invocationAffected }];
+    }
+    if (/SET status = \?, sent_at = IF/.test(sql)) {
+      if (outcomeError) throw outcomeError;
+      return [{ affectedRows: outcomeAffected }];
+    }
+    throw new Error(`Unexpected queued email SQL: ${sql}`);
+  });
+}
 
+describe('emailTransport — one-shot SMTP and client-communication enforcement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    nodemailer.createTransport.mockImplementation(() => ({ sendMail: mockSendMail }));
+    mockGetOrganizationDeliveryState.mockReset().mockResolvedValue(ACTIVE);
+    mockEvaluateClientCommunication.mockReset().mockResolvedValue({ allowed: true, code: null, contactEpoch: 19 });
+    mockFindRawByOrgId.mockReset().mockResolvedValue(null);
+    mockSendTenantSmtp.mockReset().mockResolvedValue({ messageId: '<tenant@test>' });
+    mockSendTrustedSmtp.mockReset().mockResolvedValue({ messageId: '<trusted@test>' });
+    mockQuery.mockReset().mockResolvedValue([{ affectedRows: 1, insertId: 1 }]);
   });
 
-  // =========================================================================
-  // sendEmail — global transport (no org config, or org has none)
-  // =========================================================================
-  describe('sendEmail() — global transport', () => {
-    test('global SMTP cannot outlive the trap-delivery claim lease', () => {
-      emailTransport.init();
-
-      expectBoundedSmtpTransport(nodemailer.createTransport.mock.calls.at(-1)[0]);
+  test('uses the one-shot trusted relay and records the authoritative epoch', async () => {
+    const result = await emailTransport.sendEmail({
+      organizationId: 7,
+      to: 'operator@example.com',
+      subject: 'Operational notice',
+      text: 'hello',
+      installTransportOnly: true,
+      operationalRecipient: true,
     });
 
-    test('sends email and logs success', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce(null); // no org config -> fall back to global
-      mockSendMail.mockResolvedValueOnce({ messageId: '<abc@test>' });
-      db.query.mockResolvedValueOnce([{ insertId: 1 }]);
+    expect(result).toEqual({ success: true, messageId: '<trusted@test>' });
+    expect(mockSendTrustedSmtp).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.objectContaining({ to: 'operator@example.com', subject: 'Operational notice' }),
+    }));
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockFindRawByOrgId).not.toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('organization_epoch'),
+      expect.arrayContaining(['operator@example.com', 'Operational notice', 7, 12]),
+    );
+  });
 
-      const result = await emailTransport.sendEmail({
-        organizationId: 42,
-        to: 'user@example.com',
-        subject: 'Test',
-        html: '<p>Hello</p>',
-      });
-
-      expect(result).toEqual({ success: true, messageId: '<abc@test>' });
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO email_logs'),
-        expect.arrayContaining(['user@example.com', 'Test']),
-      );
+  test('uses fresh tenant settings, strict decryption, mandatory-safe tenant sender', async () => {
+    mockFindRawByOrgId.mockResolvedValueOnce({
+      organization_id: 7,
+      email_function: 'billing',
+      enabled: 1,
+      smtp_host: 'smtp.example.com',
+      smtp_port: 465,
+      smtp_secure: 1,
+      smtp_user: 'billing-user',
+      smtp_password_encrypted: 'ciphertext',
+      from_email: 'billing@example.com',
+      from_name: 'Billing',
     });
 
-    test.each([
-      '127.0.0.1',
-      '169.254.169.254',
-      'rebind.tenant-controlled.example',
-    ])('install-only Trap email never reads or constructs tenant SMTP target %s', async (smtpHost) => {
-      emailTransport.init();
-      const transportCount = nodemailer.createTransport.mock.calls.length;
-      EmailSettings.findRawByOrgId.mockResolvedValue({
-        organization_id: 4200,
+    const result = await emailTransport.sendEmail({
+      organizationId: 7,
+      emailFunction: 'billing',
+      to: 'staff@example.net',
+      subject: 'Invoice report',
+      text: 'hello',
+      operationalRecipient: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockDecryptStrict).toHaveBeenCalledWith('ciphertext');
+    expect(mockSendTenantSmtp).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'smtp.example.com',
+      port: 465,
+      secure: true,
+      auth: { user: 'billing-user', pass: 'plain:ciphertext' },
+      message: expect.objectContaining({ from: 'Billing <billing@example.com>' }),
+    }));
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test('falls back requested function to the general tenant identity', async () => {
+    mockFindRawByOrgId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
         enabled: 1,
-        smtp_host: smtpHost,
-        smtp_port: 25,
-        smtp_user: 'TENANT_SMTP_SENTINEL',
-        smtp_password_encrypted: 'enc:TENANT_SMTP_PASSWORD_SENTINEL',
+        smtp_host: 'general.smtp.example',
+        smtp_port: 587,
+        smtp_secure: 0,
+        smtp_user: null,
+        smtp_password_encrypted: null,
+        from_email: 'general@example.com',
       });
-      mockSendMail.mockResolvedValueOnce({ messageId: '<install-relay@test>' });
-      db.query.mockResolvedValueOnce([{ insertId: 4200 }]);
 
-      await expect(emailTransport.sendEmail({
-        organizationId: 4200,
-        emailFunction: 'noc',
-        to: 'noc@example.com',
-        subject: 'Trap forwarding',
-        text: 'privacy-minimal trap',
-        installTransportOnly: true,
-        sanitizeFailure: true,
-      })).resolves.toEqual({ success: true, messageId: '<install-relay@test>' });
-
-      expect(EmailSettings.findRawByOrgId).not.toHaveBeenCalled();
-      expect(nodemailer.createTransport).toHaveBeenCalledTimes(transportCount);
-      expect(JSON.stringify(nodemailer.createTransport.mock.calls)).not.toContain(smtpHost);
-      expect(JSON.stringify(mockSendMail.mock.calls)).not.toMatch(/TENANT_SMTP_SENTINEL/);
+    await emailTransport.sendEmail({
+      organizationId: 7,
+      emailFunction: 'noc',
+      to: 'staff@example.net',
+      subject: 'NOC',
+      text: 'hello',
+      operationalRecipient: true,
     });
 
-    test('sanitized Trap SMTP failure never persists raw socket details or codes', async () => {
-      emailTransport.init();
-      const sentinel = 'ECONNREFUSED 127.0.0.1:25 TENANT_SOCKET_SENTINEL';
-      mockSendMail.mockRejectedValueOnce(Object.assign(new Error(sentinel), {
-        code: 'ECONNREFUSED',
-        address: '127.0.0.1',
-        port: 25,
-      }));
-      db.query.mockResolvedValueOnce([{ insertId: 4201 }]);
+    expect(EmailSettings.findRawByOrgId).toHaveBeenNthCalledWith(1, 7, 'noc');
+    expect(EmailSettings.findRawByOrgId).toHaveBeenNthCalledWith(2, 7, 'general');
+    expect(mockSendTenantSmtp).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'general.smtp.example',
+    }));
+  });
 
-      await expect(emailTransport.sendEmail({
-        organizationId: 4201,
-        to: 'noc@example.com',
-        subject: 'Trap forwarding',
-        text: 'test',
-        installTransportOnly: true,
-        sanitizeFailure: true,
-      })).resolves.toEqual({ success: false, error: 'Email delivery failed.' });
-
-      expect(JSON.stringify(db.query.mock.calls)).not.toContain(sentinel);
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining("'failed'"),
-        expect.arrayContaining(['Email delivery failed.']),
-      );
+  test('DND blocks transactional client email before either SMTP sender', async () => {
+    mockEvaluateClientCommunication.mockResolvedValueOnce({
+      allowed: false,
+      code: 'CLIENT_COMMUNICATION_OPTED_OUT',
     });
 
-    test('install-only timeout closes the active global relay even with an organization ID', async () => {
-      jest.useFakeTimers();
-      const close = jest.fn();
-      const neverSettles = jest.fn(() => new Promise(() => {}));
-      try {
-        nodemailer.createTransport.mockReturnValueOnce({ sendMail: neverSettles, close });
-        emailTransport.init();
-        db.query.mockResolvedValueOnce([{ insertId: 4202 }]);
+    const result = await emailTransport.sendEmail({
+      organizationId: 7,
+      clientId: 44,
+      messageClass: 'transactional',
+      to: 'client@example.com',
+      subject: 'Invoice',
+      text: 'hello',
+    });
 
-        const send = emailTransport.sendEmail({
-          organizationId: 4202,
-          to: 'noc@example.com',
-          subject: 'Bounded install relay',
-          text: 'test',
-          absoluteTimeoutMs: 1000,
-          installTransportOnly: true,
-          sanitizeFailure: true,
-        });
-        await Promise.resolve();
-        await jest.advanceTimersByTimeAsync(1000);
+    expect(result).toMatchObject({
+      success: false,
+      skipped: true,
+      code: 'CLIENT_COMMUNICATION_OPTED_OUT',
+    });
+    expect(mockEvaluateClientCommunication).toHaveBeenCalledWith({
+      organizationId: 7,
+      clientId: 44,
+      channel: 'email',
+      destination: 'client@example.com',
+      messageClass: 'transactional',
+    });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
 
-        await expect(send).resolves.toEqual({
-          success: false,
-          error: 'Email delivery failed.',
-          code: 'EMAIL_DELIVERY_TIMEOUT',
-        });
-        expect(EmailSettings.findRawByOrgId).not.toHaveBeenCalled();
-        expect(close).toHaveBeenCalled();
-      } finally {
-        jest.useRealTimers();
+  test.each([
+    [null, 'CLIENT_ORGANIZATION_REQUIRED'],
+    [7, 'CLIENT_INACTIVE'],
+  ])('client email is blocked before SMTP for unavailable ownership/lifecycle (%s)', async (organizationId, code) => {
+    mockEvaluateClientCommunication.mockResolvedValueOnce({ allowed: false, code });
+
+    const result = await emailTransport.sendEmail({
+      organizationId,
+      clientId: 44,
+      messageClass: 'transactional',
+      to: 'client@example.com',
+      subject: 'Client notice',
+      text: 'hello',
+    });
+
+    expect(result).toMatchObject({ success: false, skipped: true, code });
+    expect(mockEvaluateClientCommunication).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      clientId: 44,
+    }));
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test('a lifecycle change during preparation prevents SMTP I/O', async () => {
+    mockGetOrganizationDeliveryState
+      .mockResolvedValueOnce({ active: true, epoch: 12 })
+      .mockResolvedValueOnce({ active: true, epoch: 13 });
+
+    const result = await emailTransport.sendEmail({
+      organizationId: 7,
+      to: 'staff@example.net',
+      subject: 'Stale work',
+      text: 'hello',
+      installTransportOnly: true,
+      operationalRecipient: true,
+    });
+
+    expect(result).toMatchObject({ success: false, code: 'ORGANIZATION_INACTIVE' });
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+  });
+
+  test('sanitized delivery failures neither return nor persist raw socket details', async () => {
+    const sentinel = 'ECONNREFUSED 10.0.0.5:25 SECRET_SOCKET_DETAIL';
+    mockSendTrustedSmtp.mockRejectedValueOnce(Object.assign(new Error(sentinel), {
+      code: 'ECONNREFUSED',
+    }));
+
+    const result = await emailTransport.sendEmail({
+      organizationId: 7,
+      to: 'staff@example.net',
+      subject: 'Test',
+      text: 'hello',
+      installTransportOnly: true,
+      operationalRecipient: true,
+      sanitizeFailure: true,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Email delivery failed.',
+      code: 'EMAIL_DELIVERY_FAILED',
+    });
+    expect(JSON.stringify(mockQuery.mock.calls)).not.toContain(sentinel);
+  });
+
+  test.each([
+    [{ organizationId: 7, to: 'nobody@example.test', subject: 'Missing lane' }],
+    [{ organizationId: 7, clientId: 44, operationalRecipient: true, messageClass: 'transactional', to: 'client@example.test', subject: 'Mixed lane' }],
+    [{ organizationId: 7, messageClass: 'transactional', to: 'client@example.test', subject: 'Missing client' }],
+  ])('rejects ambiguous client/operational lane pairing before SMTP I/O', async options => {
+    await expect(emailTransport.sendEmail(options)).resolves.toMatchObject({
+      success: false,
+      code: 'CLIENT_ATTRIBUTION_REQUIRED',
+    });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test('deleted-client queued work is terminalized without provider I/O', async () => {
+    mockEmailQueueFlow({
+      id: 90,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: null,
+      message_class: 'transactional',
+      recipient: 'former-client@example.com',
+      subject: 'Old invoice',
+      body: 'old',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+    const outcome = mockQuery.mock.calls.find(([sql]) => /sent_at = IF/.test(sql));
+    expect(outcome[1]).toEqual([
+      'failed',
+      'failed',
+      'Client delivery authorization is unavailable; message skipped.',
+      90,
+      7,
+      'Delivery claimed; awaiting provider result',
+    ]);
+  });
+
+  test('legacy queued client work with lost provenance fails closed without SMTP I/O', async () => {
+    mockEmailQueueFlow({
+      id: 93,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: null,
+      client_contact_epoch: 0,
+      message_class: null,
+      recipient: 'legacy-former-client@example.com',
+      subject: 'Legacy invoice',
+      body: 'old',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test('inactive-to-active epoch mismatch terminalizes old queued work', async () => {
+    mockEmailQueueFlow({
+      id: 91,
+      organization_id: 7,
+      organization_epoch: 11,
+      client_id: 44,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Old invoice',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockEvaluateClientCommunication).not.toHaveBeenCalled();
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+    const outcome = mockQuery.mock.calls.find(([sql]) => /sent_at = IF/.test(sql));
+    expect(outcome[1][2]).toMatch(/authorization changed/i);
+  });
+
+  test('client delete/restore epoch mismatch terminalizes old queued work', async () => {
+    mockEmailQueueFlow({
+      id: 92,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 18,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Old invoice',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    const outcome = mockQuery.mock.calls.find(([sql]) => /sent_at = IF/.test(sql));
+    expect(outcome[1][2]).toMatch(/preference blocks/i);
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [null, 'CLIENT_ORGANIZATION_REQUIRED'],
+    [7, 'CLIENT_INACTIVE'],
+  ])('queued client email with unavailable ownership/lifecycle is terminalized (%s)', async (organizationId, code) => {
+    mockEvaluateClientCommunication.mockResolvedValueOnce({ allowed: false, code });
+    mockEmailQueueFlow({
+      id: 96,
+      organization_id: organizationId,
+      organization_epoch: organizationId === null ? 0 : 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Queued client notice',
+      body: 'hello',
+      status: 'queued',
+    });
+
+    const result = organizationId === null
+      ? await emailTransport.processQueue()
+      : await emailTransport.processQueue(organizationId);
+
+    expect(result).toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+    expect(mockQuery.mock.calls.some(([sql]) => /UPDATE email_logs SET error_message/.test(sql))).toBe(false);
+    const outcome = mockQuery.mock.calls.find(([sql]) => /sent_at = IF/.test(sql));
+    expect(outcome[1].at(-1)).toBe('Delivery claimed; awaiting provider result');
+  });
+
+  test('install sweep excludes isolated org rows from primary and enters each isolated DB', async () => {
+    mockQuery.mockImplementation(async (sql) => {
+      if (/FROM organization_database_configs/.test(sql)) return [[{ organization_id: 9 }]];
+      if (/SET status = 'queued', error_message = NULL/.test(sql)) return [{ affectedRows: 0 }];
+      if (/SELECT \* FROM email_logs[\s\S]*status = 'queued'/.test(sql)) return [[]];
+      throw new Error(`Unexpected isolated email sweep SQL: ${sql}`);
+    });
+
+    await expect(emailTransport.processQueue()).resolves.toEqual({ sent: 0, failed: 0, total: 0 });
+
+    expect(mockWithPrimaryContext).toHaveBeenCalled();
+    expect(mockWithTenantContext).toHaveBeenCalledWith(9, expect.any(Function));
+    const primaryQueueSql = mockQuery.mock.calls[1][0];
+    expect(primaryQueueSql).toMatch(/organization_id NOT IN \(\?\)/);
+    expect(mockQuery.mock.calls[1][1]).toEqual(['Delivery claimed; awaiting provider result', 9]);
+    expect(mockQuery.mock.calls[2][1]).toEqual([9]);
+    const recoveries = mockQuery.mock.calls.filter(([sql]) => /SET status = 'queued'/.test(sql));
+    expect(recoveries.map(([, params]) => params)).toEqual([
+      ['Delivery claimed; awaiting provider result', 9],
+      ['Delivery claimed; awaiting provider result', 9],
+    ]);
+  });
+
+  test('a competing queue worker that loses the claim performs zero SMTP I/O', async () => {
+    mockEmailQueueFlow({
+      id: 94,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'One delivery only',
+      status: 'queued',
+    }, { claimAffected: 0 });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 0, total: 1 });
+    expect(mockGetOrganizationDeliveryState).not.toHaveBeenCalled();
+    expect(mockEvaluateClientCommunication).not.toHaveBeenCalled();
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+  });
+
+  test('marks provider invocation as outcome-unknown before SMTP and guards the final outcome', async () => {
+    mockEmailQueueFlow({
+      id: 95,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Claimed delivery',
+      body: 'hello',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 1, failed: 0, total: 1 });
+    const invocation = mockQuery.mock.calls.find(([sql]) => (
+      /UPDATE email_logs SET error_message = \?, sent_at = NOW/.test(sql)
+    ));
+    expect(invocation[1]).toEqual([
+      'Provider invocation started; delivery outcome is unknown',
+      95,
+      7,
+      'Delivery claimed; awaiting provider result',
+    ]);
+    expect(invocation.invocationCallOrder?.[0] ?? mockQuery.mock.invocationCallOrder[
+      mockQuery.mock.calls.indexOf(invocation)
+    ]).toBeLessThan(mockSendTrustedSmtp.mock.invocationCallOrder[0]);
+    const outcome = mockQuery.mock.calls.find(([sql]) => /sent_at = IF/.test(sql));
+    expect(outcome[1].at(-1)).toBe('Provider invocation started; delivery outcome is unknown');
+  });
+
+  test('SMTP/network failure after the invocation marker remains outcome-unknown', async () => {
+    mockSendTrustedSmtp.mockRejectedValueOnce(new Error('socket closed after DATA'));
+    mockEmailQueueFlow({
+      id: 97,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Ambiguous delivery',
+      body: 'hello',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockSendTrustedSmtp).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls.filter(([sql]) => /SET status = \?, sent_at = IF/.test(sql)))
+      .toHaveLength(0);
+    const invocation = mockQuery.mock.calls.find(([sql]) => /UPDATE email_logs SET error_message/.test(sql));
+    expect(invocation[1][0]).toBe('Provider invocation started; delivery outcome is unknown');
+  });
+
+  test('a policy skip after the invocation marker may become an ordinary terminal failure', async () => {
+    mockEvaluateClientCommunication
+      .mockResolvedValueOnce({ allowed: true, code: null, contactEpoch: 19 })
+      .mockResolvedValueOnce({ allowed: false, code: 'CLIENT_INACTIVE' });
+    mockEmailQueueFlow({
+      id: 98,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Revoked delivery',
+      status: 'queued',
+    });
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 1, total: 1 });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
+    const outcome = mockQuery.mock.calls.find(([sql]) => /SET status = \?, sent_at = IF/.test(sql));
+    expect(outcome[1][0]).toBe('failed');
+    expect(outcome[1].at(-1)).toBe('Provider invocation started; delivery outcome is unknown');
+  });
+
+  test.each([
+    ['throws', { outcomeError: new Error('database unavailable after SMTP acceptance') }, 0],
+    ['loses its CAS', { outcomeAffected: 0 }, 1],
+  ])('provider success remains outcome-unknown when final persistence %s', async (_label, flowOptions, failed) => {
+    mockEmailQueueFlow({
+      id: 99,
+      organization_id: 7,
+      organization_epoch: 12,
+      client_id: 44,
+      client_contact_epoch: 19,
+      message_class: 'transactional',
+      recipient: 'client@example.com',
+      subject: 'Ambiguous persistence',
+      status: 'queued',
+    }, flowOptions);
+
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed, total: 1 });
+    expect(mockSendTrustedSmtp).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls.filter(([sql]) => /SET status = \?, sent_at = IF/.test(sql)))
+      .toHaveLength(1);
+  });
+
+  test('stale recovery only requeues claims proven to precede SMTP invocation', async () => {
+    mockQuery.mockImplementation(async (sql, params) => {
+      if (/SET status = 'queued', error_message = NULL/.test(sql)) {
+        expect(params).toEqual(['Delivery claimed; awaiting provider result', 7]);
+        expect(sql).not.toMatch(/Provider invocation started/);
+        return [{ affectedRows: 0 }];
       }
+      if (/SELECT \* FROM email_logs[\s\S]*status = 'queued'/.test(sql)) return [[]];
+      throw new Error(`Unexpected stale email recovery SQL: ${sql}`);
     });
 
-    test('logs failure when sendMail rejects', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce(null);
-      mockSendMail.mockRejectedValueOnce(new Error('SMTP connection refused'));
-      db.query.mockResolvedValueOnce([{ insertId: 2 }]);
-
-      const result = await emailTransport.sendEmail({
-        organizationId: 43,
-        to: 'bad@example.com',
-        subject: 'Fail',
-        html: '<p>Oops</p>',
-      });
-
-      expect(result).toEqual({ success: false, error: 'SMTP connection refused' });
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining("'failed'"),
-        expect.arrayContaining(['SMTP connection refused']),
-      );
-    });
-
-    test('a never-settling SMTP send is aborted by an absolute deadline before the claim lease', async () => {
-      jest.useFakeTimers();
-      const close = jest.fn();
-      const neverSettles = jest.fn(() => new Promise(() => {}));
-      try {
-        EmailSettings.findRawByOrgId.mockResolvedValueOnce({
-          organization_id: 9099,
-          enabled: 1,
-          smtp_host: 'smtp.deadline.example',
-          smtp_port: 587,
-          smtp_secure: 0,
-          smtp_user: 'deadline-user',
-          smtp_password_encrypted: 'enc:deadline-password',
-          from_email: 'noc@example.com',
-        });
-        nodemailer.createTransport.mockReturnValueOnce({ sendMail: neverSettles, close });
-        db.query.mockResolvedValueOnce([{ insertId: 99 }]);
-
-        const send = emailTransport.sendEmail({
-          organizationId: 9099,
-          emailFunction: 'noc',
-          to: 'operator@example.com',
-          subject: 'Bounded trap delivery',
-          text: 'test',
-          absoluteTimeoutMs: 1000,
-        });
-        await Promise.resolve();
-        await jest.advanceTimersByTimeAsync(1000);
-
-        await expect(send).resolves.toEqual({
-          success: false,
-          error: 'Email delivery exceeded its absolute deadline.',
-          code: 'EMAIL_DELIVERY_TIMEOUT',
-        });
-        expect(neverSettles).toHaveBeenCalledTimes(1);
-        expect(close).toHaveBeenCalled();
-        expect(db.query).toHaveBeenCalledWith(
-          expect.stringContaining("'failed'"),
-          expect.arrayContaining(['Email delivery exceeded its absolute deadline.']),
-        );
-        expect(1000).toBeLessThan(TRAP_DELIVERY_CLAIM_LEASE_MS);
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    test('writes organization_id/client_id to email_logs when provided', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce(null);
-      mockSendMail.mockResolvedValueOnce({ messageId: '<x@test>' });
-      db.query.mockResolvedValueOnce([{ insertId: 3 }]);
-
-      await emailTransport.sendEmail({
-        organizationId: 44,
-        clientId: 7,
-        to: 'c@example.com',
-        subject: 'With client',
-        html: '<p>hi</p>',
-      });
-
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO email_logs'),
-        expect.arrayContaining(['c@example.com', 'With client', 44, 7]),
-      );
-    });
-
-    test('sends without an org lookup at all when organizationId is not provided', async () => {
-      mockSendMail.mockResolvedValueOnce({ messageId: '<noorg@test>' });
-      db.query.mockResolvedValueOnce([{ insertId: 4 }]);
-
-      const result = await emailTransport.sendEmail({
-        to: 'noorg@example.com',
-        subject: 'No org',
-        html: '<p>hi</p>',
-      });
-
-      expect(result.success).toBe(true);
-      expect(EmailSettings.findRawByOrgId).not.toHaveBeenCalled();
-    });
-  });
-
-  // =========================================================================
-  // getOrgTransport() / invalidateOrgTransport()
-  // =========================================================================
-  describe('getOrgTransport()', () => {
-    test('returns null (fall back to global) when the org has no config row', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce(null);
-      const result = await emailTransport.getOrgTransport(501);
-      expect(result).toBeNull();
-    });
-
-    test('returns null when the org config is disabled', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce({
-        organization_id: 502, enabled: 0, smtp_host: 'smtp.example.com',
-      });
-      const result = await emailTransport.getOrgTransport(502);
-      expect(result).toBeNull();
-    });
-
-    test('returns null when the org config has no smtp_host', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce({
-        organization_id: 503, enabled: 1, smtp_host: null,
-      });
-      const result = await emailTransport.getOrgTransport(503);
-      expect(result).toBeNull();
-    });
-
-    test('builds a transporter with decrypted credentials when the org has an enabled config', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce({
-        organization_id: 504, enabled: 1, smtp_host: 'smtp.org504.com', smtp_port: 2525,
-        smtp_secure: 1, smtp_user: 'orguser', smtp_password_encrypted: 'enc:orgpass',
-        from_email: 'noreply@org504.com', from_name: 'Org 504',
-      });
-
-      const result = await emailTransport.getOrgTransport(504);
-
-      expect(result).not.toBeNull();
-      expect(result.from).toBe('Org 504 <noreply@org504.com>');
-      expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({
-        host: 'smtp.org504.com',
-        port: 2525,
-        secure: true,
-        auth: { user: 'orguser', pass: 'orgpass' },
-      }));
-      expectBoundedSmtpTransport(nodemailer.createTransport.mock.calls.at(-1)[0]);
-    });
-
-    test('re-reads authoritative settings but reuses the transport when the fingerprint is unchanged', async () => {
-      const settings = {
-        organization_id: 505, enabled: 1, smtp_host: 'smtp.org505.com', smtp_user: 'u',
-        smtp_password_encrypted: 'enc:p',
-      };
-      EmailSettings.findRawByOrgId.mockResolvedValue(settings);
-
-      const first = await emailTransport.getOrgTransport(505);
-      const second = await emailTransport.getOrgTransport(505);
-
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
-      expect(nodemailer.createTransport).toHaveBeenCalledTimes(1);
-      expect(second).toBe(first);
-    });
-
-    test('re-reads missing config so a remote enable can take effect on the next call', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValue(null);
-
-      await emailTransport.getOrgTransport(506);
-      await emailTransport.getOrgTransport(506);
-
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
-      expect(nodemailer.createTransport).not.toHaveBeenCalled();
-    });
-
-    test('a settings rotation on another replica replaces and closes the stale cached transport', async () => {
-      let settings = {
-        organization_id: 508,
-        enabled: 1,
-        smtp_host: 'old.smtp.example',
-        smtp_user: 'old-user',
-        smtp_password_encrypted: 'enc:old-password',
-      };
-      EmailSettings.findRawByOrgId.mockImplementation(() => Promise.resolve(settings));
-      const oldTransport = { sendMail: jest.fn(), close: jest.fn() };
-      const newTransport = { sendMail: jest.fn(), close: jest.fn() };
-      nodemailer.createTransport
-        .mockReturnValueOnce(oldTransport)
-        .mockReturnValueOnce(newTransport);
-
-      const first = await emailTransport.getOrgTransport(508);
-      settings = {
-        ...settings,
-        smtp_host: 'new.smtp.example',
-        smtp_user: 'new-user',
-        smtp_password_encrypted: 'enc:new-password',
-      };
-      const second = await emailTransport.getOrgTransport(508);
-
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
-      expect(nodemailer.createTransport).toHaveBeenCalledTimes(2);
-      expect(nodemailer.createTransport.mock.calls[1][0]).toMatchObject({
-        host: 'new.smtp.example',
-        auth: { user: 'new-user', pass: 'new-password' },
-      });
-      expect(first.transporter).toBe(oldTransport);
-      expect(second.transporter).toBe(newTransport);
-      expect(oldTransport.close).toHaveBeenCalledTimes(1);
-    });
-
-    test('invalidateOrgTransport() clears the cache entry so the next call re-queries', async () => {
-      EmailSettings.findRawByOrgId
-        .mockResolvedValueOnce({ organization_id: 507, enabled: 1, smtp_host: 'a.com', smtp_user: 'u', smtp_password_encrypted: 'enc:p' })
-        .mockResolvedValueOnce(null);
-
-      await emailTransport.getOrgTransport(507);
-      emailTransport.invalidateOrgTransport(507);
-      const second = await emailTransport.getOrgTransport(507);
-
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
-      expect(second).toBeNull();
-    });
-  });
-
-  // =========================================================================
-  // getOrgTransport() — per-function identities (migration 407)
-  // =========================================================================
-  describe('getOrgTransport() — per-function', () => {
-    test('uses the function-specific identity when it is configured', async () => {
-      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
-        if (orgId === 701 && fn === 'billing') {
-          return Promise.resolve({
-            organization_id: 701, email_function: 'billing', enabled: 1,
-            smtp_host: 'billing.smtp', smtp_user: 'bu', smtp_password_encrypted: 'enc:bp',
-            from_email: 'billing@org.com', from_name: 'Billing',
-          });
-        }
-        return Promise.resolve(null);
-      });
-
-      const result = await emailTransport.getOrgTransport(701, 'billing');
-      expect(result.from).toBe('Billing <billing@org.com>');
-      expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'billing.smtp' }));
-    });
-
-    test('falls back to the general identity when the function is unconfigured', async () => {
-      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
-        if (orgId === 702 && fn === 'general') {
-          return Promise.resolve({
-            organization_id: 702, email_function: 'general', enabled: 1,
-            smtp_host: 'general.smtp', smtp_user: 'gu', smtp_password_encrypted: 'enc:gp',
-            from_email: 'general@org.com',
-          });
-        }
-        return Promise.resolve(null); // billing has no row
-      });
-
-      const result = await emailTransport.getOrgTransport(702, 'billing');
-      expect(result.from).toBe('general@org.com');
-      expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'general.smtp' }));
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledWith(702, 'billing');
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledWith(702, 'general');
-    });
-
-    test('returns null (global) when neither the function nor general is configured', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValue(null);
-      const result = await emailTransport.getOrgTransport(703, 'noc');
-      expect(result).toBeNull();
-    });
-
-    test('invalidateOrgTransport clears EVERY function so a general change re-resolves inheritors', async () => {
-      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
-        if (orgId === 705 && fn === 'general') {
-          return Promise.resolve({
-            organization_id: 705, email_function: 'general', enabled: 1,
-            smtp_host: 'g705.smtp', smtp_user: 'u', smtp_password_encrypted: 'enc:p', from_email: 'g@705.com',
-          });
-        }
-        return Promise.resolve(null);
-      });
-
-      await emailTransport.getOrgTransport(705, 'billing'); // caches billing (inherits general)
-      await emailTransport.getOrgTransport(705, 'general'); // caches general
-      const callsBefore = EmailSettings.findRawByOrgId.mock.calls.length;
-
-      emailTransport.invalidateOrgTransport(705);
-
-      await emailTransport.getOrgTransport(705, 'billing'); // must re-query, not serve stale
-      expect(EmailSettings.findRawByOrgId.mock.calls.length).toBeGreaterThan(callsBefore);
-    });
-  });
-
-  // =========================================================================
-  // sendEmail() — org-aware routing
-  // =========================================================================
-  describe('sendEmail() — org transport', () => {
-    test('uses the org transporter (not the global one) when the org has an enabled config', async () => {
-      EmailSettings.findRawByOrgId.mockResolvedValueOnce({
-        organization_id: 601, enabled: 1, smtp_host: 'smtp.org601.com', smtp_user: 'u601',
-        smtp_password_encrypted: 'enc:p601', from_email: 'noreply@org601.com',
-      });
-      const orgSendMail = jest.fn().mockResolvedValueOnce({ messageId: '<org601@test>' });
-      nodemailer.createTransport.mockReturnValueOnce({ sendMail: orgSendMail });
-      db.query.mockResolvedValue([{ insertId: 1 }]);
-
-      const result = await emailTransport.sendEmail({
-        organizationId: 601,
-        to: 'dest@example.com',
-        subject: 'Org routed',
-        html: '<p>hi</p>',
-      });
-
-      expect(result.success).toBe(true);
-      expect(orgSendMail).toHaveBeenCalledTimes(1);
-      expect(orgSendMail).toHaveBeenCalledWith(expect.objectContaining({
-        from: 'noreply@org601.com',
-        to: 'dest@example.com',
-      }));
-      // The global relay's sendMail (shared mockSendMail) was never touched.
-      expect(mockSendMail).not.toHaveBeenCalled();
-    });
-
-    test('a disable committed by another replica stops using the cached org SMTP on the next send', async () => {
-      // Establish a known global fallback independently of earlier test order.
-      emailTransport.init();
-      let settings = {
-        organization_id: 606,
-        enabled: 1,
-        smtp_host: 'old.smtp.org606.example',
-        smtp_user: 'old-user',
-        smtp_password_encrypted: 'enc:old-password',
-        from_email: 'old@org606.example',
-      };
-      EmailSettings.findRawByOrgId.mockImplementation(() => Promise.resolve(settings));
-      const oldOrgSend = jest.fn().mockResolvedValue({ messageId: '<old-org@test>' });
-      const oldClose = jest.fn();
-      nodemailer.createTransport.mockReturnValueOnce({ sendMail: oldOrgSend, close: oldClose });
-      mockSendMail.mockResolvedValue({ messageId: '<global@test>' });
-      db.query.mockResolvedValue([{ insertId: 1 }]);
-
-      await emailTransport.sendEmail({
-        organizationId: 606,
-        to: 'first@example.com',
-        subject: 'Before remote disable',
-        text: 'first',
-      });
-      settings = { ...settings, enabled: 0 };
-      await emailTransport.sendEmail({
-        organizationId: 606,
-        to: 'second@example.com',
-        subject: 'After remote disable',
-        text: 'second',
-      });
-
-      expect(EmailSettings.findRawByOrgId).toHaveBeenCalledTimes(2);
-      expect(oldOrgSend).toHaveBeenCalledTimes(1);
-      expect(oldOrgSend).toHaveBeenCalledWith(expect.objectContaining({
-        to: 'first@example.com',
-      }));
-      expect(oldClose).toHaveBeenCalledTimes(1);
-      expect(mockSendMail).toHaveBeenCalledTimes(1);
-      expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
-        to: 'second@example.com',
-      }));
-    });
-
-    test('routes through the function identity when emailFunction is passed', async () => {
-      EmailSettings.findRawByOrgId.mockImplementation((orgId, fn) => {
-        if (orgId === 704 && fn === 'billing') {
-          return Promise.resolve({
-            organization_id: 704, email_function: 'billing', enabled: 1,
-            smtp_host: 'billing.org704.com', smtp_user: 'u', smtp_password_encrypted: 'enc:p',
-            from_email: 'billing@org704.com',
-          });
-        }
-        return Promise.resolve(null);
-      });
-      const billingSendMail = jest.fn().mockResolvedValueOnce({ messageId: '<b@test>' });
-      nodemailer.createTransport.mockReturnValueOnce({ sendMail: billingSendMail });
-      db.query.mockResolvedValue([{ insertId: 1 }]);
-
-      const result = await emailTransport.sendEmail({
-        organizationId: 704, emailFunction: 'billing',
-        to: 'client@example.com', subject: 'Invoice', html: '<p>due</p>',
-      });
-
-      expect(result.success).toBe(true);
-      expect(billingSendMail).toHaveBeenCalledWith(expect.objectContaining({ from: 'billing@org704.com' }));
-      expect(mockSendMail).not.toHaveBeenCalled();
-    });
-  });
-
-  // =========================================================================
-  // processQueue
-  // =========================================================================
-  describe('processQueue()', () => {
-    test('processes queued emails and returns counts', async () => {
-      // email_logs.body is the real schema column (single field, not body_html/body_text)
-      const entry = { id: 10, recipient: 'q@test.com', subject: 'Queued', body: '<p>Hi</p>' };
-      db.query
-        .mockResolvedValueOnce([[entry]])        // SELECT queued
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);  // UPDATE sent
-      mockSendMail.mockResolvedValueOnce({ messageId: '<q1@test>' });
-
-      const result = await emailTransport.processQueue();
-      expect(result).toEqual({ sent: 1, failed: 0, total: 1 });
-      // Verify sendMail receives the body from the real column
-      expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
-        html: '<p>Hi</p>',
-        text: '<p>Hi</p>',
-      }));
-    });
-
-    test('returns zero counts on empty queue', async () => {
-      db.query.mockResolvedValueOnce([[]]);
-
-      const result = await emailTransport.processQueue();
-      expect(result).toEqual({ sent: 0, failed: 0, total: 0 });
-    });
-
-    test('counts failures when sendMail throws', async () => {
-      // body is the real schema column
-      const entry = { id: 11, recipient: 'fail@test.com', subject: 'Bad', body: 'hi' };
-      db.query
-        .mockResolvedValueOnce([[entry]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]);
-      mockSendMail.mockRejectedValueOnce(new Error('Timeout'));
-
-      const result = await emailTransport.processQueue();
-      expect(result).toEqual({ sent: 0, failed: 1, total: 1 });
-    });
+    await expect(emailTransport.processQueue(7)).resolves.toEqual({ sent: 0, failed: 0, total: 0 });
+    expect(mockSendTenantSmtp).not.toHaveBeenCalled();
+    expect(mockSendTrustedSmtp).not.toHaveBeenCalled();
   });
 });

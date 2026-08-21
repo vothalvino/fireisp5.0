@@ -22,11 +22,17 @@ const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { updateEmailSettings, testEmailSettings } = require('../middleware/schemas/emailSettings');
 const emailSettingsService = require('../services/emailSettingsService');
+const auditLog = require('../services/auditLog');
+const { emailSettingsTestLimiter } = require('../middleware/rateLimit');
 const logger = require('../utils/logger').child({ service: 'routes/emailSettings' });
 
 const router = Router();
 router.use(authenticate);
 router.use(orgScope);
+router.use((_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  next();
+});
 
 router.get('/',
   requirePermission('email_settings.view'),
@@ -48,6 +54,13 @@ router.put('/',
     try {
       const settings = await emailSettingsService.saveEmailSettings(req.orgId, 'general', req.body);
       logger.info({ orgId: req.orgId, userId: req.user?.id }, 'Email settings updated');
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'update',
+        tableName: 'organization_email_settings',
+        summary: `Updated general email identity for org ${req.orgId}`,
+      });
       res.json({ data: settings });
     } catch (err) {
       next(err);
@@ -56,12 +69,20 @@ router.put('/',
 );
 
 router.post('/test',
+  emailSettingsTestLimiter,
   requirePermission('email_settings.update'),
   validate(testEmailSettings),
   async (req, res, next) => {
     try {
       const result = await emailSettingsService.testEmailSettings(req.orgId, 'general', req.body.to);
       logger.info({ orgId: req.orgId, userId: req.user?.id, success: result.success }, 'Email settings test sent');
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'test',
+        tableName: 'organization_email_settings',
+        summary: `Tested general email identity for org ${req.orgId}: ${result.success ? 'success' : 'failed'}`,
+      });
       res.json({ data: result });
     } catch (err) {
       next(err);

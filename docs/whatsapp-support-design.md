@@ -204,6 +204,14 @@ Deltas from the design above, decided during implementation + adversarial review
   outbound reply can take up to 15s; blocking the provider's delivery window
   risks a redelivery storm. Dedup on `(provider, provider_message_id)` makes any
   redelivery a no-op.
+- **DND is authoritative after client attribution.** Every reply to a bound
+  client is checked against the live WhatsApp/all-channel DND veto immediately
+  before provider I/O. The uniform welcome, cooldown, and linking instructions
+  sent directly in response to an unbound number are anonymous onboarding
+  responses, not client-directed messages: matching an unbound number to a
+  client merely to apply preferences would create the enumeration and
+  cross-tenant ambiguity prohibited above. They contain no account data and
+  stop once the number is bound, at which point DND applies fail-closed.
 - **Two OTP budgets:** per-sender-phone (anti-flood) AND per-target-client
   (anti-inbox-bomb by a number-cycling attacker). Portal link-code minting is
   capped per client.

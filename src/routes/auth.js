@@ -291,6 +291,7 @@ router.post('/password-reset/request',
             expiresIn: '1 hour',
           });
           emailTransport.sendEmail({
+            operationalRecipient: true,
             to: result.email,
             subject: template.subject,
             html: template.html,

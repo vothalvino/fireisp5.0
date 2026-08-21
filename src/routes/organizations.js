@@ -23,6 +23,7 @@ const emailSettingsService = require('../services/emailSettingsService');
 const mxRegisteredTemplateService = require('../services/mxRegisteredContractTemplateService');
 const { updateEmailSettings, testEmailSettings: testEmailSettingsSchema } = require('../middleware/schemas/emailSettings');
 const auditLog = require('../services/auditLog');
+const { emailSettingsTestLimiter } = require('../middleware/rateLimit');
 const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'routes/organizations' });
 
@@ -303,6 +304,7 @@ router.put('/:id/quota', orgScope, requirePermission('organizations.update'), re
 // legacy /email-settings routes stay scoped to the caller's active org.
 router.get('/:id/email-settings', orgScope, requirePermission('email_settings.view'), assertCallerOwnsTargetOrg, async (req, res, next) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     const data = await emailSettingsService.listEmailSettings(req.params.id);
     res.json({ data });
   } catch (err) {
@@ -312,6 +314,7 @@ router.get('/:id/email-settings', orgScope, requirePermission('email_settings.vi
 
 router.put('/:id/email-settings/:function', orgScope, requirePermission('email_settings.update'), assertCallerOwnsTargetOrg, validate(updateEmailSettings), async (req, res, next) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     const data = await emailSettingsService.saveEmailSettings(req.params.id, req.params.function, req.body);
     // Never log the password itself; logger redaction covers req.body.smtp_password too.
     logger.info({ orgId: req.params.id, function: req.params.function, actorUserId: req.user?.id }, 'Org email identity updated');
@@ -326,10 +329,18 @@ router.put('/:id/email-settings/:function', orgScope, requirePermission('email_s
   }
 });
 
-router.post('/:id/email-settings/:function/test', orgScope, requirePermission('email_settings.update'), assertCallerOwnsTargetOrg, validate(testEmailSettingsSchema), async (req, res, next) => {
+router.post('/:id/email-settings/:function/test', orgScope, requirePermission('email_settings.update'), assertCallerOwnsTargetOrg, emailSettingsTestLimiter, validate(testEmailSettingsSchema), async (req, res, next) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     const data = await emailSettingsService.testEmailSettings(req.params.id, req.params.function, req.body.to);
     logger.info({ orgId: req.params.id, function: req.params.function, actorUserId: req.user?.id, success: data.success }, 'Org email identity test sent');
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: Number(req.params.id),
+      action: 'test',
+      tableName: 'organization_email_settings',
+      summary: `Tested ${req.params.function} email identity for org ${req.params.id}: ${data.success ? 'success' : 'failed'}`,
+    });
     res.json({ data });
   } catch (err) {
     next(err);

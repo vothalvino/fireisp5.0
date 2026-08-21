@@ -132,8 +132,8 @@ function computeStagesToSend(dueDateStr, settings) {
 
 /**
  * Send payment reminders for all eligible invoices in an organization.
- * Transactional messages — bypass DND checks intentionally (payment notices
- * are legally permissible even under DND).
+ * Transactional messages still honor the client's communication suppression;
+ * they do not require separate promotional consent.
  *
  * @param {number} organizationId
  * @returns {Promise<{ reminders_sent: number, invoices_checked: number }>}
@@ -193,6 +193,8 @@ async function sendPaymentReminders(organizationId) {
 
             await emailTransport.sendEmail({
               organizationId,
+              clientId: invoice.client_id,
+              messageClass: 'transactional',
               emailFunction: 'billing',
               to: invoice.client_email,
               subject,
@@ -223,6 +225,7 @@ async function sendPaymentReminders(organizationId) {
               clientId: invoice.client_id,
               to: invoice.client_phone,
               body,
+              messageClass: 'transactional',
             });
 
             await logReminder(invoice.id, organizationId, stage, 'sms');

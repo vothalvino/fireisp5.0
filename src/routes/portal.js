@@ -216,6 +216,9 @@ router.post('/auth/password-reset/request', authLimiter, portalPasswordResetLimi
             expiresIn: '1 hour',
           });
           emailTransport.sendEmail({
+            organizationId: result.organizationId,
+            clientId: result.clientId,
+            messageClass: 'security',
             to: result.email,
             subject: template.subject,
             html: template.html,

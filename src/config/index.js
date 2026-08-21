@@ -84,6 +84,7 @@ const config = {
     // Give it a small, independent per-operator budget instead of letting a
     // compromised authorized session consume the broad SPA/API allowance.
     trapForwardingTest: parseIntEnv('RATE_LIMIT_TRAP_FORWARDING_TEST', 10),
+    emailSettingsTest: parseIntEnv('RATE_LIMIT_EMAIL_SETTINGS_TEST', 5),
     // Per-organization rolling-24h RECIPIENT-count budget for POST
     // /bulk/email (not a request count — one request already fans out to up
     // to 1000 recipients, so request-count alone under-protects against

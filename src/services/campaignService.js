@@ -12,6 +12,7 @@ const smsTransport = require('./smsTransport');
 const logger = require('../utils/logger');
 const { escapeHtmlForTemplate } = require('./notificationService');
 const { buildBulkValues } = require('../utils/sqlBuild');
+const communicationPreferences = require('./clientCommunicationPreferenceService');
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -59,7 +60,11 @@ function interpolate(template, data, { escapeHtml = false } = {}) {
 async function buildRecipientList(campaign, run = db.query.bind(db)) {
   const { organization_id, channel, filter_status, filter_plan_id, filter_tag } = campaign;
 
-  const conditions = ['c.organization_id <=> ?', 'c.deleted_at IS NULL'];
+  const conditions = [
+    'c.organization_id <=> ?',
+    'c.deleted_at IS NULL',
+    "c.status <> 'inactive'",
+  ];
   const params = [organization_id];
 
   if (filter_status) {
@@ -94,6 +99,10 @@ async function buildRecipientList(campaign, run = db.query.bind(db)) {
         AND consent.purpose = 'marketing'
         AND consent.communication_channel = ?
         AND consent.withdrawn_at IS NULL
+        AND consent.communication_contact_epoch = CASE
+          WHEN consent.communication_channel = 'email' THEN c.email_contact_epoch
+          ELSE c.phone_contact_epoch
+        END
     )
   `);
   params.push(channel);
@@ -113,9 +122,11 @@ async function buildRecipientList(campaign, run = db.query.bind(db)) {
   const whereClause = conditions.join(' AND ');
 
   const recipientField = (channel === 'email') ? 'c.email' : 'c.phone';
+  const contactEpochField = (channel === 'email') ? 'c.email_contact_epoch' : 'c.phone_contact_epoch';
 
   const sql = `
-    SELECT c.id AS client_id, ${recipientField} AS recipient
+    SELECT c.id AS client_id, ${recipientField} AS recipient,
+           ${contactEpochField} AS client_contact_epoch
     FROM clients c
     WHERE ${whereClause}
       AND ${recipientField} IS NOT NULL
@@ -127,6 +138,7 @@ async function buildRecipientList(campaign, run = db.query.bind(db)) {
   return rows.map(row => ({
     client_id: row.client_id,
     recipient: row.recipient,
+    client_contact_epoch: Number(row.client_contact_epoch || 0),
     channel,
   }));
 }
@@ -140,6 +152,8 @@ async function buildRecipientList(campaign, run = db.query.bind(db)) {
  * @returns {Promise<{queued: number}>}
  */
 async function dispatchCampaign(campaignId, organizationId) {
+  const owner = await communicationPreferences.getOrganizationDeliveryState(organizationId);
+  if (!owner.active) throw new Error('Organization is not active');
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -158,6 +172,22 @@ async function dispatchCampaign(campaignId, organizationId) {
     if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
     if (!['draft', 'failed', 'cancelled'].includes(campaign.status)) {
       throw new Error(`Campaign ${campaignId} cannot be dispatched from status '${campaign.status}'`);
+    }
+
+    // A provider may have accepted a previously claimed message even if its
+    // worker crashed before recording the outcome. Never build a replacement
+    // batch while that ambiguity remains, or redispatch could duplicate it.
+    const [unresolvedRows] = await conn.execute(
+      `SELECT id FROM campaign_messages
+        WHERE campaign_id = ? AND organization_id <=> ?
+          AND status = 'failed' AND error_message IN (?, ?)
+        LIMIT 1 FOR UPDATE`,
+      [campaignId, organizationId,
+        'Delivery claimed; awaiting provider result',
+        'Provider invocation started; delivery outcome is unknown'],
+    );
+    if (unresolvedRows[0]) {
+      throw new Error(`Campaign ${campaignId} has an unresolved provider outcome and cannot be redispatched`);
     }
 
     // A cancelled/failed campaign can be dispatched again. Retire any rows
@@ -189,8 +219,10 @@ async function dispatchCampaign(campaignId, organizationId) {
       const now = new Date();
       const insertValues = recipients.map(r => [
         organizationId,
+        owner.epoch || 0,
         campaignId,
         r.client_id,
+        r.client_contact_epoch,
         r.recipient,
         r.channel,
         'queued',
@@ -200,7 +232,8 @@ async function dispatchCampaign(campaignId, organizationId) {
       const { placeholders, values } = buildBulkValues(insertValues);
       await conn.execute(
         `INSERT INTO campaign_messages
-           (organization_id, campaign_id, client_id, recipient, channel, status, queued_at)
+           (organization_id, organization_epoch, campaign_id, client_id,
+            client_contact_epoch, recipient, channel, status, queued_at)
          VALUES ${placeholders}`,
         values,
       );
@@ -229,8 +262,32 @@ async function dispatchCampaign(campaignId, organizationId) {
  * @returns {Promise<{sent: number, failed: number, total: number}>}
  */
 const DELIVERY_CLAIM_MARKER = 'Delivery claimed; awaiting provider result';
+const DELIVERY_OUTCOME_UNKNOWN = 'Provider invocation started; delivery outcome is unknown';
+const STALE_CLAIM_MINUTES = 5;
 
-async function processQueue() {
+async function processCurrentQueue({ organizationId = null, excludeOrganizationIds = [] } = {}) {
+  const excluded = [...new Set(excludeOrganizationIds.map(Number).filter(Number.isSafeInteger))];
+  const params = [];
+  let scope = '';
+  if (organizationId !== null && organizationId !== undefined) {
+    scope = ' AND cc.organization_id = ?';
+    params.push(Number(organizationId));
+  } else if (excluded.length) {
+    scope = ` AND (cc.organization_id IS NULL OR cc.organization_id NOT IN (${excluded.map(() => '?').join(',')}))`;
+    params.push(...excluded);
+  }
+  // A stale pre-I/O claim is safe to recover. Outcome-unknown rows are never
+  // reclaimed because the provider may already have accepted the message.
+  await db.query(`
+    UPDATE campaign_messages cm
+    JOIN communication_campaigns cc
+      ON cc.id = cm.campaign_id
+     AND cc.organization_id <=> cm.organization_id
+       SET cm.status = 'queued', cm.error_message = NULL
+     WHERE cm.status = 'failed' AND cm.error_message = ?
+       AND cm.updated_at < DATE_SUB(NOW(), INTERVAL ${STALE_CLAIM_MINUTES} MINUTE)
+       ${scope}
+  `, [DELIVERY_CLAIM_MARKER, ...params]);
   const [queued] = await db.query(`
     SELECT cm.*, cc.template_id AS campaign_template_id,
            cc.organization_id AS campaign_org_id
@@ -241,9 +298,10 @@ async function processQueue() {
     WHERE cm.status = 'queued'
       AND cc.status = 'sending'
       AND cc.deleted_at IS NULL
+      ${scope}
     ORDER BY cm.queued_at ASC
     LIMIT 100
-  `);
+  `, params);
 
   let sent = 0;
   let failed = 0;
@@ -254,7 +312,25 @@ async function processQueue() {
     // edits after dispatch must never redirect an already-queued message.
     const channel = msg.channel;
 
+    let providerBoundaryOwned = false;
     try {
+      const owner = await communicationPreferences.getOrganizationDeliveryState(organizationId);
+      if (!owner.active || Number(owner.epoch) !== Number(msg.organization_epoch || 0)) {
+        const [skip] = await db.query(
+          `UPDATE campaign_messages SET status = 'failed', error_message = ?
+            WHERE id = ? AND organization_id <=> ? AND status = 'queued'`,
+          ['Organization delivery authorization changed; message skipped', msg.id, organizationId],
+        );
+        if (skip.affectedRows === 1) {
+          await db.query(
+            `UPDATE communication_campaigns SET failed_count = failed_count + 1
+              WHERE id = ? AND organization_id <=> ?`,
+            [msg.campaign_id, organizationId],
+          );
+          failed++;
+        }
+        continue;
+      }
       let subject = 'Mensaje de su proveedor';
       let body = '';
 
@@ -297,10 +373,15 @@ async function processQueue() {
             ON c.id = cm.client_id
            AND c.organization_id <=> cc.organization_id
            AND c.deleted_at IS NULL
+           AND c.status <> 'inactive'
            SET cm.status = 'failed', cm.error_message = ?
          WHERE cm.id = ? AND cm.status = 'queued'
            AND cm.organization_id <=> ?
            AND cm.channel = ? AND cm.recipient = ?
+           AND cm.client_contact_epoch = CASE
+             WHEN cm.channel = 'email' THEN c.email_contact_epoch
+             ELSE c.phone_contact_epoch
+           END
            AND cc.status = 'sending' AND cc.deleted_at IS NULL
            AND (
              (cm.channel = 'email' AND c.email = cm.recipient)
@@ -313,6 +394,10 @@ async function processQueue() {
                 AND consent.purpose = 'marketing'
                 AND consent.communication_channel = cm.channel
                 AND consent.withdrawn_at IS NULL
+                AND consent.communication_contact_epoch = CASE
+                  WHEN consent.communication_channel = 'email' THEN c.email_contact_epoch
+                  ELSE c.phone_contact_epoch
+                END
            )
            AND NOT EXISTS (
              SELECT 1 FROM client_dnd_preferences dnd
@@ -346,16 +431,51 @@ async function processQueue() {
         continue;
       }
 
+      const finalOwner = await communicationPreferences.getOrganizationDeliveryState(organizationId);
+      if (!finalOwner.active || Number(finalOwner.epoch) !== Number(msg.organization_epoch || 0)) {
+        const [skip] = await db.query(
+          `UPDATE campaign_messages SET status = 'failed', error_message = ?
+            WHERE id = ? AND organization_id <=> ?
+              AND status = 'failed' AND error_message = ?`,
+          ['Organization delivery authorization changed; message skipped', msg.id, organizationId, DELIVERY_CLAIM_MARKER],
+        );
+        if (skip.affectedRows === 1) {
+          await db.query(
+            `UPDATE communication_campaigns SET failed_count = failed_count + 1
+              WHERE id = ? AND organization_id <=> ?`,
+            [msg.campaign_id, organizationId],
+          );
+          failed++;
+        }
+        continue;
+      }
+
+      // From this durable marker onward a crash is ambiguous: the provider
+      // may accept the message even if no result reaches the database. Never
+      // auto-recover or redispatch this state.
+      const [invocation] = await db.query(
+        `UPDATE campaign_messages
+            SET error_message = ?
+          WHERE id = ? AND organization_id <=> ?
+            AND status = 'failed' AND error_message = ?`,
+        [DELIVERY_OUTCOME_UNKNOWN, msg.id, organizationId, DELIVERY_CLAIM_MARKER],
+      );
+      if (invocation.affectedRows !== 1) continue;
+      providerBoundaryOwned = true;
+
       // No database or rendering work belongs between the guarded claim and
       // transport invocation: this is the narrowest practical revocation and
       // cancellation race window without holding a DB lock across network I/O.
       const result = channel === 'email'
         ? await emailTransport.sendEmail({
           organizationId,
+          clientId: msg.client_id || null,
           to: msg.recipient,
           subject,
           html: body || undefined,
           text: body || undefined,
+          messageClass: 'marketing',
+          expectedClientContactEpoch: Number(msg.client_contact_epoch || 0),
         })
         : await smsTransport.sendSms({
           organizationId,
@@ -363,16 +483,19 @@ async function processQueue() {
           to: msg.recipient,
           body,
           channel,
+          messageClass: 'marketing',
+          expectedClientContactEpoch: Number(msg.client_contact_epoch || 0),
         });
 
       if (result.success) {
-        await db.query(
+        const [outcome] = await db.query(
           `UPDATE campaign_messages
               SET status = 'sent', sent_at = NOW(), provider_message_id = ?, error_message = NULL
             WHERE id = ? AND organization_id <=> ?
               AND status = 'failed' AND error_message = ?`,
-          [result.messageId || null, msg.id, organizationId, DELIVERY_CLAIM_MARKER],
+          [result.messageId || null, msg.id, organizationId, DELIVERY_OUTCOME_UNKNOWN],
         );
+        if (outcome.affectedRows !== 1) continue;
         await db.query(
           `UPDATE communication_campaigns
               SET sent_count = sent_count + 1
@@ -381,13 +504,19 @@ async function processQueue() {
         );
         sent++;
       } else {
-        await db.query(
-          `UPDATE campaign_messages
-              SET status = 'failed', error_message = ?
-            WHERE id = ? AND organization_id <=> ?
-              AND status = 'failed' AND error_message = ?`,
-          [result.error || 'Unknown error', msg.id, organizationId, DELIVERY_CLAIM_MARKER],
-        );
+        // A policy skip proves no provider call happened inside the guarded
+        // transport and may become an ordinary terminal failure. Any provider
+        // failure remains outcome-unknown to prevent an automatic duplicate.
+        if (result.skipped) {
+          await db.query(
+            `UPDATE campaign_messages
+                SET status = 'failed', error_message = ?
+              WHERE id = ? AND organization_id <=> ?
+                AND status = 'failed' AND error_message = ?`,
+            [result.error || 'Recipient permission changed; message skipped',
+              msg.id, organizationId, DELIVERY_OUTCOME_UNKNOWN],
+          );
+        }
         await db.query(
           `UPDATE communication_campaigns
               SET failed_count = failed_count + 1
@@ -397,14 +526,19 @@ async function processQueue() {
         failed++;
       }
     } catch (err) {
-      logger.warn({ err, msgId: msg.id }, 'Campaign message send failed');
-      const [failureUpdate] = await db.query(
-        `UPDATE campaign_messages
-            SET status = 'failed', error_message = ?
-          WHERE id = ? AND organization_id <=> ?
-            AND (status = 'queued' OR (status = 'failed' AND error_message = ?))`,
-        [err.message || String(err), msg.id, organizationId, DELIVERY_CLAIM_MARKER],
-      ).catch(() => [{ affectedRows: 0 }]);
+      logger.warn({ code: err?.code || 'CAMPAIGN_DELIVERY_FAILED', msgId: msg.id }, 'Campaign message send failed');
+      // Preserve outcome-unknown after provider invocation. Before that
+      // boundary, a failure is known not to have sent and may be terminalized.
+      const [failureUpdate] = providerBoundaryOwned
+        ? [{ affectedRows: 1 }]
+        : await db.query(
+          `UPDATE campaign_messages
+              SET status = 'failed', error_message = ?
+            WHERE id = ? AND organization_id <=> ?
+              AND (status = 'queued' OR (status = 'failed' AND error_message = ?))`,
+          ['Campaign delivery failed before provider invocation',
+            msg.id, organizationId, DELIVERY_CLAIM_MARKER],
+        ).catch(() => [{ affectedRows: 0 }]);
       if (failureUpdate.affectedRows === 1) {
         await db.query(
           `UPDATE communication_campaigns
@@ -417,10 +551,19 @@ async function processQueue() {
     }
   }
 
-  if (queued.length > 0) {
-    await db.query(
-      `UPDATE communication_campaigns cc
-          SET cc.status = 'sent', cc.completed_at = NOW()
+  await db.query(
+    `UPDATE communication_campaigns cc
+          SET cc.status = CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM campaign_messages unresolved
+                   WHERE unresolved.campaign_id = cc.id
+                     AND unresolved.organization_id <=> cc.organization_id
+                     AND unresolved.status = 'failed'
+                     AND unresolved.error_message = ?
+                ) THEN 'failed'
+                ELSE 'sent'
+              END,
+              cc.completed_at = NOW()
         WHERE cc.status = 'sending' AND cc.deleted_at IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM campaign_messages cm
@@ -429,12 +572,49 @@ async function processQueue() {
                  cm.status = 'queued'
                  OR (cm.status = 'failed' AND cm.error_message = ?)
                )
-          )`,
-      [DELIVERY_CLAIM_MARKER],
-    );
-  }
+          )${scope}`,
+    [DELIVERY_OUTCOME_UNKNOWN, DELIVERY_CLAIM_MARKER, ...params],
+  );
 
   return { sent, failed, total: queued.length };
+}
+
+function mergeQueueResults(target, result) {
+  target.sent += Number(result.sent || 0);
+  target.failed += Number(result.failed || 0);
+  target.total += Number(result.total || 0);
+}
+
+async function processQueue(organizationId = null) {
+  if (organizationId !== null && organizationId !== undefined) {
+    const run = () => processCurrentQueue({ organizationId: Number(organizationId) });
+    return typeof db.withTenantContext === 'function'
+      ? db.withTenantContext(Number(organizationId), run)
+      : run();
+  }
+  if (typeof db.withPrimaryContext !== 'function' || typeof db.withTenantContext !== 'function') {
+    return processCurrentQueue();
+  }
+  const [isolated] = await db.withPrimaryContext(() => db.query(
+    `SELECT organization_id FROM organization_database_configs
+      WHERE isolation_mode = 'isolated' ORDER BY organization_id`,
+  ));
+  const isolatedIds = isolated.map(row => Number(row.organization_id)).filter(Number.isSafeInteger);
+  const total = { sent: 0, failed: 0, total: 0 };
+  mergeQueueResults(total, await db.withPrimaryContext(
+    () => processCurrentQueue({ excludeOrganizationIds: isolatedIds }),
+  ));
+  for (const row of isolated) {
+    try {
+      mergeQueueResults(total, await db.withTenantContext(
+        Number(row.organization_id),
+        () => processCurrentQueue({ organizationId: Number(row.organization_id) }),
+      ));
+    } catch (_err) {
+      total.failed++;
+    }
+  }
+  return total;
 }
 
 /**

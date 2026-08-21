@@ -135,7 +135,7 @@ async function register({ firstName, lastName, email, password, organizationId, 
     const verifyUrl = `${config.appUrl}/verify-email?token=${token}`;
     const userName = [firstName, lastName].filter(Boolean).join(' ') || undefined;
     const template = emailTemplates.emailVerificationEmail({ userName, verifyUrl });
-    emailTransport.sendEmail({ to: email, subject: template.subject, html: template.html })
+    emailTransport.sendEmail({ operationalRecipient: true, to: email, subject: template.subject, html: template.html })
       .then((sendResult) => {
         if (!sendResult || !sendResult.success) {
           logger.warn(`Verification email failed to send to ${email}: ${sendResult && sendResult.error}`);
@@ -612,7 +612,7 @@ async function resendVerificationEmail(userId) {
   // the response critical path (nodemailer's connection timeout defaults to
   // ~2 minutes). sendEmail() is an async function, so a failure can only
   // ever surface via this .catch, never as an unhandled rejection.
-  emailTransport.sendEmail({ to: user.email, subject: template.subject, html: template.html })
+  emailTransport.sendEmail({ operationalRecipient: true, to: user.email, subject: template.subject, html: template.html })
     .then((sendResult) => {
       if (!sendResult || !sendResult.success) {
         logger.warn(`Verification email resend failed for ${user.email}: ${sendResult && sendResult.error}`);

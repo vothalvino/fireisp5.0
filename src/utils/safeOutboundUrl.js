@@ -10,6 +10,7 @@
 
 const dns = require('dns').promises;
 const net = require('net');
+const { domainToASCII } = require('url');
 const { AppError } = require('./errors');
 
 const DEFAULT_DNS_TIMEOUT_MS = 5000;
@@ -126,15 +127,66 @@ function normalizeAndCheckUrl(raw, field) {
   return { url, host };
 }
 
-function resolutionTimeoutError(field, code) {
+function hostError(field, message, code) {
+  return new AppError(`${field} ${message}`, 422, code);
+}
+
+/**
+ * Normalize a bare network host without accepting URL syntax, credentials,
+ * paths, ports, wildcards or control characters. SMTP and other non-HTTP
+ * transports use this before DNS resolution so the original hostname remains
+ * available for TLS SNI and certificate verification.
+ */
+function normalizeOutboundHost(raw, field = 'host', options = {}) {
+  const code = options.unsafeCode || 'UNSAFE_HOST';
+  const value = String(raw ?? '');
+  const hasAsciiControlOrSpace = [...value].some(char => {
+    const point = char.codePointAt(0);
+    return point <= 0x20 || point === 0x7f;
+  });
+  if (!value || hasAsciiControlOrSpace || /\s/u.test(value)) {
+    throw hostError(field, 'is not a valid host.', code);
+  }
+
+  const bracketed = value.startsWith('[') && value.endsWith(']');
+  const candidate = bracketed ? value.slice(1, -1) : value;
+  if (candidate.includes('%')) {
+    // Zone-scoped IPv6 destinations are necessarily interface-local and must
+    // never be accepted from a tenant. Keep the trusted path deterministic too.
+    throw hostError(field, 'is not a valid host.', code);
+  }
+  if (net.isIP(candidate)) return candidate.toLowerCase();
+
+  // A non-IP host is a DNS name only. Reject URL/userinfo/path/host:port forms
+  // rather than letting the resolver interpret an ambiguous string.
+  if (bracketed || /[\\/@#?:]/.test(candidate) || candidate.includes('://')) {
+    throw hostError(field, 'is not a valid host.', code);
+  }
+
+  const ascii = domainToASCII(candidate).toLowerCase().replace(/\.$/, '');
+  const labels = ascii.split('.');
+  if (!ascii || ascii.length > 253 || labels.some(label => (
+    !/^[a-z0-9-]{1,63}$/.test(label) || label.startsWith('-') || label.endsWith('-')
+  ))) {
+    throw hostError(field, 'is not a valid host.', code);
+  }
+
+  if (!options.allowLocalhost && (ascii === 'localhost' || ascii.endsWith('.localhost'))) {
+    throw hostError(field, 'must not target a private or loopback host.', code);
+  }
+  return ascii;
+}
+
+function resolutionTimeoutError(field, code, unsafeCode = 'UNSAFE_URL') {
   if (code === 'ETIMEDOUT') {
     return Object.assign(new Error('Forwarding destination resolution timed out'), { code: 'ETIMEDOUT' });
   }
-  return new AppError(`${field} host resolution timed out.`, 422, 'UNSAFE_URL');
+  return new AppError(`${field} host resolution timed out.`, 422, unsafeCode);
 }
 
 async function resolveHost(host, field, options = {}) {
   const lookup = options.lookup || dns.lookup;
+  const unsafeCode = options.unsafeCode || 'UNSAFE_URL';
   let addresses;
   if (net.isIP(host)) {
     addresses = [{ address: host, family: net.isIP(host) }];
@@ -146,15 +198,15 @@ async function resolveHost(host, field, options = {}) {
         Promise.resolve().then(() => lookup(host, { all: true, verbatim: true })),
         new Promise((_, reject) => {
           timer = setTimeout(
-            () => reject(resolutionTimeoutError(field, options.timeoutCode)),
+            () => reject(resolutionTimeoutError(field, options.timeoutCode, unsafeCode)),
             timeoutMs,
           );
           if (typeof timer.unref === 'function') timer.unref();
         }),
       ]);
     } catch (err) {
-      if (err?.code === 'ETIMEDOUT' || err?.code === 'UNSAFE_URL') throw err;
-      throw new AppError(`${field} host could not be resolved.`, 422, 'UNSAFE_URL');
+      if (err?.code === 'ETIMEDOUT' || err?.code === unsafeCode) throw err;
+      throw new AppError(`${field} host could not be resolved.`, 422, unsafeCode);
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -166,11 +218,12 @@ async function resolveHost(host, field, options = {}) {
       : { address: entry?.address, family: Number(entry?.family) || net.isIP(entry?.address) })
     .filter(entry => entry.address && (entry.family === 4 || entry.family === 6));
 
-  if (normalized.length === 0 || normalized.some(entry => isBlockedIp(entry.address))) {
+  if (normalized.length === 0 || (!options.allowPrivate
+      && normalized.some(entry => isBlockedIp(entry.address)))) {
     throw new AppError(
       `${field} must not target a private, loopback, link-local, or metadata address.`,
       422,
-      'UNSAFE_URL',
+      unsafeCode,
     );
   }
   return normalized;
@@ -201,6 +254,37 @@ async function resolveSafeOutboundUrl(raw, field = 'url', options = {}) {
   return { url, addresses, lookup: createPinnedLookup(addresses) };
 }
 
+/** Resolve a tenant-controlled bare host and pin it to validated public IPs. */
+async function resolveSafeOutboundHost(raw, field = 'host', options = {}) {
+  const hostname = normalizeOutboundHost(raw, field, {
+    unsafeCode: 'UNSAFE_HOST',
+    allowLocalhost: false,
+  });
+  const addresses = await resolveHost(hostname, field, {
+    ...options,
+    allowPrivate: false,
+    unsafeCode: 'UNSAFE_HOST',
+  });
+  return { hostname, addresses, lookup: createPinnedLookup(addresses) };
+}
+
+/**
+ * Resolve an install-controlled host, including a local relay, while still
+ * pinning the resulting connection. Never use this for tenant-supplied input.
+ */
+async function resolveTrustedOutboundHost(raw, field = 'host', options = {}) {
+  const hostname = normalizeOutboundHost(raw, field, {
+    unsafeCode: 'INVALID_HOST',
+    allowLocalhost: true,
+  });
+  const addresses = await resolveHost(hostname, field, {
+    ...options,
+    allowPrivate: true,
+    unsafeCode: 'INVALID_HOST',
+  });
+  return { hostname, addresses, lookup: createPinnedLookup(addresses) };
+}
+
 /** Validate an HTTPS URL at write time and return its normalized form. */
 async function assertSafeOutboundUrl(raw, field = 'api_url', options = {}) {
   const resolved = await resolveSafeOutboundUrl(raw, field, options);
@@ -209,7 +293,10 @@ async function assertSafeOutboundUrl(raw, field = 'api_url', options = {}) {
 
 module.exports = {
   assertSafeOutboundUrl,
+  normalizeOutboundHost,
   resolveSafeOutboundUrl,
+  resolveSafeOutboundHost,
+  resolveTrustedOutboundHost,
   createPinnedLookup,
   isBlockedIp,
   DEFAULT_DNS_TIMEOUT_MS,

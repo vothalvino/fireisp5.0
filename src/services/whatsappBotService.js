@@ -157,6 +157,7 @@ async function maybeSendEmailOtp({ phone, email }) {
       html: tpl.html,
       organizationId: client.organization_id,
       clientId: client.id,
+      messageClass: 'security',
       emailFunction: 'general',
     })
       .then((r) => { if (!r || !r.success) logger.warn('whatsapp: link-code email failed to send'); })

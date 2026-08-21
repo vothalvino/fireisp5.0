@@ -115,6 +115,12 @@ describe('redeploy.sh pulls and never builds', () => {
     expect(script).toMatch(/Roll forward with a corrected post-459 image/);
   });
 
+  it('refuses an application rollback across the migration 460 client-communication boundary', () => {
+    expect(script).toMatch(/cat-file -e "\$\{TAG\}\^\{commit\}:database\/migrations\/460_client_communication_contact_epoch\.sql"/);
+    expect(script).toMatch(/refusing to start an application version that predates migration 460/);
+    expect(script).toMatch(/Roll forward with a corrected post-460 image/);
+  });
+
   it('enforces a retention policy, because a plain prune is inert here', () => {
     // Every pulled image carries a unique :<sha> tag, so NOTHING is ever
     // dangling and `docker image prune` alone reclaims zero. The retained set

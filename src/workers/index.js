@@ -61,9 +61,9 @@ function registerWorkers() {
   // ---- SMS send -----------------------------------------------------------
   jobQueue.process('sms-send', async (job) => {
     const smsTransport = require('../services/smsTransport');
-    const { logId } = job.data;
+    const { logId, organizationId = null } = job.data;
     logger.debug({ logId }, 'Worker: processing SMS');
-    return smsTransport.retryLog(logId);
+    return smsTransport.deliverQueuedLog(logId, organizationId);
   });
 
   // ---- CFDI stamp ---------------------------------------------------------

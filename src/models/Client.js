@@ -152,11 +152,6 @@ class Client extends BaseModel {
       throw new ValidationError('Cannot merge a client into itself');
     }
 
-    const source = await this.findById(sourceId, orgId);
-    if (!source) throw new NotFoundError('Source client');
-    const target = await this.findById(targetId, orgId);
-    if (!target) throw new NotFoundError('Target client');
-
     // Tables whose client_id rows are reassigned wholesale from source to target.
     const reassignTables = [
       'contracts', 'invoices', 'payments', 'tickets', 'contacts', 'quotes',
@@ -167,6 +162,19 @@ class Client extends BaseModel {
     const moved = {};
     try {
       await conn.beginTransaction();
+
+      // Lock both identities in a stable order. The previous pre-transaction
+      // lookups allowed a delete/merge race to change either client after the
+      // ownership check but before relationship and preference updates.
+      const [lockedClients] = await conn.query(
+        `SELECT id FROM clients
+          WHERE id IN (?, ?) AND organization_id <=> ? AND deleted_at IS NULL
+          ORDER BY id FOR UPDATE`,
+        [sourceId, targetId, orgId],
+      );
+      const lockedIds = new Set(lockedClients.map(row => String(row.id)));
+      if (!lockedIds.has(String(sourceId))) throw new NotFoundError('Source client');
+      if (!lockedIds.has(String(targetId))) throw new NotFoundError('Target client');
 
       for (const table of reassignTables) {
         const [res] = await conn.query(
@@ -195,10 +203,57 @@ class Client extends BaseModel {
       );
       if (files.affectedRows > 0) moved.files = files.affectedRows;
 
+      // A merge must never discard a communication veto that belonged to the
+      // archived duplicate. Union every effective source opt-out onto the
+      // survivor. Marketing permission is intentionally NOT transferred: the
+      // survivor needs its own current-contact grant, while any source grant is
+      // retired with that identity.
+      await conn.query(
+        `INSERT INTO client_dnd_preferences
+           (organization_id, client_id, channel, opt_out,
+            quiet_hours_start, quiet_hours_end, reason)
+         SELECT ?, ?, channel, 1, quiet_hours_start, quiet_hours_end,
+                'Preserved when a duplicate client was merged'
+           FROM client_dnd_preferences
+          WHERE client_id = ? AND organization_id <=> ? AND opt_out = 1
+         ON DUPLICATE KEY UPDATE
+           organization_id = VALUES(organization_id),
+           opt_out = 1,
+           quiet_hours_start = COALESCE(client_dnd_preferences.quiet_hours_start,
+                                        VALUES(quiet_hours_start)),
+           quiet_hours_end = COALESCE(client_dnd_preferences.quiet_hours_end,
+                                      VALUES(quiet_hours_end)),
+           reason = VALUES(reason)`,
+        [orgId, targetId, sourceId, orgId],
+      );
+
+      await conn.query(
+        `UPDATE subscriber_consents consent
+            SET consent.withdrawn_at = COALESCE(consent.withdrawn_at, NOW())
+          WHERE consent.organization_id <=> ?
+            AND consent.purpose = 'marketing'
+            AND consent.withdrawn_at IS NULL
+            AND (
+              consent.client_id = ?
+              OR (
+                consent.client_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM client_dnd_preferences dnd
+                   WHERE dnd.client_id = ?
+                     AND dnd.organization_id <=> ?
+                     AND dnd.opt_out = 1
+                     AND dnd.channel IN ('all', consent.communication_channel)
+                )
+              )
+            )`,
+        [orgId, sourceId, targetId, targetId, orgId],
+      );
+
       // Soft-delete the now-empty source client.
       await conn.query(
-        'UPDATE clients SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL',
-        [sourceId],
+        `UPDATE clients SET deleted_at = NOW()
+          WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL`,
+        [sourceId, orgId],
       );
 
       await conn.commit();

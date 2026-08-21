@@ -177,6 +177,22 @@ describe('workers/index.js — registerWorkers()', () => {
     expect(db.withTenantContext).not.toHaveBeenCalled();
   });
 
+  test('SMS worker delivers the exact queued row through the atomic delivery path', async () => {
+    const processSpy = jest.spyOn(jobQueue, 'process');
+    const deliverSpy = jest.spyOn(smsTransport, 'deliverQueuedLog')
+      .mockResolvedValueOnce({ claimed: true, success: true, messageId: 'SM-501' });
+    try {
+      workers.registerWorkers();
+      const handler = processSpy.mock.calls.find(([name]) => name === 'sms-send')[1];
+
+      await expect(handler({ data: { logId: 501, organizationId: 42 } }))
+        .resolves.toEqual({ claimed: true, success: true, messageId: 'SM-501' });
+      expect(deliverSpy).toHaveBeenCalledWith(501, 42);
+    } finally {
+      deliverSpy.mockRestore();
+    }
+  });
+
   test('saved-webhook worker enters the organization database context from its durable job', async () => {
     const processSpy = jest.spyOn(jobQueue, 'process');
     const deliverSpy = jest.spyOn(webhookService, 'deliverForWorker')
@@ -569,10 +585,38 @@ describe('webhookService.dispatch()', () => {
 // ============================================================================
 describe('smsTransport.queueSms() without BullMQ', () => {
   test('inserts DB row and returns logId when REDIS_URL is unset', async () => {
-    db.query.mockResolvedValueOnce([{ insertId: 55 }]);
-    const result = await smsTransport.queueSms({ organizationId: 1, to: '+521234567890', body: 'Test SMS' });
+    db.query.mockImplementation(async (sql) => {
+      if (/FROM organizations/.test(sql)) {
+        return [[{ status: 'active', deleted_at: null, outbound_delivery_epoch: 6 }]];
+      }
+      if (/FROM clients c/.test(sql)) {
+        return [[{
+          id: 9,
+          organization_id: 1,
+          email: 'client@example.test',
+          phone: '+521234567890',
+          email_contact_epoch: 2,
+          phone_contact_epoch: 4,
+          opted_out: 0,
+          has_marketing_consent: 0,
+        }]];
+      }
+      if (/INSERT INTO sms_logs/.test(sql)) return [{ insertId: 55 }];
+      throw new Error(`Unexpected queue SMS SQL: ${sql}`);
+    });
+    const result = await smsTransport.queueSms({
+      organizationId: 1,
+      clientId: 9,
+      to: '+521234567890',
+      body: 'Test SMS',
+      messageClass: 'transactional',
+    });
     expect(result).toEqual({ queued: true, logId: 55 });
-    expect(db.query).toHaveBeenCalledTimes(1); // only the INSERT
+    expect(db.query).toHaveBeenCalledTimes(4); // organization twice, live client/DND, INSERT
+    const insert = db.query.mock.calls.find(([sql]) => /INSERT INTO sms_logs/.test(sql));
+    expect(insert[1]).toEqual([
+      1, 6, 9, 4, '+521234567890', 'sms', null, 'Test SMS', 'none', 'transactional',
+    ]);
   });
 });
 

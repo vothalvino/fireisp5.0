@@ -14,6 +14,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withTenantContext: jest.fn(async (_organizationId, callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
@@ -40,6 +41,8 @@ const mockEncrypt = jest.fn((v) => `enc:${v}`);
 jest.mock('../src/utils/encryption', () => ({
   encrypt: (v) => mockEncrypt(v),
   decrypt: (v) => (typeof v === 'string' ? v.replace('enc:', '') : v),
+  encryptStrict: (v) => mockEncrypt(v),
+  decryptStrict: (v) => (typeof v === 'string' ? v.replace('enc:', '') : v),
 }));
 
 const mockSendEmail = jest.fn();
@@ -60,7 +63,7 @@ let store;
 function resetStore() { store = {}; }
 
 function installDbMock() {
-  db.query.mockImplementation((sql, params = []) => {
+  const execute = (sql, params = []) => {
     if (sql.includes('INSERT INTO organization_email_settings') && sql.includes('last_test_at')) {
       const [orgId, fn, status, error] = params;
       const key = `${orgId}:${fn}`;
@@ -96,6 +99,14 @@ function installDbMock() {
       return Promise.resolve([rows]);
     }
     return Promise.resolve([[]]);
+  };
+  db.query.mockImplementation(execute);
+  db.getConnection.mockResolvedValue({
+    beginTransaction: jest.fn().mockResolvedValue(undefined),
+    execute: jest.fn(execute),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn(),
   });
 }
 

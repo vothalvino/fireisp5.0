@@ -9,11 +9,19 @@
 // =============================================================================
 
 const EmailSettings = require('../models/EmailSettings');
+const db = require('../config/database');
 const emailTransport = require('../services/emailTransport');
 const { baseLayout } = require('../views/emailTemplates');
 const { ValidationError } = require('../utils/errors');
+const { normalizeOutboundHost } = require('../utils/safeOutboundUrl');
 
 const DEFAULT_FUNCTION = EmailSettings.DEFAULT_FUNCTION;
+
+function withTenant(orgId, callback) {
+  return typeof db.withTenantContext === 'function'
+    ? db.withTenantContext(Number(orgId), callback)
+    : callback();
+}
 
 /** Throw a 422 unless `fn` is a known email function. */
 function assertFunction(fn) {
@@ -25,15 +33,26 @@ function assertFunction(fn) {
 
 /** Every function's identity for an org (one entry per function). */
 async function listEmailSettings(orgId) {
-  return EmailSettings.listByOrgId(orgId);
+  return withTenant(orgId, () => EmailSettings.listByOrgId(orgId));
 }
 
 async function getEmailSettings(orgId, emailFunction = DEFAULT_FUNCTION) {
-  return EmailSettings.findByOrgId(orgId, assertFunction(emailFunction));
+  return withTenant(orgId, () => (
+    EmailSettings.findByOrgId(orgId, assertFunction(emailFunction))
+  ));
 }
 
 async function saveEmailSettings(orgId, emailFunction = DEFAULT_FUNCTION, payload) {
-  return EmailSettings.upsert(orgId, assertFunction(emailFunction), payload || {});
+  const fields = { ...(payload || {}) };
+  if (fields.smtp_host) {
+    fields.smtp_host = normalizeOutboundHost(fields.smtp_host, 'smtp_host', {
+      unsafeCode: 'UNSAFE_HOST',
+      allowLocalhost: false,
+    });
+  }
+  return withTenant(orgId, () => (
+    EmailSettings.upsert(orgId, assertFunction(emailFunction), fields)
+  ));
 }
 
 /**
@@ -53,21 +72,25 @@ async function testEmailSettings(orgId, emailFunction, to) {
     <p>This is a test message sent from your FireISP <strong>${fn}</strong> email settings.</p>
     <p class="meta">If you received this, your outbound email configuration for the ${fn} function is working correctly.</p>`;
 
-  const result = await emailTransport.sendEmail({
-    organizationId: orgId,
-    emailFunction: fn,
-    to,
-    subject: `FireISP — Test Email (${fn})`,
-    html: baseLayout(content),
-    text: `This is a test message sent from your FireISP ${fn} email settings. If you received this, your outbound email configuration for the ${fn} function is working correctly.`,
-  });
+  return withTenant(orgId, async () => {
+    const result = await emailTransport.sendEmail({
+      organizationId: orgId,
+      operationalRecipient: true,
+      emailFunction: fn,
+      to,
+      subject: `FireISP — Test Email (${fn})`,
+      html: baseLayout(content),
+      text: `This is a test message sent from your FireISP ${fn} email settings. If you received this, your outbound email configuration for the ${fn} function is working correctly.`,
+      sanitizeFailure: true,
+    });
 
-  await EmailSettings.recordTestResult(orgId, fn, {
-    success: Boolean(result.success),
-    error: result.error || null,
-  });
+    await EmailSettings.recordTestResult(orgId, fn, {
+      success: Boolean(result.success),
+      error: result.error || null,
+    });
 
-  return result;
+    return result;
+  });
 }
 
 module.exports = { listEmailSettings, getEmailSettings, saveEmailSettings, testEmailSettings };

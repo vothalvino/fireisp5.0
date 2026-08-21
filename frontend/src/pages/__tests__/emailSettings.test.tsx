@@ -184,6 +184,68 @@ describe('Settings page — Email Settings tab', () => {
     });
   });
 
+  it('sends an explicit empty password only when the operator chooses to clear the stored credential', async () => {
+    setup(configured);
+    fireEvent.click(screen.getByText(/📧 Email/i));
+    await waitFor(() => expect((screen.getByLabelText(/SMTP Host/i) as HTMLInputElement).value).toBe('smtp.example.com'));
+
+    fireEvent.click(screen.getByLabelText(/Clear stored password on save/i));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    await waitFor(() => {
+      const call = (mockFetch.mock.calls as Array<[string, RequestInit]>).find(
+        ([url, init]) => url.endsWith('/email-settings') && (init?.method ?? '').toUpperCase() === 'PUT',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(call![1].body as string).smtp_password).toBe('');
+    });
+  });
+
+  it('requires a replacement or explicit clear when a saved credential connection identity changes', async () => {
+    setup(configured);
+    fireEvent.click(screen.getByText(/📧 Email/i));
+    const host = await screen.findByDisplayValue('smtp.example.com');
+
+    fireEvent.change(host, { target: { value: 'smtp-new.example.com' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/enter a replacement password or choose to clear/i);
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    const putCalls = (mockFetch.mock.calls as Array<[string, RequestInit]>).filter(
+      ([url, init]) => url.endsWith('/email-settings') && (init?.method ?? '').toUpperCase() === 'PUT',
+    );
+    expect(putCalls).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText(/^SMTP Password/i), { target: { value: 'replacement-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+    await waitFor(() => {
+      const call = (mockFetch.mock.calls as Array<[string, RequestInit]>).find(
+        ([url, init]) => url.endsWith('/email-settings') && (init?.method ?? '').toUpperCase() === 'PUT',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(call![1].body as string).smtp_password).toBe('replacement-secret');
+    });
+  });
+
+  it('shows the backend safe error message when saving fails', async () => {
+    setup(configured);
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = typeof url === 'string' ? url.replace(/\?.*/, '') : '';
+      if (path.endsWith('/settings') && method === 'GET') return Promise.resolve(makeJsonResponse({ data: [] }));
+      if (path.endsWith('/email-settings') && method === 'GET') return Promise.resolve(makeJsonResponse({ data: configured }));
+      if (path.endsWith('/email-settings') && method === 'PUT') {
+        return Promise.resolve(makeJsonResponse({ error: { message: 'SMTP credentials could not be stored safely.' } }, false));
+      }
+      return Promise.resolve(makeJsonResponse({ data: [] }));
+    });
+    fireEvent.click(screen.getByText(/📧 Email/i));
+    await screen.findByDisplayValue('smtp.example.com');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    expect(await screen.findByText('SMTP credentials could not be stored safely.')).toBeInTheDocument();
+  });
+
   it('sends a test email and shows a success message inline', async () => {
     setup(configured);
     fireEvent.click(screen.getByText(/📧 Email/i));

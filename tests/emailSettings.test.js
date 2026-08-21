@@ -15,6 +15,7 @@ jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   execute: jest.fn(),
   getConnection: jest.fn(),
+  withTenantContext: jest.fn(async (_organizationId, callback) => callback()),
   close: jest.fn(),
   pool: { end: jest.fn() },
 }));
@@ -42,6 +43,8 @@ const mockDecrypt = jest.fn((v) => (typeof v === 'string' ? v.replace('enc:', ''
 jest.mock('../src/utils/encryption', () => ({
   encrypt: (v) => mockEncrypt(v),
   decrypt: (v) => mockDecrypt(v),
+  encryptStrict: (v) => mockEncrypt(v),
+  decryptStrict: (v) => mockDecrypt(v),
 }));
 
 // sendEmail is mocked at the module level for route tests (POST /test) —
@@ -77,7 +80,7 @@ function resetStore() {
 // The legacy /email-settings routes exercised here always use 'general', so
 // the store is keyed by orgId and every row carries email_function:'general'.
 function installDbMock() {
-  db.query.mockImplementation((sql, params = []) => {
+  const execute = (sql, params = []) => {
     // recordTestResult(): INSERT ... last_test_at ... ON DUPLICATE KEY UPDATE
     if (sql.includes('INSERT INTO organization_email_settings') && sql.includes('last_test_at')) {
       const [orgId, emailFunction, status, error] = params;
@@ -111,6 +114,14 @@ function installDbMock() {
       return Promise.resolve([row ? [row] : []]);
     }
     return Promise.resolve([[]]);
+  };
+  db.query.mockImplementation(execute);
+  db.getConnection.mockResolvedValue({
+    beginTransaction: jest.fn().mockResolvedValue(undefined),
+    execute: jest.fn(execute),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn(),
   });
 }
 
@@ -175,15 +186,26 @@ describe('PUT /api/v1/email-settings', () => {
     expect(mockInvalidateOrgTransport).toHaveBeenCalledWith(1);
   });
 
-  it('omitting smtp_password on a later PUT keeps the existing encrypted value', async () => {
+  it('omitting smtp_password while changing display-only fields keeps the existing encrypted value', async () => {
     await request(app).put('/api/v1/email-settings').send({ smtp_host: 'a.example.com', smtp_password: 'hunter2' });
     expect(store[1].smtp_password_encrypted).toBe('enc:hunter2');
 
-    const res = await request(app).put('/api/v1/email-settings').send({ smtp_host: 'b.example.com' });
+    const res = await request(app).put('/api/v1/email-settings').send({ from_name: 'Updated ISP' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.smtp_host).toBe('b.example.com');
+    expect(res.body.data.smtp_host).toBe('a.example.com');
+    expect(res.body.data.from_name).toBe('Updated ISP');
     expect(res.body.data.configured).toBe(true);
+    expect(store[1].smtp_password_encrypted).toBe('enc:hunter2');
+  });
+
+  it('requires password confirmation when the SMTP connection changes', async () => {
+    await request(app).put('/api/v1/email-settings').send({ smtp_host: 'a.example.com', smtp_password: 'hunter2' });
+
+    const res = await request(app).put('/api/v1/email-settings').send({ smtp_host: 'b.example.com' });
+
+    expect(res.status).toBe(422);
+    expect(store[1].smtp_host).toBe('a.example.com');
     expect(store[1].smtp_password_encrypted).toBe('enc:hunter2');
   });
 

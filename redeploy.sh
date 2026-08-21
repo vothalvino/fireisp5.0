@@ -409,6 +409,22 @@ restore from a pre-459 backup during an approved outage.
 EOF
     exit 1
   fi
+  if ! git -C "$APP_DIR" cat-file -e "${TAG}^{commit}:database/migrations/460_client_communication_contact_epoch.sql" 2>/dev/null; then
+    cat >&2 <<'EOF'
+error: refusing to start an application version that predates migration 460.
+
+Migration 460 is a one-way client-communication privacy boundary: upgraded
+queues carry destination and organization epochs plus a server-owned message
+class, and legacy marketing consent is withdrawn. An older image would ignore
+those fences and could send after an opt-out, contact change, or organization
+lifecycle transition.
+
+Roll forward with a corrected post-460 image. Do not restore an old image
+unless you are performing a separately rehearsed full database-and-application
+restore from a pre-460 backup during an approved outage.
+EOF
+    exit 1
+  fi
 fi
 
 # -----------------------------------------------------------------------------

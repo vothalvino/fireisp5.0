@@ -4,6 +4,8 @@
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
+  getConnection: jest.fn(),
+  withTenantContext: jest.fn(async (_organizationId, callback) => callback()),
 }));
 
 jest.mock('../src/utils/logger', () => ({
@@ -75,6 +77,16 @@ function buildApp() {
   return app;
 }
 
+beforeEach(() => {
+  db.getConnection.mockResolvedValue({
+    beginTransaction: jest.fn().mockResolvedValue(undefined),
+    execute: jest.fn((...args) => db.query(...args)),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn(),
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ClientDndPreference model
 // ---------------------------------------------------------------------------
@@ -113,10 +125,12 @@ describe('GET /clients/:clientId/dnd', () => {
   });
 
   test('returns DND preferences for a client', async () => {
-    db.query.mockResolvedValueOnce([[
-      { id: 1, client_id: 5, channel: 'email', opt_out: 1 },
-      { id: 2, client_id: 5, channel: 'sms',   opt_out: 0 },
-    ]]);
+    db.query
+      .mockResolvedValueOnce([[{ id: 5 }]])
+      .mockResolvedValueOnce([[
+        { id: 1, client_id: 5, channel: 'email', opt_out: 1 },
+        { id: 2, client_id: 5, channel: 'sms',   opt_out: 0 },
+      ]]);
 
     const res = await request(app).get('/clients/5/dnd');
 
@@ -130,7 +144,9 @@ describe('GET /clients/:clientId/dnd', () => {
   });
 
   test('returns empty array when client has no DND prefs', async () => {
-    db.query.mockResolvedValueOnce([[]]);
+    db.query
+      .mockResolvedValueOnce([[{ id: 99 }]])
+      .mockResolvedValueOnce([[]]);
 
     const res = await request(app).get('/clients/99/dnd');
 
@@ -150,12 +166,14 @@ describe('PUT /clients/:clientId/dnd', () => {
   });
 
   test('upserts multiple DND preferences', async () => {
-    // Two upserts + two selects
-    db.query
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPSERT email
-      .mockResolvedValueOnce([[{ id: 1, client_id: 7, channel: 'email', opt_out: 1 }]])
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPSERT sms
-      .mockResolvedValueOnce([[{ id: 2, client_id: 7, channel: 'sms', opt_out: 0 }]]);
+    db.query.mockImplementation(async (sql, params = []) => {
+      if (/SELECT id FROM clients/.test(sql)) return [[{ id: 7 }]];
+      if (/SELECT \* FROM client_dnd_preferences/.test(sql)) {
+        const channel = params[1];
+        return [[{ id: channel === 'email' ? 1 : 2, client_id: 7, channel, opt_out: channel === 'email' ? 1 : 0 }]];
+      }
+      return [{ affectedRows: 1 }];
+    });
 
     const res = await request(app)
       .put('/clients/7/dnd')
@@ -166,7 +184,7 @@ describe('PUT /clients/:clientId/dnd', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
-    expect(db.query).toHaveBeenCalledTimes(4);
+    expect(db.query).toHaveBeenCalledTimes(11);
   });
 
   test('returns 422 when body is not an array', async () => {
@@ -207,9 +225,13 @@ describe('PATCH /clients/:clientId/dnd/:channel', () => {
   });
 
   test('upserts a single channel DND preference', async () => {
-    db.query
-      .mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([[{ id: 3, client_id: 8, channel: 'whatsapp', opt_out: 1 }]]);
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT id FROM clients/.test(sql)) return [[{ id: 8 }]];
+      if (/SELECT \* FROM client_dnd_preferences/.test(sql)) {
+        return [[{ id: 3, client_id: 8, channel: 'whatsapp', opt_out: 1 }]];
+      }
+      return [{ affectedRows: 1 }];
+    });
 
     const res = await request(app)
       .patch('/clients/8/dnd/whatsapp')
@@ -218,7 +240,7 @@ describe('PATCH /clients/:clientId/dnd/:channel', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.channel).toBe('whatsapp');
     expect(res.body.data.opt_out).toBe(1);
-    const upsertCall = db.query.mock.calls[0];
+    const upsertCall = db.query.mock.calls.find(([sql]) => /INSERT INTO client_dnd_preferences/.test(sql));
     expect(upsertCall[0]).toContain('ON DUPLICATE KEY UPDATE');
     expect(upsertCall[1]).toContain('whatsapp');
   });
@@ -241,23 +263,29 @@ describe('PATCH /clients/:clientId/dnd/:channel', () => {
   });
 
   test('upserts with quiet_hours', async () => {
-    db.query
-      .mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([[{
-        id: 4,
-        client_id: 9,
-        channel: 'sms',
-        opt_out: 0,
-        quiet_hours_start: '22:00:00',
-        quiet_hours_end: '08:00:00',
-      }]]);
+    db.query.mockImplementation(async (sql) => {
+      if (/SELECT id FROM clients/.test(sql)) return [[{ id: 9 }]];
+      if (/SELECT \* FROM client_dnd_preferences/.test(sql)) {
+        return [[{
+          id: 4,
+          client_id: 9,
+          channel: 'sms',
+          opt_out: 0,
+          quiet_hours_start: '22:00:00',
+          quiet_hours_end: '08:00:00',
+        }]];
+      }
+      return [{ affectedRows: 1 }];
+    });
 
     const res = await request(app)
       .patch('/clients/9/dnd/sms')
       .send({ opt_out: false, quiet_hours_start: '22:00:00', quiet_hours_end: '08:00:00' });
 
     expect(res.status).toBe(200);
-    const upsertCall = db.query.mock.calls[0];
+    const upsertCall = db.query.mock.calls.find(([sql]) => (
+      /INSERT INTO client_dnd_preferences/.test(sql) && /VALUES \(\?, \?, \?, \?, \?, \?, \?\)/.test(sql)
+    ));
     expect(upsertCall[1]).toContain('22:00:00');
     expect(upsertCall[1]).toContain('08:00:00');
   });

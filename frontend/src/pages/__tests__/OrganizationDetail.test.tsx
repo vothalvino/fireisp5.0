@@ -103,6 +103,46 @@ describe('OrganizationDetail page', () => {
     expect(body).not.toHaveProperty('smtp_password');
   });
 
+  it('clears a stored function password only through the explicit clear control', async () => {
+    mockPut.mockResolvedValue({ data: { data: IDENTITIES[2] }, error: undefined });
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(screen.getByRole('button', { name: 'Mail' }));
+    fireEvent.click(await screen.findByText('Billing'));
+
+    fireEvent.click(await screen.findByLabelText(/Clear stored password on save/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1));
+    const body = (mockPut.mock.calls[0][1] as { body: Record<string, unknown> }).body;
+    expect(body.smtp_password).toBe('');
+  });
+
+  it('blocks a connection identity change until the stored password is replaced or cleared', async () => {
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(screen.getByRole('button', { name: 'Mail' }));
+    fireEvent.click(await screen.findByText('Billing'));
+
+    fireEvent.change(await screen.findByDisplayValue('b.smtp'), { target: { value: 'new.smtp' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/enter a replacement password or choose to clear/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.getAllByText(/enter a replacement password or choose to clear/i)).toHaveLength(2));
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it('shows the safe backend detail when saving an email identity fails', async () => {
+    mockPut.mockResolvedValue({ data: undefined, error: { error: { message: 'SMTP credentials could not be stored safely.' } } });
+    renderPage();
+    await screen.findByText('🏢 Demo ISP');
+    fireEvent.click(screen.getByRole('button', { name: 'Mail' }));
+    fireEvent.click(await screen.findByText('Support'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('SMTP credentials could not be stored safely.')).toBeInTheDocument();
+  });
+
   it('sends a test email through the addressed function', async () => {
     mockPost.mockResolvedValue({ data: { data: { success: true } }, error: undefined });
     renderPage();

@@ -10,11 +10,18 @@ const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
 const { requirePermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
+const { NotFoundError } = require('../utils/errors');
+const communicationPreferences = require('../services/clientCommunicationPreferenceService');
+const auditLog = require('../services/auditLog');
 
 const router = Router();
 
 router.use(authenticate);
 router.use(orgScope);
+router.use((_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  next();
+});
 
 const CHANNELS = ['email', 'sms', 'whatsapp', 'all'];
 
@@ -83,9 +90,16 @@ function validateDndItem(item) {
 router.get('/:clientId/dnd', requirePermission('dnd.view'), async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.clientId, 10);
+    const [clients] = await db.query(
+      `SELECT id FROM clients
+        WHERE id = ? AND organization_id <=> ? AND deleted_at IS NULL
+        LIMIT 1`,
+      [clientId, req.orgId ?? null],
+    );
+    if (!clients[0]) throw new NotFoundError('Client');
     const [rows] = await db.query(
-      'SELECT * FROM client_dnd_preferences WHERE client_id = ? AND organization_id = ?',
-      [clientId, req.orgId],
+      'SELECT * FROM client_dnd_preferences WHERE client_id = ? AND organization_id <=> ?',
+      [clientId, req.orgId ?? null],
     );
     res.json({ data: rows });
   } catch (err) {
@@ -155,28 +169,37 @@ router.put('/:clientId/dnd', requirePermission('dnd.update'), async (req, res, n
       });
     }
 
-    const results = [];
-    for (const pref of prefs) {
-      const { channel, opt_out, quiet_hours_start = null, quiet_hours_end = null, reason = null } = pref;
-
-      await db.query(
-        `INSERT INTO client_dnd_preferences
-           (organization_id, client_id, channel, opt_out, quiet_hours_start, quiet_hours_end, reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           opt_out = VALUES(opt_out),
-           quiet_hours_start = VALUES(quiet_hours_start),
-           quiet_hours_end = VALUES(quiet_hours_end),
-           reason = VALUES(reason)`,
-        [req.orgId, clientId, channel, opt_out ? 1 : 0, quiet_hours_start, quiet_hours_end, reason],
-      );
-
-      const [rows] = await db.query(
-        'SELECT * FROM client_dnd_preferences WHERE client_id = ? AND channel = ? AND organization_id = ?',
-        [clientId, channel, req.orgId],
-      );
-      if (rows[0]) results.push(rows[0]);
+    const channels = prefs.map(pref => pref.channel);
+    if (new Set(channels).size !== channels.length
+        || (channels.includes('all') && channels.length > 1)) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Each channel may appear once, and all cannot be combined with individual channels',
+        },
+      });
     }
+
+    const results = await communicationPreferences.setClientPreferences({
+      organizationId: req.orgId,
+      clientId,
+      preferences: prefs.map(pref => ({
+        channel: pref.channel,
+        optOut: pref.opt_out,
+        quietHoursStart: pref.quiet_hours_start ?? null,
+        quietHoursEnd: pref.quiet_hours_end ?? null,
+        reason: pref.reason ?? null,
+      })),
+    });
+
+    await auditLog.log({
+      userId: req.user?.id,
+      organizationId: req.orgId,
+      action: 'update',
+      tableName: 'client_dnd_preferences',
+      recordId: clientId,
+      summary: `Updated client communication preferences for channels: ${channels.join(', ')}`,
+    });
 
     res.json({ data: results });
   } catch (err) {
@@ -241,24 +264,28 @@ router.patch(
 
       const { opt_out, quiet_hours_start = null, quiet_hours_end = null, reason = null } = req.body;
 
-      await db.query(
-        `INSERT INTO client_dnd_preferences
-           (organization_id, client_id, channel, opt_out, quiet_hours_start, quiet_hours_end, reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           opt_out = VALUES(opt_out),
-           quiet_hours_start = VALUES(quiet_hours_start),
-           quiet_hours_end = VALUES(quiet_hours_end),
-           reason = VALUES(reason)`,
-        [req.orgId, clientId, channel, opt_out ? 1 : 0, quiet_hours_start, quiet_hours_end, reason],
-      );
+      const [preference] = await communicationPreferences.setClientPreferences({
+        organizationId: req.orgId,
+        clientId,
+        preferences: [{
+          channel,
+          optOut: opt_out,
+          quietHoursStart: quiet_hours_start,
+          quietHoursEnd: quiet_hours_end,
+          reason,
+        }],
+      });
 
-      const [rows] = await db.query(
-        'SELECT * FROM client_dnd_preferences WHERE client_id = ? AND channel = ? AND organization_id = ?',
-        [clientId, channel, req.orgId],
-      );
+      await auditLog.log({
+        userId: req.user?.id,
+        organizationId: req.orgId,
+        action: 'update',
+        tableName: 'client_dnd_preferences',
+        recordId: clientId,
+        summary: `Updated client communication preference for channel: ${channel}`,
+      });
 
-      res.json({ data: rows[0] || null });
+      res.json({ data: preference || null });
     } catch (err) {
       next(err);
     }

@@ -74,6 +74,7 @@ async function runSchedule(schedule) {
       try {
         await emailTransport.sendEmail({
           organizationId: schedule.organization_id,
+          operationalRecipient: true,
           to: email,
           subject: `[FireISP] Scheduled Report: ${schedule.report_def_name}`,
           html: `<p>Your scheduled report <strong>${esc(schedule.report_def_name)}</strong> is attached.</p>

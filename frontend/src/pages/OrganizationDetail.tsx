@@ -82,6 +82,18 @@ type TabId = 'edit' | 'settings' | 'quota' | 'mail' | 'privacy' | 'fiscal';
 const label = { display: 'block', fontSize: '0.8rem', fontWeight: 600 as const, margin: '0.6rem 0 0.2rem' };
 const input = { width: '100%', maxWidth: 440, padding: '6px 8px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: 6, background: 'var(--bg-primary, #fff)', color: 'inherit', fontSize: '0.85rem' };
 
+function apiErrorMessage(error: unknown, fallback: string): string {
+  const candidate = error as {
+    error?: string | { message?: string };
+    message?: string;
+  } | null;
+  if (typeof candidate?.error === 'string' && candidate.error) return candidate.error;
+  const nestedMessage = candidate?.error && typeof candidate.error === 'object'
+    ? candidate.error.message
+    : undefined;
+  return nestedMessage || candidate?.message || fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Edit tab
 // ---------------------------------------------------------------------------
@@ -383,12 +395,26 @@ function IdentityEditor({ id, identity }: { id: number; identity: EmailIdentity 
     from_email: identity.from_email ?? '',
     from_name: identity.from_name ?? '',
   });
+  const [clearStoredPassword, setClearStoredPassword] = useState(false);
   const [testTo, setTestTo] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
+  const normalizedHost = (value: string | null | undefined) => (value ?? '').trim().toLowerCase().replace(/\.+$/, '');
+  const connectionIdentityChanged = identity.has_password && (
+    normalizedHost(form.smtp_host) !== normalizedHost(identity.smtp_host)
+    || Number(form.smtp_port || 587) !== Number(identity.smtp_port || 587)
+    || form.smtp_secure !== identity.smtp_secure
+    || form.smtp_user.trim() !== (identity.smtp_user ?? '').trim()
+  );
+  const connectionChangeNeedsPasswordAction = connectionIdentityChanged
+    && !form.smtp_password
+    && !clearStoredPassword;
 
   const save = useMutation({
     mutationFn: async () => {
+      if (connectionChangeNeedsPasswordAction) {
+        throw new Error(t('orgDetail.connectionChangeRequiresPassword'));
+      }
       const body: Record<string, unknown> = {
         enabled: form.enabled,
         smtp_host: form.smtp_host || null,
@@ -401,22 +427,25 @@ function IdentityEditor({ id, identity }: { id: number; identity: EmailIdentity 
         from_email: form.from_email || null,
         from_name: form.from_name || null,
       };
-      if (form.smtp_password) body.smtp_password = form.smtp_password;
+      if (clearStoredPassword) body.smtp_password = '';
+      else if (form.smtp_password) body.smtp_password = form.smtp_password;
       const res = await api.PUT('/organizations/{id}/email-settings/{function}', { params: { path: { id, function: fn as 'general' | 'support' | 'billing' | 'noc' } }, body: body as never });
-      if (res.error) throw new Error('save failed');
+      const requestError: unknown = res.error;
+      if (requestError) throw new Error(apiErrorMessage(requestError, t('orgDetail.saveError')));
     },
-    onSuccess: () => { setMsg({ ok: true, text: t('orgDetail.saved') }); setForm(f => ({ ...f, smtp_password: '' })); qc.invalidateQueries({ queryKey: ['org-email-identities', id] }); },
-    onError: () => setMsg({ ok: false, text: t('orgDetail.saveError') }),
+    onSuccess: () => { setMsg({ ok: true, text: t('orgDetail.saved') }); setForm(f => ({ ...f, smtp_password: '' })); setClearStoredPassword(false); qc.invalidateQueries({ queryKey: ['org-email-identities', id] }); },
+    onError: (error: Error) => setMsg({ ok: false, text: error.message || t('orgDetail.saveError') }),
   });
 
   const test = useMutation({
     mutationFn: async (): Promise<{ success: boolean; error?: string }> => {
       const res = await api.POST('/organizations/{id}/email-settings/{function}/test', { params: { path: { id, function: fn as 'general' | 'support' | 'billing' | 'noc' } }, body: { to: testTo.trim() } as never });
-      if (res.error) throw new Error('test request failed');
+      const requestError: unknown = res.error;
+      if (requestError) throw new Error(apiErrorMessage(requestError, t('orgDetail.mailTestFail', { error: '' })));
       return (res.data as unknown as { data: { success: boolean; error?: string } }).data;
     },
     onSuccess: (r) => { setMsg(r.success ? { ok: true, text: t('orgDetail.mailTestOk') } : { ok: false, text: t('orgDetail.mailTestFail', { error: r.error ?? '' }) }); qc.invalidateQueries({ queryKey: ['org-email-identities', id] }); },
-    onError: () => setMsg({ ok: false, text: t('orgDetail.mailTestFail', { error: '' }) }),
+    onError: (error: Error) => setMsg({ ok: false, text: t('orgDetail.mailTestFail', { error: error.message }) }),
   });
 
   return (
@@ -432,11 +461,30 @@ function IdentityEditor({ id, identity }: { id: number; identity: EmailIdentity 
       <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
         <input type="checkbox" checked={form.smtp_secure} onChange={e => set('smtp_secure', e.target.checked)} /> {t('orgDetail.smtpSecure')}
       </label>
+      <p style={{ ...styles.msg, fontSize: '0.76rem', margin: '0.2rem 0 0.5rem' }}>{t('orgDetail.smtpSecureHint')}</p>
       <label style={label}>{t('orgDetail.smtpUser')}<input style={input} value={form.smtp_user} onChange={e => set('smtp_user', e.target.value)} autoComplete="off" /></label>
       <label style={label}>{t('orgDetail.smtpPassword')}
         <input style={input} type="password" value={form.smtp_password} autoComplete="new-password"
-          placeholder={identity.has_password ? t('orgDetail.secretSaved') : ''} onChange={e => set('smtp_password', e.target.value)} />
+          placeholder={identity.has_password ? t('orgDetail.secretSaved') : ''} disabled={clearStoredPassword}
+          onChange={e => { setClearStoredPassword(false); set('smtp_password', e.target.value); }} />
       </label>
+      {identity.has_password && (
+        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
+          <input
+            type="checkbox"
+            checked={clearStoredPassword}
+            onChange={e => {
+              setClearStoredPassword(e.target.checked);
+              if (e.target.checked) set('smtp_password', '');
+            }}
+          />
+          {t('orgDetail.clearStoredPassword')}
+        </label>
+      )}
+      {clearStoredPassword && <p style={{ ...styles.msg, color: '#92400e' }}>{t('orgDetail.clearStoredPasswordHint')}</p>}
+      {connectionChangeNeedsPasswordAction && (
+        <p role="alert" style={{ ...styles.msg, color: '#991b1b' }}>{t('orgDetail.connectionChangeRequiresPassword')}</p>
+      )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
         <button style={styles.btnPrimary} onClick={() => { setMsg(null); save.mutate(); }} disabled={save.isPending}>

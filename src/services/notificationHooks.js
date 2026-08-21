@@ -109,6 +109,8 @@ function registerHooks() {
           + '<p>Si tienes alguna duda, responde a este correo o abre un ticket de soporte.</p>';
         await emailTransport.sendEmail({
           organizationId,
+          clientId: order.client_id,
+          messageClass: 'transactional',
           to: client.email,
           subject,
           html,
@@ -122,6 +124,7 @@ function registerHooks() {
           clientId: order.client_id,
           to:       client.phone,
           body:     smsBody,
+          messageClass: 'transactional',
         }).catch(err => logger.warn({ err, event: 'service_order.activated' }, 'SMS queue error'));
       }
 
@@ -157,6 +160,8 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          clientId: invoice.client_id,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
@@ -173,6 +178,7 @@ function registerHooks() {
           clientId: invoice.client_id,
           to:       client.phone,
           body:     smsBody,
+          messageClass: 'transactional',
         }).catch(err => logger.warn({ err, event: 'invoice.created' }, 'SMS queue error'));
       }
 
@@ -226,6 +232,8 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          clientId: payment.client_id,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
@@ -242,6 +250,7 @@ function registerHooks() {
           clientId: payment.client_id,
           to:       client.phone,
           body:     smsBody,
+          messageClass: 'transactional',
         }).catch(err => logger.warn({ err, event: 'payment.received' }, 'SMS queue error'));
       }
 
@@ -289,6 +298,8 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          clientId: contract.client_id,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
@@ -305,6 +316,7 @@ function registerHooks() {
           clientId: contract.client_id,
           to:       client.phone,
           body:     smsBody,
+          messageClass: 'transactional',
         }).catch(err => logger.warn({ err, event: 'contract.suspended' }, 'SMS queue error'));
       }
 
@@ -340,9 +352,10 @@ function registerHooks() {
   });
 
   // --- Suspension Warning ---
-  eventBus.on('suspension.warning', async ({ organizationId, _contract, client, invoice, daysOverdue }) => {
+  eventBus.on('suspension.warning', async ({ organizationId, contract, client, invoice, daysOverdue }) => {
     try {
-      if (client?.email) {
+      const clientId = client?.id || invoice?.client_id || contract?.client_id || null;
+      if (client?.email && clientId) {
         const template = templates.suspensionWarningEmail({
           clientName: client.name || '',
           daysOverdue,
@@ -354,6 +367,8 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          clientId,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject: template.subject,
@@ -362,15 +377,16 @@ function registerHooks() {
       }
 
       // SMS: suspension warning to client phone
-      if (client?.phone) {
+      if (client?.phone && clientId) {
         const clientName = client.name || '';
         const invoiceRef = invoice?.invoice_number ? ` (factura ${invoice.invoice_number})` : '';
         const smsBody = `Hola ${clientName}, tienes ${daysOverdue} día(s) de atraso${invoiceRef}. Realiza tu pago para evitar la suspensión.`;
         await smsTransport.queueSms({
           organizationId,
-          clientId: invoice?.client_id || null,
+          clientId,
           to:       client.phone,
           body:     smsBody,
+          messageClass: 'transactional',
         }).catch(err => logger.warn({ err, event: 'suspension.warning' }, 'SMS queue error'));
       }
     } catch (err) {
@@ -431,6 +447,7 @@ function registerHooks() {
             + '<p>Consulta los detalles en tu panel de técnico.</p>';
           await emailTransport.sendEmail({
             organizationId,
+            operationalRecipient: true,
             emailFunction: 'support',
             to: assignee.email,
             subject: `Orden de trabajo asignada: #${workOrder.id} ${workOrder.title}`,
@@ -507,6 +524,7 @@ function registerHooks() {
           if (admin.email) {
             await emailTransport.sendEmail({
               organizationId,
+              operationalRecipient: true,
               emailFunction: 'noc',
               to: admin.email,
               subject: `Interrupción reportada: ${outage.title}`,
@@ -634,6 +652,7 @@ function registerHooks() {
             + (device.ip_address ? `<p>IP: ${esc(device.ip_address)}</p>` : '');
           await emailTransport.sendEmail({
             organizationId,
+            operationalRecipient: true,
             emailFunction: 'noc',
             to: recipient.email,
             subject: title,
@@ -754,6 +773,7 @@ function registerHooks() {
             + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
           await emailTransport.sendEmail({
             organizationId,
+            operationalRecipient: true,
             emailFunction: 'noc',
             to: recipient.email,
             subject: title,
@@ -847,6 +867,7 @@ function registerHooks() {
               + (deviceName ? `<p>Dispositivo: ${esc(deviceName)}</p>` : '');
             await emailTransport.sendEmail({
               organizationId,
+              operationalRecipient: true,
               emailFunction: 'noc',
               to: step.recipient_email,
               subject: title,
@@ -905,6 +926,7 @@ function registerHooks() {
           + `<p>Vencimiento: ${reminder.due_at ? new Date(reminder.due_at).toISOString().slice(0, 16).replace('T', ' ') : 'N/A'}</p>`;
         await emailTransport.sendEmail({
           organizationId,
+          operationalRecipient: true,
           emailFunction: 'support',
           to: reminder.assignee_email,
           subject: `Seguimiento pendiente: ${reminder.title}`,
@@ -947,6 +969,8 @@ function registerHooks() {
           + '<p>¡Gracias por ayudarnos a mejorar!</p>';
         await emailTransport.sendEmail({
           organizationId,
+          clientId: survey.client_id,
+          messageClass: 'marketing',
           emailFunction: 'support',
           to: client.email,
           subject: isNps ? 'Tu opinión nos importa — encuesta rápida' : '¿Cómo fue tu experiencia de soporte?',
@@ -1044,6 +1068,8 @@ function registerHooks() {
           if (client.email) {
             await emailTransport.sendEmail({
               organizationId,
+              clientId: client.id,
+              messageClass: 'transactional',
               emailFunction: 'noc',
               to: client.email,
               subject: `Aviso de mantenimiento: ${maintenance.title}`,
@@ -1056,6 +1082,7 @@ function registerHooks() {
               clientId: client.id,
               to: client.phone,
               body: smsBody,
+              messageClass: 'transactional',
             }).catch(err2 => logger.warn({ err: err2 }, 'Maintenance SMS error'));
           }
         }
@@ -1080,6 +1107,8 @@ function registerHooks() {
 
         await emailTransport.sendEmail({
           organizationId,
+          clientId: invoice.client_id,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject,
@@ -1118,6 +1147,8 @@ function registerHooks() {
       if (client?.email) {
         await emailTransport.sendEmail({
           organizationId,
+          clientId: refundRequest.client_id || client.id,
+          messageClass: 'transactional',
           emailFunction: 'billing',
           to: client.email,
           subject: 'Your refund has been processed',
@@ -1164,6 +1195,7 @@ function registerHooks() {
         if (!admin.email) continue;
         await emailTransport.sendEmail({
           organizationId,
+          operationalRecipient: true,
           emailFunction: 'noc',
           to: admin.email,
           subject: `IP Pool Alert: ${pool.name} at ${percent}% capacity`,

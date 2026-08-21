@@ -145,20 +145,34 @@ describe('GET /api/v1/regulatory-compliance/consent', () => {
 });
 
 describe('POST /api/v1/regulatory-compliance/consent', () => {
+  let consentClientStatus;
+
   beforeEach(() => {
+    consentClientStatus = 'active';
     mockDbAuth();
     db.query.mockImplementation((sql) => {
-      if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
+      if (typeof sql === 'string' && sql.includes('`users`') && sql.includes('WHERE id = ?')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 10 }]]);
       }
       if (typeof sql === 'string' && sql.includes('INSERT INTO audit_logs')) {
         return Promise.resolve([{ insertId: 99 }]);
       }
+      if (typeof sql === 'string' && /FROM clients[\s\S]*WHERE id = \? AND organization_id <=> \?/.test(sql)) {
+        return Promise.resolve([[
+          { id: 1, status: consentClientStatus, email_contact_epoch: 4, phone_contact_epoch: 6 },
+        ]]);
+      }
       if (typeof sql === 'string' && sql.includes('INSERT INTO subscriber_consents')) {
         return Promise.resolve([{ insertId: 1, affectedRows: 1 }]);
       }
+      if (typeof sql === 'string' && sql.includes('FROM client_dnd_preferences')) {
+        return Promise.resolve([[
+          { organization_id: 10, client_id: 1, channel: 'email', opt_out: 0 },
+        ]]);
+      }
       return Promise.resolve([[]]);
     });
+    mockTxConnection(db);
   });
   afterEach(() => { jest.clearAllMocks(); });
 
@@ -177,10 +191,31 @@ describe('POST /api/v1/regulatory-compliance/consent', () => {
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('id');
   });
+
+  it('rejects a new marketing grant for an inactive client', async () => {
+    consentClientStatus = 'inactive';
+
+    const res = await request(app)
+      .post('/api/v1/regulatory-compliance/consent')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '10')
+      .send({
+        client_id: 1,
+        consent_version: '1.0',
+        purpose: 'marketing',
+        channel: 'phone',
+        communication_channel: 'email',
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/inactive client/i);
+    expect(db.query.mock.calls.some(([sql]) => /INSERT INTO subscriber_consents/.test(sql))).toBe(false);
+  });
 });
 
 describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
   let conn;
+  let consent;
 
   beforeEach(() => {
     mockDbAuth();
@@ -194,12 +229,19 @@ describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
       return Promise.resolve([{ affectedRows: 1 }]);
     });
 
+    consent = { id: 1, client_id: 7, purpose: 'marketing', communication_channel: 'email' };
     conn = {
       beginTransaction: jest.fn().mockResolvedValue(undefined),
       execute: jest.fn().mockImplementation((sql) => {
-        if (typeof sql === 'string' && sql.includes('FROM subscriber_consents') && sql.includes('FOR UPDATE')) {
+        if (typeof sql === 'string' && sql.includes('FROM subscriber_consents')) {
+          return Promise.resolve([consent ? [consent] : []]);
+        }
+        if (typeof sql === 'string' && sql.includes('FROM clients')) {
+          return Promise.resolve([[{ id: 7 }]]);
+        }
+        if (typeof sql === 'string' && sql.includes('FROM client_dnd_preferences')) {
           return Promise.resolve([[
-            { id: 1, client_id: 7, purpose: 'marketing', communication_channel: 'email' },
+            { organization_id: 10, client_id: 7, channel: 'email', opt_out: 1 },
           ]]);
         }
         return Promise.resolve([{ affectedRows: 1 }]);
@@ -226,23 +268,32 @@ describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
     expect(conn.release).toHaveBeenCalledTimes(1);
 
     const [lookupSql, lookupParams] = conn.execute.mock.calls[0];
-    expect(lookupSql).toMatch(/WHERE id = \? AND organization_id = \?[\s\S]*FOR UPDATE/);
+    expect(lookupSql).toMatch(/WHERE id = \? AND organization_id = \?/);
+    expect(lookupSql).not.toMatch(/FOR UPDATE/);
     expect(lookupParams).toEqual(['1', 10]);
 
-    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[1];
+    const [clientLockSql, clientLockParams] = conn.execute.mock.calls[1];
+    expect(clientLockSql).toMatch(/FROM clients[\s\S]*FOR UPDATE/);
+    expect(clientLockParams).toEqual([7, 10]);
+
+    const [lockedSql, lockedParams] = conn.execute.mock.calls[2];
+    expect(lockedSql).toMatch(/FROM subscriber_consents[\s\S]*client_id = \?[\s\S]*FOR UPDATE/);
+    expect(lockedParams).toEqual(['1', 10, 7]);
+
+    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[3];
     expect(withdrawSql).toMatch(/organization_id = \? AND client_id = \?/);
     expect(withdrawSql).toMatch(/purpose = 'marketing' AND communication_channel = \?/);
     expect(withdrawSql).toMatch(/withdrawn_at IS NULL/);
     expect(withdrawParams).toEqual([10, 7, 'email']);
 
-    const [dndSql, dndParams] = conn.execute.mock.calls[2];
+    const [dndSql, dndParams] = conn.execute.mock.calls[6];
     expect(dndSql).toMatch(/INSERT INTO client_dnd_preferences/);
-    expect(dndSql).toMatch(/ON DUPLICATE KEY UPDATE[\s\S]*opt_out = 1/);
-    expect(dndParams).toEqual([10, 7, 'email', 'Marketing consent withdrawn']);
+    expect(dndSql).toMatch(/ON DUPLICATE KEY UPDATE[\s\S]*opt_out = VALUES\(opt_out\)/);
+    expect(dndParams).toEqual([10, 7, 'email', 1, null, null, 'Marketing consent withdrawn']);
   });
 
   it('rolls back and returns 404 when the consent does not belong to the tenant', async () => {
-    conn.execute.mockResolvedValueOnce([[]]);
+    consent = null;
 
     const res = await request(app)
       .put('/api/v1/regulatory-compliance/consent/99/withdraw')
@@ -257,10 +308,7 @@ describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
   });
 
   it('preserves per-entry withdrawal behavior for non-marketing consent without changing DND', async () => {
-    conn.execute.mockResolvedValueOnce([[
-      { id: 2, client_id: 7, purpose: 'service_delivery', communication_channel: null },
-    ]]);
-    conn.execute.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    consent = { id: 2, client_id: 7, purpose: 'service_delivery', communication_channel: null };
 
     const res = await request(app)
       .put('/api/v1/regulatory-compliance/consent/2/withdraw')
@@ -269,8 +317,8 @@ describe('PUT /api/v1/regulatory-compliance/consent/:id/withdraw', () => {
 
     expect(res.status).toBe(200);
     expect(conn.commit).toHaveBeenCalledTimes(1);
-    expect(conn.execute).toHaveBeenCalledTimes(2);
-    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[1];
+    expect(conn.execute).toHaveBeenCalledTimes(4);
+    const [withdrawSql, withdrawParams] = conn.execute.mock.calls[3];
     expect(withdrawSql).toMatch(/WHERE id = \? AND organization_id = \? AND withdrawn_at IS NULL/);
     expect(withdrawParams).toEqual(['2', 10]);
     expect(conn.execute.mock.calls.some(([sql]) => /client_dnd_preferences/.test(sql))).toBe(false);

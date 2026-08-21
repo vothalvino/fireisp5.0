@@ -213,10 +213,34 @@ router.post('/email', bulkEmailLimiter, requirePermission('campaigns.create'), v
       return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Maximum 1000 clients per batch' } });
     }
 
-    // Fetch client emails
+    // Bulk messages are promotional client communication. Snapshot only
+    // current, affirmatively-consented email destinations that are not
+    // suppressed; emailTransport repeats the same check immediately before
+    // SMTP I/O so a concurrent opt-out still wins.
     const placeholders = client_ids.map(() => '?').join(',');
     const [clients] = await db.query(
-      `SELECT id, email, name FROM clients WHERE id IN (${placeholders}) AND organization_id = ? AND deleted_at IS NULL`,
+      `SELECT c.id, c.email, c.name
+         FROM clients c
+        WHERE c.id IN (${placeholders})
+          AND c.organization_id = ? AND c.deleted_at IS NULL
+          AND c.status <> 'inactive'
+          AND c.email IS NOT NULL AND c.email <> ''
+          AND EXISTS (
+            SELECT 1 FROM subscriber_consents consent
+             WHERE consent.client_id = c.id
+               AND consent.organization_id <=> c.organization_id
+               AND consent.purpose = 'marketing'
+               AND consent.communication_channel = 'email'
+               AND consent.withdrawn_at IS NULL
+               AND consent.communication_contact_epoch = c.email_contact_epoch
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM client_dnd_preferences dnd
+             WHERE dnd.client_id = c.id
+               AND dnd.organization_id <=> c.organization_id
+               AND dnd.channel IN ('all', 'email')
+               AND dnd.opt_out = 1
+          )`,
       [...client_ids, orgId],
     );
 
@@ -232,7 +256,13 @@ router.post('/email', bulkEmailLimiter, requirePermission('campaigns.create'), v
       }
     }
 
-    const results = { queued: clients.length, not_found: client_ids.length - clients.length };
+    const results = {
+      queued: clients.length,
+      // Kept for API compatibility; this count now also includes clients
+      // skipped because affirmative email consent is absent or DND blocks it.
+      not_found: client_ids.length - clients.length,
+      not_found_or_not_eligible: client_ids.length - clients.length,
+    };
 
     logger.info({ orgId, ...results }, 'Bulk email accepted');
     res.json({ data: results });
@@ -257,6 +287,7 @@ router.post('/email', bulkEmailLimiter, requirePermission('campaigns.create'), v
             subject,
             html: customMessageEmail({ recipientName: client.name, bodyText: body }),
             text: body,
+            messageClass: 'marketing',
           });
         } catch (err) {
           logger.error({ orgId, clientId: client.id, err: err.message }, 'Bulk email send failed');

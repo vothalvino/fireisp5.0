@@ -102,6 +102,54 @@ function decrypt(ciphertext) {
   }
 }
 
+function encryptionConfigurationError() {
+  return Object.assign(new Error('Encryption is required for this secret but ENCRYPTION_KEY is unavailable.'), {
+    code: 'ENCRYPTION_NOT_CONFIGURED',
+  });
+}
+
+function invalidCiphertextError() {
+  return Object.assign(new Error('Encrypted secret could not be authenticated.'), {
+    code: 'ENCRYPTED_SECRET_INVALID',
+  });
+}
+
+/**
+ * Fail-closed variants for long-lived credentials. Unlike the compatibility
+ * helpers above, these functions never persist or accept legacy plaintext.
+ */
+function encryptStrict(plaintext) {
+  if (plaintext === null || plaintext === undefined) return plaintext;
+  if (!getKey()) throw encryptionConfigurationError();
+  return encrypt(plaintext);
+}
+
+function decryptStrict(ciphertext) {
+  if (ciphertext === null || ciphertext === undefined) return ciphertext;
+  const key = getKey();
+  if (!key) throw encryptionConfigurationError();
+
+  const parts = String(ciphertext).split(':');
+  if (parts.length !== 3) throw invalidCiphertextError();
+  const [ivHex, tagHex, encHex] = parts;
+  if (!/^[0-9a-fA-F]{24}$/.test(ivHex)
+      || !/^[0-9a-fA-F]{32}$/.test(tagHex)
+      || !/^(?:[0-9a-fA-F]{2})+$/.test(encHex)) {
+    throw invalidCiphertextError();
+  }
+
+  try {
+    const iv = Buffer.from(ivHex, ENCODING);
+    const tag = Buffer.from(tagHex, ENCODING);
+    const encrypted = Buffer.from(encHex, ENCODING);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_LENGTH });
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+  } catch (_err) {
+    throw invalidCiphertextError();
+  }
+}
+
 /**
  * True when ENCRYPTION_KEY is configured — i.e. encrypt() actually encrypts.
  * Callers storing long-lived secrets (CSD private keys) must refuse to write
@@ -112,4 +160,11 @@ function isConfigured() {
   return getKey() !== null;
 }
 
-module.exports = { encrypt, decrypt, getKey, isConfigured };
+module.exports = {
+  encrypt,
+  decrypt,
+  encryptStrict,
+  decryptStrict,
+  getKey,
+  isConfigured,
+};

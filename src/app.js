@@ -760,7 +760,7 @@ v1.use('/sms', smsRoutes);
 v1.use('/communication-campaigns', communicationCampaignRoutes);
 v1.use('/clients', clientDndRoutes);
 v1.use('/invoice-settings', invoiceSettingsRoutes);
-v1.use('/email-settings', emailSettingsRoutes);
+v1.use('/email-settings', adminIpAllowlist, emailSettingsRoutes);
 v1.use('/late-fee-rules', lateFeeRulesRoutes);
 v1.use('/payment-reminder-settings', paymentRemindersRoutes);
 v1.use('/communication', communicationDeliveryRoutes);

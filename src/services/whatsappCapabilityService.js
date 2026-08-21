@@ -243,6 +243,7 @@ async function sendWifiPasswordEmail({ orgId, clientId, client, password }) {
       html: tpl.html,
       organizationId: orgId,
       clientId,
+      messageClass: 'security',
       emailFunction: 'general',
     });
     return !!(r && r.success);

@@ -10,7 +10,11 @@ jest.mock('../src/config/database', () => ({
 const db = require('../src/config/database');
 const Client = require('../src/models/Client');
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  db.query.mockReset();
+  db.getConnection.mockReset();
+});
 
 describe('Client.findDuplicates', () => {
   test('returns [] and runs no query when no criteria provided', async () => {
@@ -70,24 +74,29 @@ describe('Client.setCustomField / deleteCustomField', () => {
 });
 
 describe('Client.merge', () => {
-  test('rejects merging a client into itself', async () => {
-    await expect(Client.merge(5, 5, 42)).rejects.toThrow(/itself/i);
-  });
-
-  test('reassigns records and commits in a transaction', async () => {
-    // findById(source) then findById(target)
-    db.query
-      .mockResolvedValueOnce([[{ id: 10, name: 'Source' }]])
-      .mockResolvedValueOnce([[{ id: 20, name: 'Target' }]]);
-
+  function mergeConnection({ locked = [{ id: 10 }, { id: 20 }], failOn = null } = {}) {
     const conn = {
       beginTransaction: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn().mockResolvedValue([{ affectedRows: 1 }]),
+      query: jest.fn(async (sql) => {
+        if (failOn && failOn.test(sql)) throw new Error('boom');
+        if (/SELECT id FROM clients/.test(sql)) return [locked];
+        return [{ affectedRows: 1 }];
+      }),
       commit: jest.fn().mockResolvedValue(undefined),
       rollback: jest.fn().mockResolvedValue(undefined),
       release: jest.fn(),
     };
     db.getConnection.mockResolvedValue(conn);
+    return conn;
+  }
+
+  test('rejects merging a client into itself', async () => {
+    await expect(Client.merge(5, 5, 42)).rejects.toThrow(/itself/i);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+
+  test('locks tenant-owned clients, unions source DND, withdraws unsafe consent, and commits', async () => {
+    const conn = mergeConnection();
 
     const result = await Client.merge(10, 20, 42);
 
@@ -96,32 +105,51 @@ describe('Client.merge', () => {
     expect(conn.rollback).not.toHaveBeenCalled();
     expect(conn.release).toHaveBeenCalledTimes(1);
     expect(result.moved).toBeDefined();
-    // The final statement soft-deletes the source client.
-    const lastSql = conn.query.mock.calls.at(-1)[0];
-    expect(lastSql).toMatch(/UPDATE clients SET deleted_at/);
+
+    const [lockSql, lockParams] = conn.query.mock.calls[0];
+    expect(lockSql).toMatch(/id IN \(\?, \?\)/);
+    expect(lockSql).toMatch(/organization_id <=> \?/);
+    expect(lockSql).toMatch(/deleted_at IS NULL[\s\S]*ORDER BY id FOR UPDATE/);
+    expect(lockParams).toEqual([10, 20, 42]);
+
+    const [dndSql, dndParams] = conn.query.mock.calls.find(([sql]) => (
+      /INSERT INTO client_dnd_preferences/.test(sql)
+    ));
+    expect(dndSql).toMatch(/SELECT \?, \?, channel, 1/);
+    expect(dndSql).toMatch(/client_id = \? AND organization_id <=> \? AND opt_out = 1/);
+    expect(dndSql).toMatch(/ON DUPLICATE KEY UPDATE[\s\S]*opt_out = 1/);
+    expect(dndParams).toEqual([42, 20, 10, 42]);
+
+    const [consentSql, consentParams] = conn.query.mock.calls.find(([sql]) => (
+      /UPDATE subscriber_consents consent/.test(sql)
+    ));
+    expect(consentSql).toMatch(/purpose = 'marketing'/);
+    expect(consentSql).toMatch(/consent\.client_id = \?/);
+    expect(consentSql).toMatch(/dnd\.channel IN \('all', consent\.communication_channel\)/);
+    expect(consentParams).toEqual([42, 10, 20, 20, 42]);
+
+    const [deleteSql, deleteParams] = conn.query.mock.calls.at(-1);
+    expect(deleteSql).toMatch(/UPDATE clients SET deleted_at = NOW\(\)/);
+    expect(deleteSql).toMatch(/organization_id <=> \? AND deleted_at IS NULL/);
+    expect(deleteParams).toEqual([10, 42]);
   });
 
-  test('rolls back and rethrows when a reassignment fails', async () => {
-    db.query
-      .mockResolvedValueOnce([[{ id: 10 }]])
-      .mockResolvedValueOnce([[{ id: 20 }]]);
-    const conn = {
-      beginTransaction: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn().mockRejectedValue(new Error('boom')),
-      commit: jest.fn(),
-      rollback: jest.fn().mockResolvedValue(undefined),
-      release: jest.fn(),
-    };
-    db.getConnection.mockResolvedValue(conn);
+  test('rolls back DND reconciliation atomically and never deletes source when it fails', async () => {
+    const conn = mergeConnection({ failOn: /INSERT INTO client_dnd_preferences/ });
 
     await expect(Client.merge(10, 20, 42)).rejects.toThrow('boom');
     expect(conn.rollback).toHaveBeenCalledTimes(1);
     expect(conn.commit).not.toHaveBeenCalled();
     expect(conn.release).toHaveBeenCalledTimes(1);
+    expect(conn.query.mock.calls.some(([sql]) => /UPDATE clients SET deleted_at/.test(sql))).toBe(false);
   });
 
-  test('throws NotFoundError when the source client does not exist', async () => {
-    db.query.mockResolvedValueOnce([[]]); // findById(source) -> none
+  test('throws NotFoundError and rolls back when the source is not tenant-owned', async () => {
+    const conn = mergeConnection({ locked: [{ id: 20 }] });
+
     await expect(Client.merge(10, 20, 42)).rejects.toMatchObject({ statusCode: 404 });
+    expect(conn.rollback).toHaveBeenCalledTimes(1);
+    expect(conn.commit).not.toHaveBeenCalled();
+    expect(conn.query).toHaveBeenCalledTimes(1);
   });
 });
