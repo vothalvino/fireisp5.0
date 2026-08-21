@@ -244,6 +244,31 @@ describe('AIAssistantSettings page', () => {
       await waitFor(() => expect(screen.getByText(/✓ Saved/i)).toBeInTheDocument());
     });
 
+    it('cancels the save confirmation timer when the page unmounts', async () => {
+      const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+      const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+      const view = setup();
+
+      try {
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: /Save Settings/i })).toBeInTheDocument(),
+        );
+        fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+        await waitFor(() => expect(screen.getByText(/✓ Saved/i)).toBeInTheDocument());
+
+        const timerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 2000);
+        expect(timerIndex).toBeGreaterThanOrEqual(0);
+        const confirmationTimer = setTimeoutSpy.mock.results[timerIndex]?.value;
+
+        view.unmount();
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(confirmationTimer);
+      } finally {
+        view.unmount();
+        setTimeoutSpy.mockRestore();
+        clearTimeoutSpy.mockRestore();
+      }
+    });
+
     it('shows per-channel toggles', async () => {
       setup();
       await waitFor(() => {

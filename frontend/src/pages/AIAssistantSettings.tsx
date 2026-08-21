@@ -197,6 +197,15 @@ function GeneralTab() {
     }
   }, [data, initialised]);
 
+  // Keep the transient confirmation timer tied to this component's lifetime.
+  // A bare timeout can fire after the page (or its test environment) has been
+  // torn down, causing a state update against an unmounted React tree.
+  useEffect(() => {
+    if (!saveOk) return undefined;
+    const timer = window.setTimeout(() => setSaveOk(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [saveOk]);
+
   const current = { ...EMPTY_POLICY, ...form };
 
   const saveMutation = useMutation({
@@ -206,7 +215,6 @@ function GeneralTab() {
       qc.invalidateQueries({ queryKey: ['ai-policy'] });
       setSaveOk(true);
       setSaveError('');
-      setTimeout(() => setSaveOk(false), 2000);
     },
     onError: (err: Error) => { setSaveError(err.message); setSaveOk(false); },
   });
