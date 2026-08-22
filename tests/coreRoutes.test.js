@@ -2348,6 +2348,8 @@ describe('Organization Routes — /api/organizations', () => {
       db.query
         // requireInstallOperator (create is operator-only, 2026-08-02)
         .mockResolvedValueOnce([[{ is_install_operator: 1 }]])
+        // Organization.create reserves id=1 only when it has never existed.
+        .mockResolvedValueOnce([[{ id: 1 }]])
         .mockResolvedValueOnce([{ insertId: 2, affectedRows: 1 }])
         .mockResolvedValueOnce([[{ ...mockOrg, id: 2 }]])
         .mockResolvedValueOnce([{ affectedRows: 1 }]);

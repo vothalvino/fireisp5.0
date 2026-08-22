@@ -11,6 +11,7 @@ const User = require('../models/User');
 const Organization = require('../models/Organization');
 const { sanitizeUser } = require('../utils/userSanitize');
 const { isInstallOperatorUser } = require('../services/installOperator');
+const { isSuperAdminUser } = require('../services/globalOrganizationAccess');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
@@ -138,7 +139,7 @@ async function enrichAuthUser(user, activeOrgId) {
   let group = null;
   if (user.group_id) {
     const [[row]] = await db.query(
-      'SELECT id, name, kind FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      'SELECT id, name, kind, is_system FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
       [user.group_id],
     );
     group = row || null;
@@ -153,10 +154,16 @@ async function enrichAuthUser(user, activeOrgId) {
   // an operator designated purely by INSTALL_OPERATOR_USER_IDS would log in as
   // a non-operator and only become one at the next /auth/me.
   let isOperator = false;
+  let isSuperAdmin = false;
   try {
     isOperator = await isInstallOperatorUser(user);
+    isSuperAdmin = await isSuperAdminUser({
+      ...user,
+      group_name: group?.name ?? null,
+      group_is_system: group?.is_system ?? null,
+    });
   } catch (err) {
-    logger.warn({ err }, 'Could not resolve install-operator status');
+    logger.warn({ err }, 'Could not resolve installation-global account status');
   }
 
   return {
@@ -166,6 +173,8 @@ async function enrichAuthUser(user, activeOrgId) {
     group,
     permissions: activeOrgId ? await User.getPermissions(user.id, activeOrgId) : [],
     is_install_operator: isOperator,
+    is_super_admin: isSuperAdmin,
+    has_global_organization_access: isOperator || isSuperAdmin,
   };
 }
 

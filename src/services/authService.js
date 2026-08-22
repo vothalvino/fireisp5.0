@@ -11,6 +11,7 @@ const { sanitizeUser } = require('../utils/userSanitize');
 const db = require('../config/database');
 const emailTransport = require('./emailTransport');
 const { resolveOrgPrincipal } = require('./orgPrincipalService');
+const { hasGlobalOrganizationAccessUser } = require('./globalOrganizationAccess');
 const emailTemplates = require('../views/emailTemplates');
 const logger = require('../utils/logger');
 const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = require('../utils/errors');
@@ -18,6 +19,25 @@ const { UnauthorizedError, ConflictError, ValidationError, NotFoundError } = req
 const SALT_ROUNDS = 12;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
+
+async function findGlobalFallbackOrganization(user) {
+  // Production user rows are SELECT * and therefore always carry these
+  // columns. The shape check also keeps legacy callers/test doubles that omit
+  // both signals on the ordinary home-org fallback without extra queries.
+  const hasStoredIdentitySignal = user?.is_install_operator !== undefined
+    || user?.group_id !== undefined
+    || config.installOperatorUserIds.length > 0;
+  if (!hasStoredIdentitySignal || !await hasGlobalOrganizationAccessUser(user)) return null;
+
+  const [liveOrganizations] = await db.query(
+    `SELECT id, name, currency FROM organizations
+      WHERE status = 'active' AND deleted_at IS NULL
+      ORDER BY (id = ?) DESC, id ASC
+      LIMIT 1`,
+    [user.organization_id],
+  );
+  return liveOrganizations[0] || null;
+}
 
 // Refresh token lifetime in seconds (parsed from config, e.g. '7d' → 604800)
 const REFRESH_SECONDS = parseExpiry(config.jwt.refreshExpiresIn);
@@ -201,9 +221,13 @@ async function login({ email, password }) {
   // Update last_login_at
   await db.query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [user.id]);
 
-  // Get user's primary organization
+  // Get user's primary organization. A global identity can outlive its seeded
+  // home tenant (for example after the operator retires Demo ISP), so when it
+  // has no remaining membership choose a live organization rather than minting
+  // an unusable JWT bound to a soft-deleted home id.
   const orgs = await User.getOrganizations(user.id);
-  const primaryOrg = orgs[0] || null;
+  let primaryOrg = orgs[0] || null;
+  if (!primaryOrg) primaryOrg = await findGlobalFallbackOrganization(user);
 
   // Issue short-lived access token (JWT, 15 min default)
   const accessToken = jwt.sign(
@@ -244,8 +268,8 @@ async function login({ email, password }) {
 /**
  * Resolve a requested active organization for a user.
  * Returns { id, name, membership_role } if the user may operate as that org, or
- * null otherwise. Admins may switch to ANY org (single-tenant / relaxed-isolation
- * model); everyone else only to orgs they are a member of. Shared by the active-org
+ * null otherwise. Install operators and system super_admin accounts may switch
+ * to any live org; everyone else only to orgs they are a member of. Shared by the active-org
  * re-validation on token refresh so a stale/forged `fireisp_active_org` value can
  * never escalate access.
  */
@@ -260,6 +284,8 @@ async function resolveActiveOrg(userId, userRole, requestedOrgId) {
     name: principal.organizationName,
     membership_role: principal.membershipRole,
     is_install_operator: principal.isInstallOperator,
+    is_super_admin: principal.isSuperAdmin,
+    has_global_organization_access: principal.hasGlobalOrganizationAccess,
   };
 }
 
@@ -304,7 +330,11 @@ async function refreshToken(currentRefreshToken, requestedActiveOrgId = null) {
   // Get user's primary organization as the fallback for the new access token
   const orgs = await User.getOrganizations(user.id);
   const primaryOrg = orgs[0] || null;
-  const fallbackOrgId = primaryOrg?.id || user.organization_id;
+  let fallbackOrgId = primaryOrg?.id || user.organization_id;
+  if (!primaryOrg) {
+    const liveFallback = await findGlobalFallbackOrganization(user);
+    fallbackOrgId = liveFallback?.id || fallbackOrgId;
+  }
 
   // Preserve the active organization across refreshes (e.g. a page reload, where
   // the SPA's in-memory access token is gone). The caller passes the org from the

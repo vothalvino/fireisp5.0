@@ -21,6 +21,44 @@ class Organization extends BaseModel {
   static get softDelete() { return true; }
 
   /**
+   * The production seed deliberately lives at organization id 100 so the
+   * first real ISP can receive the conventional id 1. MySQL advances an
+   * AUTO_INCREMENT counter past every explicit high id, so without this
+   * narrow reservation the first operator-created organization would be 101.
+   *
+   * Only id 1 is special. Once it has ever been allocated (including a
+   * soft-deleted row), normal AUTO_INCREMENT behavior resumes. A concurrent
+   * creator that loses the id-1 race falls back to the ordinary insert.
+   */
+  static async create(data) {
+    const db = require('../config/database');
+    const [reservedRows] = await db.query(
+      'SELECT id FROM organizations WHERE id = 1 LIMIT 1',
+    );
+
+    if (reservedRows.length === 0) {
+      const filtered = {};
+      for (const key of this.fillable) {
+        if (data[key] !== undefined) filtered[key] = data[key];
+      }
+      const cols = Object.keys(filtered);
+      if (cols.length === 0) throw new Error('No fillable data provided');
+      const placeholders = cols.map(() => '?').join(', ');
+      try {
+        await db.query(
+          `INSERT INTO organizations (id, ${cols.map(c => `\`${c}\``).join(', ')}) VALUES (1, ${placeholders})`,
+          Object.values(filtered),
+        );
+        return this.findByIdIncludingDeleted(1);
+      } catch (err) {
+        if (err?.code !== 'ER_DUP_ENTRY') throw err;
+      }
+    }
+
+    return super.create(data);
+  }
+
+  /**
    * Return the ISO 4217 currency code for the given organization.
    * Falls back to 'MXN' if the org is not found or has no currency set.
    * @param {number|string} orgId

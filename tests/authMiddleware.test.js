@@ -42,6 +42,8 @@ describe('auth middleware', () => {
       membershipRole: user.role,
       authorizationRole: user.role,
       isInstallOperator: false,
+      isSuperAdmin: false,
+      hasGlobalOrganizationAccess: false,
     }));
   });
 
@@ -148,6 +150,8 @@ describe('auth middleware', () => {
         membershipRole: 'admin',
         organizationId: 10,
         isInstallOperator: false,
+        isSuperAdmin: false,
+        hasGlobalOrganizationAccess: false,
       });
     });
 
@@ -328,6 +332,8 @@ describe('auth middleware', () => {
         membershipRole: 'admin',
         organizationId: 20,
         isInstallOperator: false,
+        isSuperAdmin: false,
+        hasGlobalOrganizationAccess: false,
         apiTokenId: 500,
         scopes: 'read,write',
         scopesSqlNull: false,
