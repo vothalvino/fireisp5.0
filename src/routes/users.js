@@ -73,6 +73,9 @@ const ctrl = crudController(User, {
   // delete. req.user?.id stamps revoked_by.
   afterDelete: (user, req) => userTunnelService.revokeAllForUser(user.id, req.user?.id ?? null),
   beforeUpdate: async (old, req) => {
+    // Global identities are intentionally visible in every organization, but
+    // visibility must not let an ordinary tenant administrator rewrite one.
+    await assertCanManageGlobalIdentity(req, old);
     // Resolve the group_id ↔ legacy-role mirror on the incoming body (throws
     // 422 for a missing/deleted group or one without a kind).
     await User.resolveGroupMirror(req.body);

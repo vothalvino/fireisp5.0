@@ -39,7 +39,7 @@ const adminUser: AuthUser = {
 };
 
 const user1 = {
-  id: 2, first_name: 'Bob', last_name: 'Tech', email: 'bob@test.com',
+  id: 2, organization_id: 1, first_name: 'Bob', last_name: 'Tech', email: 'bob@test.com',
   role: 'technician', group_id: 13, phone: null, status: 'active', totp_enabled: false,
   last_login_at: null, created_at: '2024-01-01',
 };
@@ -79,7 +79,7 @@ const USERS_RESPONSE = {
 // GET /users?only_deleted=true — the Archived tab's list. Distinct from
 // USERS_RESPONSE so tests can tell the two queries apart.
 const ARCHIVED_USER = {
-  id: 9, first_name: 'Alice', last_name: 'Retired', email: 'alice@test.com',
+  id: 9, organization_id: 1, first_name: 'Alice', last_name: 'Retired', email: 'alice@test.com',
   role: 'support', group_id: 12, phone: null, status: 'inactive', totp_enabled: false,
   last_login_at: null, created_at: '2023-06-01', deleted_at: '2024-03-15T10:00:00Z',
 };
@@ -175,6 +175,28 @@ describe('UserList page', () => {
     // row itself — the group filter <select> also has a "technician" option.
     const row = screen.getByText('bob@test.com').closest('tr') as HTMLElement;
     await waitFor(() => expect(within(row).getByText('technician')).toBeInTheDocument());
+  });
+
+  it('labels an automatic cross-org identity and makes its remote-org row view-only', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(routeFetch({
+      users: {
+        data: [{
+          ...user1,
+          id: 1,
+          organization_id: 100,
+          email: 'operator@test.com',
+          has_global_organization_access: 1,
+        }],
+        meta: USERS_RESPONSE.meta,
+      },
+    }));
+    renderUserList();
+
+    const email = await screen.findByText('operator@test.com');
+    const row = email.closest('tr') as HTMLElement;
+    expect(within(row).getByText('Cross-org')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Archive' })).toBeDisabled();
   });
 
   it('falls back to the raw role mirror text when the group id is unknown', async () => {

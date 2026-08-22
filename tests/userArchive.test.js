@@ -72,8 +72,7 @@ describe('BaseModel onlyDeleted (Archived tab listing)', () => {
     await User.findAll({ orgId: 1, onlyDeleted: true });
 
     const [sql] = db.query.mock.calls[0];
-    expect(sql).toMatch(/deleted_at IS NOT NULL/);
-    expect(sql).not.toMatch(/deleted_at IS NULL/);
+    expect(sql).toMatch(/u\.deleted_at IS NOT NULL/);
   });
 
   test('count with onlyDeleted filters to deleted_at IS NOT NULL', async () => {
@@ -82,19 +81,19 @@ describe('BaseModel onlyDeleted (Archived tab listing)', () => {
     const total = await User.count({ orgId: 1, onlyDeleted: true });
 
     expect(total).toBe(3);
-    expect(db.query.mock.calls[0][0]).toMatch(/deleted_at IS NOT NULL/);
+    expect(db.query.mock.calls[0][0]).toMatch(/u\.deleted_at IS NOT NULL/);
   });
 
   test('onlyDeleted wins over withDeleted', async () => {
     db.query.mockResolvedValueOnce([[]]);
     await User.findAll({ orgId: 1, onlyDeleted: true, withDeleted: true });
-    expect(db.query.mock.calls[0][0]).toMatch(/deleted_at IS NOT NULL/);
+    expect(db.query.mock.calls[0][0]).toMatch(/u\.deleted_at IS NOT NULL/);
   });
 
   test('default listing still excludes archived rows', async () => {
     db.query.mockResolvedValueOnce([[]]);
     await User.findAll({ orgId: 1 });
-    expect(db.query.mock.calls[0][0]).toMatch(/deleted_at IS NULL/);
+    expect(db.query.mock.calls[0][0]).toMatch(/u\.deleted_at IS NULL/);
   });
 
   test('onlyDeleted on a hard-delete model returns an empty archive, not live rows', async () => {

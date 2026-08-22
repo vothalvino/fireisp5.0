@@ -33,6 +33,7 @@ import { Pagination } from '@/components/Pagination';
 
 interface User {
   id: number;
+  organization_id: number | null;
   first_name: string;
   last_name: string;
   email: string;
@@ -44,6 +45,10 @@ interface User {
   last_login_at: string | null;
   created_at: string;
   deleted_at?: string | null;
+  /** Intrinsic install-operator/system-super-admin access. Returned as a
+   * number by MySQL and deliberately does not reveal which privileged signal
+   * grants it. */
+  has_global_organization_access?: boolean | number;
 }
 
 interface UsersResponse {
@@ -1283,6 +1288,13 @@ export function UserList() {
   const users = data?.data ?? [];
   const meta = data?.meta;
 
+  const canManageVisibleRow = (target: User) => {
+    const belongsToActiveOrganization = Number(target.organization_id)
+      === Number(currentUser?.organization_id);
+    const targetIsGlobal = Boolean(target.has_global_organization_access);
+    return belongsToActiveOrganization && (!targetIsGlobal || canManageOrgAccess);
+  };
+
   function handleFilterChange(setter: (v: string) => void) {
     return (e: React.ChangeEvent<HTMLSelectElement>) => {
       setter(e.target.value);
@@ -1422,6 +1434,18 @@ export function UserList() {
                       {u.id === currentUser?.id && (
                         <span style={{ marginLeft: 6, fontSize: '0.72rem', color: '#6b7280' }}>(you)</span>
                       )}
+                      {Boolean(u.has_global_organization_access) && (
+                        <span
+                          title={t('userList.crossOrgBadgeTitle')}
+                          style={{
+                            marginLeft: 6, fontSize: '0.68rem', fontWeight: 700,
+                            padding: '2px 6px', borderRadius: 10,
+                            background: '#ede9fe', color: '#5b21b6',
+                          }}
+                        >
+                          {t('userList.crossOrgBadge')}
+                        </span>
+                      )}
                     </td>
                     <td style={{ ...td, color: '#4b5563' }}>{u.email}</td>
                     <td style={td}><RoleBadge role={u.role} label={groupLabel(u, groupNames)} /></td>
@@ -1443,6 +1467,8 @@ export function UserList() {
                         <button
                           style={{ ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px' }}
                           onClick={() => setEditUser(u)}
+                          disabled={!canManageVisibleRow(u)}
+                          title={!canManageVisibleRow(u) ? t('userList.remoteAccountActionDisabledTitle') : undefined}
                         >
                           {t('common.edit')}
                         </button>
@@ -1455,11 +1481,14 @@ export function UserList() {
                           style={{
                             ...btnSecondary, fontSize: '0.78rem', padding: '4px 10px',
                             borderColor: '#dc2626', color: '#dc2626',
-                            ...(u.id === currentUser?.id ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+                            ...((u.id === currentUser?.id || !canManageVisibleRow(u))
+                              ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
                           }}
                           onClick={() => setArchiveTarget(u)}
-                          disabled={u.id === currentUser?.id}
-                          title={u.id === currentUser?.id ? t('userList.archiveSelfDisabledTitle') : undefined}
+                          disabled={u.id === currentUser?.id || !canManageVisibleRow(u)}
+                          title={u.id === currentUser?.id
+                            ? t('userList.archiveSelfDisabledTitle')
+                            : (!canManageVisibleRow(u) ? t('userList.remoteAccountActionDisabledTitle') : undefined)}
                         >
                           {t('userList.archiveAction')}
                         </button>
