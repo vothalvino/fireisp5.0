@@ -429,5 +429,6 @@ expires, record the action in `dsar_requests`, and communicate the result.
   lookup/export, which also require the applicable government-request permission
   and a validated same-organization case. Access/export events are recorded in
   `report_access_logs`.
-- IP allowlist available for admin endpoints (`ADMIN_IP_ALLOWLIST`).
+- IP allowlist enforced for admin endpoints in production (`ADMIN_IP_ALLOWLIST`;
+  missing or invalid configuration fails closed).
 - 2FA (TOTP) supported for all operator accounts.

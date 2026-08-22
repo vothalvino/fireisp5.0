@@ -123,6 +123,12 @@ describe('FireRelay Config', () => {
     expect(config.autoIncrementOffset).toBe(1);
   });
 
+  test('reads the shared health authentication token', () => {
+    process.env.FIRERELAY_AUTH_TOKEN = 'relay-secret';
+    const config = require('../src/config/firerelay');
+    expect(config.authToken).toBe('relay-secret');
+  });
+
   test('reads worker-specific settings', () => {
     process.env.FIRERELAY_MODE = 'worker';
     process.env.FIRERELAY_MASTER_URL = 'https://master.fireisp.com';
@@ -390,16 +396,26 @@ describe('FireRelay Models', () => {
 describe('FireRelay Route — /api/firerelay/health', () => {
   const db = require('../src/config/database');
   const app = require('../src/app');
+  const relayConfig = require('../src/config/firerelay');
+  const originalAuthToken = relayConfig.authToken;
+  const validAuthToken = 'a'.repeat(64);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    relayConfig.authToken = validAuthToken;
+  });
 
-  test('GET /api/firerelay/health returns node metrics (no auth required)', async () => {
+  afterAll(() => { relayConfig.authToken = originalAuthToken; });
+
+  test('GET /api/firerelay/health returns node metrics with the cluster token', async () => {
     db.query
       .mockResolvedValueOnce([[{ cnt: 100 }]])    // clients
       .mockResolvedValueOnce([[{ cnt: 25 }]])     // devices
       .mockResolvedValueOnce([[{ size_mb: 512 }]]); // db size
 
-    const res = await request(app).get('/api/firerelay/health');
+    const res = await request(app)
+      .get('/api/firerelay/health')
+      .set('X-Relay-Token', validAuthToken);
     expect(res.status).toBe(200);
     expect(res.body.node_id).toBeDefined();
     expect(res.body.mode).toBe('standalone');
@@ -416,11 +432,48 @@ describe('FireRelay Route — /api/firerelay/health', () => {
   test('GET /api/firerelay/health returns zeros if DB fails', async () => {
     db.query.mockRejectedValueOnce(new Error('DB down'));
 
-    const res = await request(app).get('/api/firerelay/health');
+    const res = await request(app)
+      .get('/api/firerelay/health')
+      .set('X-Relay-Token', validAuthToken);
     expect(res.status).toBe(200);
     expect(res.body.client_count).toBe(0);
     expect(res.body.device_count).toBe(0);
     expect(res.body.db_size_mb).toBe(0);
+  });
+
+  test.each([
+    ['missing', undefined],
+    ['incorrect', 'b'.repeat(64)],
+  ])('rejects a %s cluster token before querying the database', async (_label, token) => {
+    const req = request(app).get('/api/firerelay/health');
+    if (token) req.set('X-Relay-Token', token);
+    const res = await req;
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('FIRERELAY_AUTH_INVALID');
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test('fails closed before querying the database when no cluster token is configured', async () => {
+    relayConfig.authToken = '';
+    const res = await request(app)
+      .get('/api/firerelay/health')
+      .set('X-Relay-Token', 'any-value');
+
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('FIRERELAY_AUTH_NOT_CONFIGURED');
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test('treats a weak or placeholder cluster token as unconfigured', async () => {
+    relayConfig.authToken = 'CHANGE_ME_64_char_random_hex_string';
+    const res = await request(app)
+      .get('/api/firerelay/health')
+      .set('X-Relay-Token', relayConfig.authToken);
+
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('FIRERELAY_AUTH_NOT_CONFIGURED');
+    expect(db.query).not.toHaveBeenCalled();
   });
 });
 

@@ -22,6 +22,7 @@
 #   ENCRYPTION_KEY      AES-256 key for at-rest secrets (auto-generated if omitted)
 #   WG_LISTEN_PORT      NAS WireGuard UDP port (random high port if omitted)
 #   WG_CLIENT_LISTEN_PORT User WireGuard UDP port (random high port if omitted)
+#   ADMIN_IP_ALLOWLIST  Trusted admin IPv4/CIDR list (admin routes fail closed if omitted)
 #
 # =============================================================================
 
@@ -659,6 +660,10 @@ JWT_EXPIRES_IN=8h
 # AES-256-GCM key for payment gateway credentials, PAC passwords, etc.
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
+# ---- Admin IP allowlist ------------------------------------------------------
+# Production admin endpoints return 403 while this is empty or invalid.
+ADMIN_IP_ALLOWLIST=${ADMIN_IP_ALLOWLIST:-}
+
 # ---- Admin account (generated at install time) --------------------------------
 # Plaintext initial password for the admin@demo-isp.com account.
 # seed.js reads this, hashes it with bcrypt, and stores only the hash in the DB.
@@ -1123,4 +1128,5 @@ echo -e "  ${BOLD}Update FireISP:${RESET}"
 echo -e "   sudo redeploy                 # pull main + the matching image, migrate, verify"
 echo ""
 echo -e "  ${YELLOW}${BOLD}⚠  Store $ENV_FILE securely — it contains all generated credentials.${RESET}"
+echo -e "  ${YELLOW}${BOLD}⚠  Set ADMIN_IP_ALLOWLIST in $ENV_FILE before using admin screens.${RESET}"
 echo ""

@@ -50,7 +50,8 @@ const config = {
   corsOrigins: process.env.CORS_ORIGINS || '',
 
   // IP allowlist for admin endpoints — comma-separated IPv4 addresses and/or CIDR ranges.
-  // When not set the feature is disabled and all IPs are allowed (existing behaviour preserved).
+  // Production admin routes fail closed when this is empty or entirely invalid;
+  // development/test leave the control disabled when it is empty.
   // Example: "10.0.0.0/8,203.0.113.5"
   adminIpAllowlist: process.env.ADMIN_IP_ALLOWLIST || '',
 
@@ -246,6 +247,10 @@ function validateEnv(logger) {
   } else if (!HEX_64_RE.test(process.env.ENCRYPTION_KEY)) {
     const msg = 'ENCRYPTION_KEY must be a 64-character hex string (256 bits)';
     if (isProduction) errors.push(msg); else warnings.push(msg);
+  }
+
+  if (isProduction && !config.adminIpAllowlist.trim()) {
+    warnings.push('ADMIN_IP_ALLOWLIST is not set — production admin endpoints will return 403 until trusted IPs/CIDRs are configured');
   }
 
   // WireGuard: the install-wide GUI setting controls activation. The endpoint

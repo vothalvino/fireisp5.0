@@ -137,8 +137,9 @@ falling back to the shared primary database.
 > from payment callbacks — with no in-app alert, so check the provider's webhook
 > dashboard or the app logs. Note the receiver reads the **env var**, not the
 > per-gateway "Webhook Secret" field in Settings (that field is not yet wired to the
-> receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior for
-> local testing only — never set it in production.
+> receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior only
+> when `NODE_ENV` is explicitly `development` or `test`; deployed environments ignore
+> the flag and continue to fail closed.
 
 For a non-standard install path, set `FIREISP_DIR` inside a root shell
 (`sudo -i`) — as a `sudo` prefix it is stripped, see the rollback note below.
@@ -972,8 +973,8 @@ layer on top of JWT authentication and RBAC.
 
 ### Protected endpoints
 
-When `ADMIN_IP_ALLOWLIST` is set, the following API routes require the
-client IP to match:
+The following API routes require the client IP to match the configured list.
+In production, they fail closed when the list is missing or entirely invalid:
 
 | Route | Purpose |
 |---|---|
@@ -999,8 +1000,9 @@ ADMIN_IP_ALLOWLIST=10.0.0.0/8,203.0.113.5
 # ADMIN_IP_ALLOWLIST=192.168.100.0/24
 ```
 
-When `ADMIN_IP_ALLOWLIST` is **not set**, the feature is disabled and all
-IPs are permitted (existing behaviour is preserved — the feature is opt-in).
+When `ADMIN_IP_ALLOWLIST` is **not set**, production returns `403` from every
+protected endpoint until the operator fixes the environment and redeploys.
+Development and test environments keep the allowlist disabled when it is empty.
 
 ### Rejected requests
 
@@ -1084,7 +1086,7 @@ Available metrics:
 - [ ] Database user has minimal required privileges
 - [ ] File upload directory permissions correct (`storage/`)
 - [ ] Rate limiting verified
-- [ ] `ADMIN_IP_ALLOWLIST` configured (optional — restricts admin routes to trusted IPs/CIDRs)
+- [ ] `ADMIN_IP_ALLOWLIST` configured (required — production admin routes fail closed without it)
 
 ---
 

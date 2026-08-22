@@ -42,6 +42,29 @@ function parseExpiry(str) {
 const REFRESH_SECONDS = parseExpiry(config.jwt.refreshExpiresIn);
 const ACCESS_SECONDS  = parseExpiry(config.jwt.accessExpiresIn);
 
+/**
+ * Accept only same-application relative paths for the post-login redirect.
+ * WHATWG URL parsing is intentional: browsers normalize tabs and backslashes
+ * before navigation, so prefix checks alone can miss protocol-relative URLs.
+ *
+ * @param {unknown} redirectTo
+ * @returns {string|null}
+ */
+function normalizeOidcRedirectPath(redirectTo) {
+  if (typeof redirectTo !== 'string' || !redirectTo.startsWith('/')) return null;
+  if (redirectTo.startsWith('//') || redirectTo.startsWith('/\\')) return null;
+
+  const safeOrigin = 'https://fireisp.invalid';
+  try {
+    const parsed = new URL(redirectTo, safeOrigin);
+    if (parsed.origin !== safeOrigin) return null;
+  } catch (_err) {
+    return null;
+  }
+
+  return redirectTo;
+}
+
 // ---------------------------------------------------------------------------
 // Config CRUD
 // ---------------------------------------------------------------------------
@@ -355,12 +378,13 @@ async function generateOidcLoginUrl(orgId, redirectTo) {
   const { generators } = require('openid-client');
   const state = generators.state();
   const nonce = generators.nonce();
+  const safeRedirectTo = normalizeOidcRedirectPath(redirectTo);
 
   // Persist state for 10 minutes
   await db.query(
     `INSERT INTO sso_auth_states (state, nonce, organization_id, redirect_to, expires_at)
      VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
-    [state, nonce, orgId, redirectTo || null],
+    [state, nonce, orgId, safeRedirectTo],
   );
 
   const oidcClient = await getOidcClient(cfg, orgId);
@@ -419,7 +443,9 @@ async function processOidcCallback(orgId, req) {
   const groupAttr = cfg.idp_group_attribute || 'groups';
   const profile = normalizeOidcProfile(userinfo, attrMap, groupAttr);
 
-  return { profile, redirectTo: stateRecord.redirect_to };
+  // Re-validate on read as defense in depth for states persisted before this
+  // validation was introduced (or inserted outside the application).
+  return { profile, redirectTo: normalizeOidcRedirectPath(stateRecord.redirect_to) };
 }
 
 /**
@@ -613,5 +639,6 @@ module.exports = {
   // Exported for testing
   normalizeSamlProfile,
   normalizeOidcProfile,
+  normalizeOidcRedirectPath,
   parseAttributeMapping,
 };

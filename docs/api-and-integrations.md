@@ -78,8 +78,8 @@ Two receiver shapes per provider:
 `401 WEBHOOK_SIGNATURE_INVALID` (bad signature) · `404 WEBHOOK_GATEWAY_NOT_FOUND`
 (unknown `gatewayId`) · `503 WEBHOOK_NOT_CONFIGURED` (no signing secret set —
 **payments will not auto-reconcile until you set one**). For local testing only,
-`ALLOW_UNSIGNED_WEBHOOKS=true` processes unsigned bodies — never set it in
-production.
+`ALLOW_UNSIGNED_WEBHOOKS=true` processes unsigned bodies when `NODE_ENV` is
+`development` or `test`. Production and custom environments ignore the flag.
 
 > Note: the outbound charge/refund path already uses each gateway's own encrypted
 > API key (`api.stripe.com`), so once the webhook secret is set the provider is

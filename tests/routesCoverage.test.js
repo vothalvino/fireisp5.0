@@ -78,6 +78,8 @@ const billingService = require('../src/services/billingService');
 const realBillingService = jest.requireActual('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
 const app = require('../src/app');
+const relayConfig = require('../src/config/firerelay');
+relayConfig.authToken = 'a'.repeat(64);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -910,14 +912,15 @@ describe('Events Routes — /api/events', () => {
 // =============================================================================
 describe('FireRelay Routes — /api/firerelay', () => {
   describe('GET /api/firerelay/health', () => {
-    test('returns node health without auth', async () => {
+    test('returns node health with the cluster token', async () => {
       db.query
         .mockResolvedValueOnce([[{ cnt: 100 }]])
         .mockResolvedValueOnce([[{ cnt: 50 }]])
         .mockResolvedValueOnce([[{ size_mb: 25 }]]);
 
       const res = await request(app)
-        .get('/api/firerelay/health');
+        .get('/api/firerelay/health')
+        .set('X-Relay-Token', 'a'.repeat(64));
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('node_id');
@@ -930,7 +933,8 @@ describe('FireRelay Routes — /api/firerelay', () => {
       db.query.mockRejectedValue(new Error('DB down'));
 
       const res = await request(app)
-        .get('/api/firerelay/health');
+        .get('/api/firerelay/health')
+        .set('X-Relay-Token', 'a'.repeat(64));
 
       expect(res.status).toBe(200);
       expect(res.body.client_count).toBe(0);

@@ -50,12 +50,14 @@ describe('setup.sh secret generation', () => {
     expect(first.JWT_ALGORITHM).toBe('HS256');
     expect(first.JWT_SECRET).toMatch(HEX_64_RE);
     expect(first.ENCRYPTION_KEY).toMatch(HEX_64_RE);
+    expect(first.FIRERELAY_AUTH_TOKEN).toMatch(HEX_64_RE);
     expect(first.DB_PASSWORD).toMatch(HEX_40_RE);
 
     runSetup(dir, fakeBin);
     const second = parseEnv(path.join(dir, '.env'));
     expect(second.JWT_SECRET).toBe(first.JWT_SECRET);
     expect(second.ENCRYPTION_KEY).toBe(first.ENCRYPTION_KEY);
+    expect(second.FIRERELAY_AUTH_TOKEN).toBe(first.FIRERELAY_AUTH_TOKEN);
     expect(second.DB_PASSWORD).toBe(first.DB_PASSWORD);
   });
 
@@ -68,6 +70,7 @@ describe('setup.sh secret generation', () => {
     expect(env.JWT_ALGORITHM).toBe('HS256');
     expect(env.JWT_SECRET).toMatch(HEX_64_RE);
     expect(env.ENCRYPTION_KEY).toMatch(HEX_64_RE);
+    expect(env.FIRERELAY_AUTH_TOKEN).toMatch(HEX_64_RE);
     expect(env.DB_PASSWORD).toMatch(HEX_40_RE);
     expect(env.DB_ROOT_PASSWORD).toMatch(HEX_40_RE);
     expect(env.MYSQL_REPL_PASSWORD).toMatch(HEX_40_RE);

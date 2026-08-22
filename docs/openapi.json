@@ -24368,8 +24368,13 @@
         "tags": [
           "FireRelay"
         ],
-        "summary": "Node health (no auth)",
+        "summary": "Node health (cluster token required)",
         "operationId": "firerelayHealth",
+        "security": [
+          {
+            "relayTokenAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "NodeHealth",
@@ -24380,6 +24385,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Invalid or missing relay token"
+          },
+          "503": {
+            "description": "Relay token not configured"
           }
         }
       }
@@ -58030,6 +58041,11 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Radius-Secret"
+      },
+      "relayTokenAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Relay-Token"
       }
     },
     "schemas": {
