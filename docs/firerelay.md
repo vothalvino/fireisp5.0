@@ -321,6 +321,16 @@ The master polls each worker at the interval defined by `FIRERELAY_HEALTH_INTERV
 GET /api/firerelay/health
 ```
 
+Every request must include the cluster pre-shared token:
+
+```http
+X-Relay-Token: <FIRERELAY_AUTH_TOKEN>
+```
+
+Set the same cryptographically random value on the master and every worker. The
+endpoint returns `401` for a missing/invalid token and `503` when the worker has
+not been configured, without querying the database or exposing node metrics.
+
 Response payload:
 
 ```json
@@ -397,6 +407,9 @@ All FireRelay settings are controlled via environment variables in the node's `.
 # ─────────────────────────────────────────────
 FIRERELAY_MODE=standalone
 
+# Required on every node. Generate with: openssl rand -hex 32
+FIRERELAY_AUTH_TOKEN=
+
 # ─────────────────────────────────────────────
 # Master-only settings
 # (ignored when FIRERELAY_MODE=standalone or worker)
@@ -458,6 +471,7 @@ FIRERELAY_MODE=standalone
 
 ```env
 FIRERELAY_MODE=master
+FIRERELAY_AUTH_TOKEN=<same-random-token-on-every-node>
 FIRERELAY_NODES=["https://node2.fireisp.com"]
 FIRERELAY_HEALTH_INTERVAL=30000
 FIRERELAY_REQUEST_TIMEOUT=5000
@@ -470,6 +484,7 @@ FIRERELAY_MAX_DEVICES=3000
 
 ```env
 FIRERELAY_MODE=worker
+FIRERELAY_AUTH_TOKEN=<same-random-token-on-every-node>
 FIRERELAY_MASTER_URL=https://node1.fireisp.com
 FIRERELAY_NODE_ID=node2
 FIRERELAY_AUTO_INCREMENT_OFFSET=10000001

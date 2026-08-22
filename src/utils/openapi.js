@@ -1186,7 +1186,7 @@ function generateSpec() {
         post: { tags: ['System'], summary: 'Ask the host to redeploy', operationId: 'requestSystemDeploy', security: [{ bearerAuth: [] }], responses: r201('SystemDeploy') },
       },
       '/system/version': { get: { tags: ['System'], summary: 'Running commit, and whether a newer release exists', operationId: 'getSystemVersion', security: [{ bearerAuth: [] }], responses: r200('SystemVersion') } },
-      '/firerelay/health': { get: { tags: ['FireRelay'], summary: 'Node health (no auth)', operationId: 'firerelayHealth', responses: r200('NodeHealth') } },
+      '/firerelay/health': { get: { tags: ['FireRelay'], summary: 'Node health (cluster token required)', operationId: 'firerelayHealth', security: [{ relayTokenAuth: [] }], responses: { ...r200('NodeHealth'), 401: { description: 'Invalid or missing relay token' }, 503: { description: 'Relay token not configured' } } } },
       '/firerelay/nodes': {
         get: { tags: ['FireRelay'], summary: 'List cluster nodes', operationId: 'listFirerelayNodes', security: [{ bearerAuth: [] }], responses: r200('Node[]') },
         post: { tags: ['FireRelay'], summary: 'Register a node', operationId: 'registerFirerelayNode', security: [{ bearerAuth: [] }], requestBody: jsonBody('firerelay_firerelayNode'), responses: r201('Node') },
@@ -3302,6 +3302,7 @@ function generateSpec() {
         bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         apiKeyAuth: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
         radiusAccountingSecret: { type: 'apiKey', in: 'header', name: 'X-Radius-Secret' },
+        relayTokenAuth: { type: 'apiKey', in: 'header', name: 'X-Relay-Token' },
       },
       schemas: {
         ...schemas,
