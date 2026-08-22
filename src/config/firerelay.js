@@ -40,6 +40,10 @@ module.exports = {
   requestTimeout: parseInt(process.env.FIRERELAY_REQUEST_TIMEOUT || '5000', 10),
   maxRetries: parseInt(process.env.FIRERELAY_MAX_RETRIES || '3', 10),
 
+  // Shared secret required by the node health endpoint. Masters send the same
+  // value in X-Relay-Token when polling workers.
+  authToken: process.env.FIRERELAY_AUTH_TOKEN || '',
+
   // Worker-only settings
   masterUrl: process.env.FIRERELAY_MASTER_URL || '',
   nodeId: process.env.FIRERELAY_NODE_ID || '',

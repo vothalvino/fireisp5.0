@@ -200,23 +200,27 @@ async function pollNodeHealth(node) {
   const breaker = getNodeBreaker(node.id);
   try {
     const { status, data } = await breaker.call(() =>
-      httpRequest(node.api_url, { path: '/api/firerelay/health' }),
+      httpRequest(node.api_url, {
+        path: '/api/firerelay/health',
+        headers: relayConfig.authToken ? { 'X-Relay-Token': relayConfig.authToken } : {},
+      }),
     );
-    if (status === 200 && data) {
-      await updateNode(node.id, {
-        client_count: data.client_count ?? node.client_count,
-        device_count: data.device_count ?? node.device_count,
-        cpu_percent: data.cpu_percent,
-        memory_percent: data.memory_percent,
-        disk_percent: data.disk_percent,
-        db_size_mb: data.db_size_mb,
-        uptime_seconds: data.uptime_seconds,
-        last_seen_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        // If the node was offline and responded, bring it back to active
-        ...(node.status === 'offline' ? { status: 'active' } : {}),
-      });
-      logger.debug({ nodeId: node.id }, 'Health check OK');
+    if (status !== 200 || !data) {
+      throw new ExternalServiceError('FireRelay', `Health endpoint returned status ${status}`);
     }
+    await updateNode(node.id, {
+      client_count: data.client_count ?? node.client_count,
+      device_count: data.device_count ?? node.device_count,
+      cpu_percent: data.cpu_percent,
+      memory_percent: data.memory_percent,
+      disk_percent: data.disk_percent,
+      db_size_mb: data.db_size_mb,
+      uptime_seconds: data.uptime_seconds,
+      last_seen_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      // If the node was offline and responded, bring it back to active
+      ...(node.status === 'offline' ? { status: 'active' } : {}),
+    });
+    logger.debug({ nodeId: node.id }, 'Health check OK');
   } catch (err) {
     logger.warn({ nodeId: node.id, err: err.message }, 'Health check failed');
     // Mark as offline after circuit breaker opens

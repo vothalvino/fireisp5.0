@@ -16,6 +16,7 @@ jest.mock('../src/config/firerelay', () => ({
   healthInterval: 30000,
   requestTimeout: 5000,
   maxRetries: 2,
+  authToken: 'a'.repeat(64),
   masterUrl: '',
   nodeId: '',
   autoIncrementOffset: 1,
@@ -317,7 +318,10 @@ describe('firerelayService', () => {
 
       expect(global.fetch).toHaveBeenCalledWith(
         'https://node2.fireisp.com/api/firerelay/health',
-        expect.objectContaining({ method: 'GET' }),
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ 'X-Relay-Token': 'a'.repeat(64) }),
+        }),
       );
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE firerelay_nodes SET'),

@@ -3,7 +3,7 @@
 // =============================================================================
 // /api/firerelay/* endpoints for cluster node management.
 //
-//   GET    /api/firerelay/health              — Worker: report node metrics
+//   GET    /api/firerelay/health              — Worker: report node metrics (relay token)
 //   GET    /api/firerelay/nodes               — Master: list all nodes
 //   POST   /api/firerelay/nodes               — Master: register a node
 //   PUT    /api/firerelay/nodes/:id           — Master: update node status / metrics
@@ -12,6 +12,7 @@
 //   POST   /api/firerelay/tunnel/command      — Send a command to a connected agent
 // =============================================================================
 
+const crypto = require('crypto');
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
 const { orgScope } = require('../middleware/orgScope');
@@ -25,12 +26,43 @@ const { tunnelServer } = require('../services/firerelayTunnel');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const router = Router();
+const RELAY_TOKEN_RE = /^[0-9a-fA-F]{64}$/;
+
+function relayTokensMatch(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string' || !provided || !expected) {
+    return false;
+  }
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  return providedBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function requireRelayToken(req, res, next) {
+  if (!RELAY_TOKEN_RE.test(relayConfig.authToken)) {
+    return res.status(503).json({
+      error: {
+        code: 'FIRERELAY_AUTH_NOT_CONFIGURED',
+        message: 'FireRelay health authentication is not configured',
+      },
+    });
+  }
+
+  if (!relayTokensMatch(req.get('x-relay-token'), relayConfig.authToken)) {
+    return res.status(401).json({
+      error: { code: 'FIRERELAY_AUTH_INVALID', message: 'Invalid FireRelay token' },
+    });
+  }
+
+  return next();
+}
 
 // ---------------------------------------------------------------------------
-// GET /api/firerelay/health — lightweight, no auth required
-// Workers expose this so the master can poll them.
+// GET /api/firerelay/health — lightweight, authenticated with a cluster token.
+// Workers expose this so the master can poll them without exposing infrastructure
+// metrics to unauthenticated internet clients.
 // ---------------------------------------------------------------------------
-router.get('/health', async (_req, res) => {
+router.get('/health', requireRelayToken, async (_req, res) => {
   const os = require('os');
 
   let clientCount = 0;

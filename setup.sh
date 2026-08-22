@@ -141,6 +141,7 @@ if [ "$PROD" = true ]; then
     set_env_value "$ENV_FILE" "JWT_ALGORITHM" "HS256"
 
     ensure_hex_secret "$ENV_FILE" "ENCRYPTION_KEY" "ENCRYPTION_KEY"
+    ensure_hex_secret "$ENV_FILE" "FIRERELAY_AUTH_TOKEN" "FIRERELAY_AUTH_TOKEN"
 
     ensure_password "$ENV_FILE" "DB_PASSWORD" "DB_PASSWORD"
     ensure_password "$ENV_FILE" "DB_ROOT_PASSWORD" "DB_ROOT_PASSWORD"
@@ -192,6 +193,7 @@ else
     set_env_value "$ENV_FILE" "JWT_ALGORITHM" "HS256"
 
     ensure_hex_secret "$ENV_FILE" "ENCRYPTION_KEY" "ENCRYPTION_KEY"
+    ensure_hex_secret "$ENV_FILE" "FIRERELAY_AUTH_TOKEN" "FIRERELAY_AUTH_TOKEN"
 
     # 5. Generate random Database Password
     ensure_password "$ENV_FILE" "DB_PASSWORD" "DB_PASSWORD"
