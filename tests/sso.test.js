@@ -13,6 +13,21 @@ const mockConnBegin    = jest.fn();
 const mockConnCommit   = jest.fn();
 const mockConnRollback = jest.fn();
 
+const mockOidcAuthorizationUrl = jest.fn(() => 'https://idp.example/authorize');
+const mockOidcClient = { authorizationUrl: mockOidcAuthorizationUrl };
+const mockOidcClientConstructor = jest.fn(function MockOidcClient() {
+  return mockOidcClient;
+});
+const mockOidcDiscover = jest.fn(async () => ({ Client: mockOidcClientConstructor }));
+
+jest.mock('openid-client', () => ({
+  generators: {
+    state: () => 'generated-state',
+    nonce: () => 'generated-nonce',
+  },
+  Issuer: { discover: mockOidcDiscover },
+}));
+
 jest.mock('../src/config/database', () => ({
   query:         mockQuery,
   execute:       jest.fn(),
@@ -163,6 +178,57 @@ describe('ssoService.normalizeOidcProfile', () => {
     const userinfo = { email: 'a@b.com' };
     const r = normalizeOidcProfile(userinfo, {}, 'groups');
     expect(r.groups).toEqual([]);
+  });
+});
+
+describe('ssoService.normalizeOidcRedirectPath', () => {
+  const { normalizeOidcRedirectPath } = ssoService;
+
+  test.each([
+    '/dashboard',
+    '/clients/42?tab=billing',
+    '/sso/complete#section',
+  ])('accepts same-application path %s', (path) => {
+    expect(normalizeOidcRedirectPath(path)).toBe(path);
+  });
+
+  test.each([
+    ['absolute URL', 'https://attacker.example/steal'],
+    ['protocol-relative URL', '//attacker.example/steal'],
+    ['backslash-relative URL', '/\\attacker.example/steal'],
+    ['browser-normalized tab bypass', '/\t/attacker.example/steal'],
+    ['bare path', 'dashboard'],
+    ['empty string', ''],
+    ['repeated query parameter', ['/dashboard', 'https://attacker.example']],
+    ['missing value', undefined],
+  ])('rejects %s', (_label, value) => {
+    expect(normalizeOidcRedirectPath(value)).toBeNull();
+  });
+});
+
+describe('ssoService.generateOidcLoginUrl redirect persistence', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockOidcAuthorizationUrl.mockClear();
+  });
+
+  test.each([
+    ['/clients/42?tab=billing', '/clients/42?tab=billing'],
+    ['https://attacker.example/steal', null],
+    ['//attacker.example/steal', null],
+  ])('stores %p as %p', async (redirectTo, expectedStoredValue) => {
+    mockQuery
+      .mockResolvedValueOnce([[{ id: 10, is_enabled: 1, oidc_issuer: 'https://idp.example', oidc_client_id: 'client' }]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    await expect(ssoService.generateOidcLoginUrl(1, redirectTo))
+      .resolves.toBe('https://idp.example/authorize');
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('INSERT INTO sso_auth_states'),
+      ['generated-state', 'generated-nonce', 1, expectedStoredValue],
+    );
   });
 });
 
