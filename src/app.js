@@ -634,9 +634,13 @@ app.post('/acs/cwmp', acsService.handleCwmpRequest);
 // ---------------------------------------------------------------------------
 const v1 = express.Router();
 
-// IP allowlist for admin-tier endpoints — enabled via ADMIN_IP_ALLOWLIST env var.
-// When the env var is not set the middleware is a no-op (opt-in feature).
-const adminIpAllowlist = createIpAllowlist(parseAllowlist(config.adminIpAllowlist));
+// IP allowlist for admin-tier endpoints. Production fails closed when the env
+// var is missing or contains no valid entries; dev/test retain the opt-in
+// behavior so local workflows do not need a synthetic client IP.
+const adminIpAllowlist = createIpAllowlist(
+  parseAllowlist(config.adminIpAllowlist),
+  { required: config.env === 'production' },
+);
 
 v1.use('/auth', authRoutes);
 v1.use('/organizations', adminIpAllowlist, organizationRoutes);

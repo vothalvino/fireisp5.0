@@ -258,6 +258,27 @@ describe('createIpAllowlist', () => {
     expect(mw.name).toBe('ipAllowlistDisabled');
   });
 
+  test('when required, a missing allowlist fails closed', () => {
+    const mw = createIpAllowlist(null, { required: true });
+    const next = jest.fn();
+    mw(mockReq('8.8.8.8'), {}, next);
+
+    expect(mw.name).toBe('ipAllowlistUnconfigured');
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({
+      statusCode: 403,
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('ADMIN_IP_ALLOWLIST'),
+    }));
+  });
+
+  test('when required, an entirely invalid allowlist fails closed', () => {
+    const mw = createIpAllowlist(parseAllowlist('not-an-ip'), { required: true });
+    const next = jest.fn();
+    mw(mockReq('8.8.8.8'), {}, next);
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+  });
+
   test('allows an allowlisted IP and calls next()', () => {
     const mw = createIpAllowlist(parseAllowlist('10.0.0.0/8'));
     const next = jest.fn();
