@@ -145,6 +145,24 @@ describe('validateEnv', () => {
     expect(() => config.validateEnv(null)).not.toThrow();
   });
 
+  test('warns that production admin endpoints fail closed without an IP allowlist', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = VALID_SECRET;
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_NAME = 'fireisp';
+    process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+    delete process.env.ADMIN_IP_ALLOWLIST;
+    jest.resetModules();
+    const config = require('../src/config');
+    const mockLogger = { warn: jest.fn() };
+
+    config.validateEnv(mockLogger);
+
+    const warnMsgs = mockLogger.warn.mock.calls.map(c => c[0]).join(' ');
+    expect(warnMsgs).toContain('ADMIN_IP_ALLOWLIST');
+    expect(warnMsgs).toContain('return 403');
+  });
+
   test('throws in production when ENCRYPTION_KEY is missing', () => {
     process.env.NODE_ENV = 'production';
     process.env.JWT_SECRET = VALID_SECRET;

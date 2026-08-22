@@ -170,7 +170,7 @@ if [ "$PROD" = true ]; then
     echo -e "------------------------------------------------"
     echo -e "${GREEN}Production Setup Complete!${NC}"
     echo -e "Your $ENV_FILE is configured with secure secrets."
-    echo -e "Remember to fill in domain, SMTP, and third-party keys."
+    echo -e "Remember to fill in domain, SMTP, third-party keys, and ADMIN_IP_ALLOWLIST."
     echo -e "Run ${BLUE}docker compose -f docker-compose.prod.yml --env-file .env.prod up -d${NC} to start."
     echo -e "------------------------------------------------"
 

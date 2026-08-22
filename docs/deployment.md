@@ -966,8 +966,8 @@ layer on top of JWT authentication and RBAC.
 
 ### Protected endpoints
 
-When `ADMIN_IP_ALLOWLIST` is set, the following API routes require the
-client IP to match:
+The following API routes require the client IP to match the configured list.
+In production, they fail closed when the list is missing or entirely invalid:
 
 | Route | Purpose |
 |---|---|
@@ -993,8 +993,9 @@ ADMIN_IP_ALLOWLIST=10.0.0.0/8,203.0.113.5
 # ADMIN_IP_ALLOWLIST=192.168.100.0/24
 ```
 
-When `ADMIN_IP_ALLOWLIST` is **not set**, the feature is disabled and all
-IPs are permitted (existing behaviour is preserved — the feature is opt-in).
+When `ADMIN_IP_ALLOWLIST` is **not set**, production returns `403` from every
+protected endpoint until the operator fixes the environment and redeploys.
+Development and test environments keep the allowlist disabled when it is empty.
 
 ### Rejected requests
 
@@ -1078,7 +1079,7 @@ Available metrics:
 - [ ] Database user has minimal required privileges
 - [ ] File upload directory permissions correct (`storage/`)
 - [ ] Rate limiting verified
-- [ ] `ADMIN_IP_ALLOWLIST` configured (optional — restricts admin routes to trusted IPs/CIDRs)
+- [ ] `ADMIN_IP_ALLOWLIST` configured (required — production admin routes fail closed without it)
 
 ---
 

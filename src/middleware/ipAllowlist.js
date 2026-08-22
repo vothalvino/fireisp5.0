@@ -5,8 +5,9 @@
 // and/or CIDR ranges. Enabled by setting the ADMIN_IP_ALLOWLIST environment
 // variable to a comma-separated list (e.g. "10.0.0.0/8,203.0.113.5").
 //
-// When ADMIN_IP_ALLOWLIST is not set the middleware is a no-op, so the feature
-// is opt-in and does not break existing deployments.
+// In production, callers pass `required: true` so an absent or entirely invalid
+// allowlist denies access instead of silently disabling the control. Local
+// development and test environments keep the opt-in behavior.
 //
 // Supported formats per entry:
 //   • IPv4 address          — 192.168.1.10
@@ -133,13 +134,21 @@ function isAllowed(ip, allowlist) {
 
 /**
  * Build an Express middleware that enforces the given IP allowlist.
- * Pass null (or omit) to get a no-op middleware (feature disabled).
+ * Pass null (or omit) to get a no-op middleware unless `required` is true.
  *
  * @param {Array<{ network: number, mask: number }>|null} allowlist
+ * @param {{ required?: boolean }} [options]
  * @returns {import('express').RequestHandler}
  */
-function createIpAllowlist(allowlist) {
+function createIpAllowlist(allowlist, { required = false } = {}) {
   if (!allowlist) {
+    if (required) {
+      return function ipAllowlistUnconfigured(_req, _res, next) {
+        next(new ForbiddenError(
+          'Access denied: ADMIN_IP_ALLOWLIST must be configured for production admin endpoints',
+        ));
+      };
+    }
     return function ipAllowlistDisabled(_req, _res, next) {
       next();
     };
