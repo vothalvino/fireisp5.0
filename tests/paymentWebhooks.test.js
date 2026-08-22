@@ -999,6 +999,30 @@ describe('Payment Webhooks & Idempotency', () => {
       }
     });
 
+    test('production ignores ALLOW_UNSIGNED_WEBHOOKS and still fails closed', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_UNSIGNED_WEBHOOKS = 'true';
+      delete process.env.STRIPE_WEBHOOK_SECRET;
+
+      try {
+        const res = await request(app)
+          .post('/api/payment-webhooks/stripe')
+          .send({ id: 'evt_prod_unsigned', type: 'payment_intent.succeeded', data: { object: {} } })
+          .set('Content-Type', 'application/json');
+
+        expect(res.status).toBe(503);
+        expect(res.body.error.code).toBe('WEBHOOK_NOT_CONFIGURED');
+        expect(db.query).not.toHaveBeenCalled();
+      } finally {
+        if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = originalNodeEnv;
+        if (originalSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+        else process.env.STRIPE_WEBHOOK_SECRET = originalSecret;
+      }
+    });
+
     test('accepts a validly SIGNED event (no opt-in needed)', async () => {
       delete process.env.ALLOW_UNSIGNED_WEBHOOKS;              // prove signature alone suffices
       const secret = 'whsec_route_ok';
