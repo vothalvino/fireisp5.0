@@ -51,6 +51,7 @@ set -euo pipefail
 
 APP_DIR="${FIREISP_DIR:-/opt/fireisp}"
 COMPOSE_FILE="$APP_DIR/docker-compose.prod.yml"
+HOST_NGINX_COMPOSE_FILE="$APP_DIR/docker-compose.host-nginx.yml"
 ENV_FILE="$APP_DIR/.env.prod"
 REGISTRY_IMAGE="${FIREISP_REGISTRY_IMAGE:-ghcr.io/vothalvino/fireisp5.0}"
 # How many superseded images to keep on disk for rollback. Everything older is
@@ -99,6 +100,53 @@ resolve_deploy_agent_flag() {
     *)
       echo "    warning: FIREISP_DEPLOY_AGENT=${raw} in $(basename "$ENV_FILE") is not a recognised value — the deploy agent stays ENABLED. Use 0 to turn it off." >&2 ;;
   esac
+}
+
+# Resolve the topology selected by install.sh. Older installations predate the
+# persisted FIREISP_HOST_NGINX marker, so the generated host-nginx config is a
+# safe compatibility signal: install.sh creates it only for that topology.
+resolve_host_nginx_mode() {
+  local line raw="" explicit=0
+  HOST_NGINX_MODE=0
+
+  if [[ -f "$ENV_FILE" ]]; then
+    line="$( { grep -E '^[[:space:]]*(export[[:space:]]+)?FIREISP_HOST_NGINX[[:space:]]*=' "$ENV_FILE" || true; } 2>/dev/null | tail -n1 )"
+    if [[ -n "$line" ]]; then
+      explicit=1
+      raw="$(printf '%s\n' "$line" | cut -d= -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '\r"'"'"' \t' | tr '[:upper:]' '[:lower:]')"
+      case "$raw" in
+        1|true|yes|on)  HOST_NGINX_MODE=1 ;;
+        0|false|no|off) HOST_NGINX_MODE=0 ;;
+        *)
+          echo "error: FIREISP_HOST_NGINX=$raw in $ENV_FILE is not a recognised boolean." >&2
+          echo "       Use 1 for host nginx or 0 for the bundled Docker nginx." >&2
+          exit 1
+          ;;
+      esac
+    fi
+  fi
+
+  if (( ! explicit )) && [[ -f /etc/nginx/conf.d/fireisp.conf ]]; then
+    HOST_NGINX_MODE=1
+    echo "    legacy host-nginx install detected from /etc/nginx/conf.d/fireisp.conf"
+  fi
+
+  COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+  if (( HOST_NGINX_MODE )); then
+    if [[ ! -f "$HOST_NGINX_COMPOSE_FILE" ]]; then
+      echo "error: host-nginx mode is enabled but $HOST_NGINX_COMPOSE_FILE is missing" >&2
+      exit 1
+    fi
+    COMPOSE_ARGS+=(-f "$HOST_NGINX_COMPOSE_FILE")
+    echo "    using host-nginx Compose topology"
+  fi
+
+  # Converge legacy installs on the explicit marker after detecting them. The
+  # existing managed-env writer appends only when absent and takes a backup, so
+  # an operator's explicit 0/1 is never overwritten.
+  MANAGED_ENV_KEYS+=(
+    "FIREISP_HOST_NGINX=${HOST_NGINX_MODE}|Persist the installer-selected nginx topology so every redeploy uses the same Compose files."
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -374,13 +422,29 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
-# Wrap the fully-qualified compose invocation so paths are quoted correctly.
-dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
-
 echo "==> Updating source in $APP_DIR"
+REDEPLOY_SCRIPT_BEFORE="$(git -C "$APP_DIR" rev-parse HEAD:redeploy.sh 2>/dev/null || true)"
 git -C "$APP_DIR" fetch origin
 git -C "$APP_DIR" checkout main
 git -C "$APP_DIR" pull --ff-only origin main
+
+# Bash parsed this file before the git pull. If redeploy.sh itself changed, the
+# first invocation would otherwise continue running the old implementation and
+# only the SECOND `sudo redeploy` would receive a critical deploy fix.
+REDEPLOY_SCRIPT_AFTER="$(git -C "$APP_DIR" rev-parse HEAD:redeploy.sh 2>/dev/null || true)"
+if [[ "${FIREISP_REDEPLOY_REEXEC:-0}" != "1" \
+      && -n "$REDEPLOY_SCRIPT_BEFORE" \
+      && "$REDEPLOY_SCRIPT_BEFORE" != "$REDEPLOY_SCRIPT_AFTER" ]]; then
+  echo "==> Redeploy logic updated; restarting with the new script"
+  exec env FIREISP_DIR="$APP_DIR" FIREISP_REDEPLOY_REEXEC=1 \
+    "$APP_DIR/redeploy.sh" "$@"
+fi
+
+resolve_host_nginx_mode
+
+# Wrap the fully-qualified, topology-aware Compose invocation so every
+# pull/migrate/start/health operation uses the files selected by install.sh.
+dc() { docker compose "${COMPOSE_ARGS[@]}" --env-file "$ENV_FILE" "$@"; }
 
 # Precedence: positional argument, then FIREISP_IMAGE_TAG, then the commit just
 # checked out. The argument comes first because it is the only form that

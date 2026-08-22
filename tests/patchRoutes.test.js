@@ -197,7 +197,15 @@ describePatch(
 // 8. USERS (User model is fully mocked — need special handling)
 // =============================================================================
 describe('PATCH /api/users/:id', () => {
-  const mockUserRecord = { id: 2, organization_id: 1, first_name: 'John', last_name: 'Doe', email: 'john@test.com', status: 'active' };
+  const mockUserRecord = {
+    id: 2,
+    organization_id: 1,
+    first_name: 'John',
+    last_name: 'Doe',
+    email: 'john@test.com',
+    role: 'technician',
+    status: 'active',
+  };
 
   beforeEach(() => {
     User.hasOrgScope = true;

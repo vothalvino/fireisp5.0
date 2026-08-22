@@ -3,11 +3,43 @@
 // =============================================================================
 
 const BaseModel = require('./BaseModel');
+const { runInPrimaryContext } = require('../utils/primaryContext');
 
 // Roles that are valid values for the `organization_users.role` ENUM
 // (owner, admin, manager, technician, billing, readonly, support — 'support'
 // added by migration 378 so support-kind groups can be mirrored).
 const ORG_MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'manager', 'technician', 'billing', 'readonly', 'support']);
+
+// Intrinsic installation-wide identities are visible in every organization's
+// Users page without manufacturing organization_users rows. The exact system
+// role test matters: an ordinary tenant admin has the same legacy
+// users.role='admin' mirror and must never become global through that field.
+const GLOBAL_IDENTITY_SQL = `(
+  u.deleted_at IS NULL
+  AND (
+    u.is_install_operator = TRUE
+    OR EXISTS (
+      SELECT 1
+        FROM roles global_role
+       WHERE global_role.id = u.group_id
+         AND global_role.name = 'super_admin'
+         AND global_role.is_system = TRUE
+         AND global_role.deleted_at IS NULL
+    )
+  )
+)`;
+
+const ORGANIZATION_VISIBLE_USER_SQL = `(
+  u.organization_id = ?
+  OR EXISTS (
+    SELECT 1
+      FROM organization_users visible_membership
+     WHERE visible_membership.user_id = u.id
+       AND visible_membership.organization_id = ?
+       AND visible_membership.deleted_at IS NULL
+  )
+  OR ${GLOBAL_IDENTITY_SQL}
+)`;
 
 class User extends BaseModel {
   static get tableName() { return 'users'; }
@@ -22,6 +54,87 @@ class User extends BaseModel {
   static get hasOrgScope() { return true; }
 
   static get softDelete() { return true; }
+
+  /**
+   * The Users page is an organization-access view, not merely a users.home_org
+   * view. Include:
+   *   - accounts homed in the active organization;
+   *   - ordinary accounts explicitly assigned to it; and
+   *   - intrinsic install-operator/system-super-admin identities.
+   *
+   * No membership rows are created for global identities, so removing a role
+   * or operator flag immediately removes the automatic visibility/access.
+   */
+  static async findAll({
+    where = {}, orderBy = 'id', order = 'ASC', limit = 50, offset = 0,
+    orgId = null, withDeleted = false, onlyDeleted = false,
+  } = {}) {
+    if (orgId === null) {
+      return super.findAll({
+        where, orderBy, order, limit, offset, orgId, withDeleted, onlyDeleted,
+      });
+    }
+
+    // Archived-account administration stays with the home organization. A
+    // deleted global identity no longer has global access, and exposing its
+    // restore controls in every tenant would be both misleading and unsafe.
+    const conditions = [onlyDeleted ? 'u.organization_id = ?' : ORGANIZATION_VISIBLE_USER_SQL];
+    const params = onlyDeleted ? [orgId] : [orgId, orgId];
+    if (onlyDeleted) conditions.push('u.deleted_at IS NOT NULL');
+    else if (!withDeleted) conditions.push('u.deleted_at IS NULL');
+
+    for (const [column, value] of Object.entries(where)) {
+      if (this.fillable.includes(column)
+          || this.filterableColumns.includes(column)
+          || ['id', 'status', 'organization_id'].includes(column)) {
+        conditions.push(`u.\`${column}\` = ?`);
+        params.push(value);
+      }
+    }
+
+    const safeOrderBy = this.sortable.includes(orderBy) ? orderBy : 'id';
+    const safeLimit = Math.max(1, Number.parseInt(limit, 10) || 50);
+    const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+    const sql = `
+      SELECT u.*, ${GLOBAL_IDENTITY_SQL} AS has_global_organization_access
+        FROM users u
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY u.\`${safeOrderBy}\` ${order === 'DESC' ? 'DESC' : 'ASC'}
+       LIMIT ${safeLimit} OFFSET ${safeOffset}
+    `;
+    const db = require('../config/database');
+    const [rows] = await runInPrimaryContext(() => db.query(sql, params));
+    return rows;
+  }
+
+  static async count({
+    where = {}, orgId = null, withDeleted = false, onlyDeleted = false,
+  } = {}) {
+    if (orgId === null) {
+      return super.count({ where, orgId, withDeleted, onlyDeleted });
+    }
+
+    const conditions = [onlyDeleted ? 'u.organization_id = ?' : ORGANIZATION_VISIBLE_USER_SQL];
+    const params = onlyDeleted ? [orgId] : [orgId, orgId];
+    if (onlyDeleted) conditions.push('u.deleted_at IS NOT NULL');
+    else if (!withDeleted) conditions.push('u.deleted_at IS NULL');
+
+    for (const [column, value] of Object.entries(where)) {
+      if (this.fillable.includes(column)
+          || this.filterableColumns.includes(column)
+          || ['id', 'status', 'organization_id'].includes(column)) {
+        conditions.push(`u.\`${column}\` = ?`);
+        params.push(value);
+      }
+    }
+
+    const db = require('../config/database');
+    const [rows] = await runInPrimaryContext(() => db.query(
+      `SELECT COUNT(*) AS total FROM users u WHERE ${conditions.join(' AND ')}`,
+      params,
+    ));
+    return rows[0].total;
+  }
 
   /**
    * Create a user, then mirror their role into an `organization_users`

@@ -678,6 +678,20 @@ describe('the operator ACCOUNT cannot be taken over', () => {
     expect(res.status).toBe(403);
   });
 
+  it('403s even an ordinary profile edit against a visible global identity', async () => {
+    wireUsers(
+      { ...TENANT_ADMIN, organization_id: 1 },
+      { ...OPERATOR, organization_id: 1, is_install_operator: 1 },
+    );
+    const actor = { ...TENANT_ADMIN, organization_id: 1 };
+    const res = await request(app)
+      .patch('/api/v1/users/' + OPERATOR.id)
+      .set('Authorization', 'Bearer ' + tokenFor(actor))
+      .send({ phone: '+52 555 010 9999' });
+    expect(res.status).toBe(403);
+    expect(db.query.mock.calls.some(([sql]) => /UPDATE .*users/i.test(sql))).toBe(false);
+  });
+
   it('lets the operator change their OWN credentials', async () => {
     const op = { ...OPERATOR, is_install_operator: 1 };
     wireUsers(op, op);

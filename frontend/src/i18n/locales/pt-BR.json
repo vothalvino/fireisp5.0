@@ -1014,6 +1014,9 @@
     "noUsers": "Nenhum usuário encontrado.",
     "loading": "Carregando usuários…",
     "error": "Falha ao carregar usuários.",
+    "crossOrgBadge": "Multi-org",
+    "crossOrgBadgeTitle": "Este operador de instalação ou superadministrador tem acesso automático a todas as organizações.",
+    "remoteAccountActionDisabledTitle": "Mude para a organização principal deste usuário para gerenciar a conta.",
     "newUserModal": {
       "group": "Grupo",
       "orgAccess": "Acesso a organizações *",

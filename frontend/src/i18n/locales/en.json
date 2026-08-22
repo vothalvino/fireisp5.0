@@ -1014,6 +1014,9 @@
     "noUsers": "No users found.",
     "loading": "Loading users…",
     "error": "Failed to load users.",
+    "crossOrgBadge": "Cross-org",
+    "crossOrgBadgeTitle": "This install operator or super administrator automatically has access to every organization.",
+    "remoteAccountActionDisabledTitle": "Switch to this user's home organization to manage the account.",
     "newUserModal": {
       "group": "Group",
       "orgAccess": "Organization Access *",
