@@ -30,8 +30,10 @@ const { orgScope } = require('../middleware/orgScope');
 const { requirePermission, userHasPermission } = require('../middleware/rbac');
 const { validate } = require('../middleware/validate');
 const { updateSetting } = require('../middleware/schemas/settings');
-const { INSTALL_SETTING_KEYS, ORG_SETTING_DEFS } = require('../services/settingsCatalog');
+const { INSTALL_SETTING_DEFS, INSTALL_SETTING_KEYS, ORG_SETTING_DEFS } = require('../services/settingsCatalog');
 const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
+const wireguardRuntime = require('../services/wireguardRuntimeService');
+const auditLog = require('../services/auditLog');
 
 const router = Router();
 
@@ -67,6 +69,9 @@ router.get('/', requirePermission('settings.view'), async (req, res, next) => {
         description: row.description,
         scope: 'install',
         editable: operator,
+        ...(operator && row.setting_key === wireguardRuntime.SETTING_KEY
+          ? { details: wireguardRuntime.publicDetails() }
+          : {}),
       })),
     ];
     res.json({ data });
@@ -115,6 +120,38 @@ router.put('/:key', requirePermission('settings.update'), validate(updateSetting
           error: { code: 'INSTALL_SETTING_OPERATOR_ONLY', message: OPERATOR_ONLY_MESSAGE },
         });
       }
+      const problem = INSTALL_SETTING_DEFS[key].validate?.(value);
+      if (problem) {
+        return res.status(422).json({
+          error: { code: 'INVALID_SETTING_VALUE', message: `${key} ${problem}` },
+        });
+      }
+
+      if (key === wireguardRuntime.SETTING_KEY) {
+        const previous = wireguardRuntime.isEnabled();
+        const enabled = value === 'true';
+        await wireguardRuntime.setEnabled(enabled);
+        try {
+          await Organization.setInstallSetting(key, value);
+        } catch (err) {
+          // Keep runtime and persisted state aligned if the DB write fails.
+          await wireguardRuntime.setEnabled(previous).catch(() => {});
+          throw err;
+        }
+        await auditLog.log({
+          userId: req.user.id,
+          organizationId: req.orgId,
+          action: 'update',
+          entityType: 'settings',
+          summary: `WireGuard hub ${enabled ? 'enabled' : 'disabled'}`,
+          oldValues: { enabled: previous },
+          newValues: { enabled },
+        });
+        return res.json({
+          data: { key, value, scope: 'install', details: wireguardRuntime.publicDetails() },
+        });
+      }
+
       await Organization.setInstallSetting(key, value);
       return res.json({ data: { key, value, scope: 'install' } });
     }

@@ -20,6 +20,8 @@
 #   REDIS_PASSWORD      Redis password               (auto-generated if omitted)
 #   JWT_SECRET          JWT signing secret           (auto-generated if omitted)
 #   ENCRYPTION_KEY      AES-256 key for at-rest secrets (auto-generated if omitted)
+#   WG_LISTEN_PORT      NAS WireGuard UDP port (random high port if omitted)
+#   WG_CLIENT_LISTEN_PORT User WireGuard UDP port (random high port if omitted)
 #
 # =============================================================================
 
@@ -377,6 +379,15 @@ INSECURE_DEFAULT_JWT_SECRET='change-me-in-production-this-default-jwt-secret-is-
 # Used for MySQL and Redis passwords where shell-safe characters matter.
 gen_pass()   { openssl rand -base64 24 | tr -d '\n/+='; }
 
+# Fresh installs do not advertise the repository's conventional WireGuard
+# ports. These values are not secrets (WireGuard is cryptographically silent to
+# unauthenticated packets), but random high ports reduce routine scan noise.
+gen_udp_port() {
+  local hex
+  hex="$(openssl rand -hex 2)"
+  echo $((20000 + (16#$hex % 40000)))
+}
+
 # ── Banner ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BLUE}${BOLD}"
@@ -542,6 +553,18 @@ echo ""
 # string that it passes directly to crypto.createCipheriv as a 32-byte key.
 if [[ "$REUSE_EXISTING_ENV" == "0" ]]; then
   : "${ADMIN_PASSWORD:=$(gen_pass)}"
+  : "${WG_LISTEN_PORT:=$(gen_udp_port)}"
+  : "${WG_CLIENT_LISTEN_PORT:=$(gen_udp_port)}"
+  while [[ "$WG_CLIENT_LISTEN_PORT" == "$WG_LISTEN_PORT" ]]; do
+    WG_CLIENT_LISTEN_PORT="$(gen_udp_port)"
+  done
+  for _WG_PORT in "$WG_LISTEN_PORT" "$WG_CLIENT_LISTEN_PORT"; do
+    [[ "$_WG_PORT" =~ ^[0-9]+$ ]] \
+      && (( 10#$_WG_PORT >= 1024 && 10#$_WG_PORT <= 65535 )) \
+      || die "WireGuard UDP ports must be distinct integers between 1024 and 65535."
+  done
+  [[ "$WG_CLIENT_LISTEN_PORT" != "$WG_LISTEN_PORT" ]] \
+    || die "WG_LISTEN_PORT and WG_CLIENT_LISTEN_PORT must be different."
 fi
 # ADMIN_PASSWORD is the initial password for the seeded admin account.
 # It is hashed by bcrypt inside seed.js before being written to the database;
@@ -661,7 +684,7 @@ RADIUS_HOST=127.0.0.1
 RADIUS_COA_PORT=3799
 
 # ---- Install operator --------------------------------------------------------
-# Who may change install-wide settings (ops_alert_email, map tiles), manage
+# Who may change install-wide settings (ops alerts, map tiles, WireGuard), manage
 # poller nodes, and use the update/deploy controls. Comma-separated user IDs.
 #
 # Leave empty: the installer seeds this onto the admin account it creates, and
@@ -669,6 +692,17 @@ RADIUS_COA_PORT=3799
 # capability to a different account — see "The install operator" in
 # docs/deployment.md. IDs, not emails: an email is editable inside the app.
 INSTALL_OPERATOR_USER_IDS=
+
+# ---- WireGuard hub -----------------------------------------------------------
+# Enable/disable from Settings in the web GUI. Fresh installs receive distinct
+# random high UDP ports; these values are displayed in that same settings row.
+# This false marker tells the first startup this is a fresh, disabled install;
+# after that, the database-backed GUI setting is authoritative.
+WG_SERVER_ENABLED=false
+WG_LISTEN_PORT=${WG_LISTEN_PORT}
+WG_CLIENT_LISTEN_PORT=${WG_CLIENT_LISTEN_PORT}
+WG_SERVER_SUBNET=10.255.0.0/16
+WG_CLIENT_SUBNET=10.99.0.0/16
 
 # ---- Optional: Sentry error tracking ----------------------------------------
 # SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>

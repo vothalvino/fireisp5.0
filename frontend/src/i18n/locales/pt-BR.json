@@ -13,7 +13,10 @@
     "cancel": "Cancelar",
     "edit": "Editar",
     "operatorOnly": "Somente o operador da instalação",
-    "readOnly": "Somente leitura"
+    "readOnly": "Somente leitura",
+    "enabled": "Ativado",
+    "disabled": "Desativado",
+    "wireguardPorts": "Endpoint: {{endpoint}} · UDP NAS {{nasPort}} · UDP clientes {{clientPort}}"
   },
   "common": {
     "email": "E-mail",

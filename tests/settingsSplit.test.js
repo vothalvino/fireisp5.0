@@ -26,6 +26,7 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const app = require('../src/app');
 const User = require('../src/models/User');
+const wireguardRuntime = require('../src/services/wireguardRuntimeService');
 
 const isUserLookup = (sql) => typeof sql === 'string' && sql.includes('`users`');
 
@@ -114,6 +115,19 @@ describe('GET /settings — one list, two scopes, per-caller editability', () =>
     const install = res.body.data.filter((e) => e.scope === 'install');
     expect(install.length).toBe(3);
     expect(install.every((e) => e.editable)).toBe(true);
+  });
+
+  it('does not disclose WireGuard endpoint ports to tenant settings viewers', async () => {
+    wireDb({
+      user: TENANT_ADMIN,
+      installRows: [{
+        setting_key: 'wireguard_server_enabled', setting_value: 'true', description: 'WireGuard hub',
+      }],
+    });
+    const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`);
+    const setting = res.body.data.find(row => row.key === 'wireguard_server_enabled');
+    expect(setting).toMatchObject({ value: 'true', editable: false });
+    expect(setting).not.toHaveProperty('details');
   });
 
   it('reads org values scoped to the CALLER\'s org', async () => {
@@ -224,6 +238,48 @@ describe('PUT /settings/:key — install keys are operator-only (THE j56 hole)',
     expect(res.status).toBe(200);
     const write = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO settings'));
     expect(write[1]).toEqual(['map_tile_url', '']);
+  });
+
+  it('lets only the install operator enable WireGuard through the settings API', async () => {
+    const setEnabled = jest.spyOn(wireguardRuntime, 'setEnabled').mockResolvedValue({ enabled: true });
+    jest.spyOn(wireguardRuntime, 'isEnabled').mockReturnValue(false);
+    jest.spyOn(wireguardRuntime, 'publicDetails').mockReturnValue({
+      enabled: true, endpoint: 'vpn.example.test', nasPort: 32123, clientPort: 32124,
+    });
+    wireDb({ user: OPERATOR, orgCount: 3 });
+
+    const res = await request(app)
+      .put('/api/v1/settings/wireguard_server_enabled')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: 'true' });
+
+    expect(res.status).toBe(200);
+    expect(setEnabled).toHaveBeenCalledWith(true);
+    expect(res.body.data.details).toMatchObject({ enabled: true, nasPort: 32123, clientPort: 32124 });
+  });
+
+  it('refuses a tenant admin attempting to enable the installation WireGuard hub', async () => {
+    const setEnabled = jest.spyOn(wireguardRuntime, 'setEnabled').mockResolvedValue({ enabled: true });
+    wireDb({ user: TENANT_ADMIN, orgCount: 3 });
+
+    const res = await request(app)
+      .put('/api/v1/settings/wireguard_server_enabled')
+      .set('Authorization', `Bearer ${tokenFor(TENANT_ADMIN)}`)
+      .send({ value: 'true' });
+
+    expect(res.status).toBe(403);
+    expect(setEnabled).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-boolean WireGuard setting values', async () => {
+    const setEnabled = jest.spyOn(wireguardRuntime, 'setEnabled').mockResolvedValue({ enabled: true });
+    wireDb({ user: OPERATOR });
+    const res = await request(app)
+      .put('/api/v1/settings/wireguard_server_enabled')
+      .set('Authorization', `Bearer ${tokenFor(OPERATOR)}`)
+      .send({ value: 'sometimes' });
+    expect(res.status).toBe(422);
+    expect(setEnabled).not.toHaveBeenCalled();
   });
 });
 

@@ -20,11 +20,13 @@
 //   - Private and preshared keys are NEVER logged.
 //   - PSK is passed to `wg` via a 0600 temp keyfile, not argv.
 //   - All nft updates use temp files and `nft -f` (array argv, no shell).
-//   - When config.wireguard.serverEnabled is false every shell-out function
-//     returns { applied: false, reason } without executing anything.
+//   - The public process never shells out in production; it sends allowlisted
+//     semantic operations to the isolated helper over a private Unix socket.
+//   - When config.wireguard.serverEnabled is false every privileged function
+//     returns without invoking the helper.
 //
 // Deployment prerequisite (Ubuntu Linux):
-//   - wireguard-tools, nftables, iproute2 installed; CAP_NET_ADMIN on the process.
+//   - wireguard-tools, nftables, iproute2 installed in the helper image.
 //   - bootstrapHost() (called at startup) auto-provisions both interfaces: it
 //     generates + persists the server keypairs to WG_KEY_DIR, brings wg-fireisp +
 //     wg-clients up, sets net.ipv4.ip_forward=1, and installs the nft base. The
@@ -43,6 +45,7 @@ const { promisify } = require('util');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 
 const config = require('../config');
 const db = require('../config/database');
@@ -50,13 +53,15 @@ const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ service: 'wireguardServerService' });
 
 const execFileP = promisify(execFile);
+const helperSocket = process.env.WG_HELPER_SOCKET || '';
+const proxyToHelper = Boolean(helperSocket) && process.env.WG_PRIVILEGED_HELPER !== 'true';
 
 // =============================================================================
 // Internal constants & helpers
 // =============================================================================
 
 /** Sentinel returned by every shell-out function when the hub is disabled. */
-const NOOP_RESULT = Object.freeze({ applied: false, reason: 'WG_SERVER_ENABLED is false' });
+const NOOP_RESULT = Object.freeze({ applied: false, reason: 'WireGuard hub is disabled' });
 
 /**
  * Execute a binary with an explicit argument array.
@@ -68,6 +73,38 @@ const NOOP_RESULT = Object.freeze({ applied: false, reason: 'WG_SERVER_ENABLED i
  */
 function execFileAsync(cmd, args) {
   return execFileP(cmd, args, { encoding: 'utf8' });
+}
+
+/** Invoke one semantic operation on the isolated CAP_NET_ADMIN helper. */
+function callHelper(operation, params = {}) {
+  const payload = JSON.stringify({ operation, params });
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      socketPath: helperSocket,
+      path: '/v1/operation',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      timeout: 15000,
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        let parsed;
+        try { parsed = JSON.parse(body); } catch (_) { parsed = {}; }
+        if (res.statusCode !== 200) {
+          const err = new Error(parsed.error || `WireGuard helper returned HTTP ${res.statusCode}`);
+          err.code = 'WIREGUARD_HELPER_ERROR';
+          reject(err);
+          return;
+        }
+        resolve(parsed.data);
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('WireGuard helper timed out')));
+    req.on('error', reject);
+    req.end(payload);
+  });
 }
 
 /**
@@ -248,6 +285,7 @@ async function allocateTunnelIp() {
  */
 async function syncPeer({ publicKey, tunnelIp, subnets = [] }) {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('syncPeer', { publicKey, tunnelIp, subnets });
 
   const iface = config.wireguard.serverInterface;
   // allowed-ips: the NAS tunnel /32 plus any confirmed routed subnets
@@ -277,6 +315,7 @@ async function syncPeer({ publicKey, tunnelIp, subnets = [] }) {
  */
 async function removePeer({ publicKey, subnets = [] }) {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('removePeer', { publicKey, subnets });
 
   const iface = config.wireguard.serverInterface;
 
@@ -344,6 +383,7 @@ async function allocateUserTunnelIp() {
  */
 async function syncUserPeer({ publicKey, tunnelIp, presharedKey = null }) {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('syncUserPeer', { publicKey, tunnelIp, presharedKey });
 
   const iface = config.wireguard.clientInterface;
   logger.info({ iface, tunnelIp }, 'wg syncUserPeer');
@@ -385,6 +425,7 @@ async function syncUserPeer({ publicKey, tunnelIp, presharedKey = null }) {
  */
 async function readPeerHandshakes(iface) {
   if (!config.wireguard.serverEnabled) return {};
+  if (proxyToHelper) return callHelper('readPeerHandshakes', { iface });
 
   let stdout;
   try {
@@ -450,6 +491,7 @@ async function readPeerHandshakes(iface) {
  */
 async function ensureBaseFirewall() {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('ensureBaseFirewall');
 
   const clientIface  = config.wireguard.clientInterface;
   const serverIface  = config.wireguard.serverInterface;
@@ -560,6 +602,7 @@ async function ensureBaseFirewall() {
  */
 async function setUserForwardScope({ peerId, tunnelIp, subnets = [] }) {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('setUserForwardScope', { peerId, tunnelIp, subnets });
 
   const setName   = `u${peerId}_dst`;
   const outIface  = config.wireguard.serverInterface;
@@ -654,6 +697,7 @@ async function setUserForwardScope({ peerId, tunnelIp, subnets = [] }) {
  */
 async function removeUserPeer({ publicKey, peerId }) {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) return callHelper('removeUserPeer', { publicKey, peerId });
 
   const iface   = config.wireguard.clientInterface;
   const setName = `u${peerId}_dst`;
@@ -808,15 +852,15 @@ async function ensureInterface({ iface, subnet, listenPort }) {
       } else {
         // Surface an ACTIONABLE hint for the two real-world blockers (this exact
         // EPERM cost a long debug once): the host wireguard module not loaded, or
-        // the container not running as root. Then rethrow so bootstrapHost logs the
+        // the helper not receiving NET_ADMIN. Then rethrow so bootstrapHost logs the
         // per-interface failure and skips the doomed key/addr/up cascade.
         if (/operation not permitted/i.test(err.message)) {
           logger.error(
             { iface, err: err.message },
             `wireguardServerService: cannot create ${iface} (Operation not permitted) — load the wireguard `
             + 'kernel module on the host (`sudo modprobe wireguard`; on Ubuntu also `apt install '
-            + 'linux-modules-extra-$(uname -r)`) AND run the container as root (user "0:0") with cap_add '
-            + 'NET_ADMIN. See docs/wireguard-setup.md.',
+            + 'linux-modules-extra-$(uname -r)`) AND verify the wireguard-helper has NET_ADMIN. '
+            + 'See docs/wireguard-setup.md.',
           );
         }
         throw err;
@@ -838,7 +882,8 @@ async function ensureInterface({ iface, subnet, listenPort }) {
 
 /**
  * Idempotently provision the WireGuard hub on the local host (the container's
- * own network namespace under CAP_NET_ADMIN). No-op unless WG_SERVER_ENABLED=true.
+ * shared network namespace under the helper's CAP_NET_ADMIN. No-op unless the
+ * installation-wide WireGuard setting is enabled.
  *
  * On every boot this brings the hub from "nothing" to "ready to accept peers":
  *   1. ensures both interfaces exist + are keyed/addressed/up (ensureInterface);
@@ -851,12 +896,18 @@ async function ensureInterface({ iface, subnet, listenPort }) {
  * Each interface is provisioned independently and idempotently; a failure on one
  * (or on ip_forward / the firewall) is logged and does NOT abort the rest, and
  * the caller (server.js) also wraps this in try/catch — so a host that lacks
- * CAP_NET_ADMIN logs a warning and the API still starts in config-issuance mode.
+ * helper/NET_ADMIN failure logs a warning and the API stays available.
  *
  * @returns {Promise<{applied:boolean, reason?:string}>}
  */
 async function bootstrapHost() {
   if (!config.wireguard.serverEnabled) return { ...NOOP_RESULT };
+  if (proxyToHelper) {
+    const result = await callHelper('bootstrapHost');
+    if (result.serverPublicKey) config.wireguard.serverPublicKey = result.serverPublicKey;
+    if (result.clientPublicKey) config.wireguard.clientPublicKey = result.clientPublicKey;
+    return result;
+  }
 
   const keyDir = config.wireguard.keyDir;
   try {
@@ -893,9 +944,8 @@ async function bootstrapHost() {
   reconcilePublicKey('clientPublicKey', 'WG_CLIENT_SERVER_PUBLIC_KEY', clientPub, config.wireguard.clientInterface);
 
   // Enable IPv4 forwarding so wg-clients → wg-fireisp routing works. Write /proc
-  // directly (there's no `sysctl` binary in the slim image). Best-effort:
-  // docker-compose.prod.yml also sets this via sysctls, and a locked-down host may
-  // refuse the write — neither should abort startup.
+  // directly (there's no `sysctl` binary in the slim image). A locked-down host
+  // may refuse the write; that is logged without taking down the public API.
   try {
     fs.writeFileSync('/proc/sys/net/ipv4/ip_forward', '1');
   } catch (err) {
@@ -916,6 +966,33 @@ async function bootstrapHost() {
     },
     'wireguardServerService: host bootstrap complete',
   );
+  return {
+    applied: Boolean(serverPub && clientPub),
+    serverPublicKey: config.wireguard.serverPublicKey,
+    clientPublicKey: config.wireguard.clientPublicKey,
+  };
+}
+
+/** Remove the runtime interfaces and FireISP-owned nftables table. Keys persist. */
+async function shutdownHost() {
+  if (proxyToHelper) return callHelper('shutdownHost');
+
+  for (const iface of [config.wireguard.clientInterface, config.wireguard.serverInterface]) {
+    try {
+      await execFileAsync('ip', ['link', 'delete', 'dev', iface]);
+    } catch (err) {
+      if (!/cannot find device|does not exist/i.test(err.message)) {
+        logger.warn({ iface, err: err.message }, 'WireGuard interface teardown failed (non-fatal)');
+      }
+    }
+  }
+  try {
+    await execFileAsync('nft', ['delete', 'table', 'inet', 'fireisp_wg']);
+  } catch (err) {
+    if (!/no such file|not found/i.test(err.message)) {
+      logger.warn({ err: err.message }, 'WireGuard firewall teardown failed (non-fatal)');
+    }
+  }
   return { applied: true };
 }
 
@@ -940,6 +1017,7 @@ module.exports = {
 
   // Host bootstrap (startup)
   bootstrapHost,
+  shutdownHost,
 
   // Derived addressing
   serverTunnelIp,

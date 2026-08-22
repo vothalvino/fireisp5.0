@@ -7458,8 +7458,9 @@ WHERE r.name = 'readonly';
 --          them. default_currency and default_tax_rate had already been
 --          removed by migrations 405 and 431 for the same reason. The settings
 --          table now holds ONLY install-level keys with real readers
---          (ops_alert_email, map_tile_url, map_tile_attribution — migrations
---          433/436); per-org keys live in organization_settings (migration 443).
+--          (ops_alert_email, map_tile_url, map_tile_attribution, and the
+--          WireGuard activation switch); per-org keys live in
+--          organization_settings (migration 443).
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------

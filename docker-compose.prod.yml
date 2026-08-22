@@ -8,6 +8,7 @@
 #   • redis       — Redis 7 (AOF persistence, password-protected)
 #   • app         — FireISP Node.js API + React SPA (can be scaled with
 #                   `docker compose -f docker-compose.prod.yml up --scale app=3`)
+#   • wireguard-helper — isolated kernel-networking helper (GUI controlled)
 #   • nginx       — Nginx reverse proxy (HTTP→HTTPS redirect, TLS, gzip,
 #                   rate limiting, WebSocket pass-through for FireRelay)
 #
@@ -46,6 +47,7 @@ networks:
 volumes:
   storage:          # client/device/ticket document uploads (/app/storage)
   wg_keys:          # WireGuard server keypairs (persist across redeploys; never in git)
+  wg_runtime:       # private app ↔ WireGuard helper Unix socket
   db_primary_data:
   db_replica_data:
   redis_data:
@@ -245,18 +247,10 @@ services:
     #   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --env-file .env.prod up -d --build
     image: ${FIREISP_IMAGE:-ghcr.io/vothalvino/fireisp5.0:latest}
     restart: unless-stopped
-    # WireGuard hub (ON by default in prod; endpoint derives from DOMAIN; set
-    # WG_SERVER_ENABLED=false in .env.prod to opt out):
-    #   - cap_add NET_ADMIN puts the capability in the bounding set, and
-    #   - user "0:0" runs the app as root — kernel WireGuard interface + route
-    #     management (`ip link add type wireguard`, `ip address add`, `ip route`)
-    #     requires REAL uid 0; CAP_NET_ADMIN via file-caps is sufficient for wg/nft
-    #     but NOT for those rtnetlink ops. Dev/test/e2e keep the image's non-root
-    #     `fireisp` user (they don't set `user:` and don't enable WG).
-    #   - sysctls enables IPv4 forwarding for wg-clients <-> wg-fireisp routing.
-    cap_add:
-      - NET_ADMIN
-    user: "0:0"
+    # Least privilege: no `user` override means the image's non-root `fireisp`
+    # user runs the web/API application with no added Linux capabilities.
+    # This configures the shared network namespace at container creation; it
+    # does not grant the app process permission to alter routes or interfaces.
     sysctls:
       net.ipv4.ip_forward: '1'
     networks:
@@ -280,17 +274,18 @@ services:
       RADIUS_AUTH_PORT:      ${RADIUS_AUTH_PORT:-1812}
       RADIUS_ACCT_PORT:      ${RADIUS_ACCT_PORT:-1813}
       RADIUS_SERVER_SECRET:  ${RADIUS_SERVER_SECRET:-}
-      # UDP listener for unsolicited SNMP traps. The production container runs
-      # as root for WireGuard, so operators may choose standard port 162; the
-      # non-privileged default remains 1620.
+      # UDP listener for unsolicited SNMP traps. The non-privileged default is
+      # 1620; use a host-port mapping if the host must expose standard port 162.
       SNMP_TRAP_PORT:        ${SNMP_TRAP_PORT:-1620}
       # Bind inside the container; SNMP_TRAP_PUBLISH_IP below restricts the host.
       SNMP_TRAP_BIND_IP:     0.0.0.0
-      # WireGuard hub — ON by default in production; the dial-in endpoint auto-derives
-      # from DOMAIN (the TLS host), so a normal redeploy activates it with no extra
-      # config. Opt out by setting WG_SERVER_ENABLED=false in .env.prod.
-      WG_SERVER_ENABLED:     ${WG_SERVER_ENABLED:-true}
-      WG_KEY_DIR:            /etc/wireguard
+      # The installation-wide GUI setting controls activation. Kernel actions
+      # go over this private Unix socket to the isolated helper below.
+      WG_SERVER_ENABLED:     'false'
+      # One-time upgrade bridge: runtime imports the old env/default into the
+      # new DB setting, then the GUI becomes authoritative.
+      WG_LEGACY_SERVER_ENABLED: ${WG_SERVER_ENABLED-__unset__}
+      WG_HELPER_SOCKET:      /run/fireisp-wireguard/helper.sock
       # "A newer release is available" banner for the install operator. ON by
       # default so a fresh install works with no configuration. This is the only
       # outbound request FireISP makes on its own behalf: an unauthenticated
@@ -307,8 +302,7 @@ services:
       # EACCES writing uploads. A named volume inherits the image's fireisp-owned
       # /app/storage on first init, so it is writable by the app.
       - storage:/app/storage
-      # Server WireGuard keypairs — generated on first boot, persist here, never in git/image.
-      - wg_keys:/etc/wireguard
+      - wg_runtime:/run/fireisp-wireguard:ro
     # HTTP (3000) stays internal behind Nginx. RADIUS and SNMP trap listeners
     # are UDP and must be published directly (Nginx proxies HTTP only).
     # NOTE: these are fixed host ports — keep the app at replicas:1, or front
@@ -320,8 +314,9 @@ services:
       - '${RADIUS_AUTH_PORT:-1812}:1812/udp'
       - '${RADIUS_ACCT_PORT:-1813}:1813/udp'
       - '${SNMP_TRAP_PUBLISH_IP:-127.0.0.1}:${SNMP_TRAP_PORT:-1620}:${SNMP_TRAP_PORT:-1620}/udp'
-      # WireGuard dial-in (host:container kept identical so the app's bind port always
-      # matches the published port). Inert until WG_SERVER_ENABLED=true.
+      # Inert while the GUI setting is off: no WireGuard interface listens.
+      # Publishing them here lets the GUI activate the hub without recreating
+      # containers or requiring shell access.
       - '${WG_LISTEN_PORT:-51820}:${WG_LISTEN_PORT:-51820}/udp'
       - '${WG_CLIENT_LISTEN_PORT:-51821}:${WG_CLIENT_LISTEN_PORT:-51821}/udp'
     deploy:
@@ -333,6 +328,51 @@ services:
         reservations:
           cpus:   '0.25'
           memory: 128M
+    logging: *default-logging
+
+  # ── WireGuard kernel helper ───────────────────────────────────────────────
+  # The public app stays non-root. This deliberately small process receives no
+  # DB, Redis, JWT, or encryption secrets and accepts only named WireGuard
+  # operations over a Unix socket mounted solely into these two containers.
+  wireguard-helper:
+    image: ${FIREISP_IMAGE:-ghcr.io/vothalvino/fireisp5.0:latest}
+    restart: unless-stopped
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    network_mode: service:app
+    depends_on:
+      app:
+        condition: service_started
+    command: ['node', 'src/scripts/wireguard-helper.js']
+    environment:
+      NODE_ENV: production
+      WG_PRIVILEGED_HELPER: 'true'
+      WG_SERVER_ENABLED: 'true'
+      WG_KEY_DIR: /etc/wireguard
+      WG_SERVER_INTERFACE: ${WG_SERVER_INTERFACE:-wg-fireisp}
+      WG_SERVER_SUBNET: ${WG_SERVER_SUBNET:-10.255.0.0/16}
+      WG_LISTEN_PORT: ${WG_LISTEN_PORT:-51820}
+      WG_CLIENT_INTERFACE: ${WG_CLIENT_INTERFACE:-wg-clients}
+      WG_CLIENT_SUBNET: ${WG_CLIENT_SUBNET:-10.99.0.0/16}
+      WG_CLIENT_LISTEN_PORT: ${WG_CLIENT_LISTEN_PORT:-51821}
+      WG_HELPER_SOCKET: /run/fireisp-wireguard/helper.sock
+    volumes:
+      - wg_keys:/etc/wireguard
+      - wg_runtime:/run/fireisp-wireguard
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ['CMD', 'node', '-e', "const n=require('net').connect('/run/fireisp-wireguard/helper.sock');n.on('connect',()=>process.exit(0));n.on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     logging: *default-logging
 
   # ── Nginx reverse proxy ───────────────────────────────────────────────────

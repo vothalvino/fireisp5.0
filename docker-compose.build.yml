@@ -38,3 +38,9 @@ services:
         # taking the host down with it. Raise it if a legitimately larger build
         # needs the room; do not remove it.
         FRONTEND_BUILD_HEAP_MB: ${FRONTEND_BUILD_HEAP_MB:-2048}
+  wireguard-helper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        FRONTEND_BUILD_HEAP_MB: ${FRONTEND_BUILD_HEAP_MB:-2048}

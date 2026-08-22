@@ -64,6 +64,8 @@ curl -fsSL https://raw.githubusercontent.com/vothalvino/fireisp5.0/main/install.
 | `REDIS_PASSWORD` | *(auto-generated)* | Redis password |
 | `JWT_SECRET` | *(auto-generated)* | JWT signing secret (64 chars) |
 | `ENCRYPTION_KEY` | *(auto-generated)* | AES-256 key for secrets at rest |
+| `WG_LISTEN_PORT` | *(random high port)* | NAS WireGuard UDP port on a fresh install |
+| `WG_CLIENT_LISTEN_PORT` | *(random high port)* | Technician/client WireGuard UDP port on a fresh install |
 
 ### After install
 
@@ -951,6 +953,11 @@ chmod +x nginx/init-letsencrypt.sh
 DOMAIN=isp.example.com EMAIL=admin@example.com ./nginx/init-letsencrypt.sh
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+This production topology runs the public application as the image's non-root
+`fireisp` user and grants it no Linux capabilities. The optional WireGuard hub is
+enabled from the installation-wide web Settings page; a separate hardened helper
+owns `NET_ADMIN`. See [WireGuard activation](wireguard-setup.md#1-activation--web-gui).
 
 Certificates renew automatically when within 30 days of expiry; nginx hot-reloads every 6
 hours to pick them up.

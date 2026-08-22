@@ -5,7 +5,7 @@ dial in over WireGuard, and FireISP routes between them so an operator can reach
 device behind a NAS for monitoring and troubleshooting — without exposing the router's
 management plane to the internet.
 
-The automation ships **disabled** (`WG_SERVER_ENABLED=false`). While disabled the app
+A fresh installation ships **disabled**. While disabled the app
 still *generates* configs / paste-once snippets / QR codes, but it does **not** bring up
 kernel tunnels (`GET /nas/:id/wg` stays `null`, peers report `server_peer_synced=0`).
 
@@ -34,23 +34,31 @@ peers from `.2` upward, so the addresses above never collide with a provisioned 
 
 ---
 
-## 1. Activation — on by default, just redeploy
+## 1. Activation — web GUI
 
-In **production the hub is ON by default**: `docker-compose.prod.yml` carries everything
-it needs (`NET_ADMIN`, IPv4 forwarding, the published UDP ports, the `wg_keys` volume),
-and the dial-in endpoint **auto-derives from `DOMAIN`** — the public host you already set
-for TLS. So a normal redeploy activates it: no extra variables, no separate compose file.
+The production web/API app is always **non-root** and has no added Linux
+capabilities. The stack includes a separate read-only WireGuard helper whose only
+capability is `NET_ADMIN`; it receives no database, Redis, JWT, or encryption
+secrets and accepts only named WireGuard operations over a private Unix socket.
 
-```bash
-# Redeploy the way you always do, e.g.:
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+Sign in as the installation operator, open **Settings → Organization Config →
+Installation-wide settings**, edit `wireguard_server_enabled`, and select
+**Enabled**. The helper creates the interfaces, firewall, and peers immediately;
+no shell, Compose override, or container restart is required. Select **Disabled**
+to remove the runtime interfaces and FireISP-owned firewall table while retaining
+the server keys for a future re-enable.
 
-# Then open the two UDP ports in the cloud firewall / security group
-# (host ufw too, if active): 51820/udp and 51821/udp
-```
+The settings row displays the public endpoint and both UDP ports. Fresh installs
+generate two distinct random high ports and keep the values only in private
+`.env.prod`; upgrades retain existing ports so issued peer configs keep working.
+Open the displayed ports in the cloud firewall/security group (and host firewall,
+if active). A port is not a secret—WireGuard's keys provide security—but random
+ports reduce routine scan noise. `WG_ENDPOINT_HOST` may override `DOMAIN`.
 
-To **opt out**, set `WG_SERVER_ENABLED=false` in `.env.prod` and redeploy. To advertise a
-public host different from `DOMAIN`, set `WG_ENDPOINT_HOST`.
+During the first upgrade to this release, FireISP imports the old deployment
+choice once: an explicitly disabled hub stays disabled, while an existing
+default-on/enabled hub stays enabled. From then on the database-backed GUI switch
+is authoritative.
 
 On boot the app **self-provisions, idempotently** (no `wg-quick` / `/etc/wireguard`
 steps required):
@@ -62,21 +70,20 @@ steps required):
 - enables `net.ipv4.ip_forward`;
 - installs the base nftables ruleset.
 
-A redeploy re-runs all of this and re-converges — existing keys are reused, existing
-interfaces are left in place. To turn the hub back **off**, set `WG_SERVER_ENABLED=false`
-and redeploy; the app stops shelling out (configs/snippets/QRs are still issued).
+A redeploy re-runs all of this and re-converges — existing keys are reused and existing
+interfaces are left in place. With the GUI setting disabled, privileged operations
+stop and runtime interfaces/firewall state are removed (configs/snippets/QRs remain).
 
-> **Security model.** Kernel WireGuard requires **real root**: creating the interfaces
-> (`ip link add type wireguard`), assigning addresses, and managing routes need uid 0 —
-> `CAP_NET_ADMIN` via file-capabilities covers `wg`/`nft` but **not** those `ip`
-> rtnetlink ops. So the production `app` runs as `user: "0:0"` with `cap_add: NET_ADMIN`.
-> Dev / test / e2e keep the image's non-root `fireisp` user (they don't enable WG).
+> **Security model.** Only `wireguard-helper` runs as uid 0 with `NET_ADMIN`;
+> every other capability is dropped, privilege escalation is disabled, and its
+> root filesystem is read-only. The public app, dev, test, and e2e retain the
+> image's non-root `fireisp` user.
 
 > **Where do the interfaces live?** In the **app container's own network namespace**
 > (the compose does *not* use host networking, which would break the bridge service-DNS
-> MySQL/Redis/Nginx rely on). Inspect them with `docker compose -f docker-compose.prod.yml --env-file .env.prod
-> exec app wg show`. Device access is entirely through the tunnels, so host networking is
-> unnecessary.
+> MySQL/Redis/Nginx rely on). Live status is visible in the WireGuard GUI; for
+> shell-level diagnostics, inspect the isolated `wireguard-helper`. Device access
+> is entirely through the tunnels, so host networking is unnecessary.
 
 ---
 
@@ -102,13 +109,16 @@ sudo sh -c 'umask 077; wg genkey | tee /etc/wireguard/wg-fireisp.key | wg pubkey
 
 ```bash
 # Interfaces are in the app container's netns
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec app wg show          # both interfaces, no peers yet
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec wireguard-helper wg show                  # optional shell-level diagnostic
 ```
-- Create a peer in **My Tunnels** → `… exec app wg show wg-clients` lists it, and
-  `… exec app nft list table inet fireisp_wg` shows the `forward` + `wg_user_fwd` chains.
+- Create a peer in **My Tunnels** → `… exec wireguard-helper wg show wg-clients`
+  lists it, and `… exec wireguard-helper nft list table inet fireisp_wg` shows
+  the `forward` + `wg_user_fwd` chains.
 - Add a MikroTik **NAS** → `GET /nas/:id/wg` flips to `state: active`,
-  `server_peer_synced: 1`; `… exec app wg show wg-fireisp` lists the NAS peer.
-- If the host lacks the `wireguard` module or `WG_SERVER_ENABLED=false`, `GET /nas/:id/wg`
+  `server_peer_synced: 1`; `… exec wireguard-helper wg show wg-fireisp` lists
+  the NAS peer.
+- If the host lacks the `wireguard` module or the GUI setting is disabled, `GET /nas/:id/wg`
   stays `null` and peer creation still returns a config but `server_peer_synced=0` — the
   app degraded to config-issuance only (nothing errors).
 
@@ -116,11 +126,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec app wg show 
 
 ## Notes & guardrails
 
-- **Reserved host ports:** the prod stack publishes UDP `51820`/`51821` on the host
-  whenever it's up — even with `WG_SERVER_ENABLED=false` (nothing listens until enabled).
-  Don't run another host service on those ports; if you self-manage WireGuard on the host
-  (§2), put it on different ports via `WG_LISTEN_PORT`/`WG_CLIENT_LISTEN_PORT` so the two
-  don't collide.
+- **Host ports:** the UDP mappings have no listener while the GUI setting is
+  disabled. If you self-manage WireGuard on the host (§2), select different ports through
+  `WG_LISTEN_PORT`/`WG_CLIENT_LISTEN_PORT`.
 - **Keys persist, never in git:** the server private keys live only in the `wg_keys`
   named volume. Back that volume up; losing it regenerates new server identities (peers
   would need re-issued configs).

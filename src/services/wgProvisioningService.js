@@ -238,7 +238,7 @@ async function provisionDesiredState(nas, opts = {}) {
     );
     record('syncPeer', 'ok', `Host wg-fireisp peer synced for ${tunnel.tunnel_address}/32`);
   } else {
-    record('syncPeer', 'skipped', syncResult.reason || 'WG_SERVER_ENABLED is false');
+    record('syncPeer', 'skipped', syncResult.reason || 'WireGuard hub is disabled');
   }
 
   logger.info(
@@ -516,7 +516,7 @@ async function confirmRoutes(nas, { subnets }) {
     );
     record('syncPeer', 'ok', `Host wg-fireisp peer updated with ${subnets.length} subnet(s)`);
   } else {
-    record('syncPeer', 'skipped', syncResult.reason || 'WG_SERVER_ENABLED is false');
+    record('syncPeer', 'skipped', syncResult.reason || 'WireGuard hub is disabled');
   }
 
   // ── Refresh affected user tunnel scopes ────────────────────────────────────
@@ -596,7 +596,7 @@ async function buildSnippet(nas, serverCfg, subnets) {
  * Idempotent: `syncPeer` issues `wg set … peer` + `ip route replace`, both of
  * which converge rather than duplicate, so running on every boot is safe even
  * when nothing was lost. Per-row best-effort — a single bad tunnel is logged and
- * never aborts the rest. No-op unless WG_SERVER_ENABLED=true.
+ * never aborts the rest. No-op unless the installation WireGuard setting is enabled.
  *
  * Restores every live tunnel regardless of state ('pending'/'active'/'manual'):
  * the server-side peer is added at provision time for all of them, so a faithful
@@ -660,7 +660,7 @@ async function rehydrateNasPeers() {
  * Called from the /nas DELETE route (crudController afterDelete hook).
  *
  * For each live tunnel of the NAS: removes the hub peer + its routes
- * (`removePeer`, a no-op when WG_SERVER_ENABLED=false), soft-deletes the tunnel
+ * (`removePeer`, a no-op while the hub is disabled), soft-deletes the tunnel
  * row, then recomputes scope for affected users so the now-gone subnets drop out
  * of their nftables ACL. Best-effort throughout — the NAS delete itself must not
  * fail because a hub op did.
@@ -726,7 +726,7 @@ async function teardownNas(nasId) {
  *
  * No-op when a live tunnel already exists for the NAS (e.g. it was re-provisioned
  * by a re-add-by-IP in the meantime) or when there is nothing to revive. Re-sync
- * is a no-op when WG_SERVER_ENABLED=false. Best-effort — restore must not fail
+ * is a no-op while the hub is disabled. Best-effort — restore must not fail
  * because a hub op did.
  *
  * @param {number} nasId
