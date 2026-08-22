@@ -40,11 +40,13 @@ interface Setting {
   description?: string;
   scope: 'org' | 'install';
   editable: boolean;
+  details?: { enabled: boolean; endpoint: string | null; nasPort: number; clientPort: number };
 }
 
 /** Per-key input shapes for the known org settings; anything else is text. */
 const SETTING_ENUM_OPTIONS: Record<string, string[]> = {
   mab_password_mode: ['auth_type_accept', 'cleartext'],
+  wireguard_server_enabled: ['false', 'true'],
 };
 const SETTING_NUMBER_KEYS = ['pppoe_auth_failure_threshold'];
 
@@ -178,7 +180,13 @@ function OrgConfigTab() {
     if (options) {
       return (
         <select style={sty.select} value={editValue} onChange={e => setEditValue(e.target.value)}>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
+          {options.map(o => (
+            <option key={o} value={o}>
+              {setting.key === 'wireguard_server_enabled'
+                ? t(o === 'true' ? 'settingsPage.enabled' : 'settingsPage.disabled')
+                : o}
+            </option>
+          ))}
         </select>
       );
     }
@@ -209,7 +217,22 @@ function OrgConfigTab() {
               <td style={sty.td}><code style={sty.code}>{setting.key}</code></td>
               <td style={{ ...sty.td, maxWidth: 260 }}>
                 {editKey === setting.key ? valueEditor(setting) : (
-                  <span style={sty.valueCap}>{setting.value || <em style={sty.muted}>—</em>}</span>
+                  <>
+                    <span style={sty.valueCap}>
+                      {setting.key === 'wireguard_server_enabled'
+                        ? t(setting.value === 'true' ? 'settingsPage.enabled' : 'settingsPage.disabled')
+                        : (setting.value || <em style={sty.muted}>—</em>)}
+                    </span>
+                    {setting.details && (
+                      <div style={{ ...sty.muted, marginTop: 4, fontSize: '0.78rem' }}>
+                        {t('settingsPage.wireguardPorts', {
+                          endpoint: setting.details.endpoint || '—',
+                          nasPort: setting.details.nasPort,
+                          clientPort: setting.details.clientPort,
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </td>
               <td style={{ ...sty.td, color: '#888', fontSize: '0.82rem' }}>{setting.description ?? ''}</td>

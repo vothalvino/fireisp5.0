@@ -55,6 +55,7 @@ describe('the build path still exists, just not in production', () => {
   it('the override restores a build block for air-gapped/unmerged builds', () => {
     expect(build.services.app.build.context).toBe('.');
     expect(build.services.app.build.dockerfile).toBe('Dockerfile');
+    expect(build.services['wireguard-helper'].build).toEqual(build.services.app.build);
   });
 
   it('caps the frontend build heap so an oversized typecheck fails cleanly', () => {

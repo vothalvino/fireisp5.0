@@ -288,8 +288,8 @@ describe('bootstrapHost() — dormant + resilience', () => {
 
     const result = await service.bootstrapHost();
 
-    // bootstrap stays best-effort overall…
-    expect(result).toMatchObject({ applied: true });
+    // bootstrap reports that activation did not complete…
+    expect(result).toMatchObject({ applied: false });
     // …but a failed create rethrows, so we must NOT try to bring the dead interface
     // up (avoids the misleading "No such device" cascade).
     expect(execCalledWith('ip', ['link', 'set', 'up', 'dev', 'wg-fireisp'])).toBe(false);

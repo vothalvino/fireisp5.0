@@ -120,7 +120,7 @@ const ctrl = crudController(Nas, {
   createImpl: (data) => Nas.createOrRestore(data),
   // Auto-provision the WireGuard tunnel record when the hub is enabled.
   // The hook is advisory — failure is caught by crudController and logged,
-  // never surfaced to the caller. When WG_SERVER_ENABLED=false this is a no-op.
+  // never surfaced to the caller. While the hub is disabled this is a no-op.
   // For NATed NAS: passes the pre-allocated tunnel IP (which is already stored in
   // nas.ip_address) so provisionDesiredState reuses it instead of allocating a new one.
   afterCreate: async (nas, req) => {

@@ -20,8 +20,20 @@
 // surfaces and the frontend render from this catalog.
 // =============================================================================
 
-/** Install-wide keys, seeded with descriptions by migrations 433/436. */
-const INSTALL_SETTING_KEYS = ['ops_alert_email', 'map_tile_url', 'map_tile_attribution'];
+/** Install-wide keys, seeded with descriptions by migrations. */
+const INSTALL_SETTING_DEFS = {
+  ops_alert_email: {},
+  map_tile_url: {},
+  map_tile_attribution: {},
+  wireguard_server_enabled: {
+    validate(value) {
+      return ['true', 'false'].includes(value)
+        ? null
+        : "must be 'true' or 'false'";
+    },
+  },
+};
+const INSTALL_SETTING_KEYS = Object.keys(INSTALL_SETTING_DEFS);
 
 /**
  * Per-org keys. `validate` returns null when the value is acceptable, or a
@@ -64,4 +76,4 @@ const ORG_SETTING_DEFS = {
   },
 };
 
-module.exports = { INSTALL_SETTING_KEYS, ORG_SETTING_DEFS };
+module.exports = { INSTALL_SETTING_DEFS, INSTALL_SETTING_KEYS, ORG_SETTING_DEFS };

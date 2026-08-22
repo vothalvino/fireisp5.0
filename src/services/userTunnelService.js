@@ -528,7 +528,7 @@ async function refreshAffectedByNas(nasId) {
  * `allowed_ips_snapshot`), so any assignment/role/route change made while the
  * hub was down is reflected on boot. Scope is computed at most once per user
  * (all of a user's peers share one scope). Per-peer best-effort and idempotent.
- * No-op unless WG_SERVER_ENABLED=true.
+ * No-op unless the installation WireGuard setting is enabled.
  *
  * @returns {Promise<{ rehydrated: number, total: number, skipped?: boolean }>}
  */

@@ -113,4 +113,21 @@ describe('known keys get shaped editors', () => {
     const options = Array.from(select.querySelectorAll('option')).map(o => o.getAttribute('value'));
     expect(options).toEqual(['auth_type_accept', 'cleartext']);
   });
+
+  it('offers an enabled/disabled selector and shows the active WireGuard ports', async () => {
+    respondWith([{
+      key: 'wireguard_server_enabled', value: 'false', description: 'WireGuard hub',
+      scope: 'install', editable: true,
+      details: { enabled: false, endpoint: 'vpn.example.test', nasPort: 32123, clientPort: 32124 },
+    }]);
+    renderSettings();
+    expect(await screen.findByText(/32123/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const options = Array.from(screen.getByRole('combobox').querySelectorAll('option'))
+      .map(o => ({ value: o.value, label: o.textContent }));
+    expect(options).toEqual([
+      { value: 'false', label: 'Disabled' },
+      { value: 'true', label: 'Enabled' },
+    ]);
+  });
 });

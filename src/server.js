@@ -14,9 +14,7 @@ const { tunnelServer } = require('./services/firerelayTunnel');
 const { wsHub } = require('./services/wsHub');
 const snmpTrapReceiver = require('./services/snmpTrapReceiver');
 const radiusServer = require('./services/radiusServerService');
-const wireguardServerService = require('./services/wireguardServerService');
-const wgProvisioningService = require('./services/wgProvisioningService');
-const userTunnelService = require('./services/userTunnelService');
+const wireguardRuntime = require('./services/wireguardRuntimeService');
 const logger = require('./utils/logger');
 
 async function start() {
@@ -85,33 +83,12 @@ async function start() {
     logger.warn({ err }, 'Update-check warm failed');
   }
 
-  // Bring up the WireGuard host interfaces (no-op unless WG_SERVER_ENABLED=true).
-  // Done before app.listen so config.wireguard.{server,client}PublicKey are
-  // populated before any request issues a NAS/user config. Best-effort: a host
-  // without CAP_NET_ADMIN logs a warning and the API still starts (config-only).
+  // Restore the installation-wide GUI choice. The web/API process remains
+  // non-root; an enabled hub delegates kernel operations to the isolated helper.
   try {
-    await wireguardServerService.bootstrapHost();
+    await wireguardRuntime.initialize();
   } catch (err) {
-    logger.warn({ err }, 'WireGuard host bootstrap failed');
-  }
-
-  // Re-add every NAS + user WireGuard peer to the hub from the database. Kernel
-  // peers and per-user nftables scope live only in the interface's runtime
-  // state, which a container restart wipes — bootstrapHost recreates the
-  // interfaces but not the peers, so without this every tunnel would stay down
-  // after a restart until manually re-saved. Idempotent + best-effort; each
-  // call no-ops unless WG_SERVER_ENABLED=true.
-  // Independent try/catch each: a failure restoring NAS peers must not suppress
-  // user-peer restoration (and vice versa).
-  try {
-    await wgProvisioningService.rehydrateNasPeers();
-  } catch (err) {
-    logger.warn({ err }, 'WireGuard NAS peer rehydration failed');
-  }
-  try {
-    await userTunnelService.rehydrateUserPeers();
-  } catch (err) {
-    logger.warn({ err }, 'WireGuard user peer rehydration failed');
+    logger.warn({ err }, 'WireGuard runtime initialization failed; hub remains disabled');
   }
 
   const server = app.listen(config.port, () => {
