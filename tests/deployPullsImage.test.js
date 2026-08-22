@@ -17,7 +17,9 @@
 // =============================================================================
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 
 const root = path.join(__dirname, '..');
@@ -173,11 +175,318 @@ describe('the installer does not compile on the target box', () => {
     const archAt = live.findIndex(l => l.includes('uname -m'));
     expect(archAt).toBeGreaterThanOrEqual(0);
 
-    live.forEach((line, i) => {
-      if (line.includes('up -d --build')) {
-        expect(i).toBeGreaterThan(archAt);
+    const buildAt = live.findIndex(l => /^\s*\$COMPOSE build app\s*$/.test(l));
+    expect(buildAt).toBeGreaterThan(archAt);
+    expect(live.some(l => /\$COMPOSE up -d --build/.test(l))).toBe(false);
+  });
+
+  it('generates an exact 64-character JWT secret every time', () => {
+    const fn = install.match(/gen_secret\(\)\s*\{[^}]+\}/)?.[0];
+    expect(fn).toBeDefined();
+    const generated = execFileSync('bash', ['-c', `${fn}\nfor _i in $(seq 1 32); do gen_secret; done`], {
+      encoding: 'utf8',
+    }).trim().split('\n');
+    expect(generated).toHaveLength(32);
+    for (const secret of generated) {
+      expect(secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(secret).not.toBe('change-me-in-production-this-default-jwt-secret-is-not-secure!!!');
+    }
+  });
+
+  it('installs whichever Compose v2 package Ubuntu or Docker repositories provide', () => {
+    expect(install).toContain('apt-cache show docker-compose-plugin');
+    expect(install).toContain('apt_install docker-compose-plugin');
+    expect(install).toContain('apt-cache show docker-compose-v2');
+    expect(install).toContain('apt_install docker-compose-v2');
+    expect(install).toContain('docker compose version >/dev/null 2>&1 || die');
+  });
+
+  it('preserves an existing production env instead of rotating persistent credentials', () => {
+    const reuseAt = install.indexOf('if [[ -f "$ENV_FILE" ]]');
+    const writeGuardAt = install.indexOf('if [[ "$REUSE_EXISTING_ENV" == "1" ]]');
+    const freshWriteAt = install.indexOf('cat > "$_NEW_ENV_TEMP" <<ENVEOF');
+    expect(reuseAt).toBeGreaterThanOrEqual(0);
+    expect(writeGuardAt).toBeGreaterThan(reuseAt);
+    expect(freshWriteAt).toBeGreaterThan(writeGuardAt);
+
+    const reuseBlock = install.slice(reuseAt, install.indexOf('\nprompt DOMAIN', reuseAt));
+    for (const key of [
+      'DB_PASSWORD', 'DB_ROOT_PASSWORD', 'MYSQL_REPL_PASSWORD', 'REDIS_PASSWORD',
+      'JWT_SECRET', 'ENCRYPTION_KEY',
+    ]) {
+      expect(reuseBlock).toContain(`reuse_env_value ${key} ${key}`);
+    }
+    expect(reuseBlock).not.toContain('reuse_env_value ADMIN_PASSWORD');
+    expect(reuseBlock).toContain('get_env_value "$ENV_FILE" JWT_ALGORITHM');
+    expect(install).toContain('Existing .env.prod preserved.');
+    const setters = install.split('\n').filter(l => /^\s*set_env_value\s/.test(l));
+    expect(setters.some(line => /DB_PASSWORD|DB_ROOT_PASSWORD|ENCRYPTION_KEY/.test(line))).toBe(false);
+    expect(setters).toContain('    set_env_value "$ENV_FILE" JWT_SECRET "$JWT_SECRET" before-jwt-repair');
+  });
+
+  it('delegates valid Compose env syntax to Compose instead of parsing raw text', () => {
+    const shellFunction = (name) => {
+      const start = install.indexOf(`${name}() {`);
+      const end = install.indexOf('\n}', start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      return install.slice(start, end + 2);
+    };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-compose-env-'));
+    const file = path.join(dir, '.env.prod');
+    const fakeDocker = path.join(dir, 'docker');
+    const savedJwt = 'b'.repeat(64);
+    fs.writeFileSync(file, `export JWT_SECRET = '${savedJwt}' # valid Compose syntax\n`, { mode: 0o600 });
+    fs.writeFileSync(fakeDocker, [
+      '#!/usr/bin/env bash',
+      'if [[ "$*" == *"config --help"* ]]; then printf "      --environment\\n"; exit 0; fi',
+      'cat >/dev/null',
+      'printf "JWT_SECRET=%s\\n" "$FAKE_SAVED_JWT"',
+      '',
+    ].join('\n'), { mode: 0o700 });
+
+    try {
+      const decoded = execFileSync('bash', ['-c', [
+        'set -euo pipefail',
+        shellFunction('get_env_value'),
+        'JWT_SECRET=caller-must-not-win get_env_value "$1" JWT_SECRET',
+      ].join('\n'), 'installer-env-parse-test', file], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, FAKE_SAVED_JWT: savedJwt },
+      });
+      expect(decoded).toBe(savedJwt);
+      expect(shellFunction('get_env_value')).toContain('--env-file "$file"');
+      expect(shellFunction('get_env_value')).toContain('config --environment');
+      expect(shellFunction('get_env_value')).toContain('--project-name fireisp-env-reader');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects multiline resolved installer values instead of truncating them', () => {
+    const start = install.indexOf('get_env_value() {');
+    const end = install.indexOf('\n}', start);
+    const getEnvValue = install.slice(start, end + 2);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-multiline-env-'));
+    const file = path.join(dir, '.env.prod');
+    const fakeDocker = path.join(dir, 'docker');
+    fs.writeFileSync(file, 'ADMIN_PASSWORD=placeholder\n', { mode: 0o600 });
+    fs.writeFileSync(fakeDocker, [
+      '#!/usr/bin/env bash',
+      'if [[ "$*" == *"config --help"* ]]; then printf "      --environment\\n"; exit 0; fi',
+      'cat >/dev/null',
+      'printf "ADMIN_PASSWORD=\\\'first line\\nsecond line\\\'\\n"',
+      '',
+    ].join('\n'), { mode: 0o700 });
+
+    try {
+      let status = 0;
+      try {
+        execFileSync('bash', ['-c', [
+          'set -euo pipefail',
+          getEnvValue,
+          'get_env_value "$1" ADMIN_PASSWORD',
+        ].join('\n'), 'installer-multiline-env', file], {
+          env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+          stdio: 'ignore',
+        });
+      } catch (err) {
+        status = err.status;
       }
-    });
+      expect(status).toBe(4);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps canonical installer env files retryable on pre-2.27 Compose', () => {
+    const start = install.indexOf('get_env_value() {');
+    const end = install.indexOf('\n}', start);
+    const getEnvValue = install.slice(start, end + 2);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-old-compose-env-'));
+    const file = path.join(dir, '.env.prod');
+    const fakeDocker = path.join(dir, 'docker');
+    fs.writeFileSync(fakeDocker, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o700 });
+    fs.writeFileSync(file, [
+      'JWT_SECRET=canonical-value',
+      'DB_PASSWORD=old-canonical-value',
+      'DB_PASSWORD = "later rich value"',
+      '',
+    ].join('\n'), { mode: 0o600 });
+
+    try {
+      const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+      const canonical = execFileSync('bash', ['-c', [
+        'set -euo pipefail',
+        getEnvValue,
+        'get_env_value "$1" JWT_SECRET',
+      ].join('\n'), 'old-compose-canonical', file], { encoding: 'utf8', env });
+      expect(canonical).toBe('canonical-value');
+
+      let status = 0;
+      try {
+        execFileSync('bash', ['-c', [
+          'set -euo pipefail',
+          getEnvValue,
+          'get_env_value "$1" DB_PASSWORD',
+        ].join('\n'), 'old-compose-rich', file], { env, stdio: 'ignore' });
+      } catch (err) {
+        status = err.status;
+      }
+      expect(status).toBe(3);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('atomically repairs only JWT_SECRET and backs up all stored credentials', () => {
+    const shellFunction = (name) => {
+      const start = install.indexOf(`${name}() {`);
+      const end = install.indexOf('\n}', start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      return install.slice(start, end + 2);
+    };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fireisp-install-env-'));
+    const file = path.join(dir, '.env.prod');
+    const originalDb = 'db-old|with&chars';
+    const originalEncryption = 'ab'.repeat(32);
+    const originalFile = [
+      `DB_PASSWORD=${originalDb}`,
+      `ENCRYPTION_KEY=${originalEncryption}`,
+      "export JWT_SECRET = 'legacy-short' # valid Compose syntax",
+      'CUSTOM_SETTING=keep-me',
+      '',
+    ].join('\n');
+    fs.writeFileSync(file, originalFile, { mode: 0o600 });
+
+    try {
+      execFileSync('bash', ['-c', [
+        'set -euo pipefail',
+        'die() { exit 1; }',
+        shellFunction('set_env_value'),
+        'set_env_value "$1" JWT_SECRET "$(printf \'a%.0s\' {1..64})" before-jwt-repair',
+      ].join('\n'), 'installer-env-test', file]);
+
+      const after = Object.fromEntries(fs.readFileSync(file, 'utf8').trim().split('\n').map((line) => {
+        const separator = line.indexOf('=');
+        return [line.slice(0, separator), line.slice(separator + 1)];
+      }));
+      expect(after.DB_PASSWORD).toBe(originalDb);
+      expect(after.ENCRYPTION_KEY).toBe(originalEncryption);
+      expect(after.JWT_SECRET).toBe('a'.repeat(64));
+      expect(after.CUSTOM_SETTING).toBe('keep-me');
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      const backups = fs.readdirSync(dir).filter(name => name.includes('.bak-before-jwt-repair-'));
+      expect(backups).toHaveLength(1);
+      expect(fs.readFileSync(path.join(dir, backups[0]), 'utf8')).toBe(originalFile);
+      expect(fs.statSync(path.join(dir, backups[0])).mode & 0o777).toBe(0o600);
+      expect(fs.readdirSync(dir).some(name => name.includes('.bak-tmp-'))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses missing credentials over an existing install or database volume', () => {
+    expect(install).toMatch(/! -f "\$ENV_FILE"[\s\S]+docker volume inspect "\$_DB_VOLUME_GUESS"/);
+    expect(install).toContain('docker volume inspect "$_DB_VOLUME_GUESS"');
+    expect(install).toContain('com.docker.compose.project.working_dir=$INSTALL_DIR');
+    expect(install).toContain('Refusing to generate new database/encryption credentials over persistent data.');
+  });
+
+  it('waits for final TCP MySQL and durably resumes an interrupted initial seed', () => {
+    expect(install).toContain('mysql --connect-timeout=5 --protocol=TCP -h 127.0.0.1 -u "$MYSQL_USER" "$MYSQL_DATABASE"');
+    expect(install).toContain('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()');
+    expect(install).toContain('FIREISP_BOOTSTRAP_STATE=pending');
+    expect(install).toMatch(/pending\)\s+RUN_INITIAL_SEED=1/);
+    expect(install).toMatch(/if \[\[ "\$RUN_INITIAL_SEED" == "1" \]\]; then[\s\S]+src\/scripts\/seed\.js[\s\S]+FIREISP_BOOTSTRAP_STATE seeded/);
+    expect(install).toContain('FIREISP_BOOTSTRAP_STATE complete');
+    expect(install).toMatch(/_ADMIN_PASSWORD_STATUS" -eq 0 && -z "\$_SAVED_ADMIN_PASSWORD"[\s\S]+_ADMIN_PASSWORD_STATUS=1/);
+    expect(install).toContain('Existing application data detected — skipping the demo seed.');
+  });
+
+  it.each([
+    ['pending', 0, 1, 1], // migrations already created tables; seed still resumes
+    ['seeded', 0, 0, 1],  // show the login once, but do not seed twice
+    ['complete', 0, 0, 0],
+    ['', 1, 1, 1],        // legacy env + genuinely empty database
+    ['', 0, 0, 0],        // legacy established install
+  ])('plans bootstrap state %p / pristine=%i safely', (state, pristine, seed, show) => {
+    const start = install.indexOf('plan_initial_bootstrap() {');
+    const end = install.indexOf('\n}', start);
+    const fn = install.slice(start, end + 2);
+    const result = execFileSync('bash', ['-c', [
+      'set -euo pipefail',
+      fn,
+      'plan_initial_bootstrap "$1" "$2"',
+      'printf "%s %s" "$RUN_INITIAL_SEED" "$SHOW_INITIAL_ADMIN"',
+    ].join('\n'), 'bootstrap-plan-test', state, String(pristine)], { encoding: 'utf8' });
+    expect(result).toBe(`${seed} ${show}`);
+  });
+
+  it('does not redisclose a saved admin password on installer retry', () => {
+    const summary = install.slice(install.indexOf('# ── Summary'));
+    const passwordAt = summary.indexOf('${ADMIN_PASSWORD}');
+    const freshGuardAt = summary.indexOf('if [[ "$SHOW_INITIAL_ADMIN" == "1" ]]');
+    const retryBranchAt = summary.indexOf('else', freshGuardAt);
+    expect(freshGuardAt).toBeGreaterThanOrEqual(0);
+    expect(passwordAt).toBeGreaterThan(freshGuardAt);
+    expect(passwordAt).toBeLessThan(retryBranchAt);
+    expect(summary).toContain('Existing administrator credentials were left unchanged');
+  });
+
+  it('creates fresh and temporary env files private before writing secrets', () => {
+    const tempAt = install.indexOf('_NEW_ENV_TEMP="$(mktemp "${ENV_FILE}.bak-tmp-XXXXXX")"');
+    const writeAt = install.indexOf('cat > "$_NEW_ENV_TEMP" <<ENVEOF');
+    const publishAt = install.indexOf('mv -f -- "$_NEW_ENV_TEMP" "$ENV_FILE"');
+    const umaskAt = install.lastIndexOf('umask 077', writeAt);
+    expect(umaskAt).toBeGreaterThanOrEqual(0);
+    expect(tempAt).toBeGreaterThan(umaskAt);
+    expect(umaskAt).toBeLessThan(writeAt);
+    expect(writeAt).toBeLessThan(publishAt);
+    expect(install).toContain('mktemp "${file}.bak-tmp-XXXXXX"');
+  });
+
+  it('keeps env backups and interrupted temp files out of Git', () => {
+    const ignored = read('.gitignore');
+    expect(ignored).toContain('.env.prod.bak-*');
+    for (const name of [
+      '.env.prod.bak-before-jwt-repair-20260821T120000Z-1234',
+      '.env.prod.bak-tmp-AbCd12',
+    ]) {
+      const result = execFileSync('git', ['check-ignore', name], { cwd: root, encoding: 'utf8' }).trim();
+      expect(result).toBe(name);
+    }
+  });
+
+  it('migrates and seeds a pristine database before starting the application', () => {
+    const live = install.split('\n').filter(l => !l.trim().startsWith('#'));
+    const index = (pattern) => live.findIndex(l => pattern.test(l));
+    const pullAt = index(/^\s*if ! \$COMPOSE pull; then\s*$/);
+    const buildAt = index(/^\s*\$COMPOSE build app\s*$/);
+    const depsAt = index(/^\s*\$COMPOSE up -d db-primary redis\s*$/);
+    const stopAt = index(/^\s*\$COMPOSE stop -t 30 app\s*$/);
+    const migrateAt = index(/^\s*(?:if ! )?\$COMPOSE run --rm -T --no-deps -e MIGRATE_ISOLATED_TENANTS=true/);
+    const seedAt = index(/^\s*\$COMPOSE run --rm -T --no-deps app node src\/scripts\/seed\.js\s*$/);
+    const startAt = index(/^\s*\$COMPOSE up -d\s*$/);
+    const readyAt = live.findIndex(l => l.includes("fetch('http://127.0.0.1:3000/health/ready'"));
+
+    for (const at of [pullAt, buildAt, depsAt, stopAt, migrateAt, seedAt, startAt, readyAt]) {
+      expect(at).toBeGreaterThanOrEqual(0);
+    }
+    expect(pullAt).toBeLessThan(depsAt);
+    expect(buildAt).toBeLessThan(depsAt);
+    expect(depsAt).toBeLessThan(stopAt);
+    expect(stopAt).toBeLessThan(migrateAt);
+    expect(migrateAt).toBeLessThan(seedAt);
+    expect(seedAt).toBeLessThan(startAt);
+    expect(startAt).toBeLessThan(readyAt);
+  });
+
+  it('uses runtime tools that actually exist in the slim application image', () => {
+    const executable = install.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
+    expect(executable).not.toMatch(/\bwget\b/);
+    expect(executable).toContain("fetch('http://127.0.0.1:3000/health/ready', { signal: AbortSignal.timeout(5000) })");
   });
 });
 
