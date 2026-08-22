@@ -11,6 +11,7 @@ import { api } from '@/api/client';
 import { DrDrillBanner } from '@/components/DrDrillBanner';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { UpdateAvailableBanner } from '@/components/UpdateAvailableBanner';
+import { AdminIpAllowlistBanner } from '@/components/AdminIpAllowlistBanner';
 import { useDarkMode } from '@/auth/DarkModeContext';
 import { useAccent } from '@/auth/AccentContext';
 import { ChangelogPanel } from '@/components/ChangelogPanel';
@@ -462,6 +463,7 @@ export function Layout() {
         <DrDrillBanner />
         <EmailVerificationBanner />
         <UpdateAvailableBanner />
+        <AdminIpAllowlistBanner />
         <Outlet />
       </main>
 

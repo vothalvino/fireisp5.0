@@ -429,6 +429,7 @@ expires, record the action in `dsar_requests`, and communicate the result.
   lookup/export, which also require the applicable government-request permission
   and a validated same-organization case. Access/export events are recorded in
   `report_access_logs`.
-- IP allowlist enforced for admin endpoints in production (`ADMIN_IP_ALLOWLIST`;
-  missing or invalid configuration fails closed).
+- Opt-in IP allowlist for sensitive admin endpoints, configured per organization
+  in Security & Access Control. A persistent operator warning remains until it
+  is activated. `ADMIN_IP_ALLOWLIST` is an optional install-wide override.
 - 2FA (TOTP) supported for all operator accounts.

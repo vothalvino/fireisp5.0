@@ -250,7 +250,7 @@ function validateEnv(logger) {
   }
 
   if (isProduction && !config.adminIpAllowlist.trim()) {
-    warnings.push('ADMIN_IP_ALLOWLIST is not set — production admin endpoints will return 403 until trusted IPs/CIDRs are configured');
+    warnings.push('ADMIN_IP_ALLOWLIST is not set — admin IP protection will use GUI-managed per-organization policies; unconfigured organizations show a warning until activation');
   }
 
   // WireGuard: the install-wide GUI setting controls activation. The endpoint

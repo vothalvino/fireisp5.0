@@ -308,6 +308,9 @@ describe('GET /api/v1/security-admin/admin-ip-allowlist', () => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
       }
+      if (typeof sql === 'string' && sql.includes('admin_ip_allowlist') && sql.includes('is_active = 1')) {
+        return Promise.resolve([[]]);
+      }
       if (typeof sql === 'string' && sql.includes('admin_ip_allowlist')) {
         return Promise.resolve([[{ id: 1, ip_address: '10.0.0.1', description: 'Office' }]]);
       }
@@ -323,6 +326,20 @@ describe('GET /api/v1/security-admin/admin-ip-allowlist', () => {
       .set('X-Org-Id', '1');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('data');
+  });
+
+  it('reports protection as inactive when no active entries exist', async () => {
+    const res = await request(app)
+      .get('/api/v1/security-admin/admin-ip-allowlist/status')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      enabled: false,
+      source: 'none',
+      activeEntries: 0,
+      currentIpAllowed: true,
+    });
   });
 });
 
@@ -348,6 +365,29 @@ describe('POST /api/v1/security-admin/admin-ip-allowlist', () => {
       .send({ ip_address: '192.168.1.100', description: 'VPN gateway' });
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('id');
+    const insertCall = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO admin_ip_allowlist'));
+    expect(insertCall[1][3]).toBe(0);
+  });
+
+  it('allows explicit activation when the entry includes the current browser IP', async () => {
+    const res = await request(app)
+      .post('/api/v1/security-admin/admin-ip-allowlist')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '1')
+      .send({ ip_address: '127.0.0.1/32', description: 'Current operator', is_active: true });
+    expect(res.status).toBe(201);
+    const insertCall = db.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO admin_ip_allowlist'));
+    expect(insertCall[1][3]).toBe(1);
+  });
+
+  it('refuses activation that would lock out the current browser IP', async () => {
+    const res = await request(app)
+      .post('/api/v1/security-admin/admin-ip-allowlist')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .set('X-Org-Id', '1')
+      .send({ ip_address: '10.0.0.0/8', is_active: true });
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/exclude your current IP/i);
   });
 
   it('returns 422 when ip_address is missing', async () => {
@@ -1000,6 +1040,12 @@ describe('PUT /api/v1/security-admin/admin-ip-allowlist/:id', () => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('admin_ip')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
       }
+      if (typeof sql === 'string' && sql.includes('FROM admin_ip_allowlist') && sql.includes('WHERE id = ?')) {
+        return Promise.resolve([[{ id: 1, organization_id: 1, cidr: '127.0.0.1', description: 'VPN', is_active: 0 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM admin_ip_allowlist') && sql.includes('is_active = 1')) {
+        return Promise.resolve([[]]);
+      }
       if (typeof sql === 'string' && sql.includes('admin_ip_allowlist') && sql.includes('UPDATE')) {
         return Promise.resolve([{ affectedRows: 1 }]);
       }
@@ -1022,6 +1068,9 @@ describe('PUT /api/v1/security-admin/admin-ip-allowlist/:id', () => {
     db.query.mockImplementation((sql) => {
       if (typeof sql === 'string' && sql.includes('WHERE id = ?') && !sql.includes('admin_ip')) {
         return Promise.resolve([[{ id: 1, email: 'admin@test.com', role: 'admin', status: 'active', organization_id: 1 }]]);
+      }
+      if (typeof sql === 'string' && sql.includes('FROM admin_ip_allowlist') && sql.includes('WHERE id = ?')) {
+        return Promise.resolve([[]]);
       }
       return Promise.resolve([{ affectedRows: 0 }]);
     });

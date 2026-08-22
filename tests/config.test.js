@@ -145,7 +145,7 @@ describe('validateEnv', () => {
     expect(() => config.validateEnv(null)).not.toThrow();
   });
 
-  test('warns that production admin endpoints fail closed without an IP allowlist', () => {
+  test('warns that GUI-managed admin IP protection is not active by default', () => {
     process.env.NODE_ENV = 'production';
     process.env.JWT_SECRET = VALID_SECRET;
     process.env.DB_HOST = 'localhost';
@@ -160,7 +160,8 @@ describe('validateEnv', () => {
 
     const warnMsgs = mockLogger.warn.mock.calls.map(c => c[0]).join(' ');
     expect(warnMsgs).toContain('ADMIN_IP_ALLOWLIST');
-    expect(warnMsgs).toContain('return 403');
+    expect(warnMsgs).toContain('GUI-managed');
+    expect(warnMsgs).toContain('warning');
   });
 
   test('throws in production when ENCRYPTION_KEY is missing', () => {

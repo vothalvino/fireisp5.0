@@ -1,13 +1,9 @@
 // =============================================================================
 // FireISP 5.0 — IP Allowlist Middleware
 // =============================================================================
-// Restricts access to admin endpoints to a configurable set of IP addresses
-// and/or CIDR ranges. Enabled by setting the ADMIN_IP_ALLOWLIST environment
-// variable to a comma-separated list (e.g. "10.0.0.0/8,203.0.113.5").
-//
-// In production, callers pass `required: true` so an absent or entirely invalid
-// allowlist denies access instead of silently disabling the control. Local
-// development and test environments keep the opt-in behavior.
+// Parsing and matching utilities shared by the optional ADMIN_IP_ALLOWLIST
+// environment override and the GUI-managed, database-backed admin policy.
+// The low-level middleware factory can also be used by standalone callers.
 //
 // Supported formats per entry:
 //   • IPv4 address          — 192.168.1.10

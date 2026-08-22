@@ -15,7 +15,7 @@ const { requestLogger } = require('./middleware/requestLogger');
 const { requestId } = require('./middleware/requestId');
 const { firerelay } = require('./middleware/firerelay');
 const { requireFeature } = require('./middleware/featureFlag');
-const { createIpAllowlist, parseAllowlist } = require('./middleware/ipAllowlist');
+const { enforceAdminIpAllowlist } = require('./middleware/adminIpAllowlist');
 const { csrfOriginCheck } = require('./middleware/csrf');
 const { authenticate } = require('./middleware/auth');
 const { orgScope } = require('./middleware/orgScope');
@@ -634,17 +634,13 @@ app.post('/acs/cwmp', acsService.handleCwmpRequest);
 // ---------------------------------------------------------------------------
 const v1 = express.Router();
 
-// IP allowlist for admin-tier endpoints. Production fails closed when the env
-// var is missing or contains no valid entries; dev/test retain the opt-in
-// behavior so local workflows do not need a synthetic client IP.
-const adminIpAllowlist = createIpAllowlist(
-  parseAllowlist(config.adminIpAllowlist),
-  { required: config.env === 'production' },
-);
+// Authenticate first so the opt-in, per-organization IP policy can be loaded.
+// ADMIN_IP_ALLOWLIST, when present, remains an installation-wide override.
+const adminIpAllowlist = [authenticate, enforceAdminIpAllowlist];
 
 v1.use('/auth', authRoutes);
-v1.use('/organizations', adminIpAllowlist, organizationRoutes);
-v1.use('/users', adminIpAllowlist, userRoutes);
+v1.use('/organizations', ...adminIpAllowlist, organizationRoutes);
+v1.use('/users', ...adminIpAllowlist, userRoutes);
 v1.use('/sites', siteRoutes);
 v1.use('/clients', clientRoutes);
 v1.use('/client-groups', clientGroupRoutes);
@@ -683,7 +679,7 @@ v1.use('/vendors', vendorRoutes);
 v1.use('/purchase-orders', purchaseOrderRoutes);
 v1.use('/assets', assetRoutes);
 v1.use('/rma-requests', rmaRoutes);
-v1.use('/roles', adminIpAllowlist, roleRoutes);
+v1.use('/roles', ...adminIpAllowlist, roleRoutes);
 v1.use('/api-tokens', apiTokenRoutes);
 v1.use('/sla-definitions', slaDefinitionRoutes);
 v1.use('/ip-pools', ipPoolRoutes);
@@ -702,13 +698,13 @@ v1.use('/device-polling-configs', requireFeature('snmp'), devicePollingConfigRou
 v1.use('/poller-performance', requireFeature('snmp'), pollerPerformanceRoutes);
 v1.use('/connection-logs', connectionLogRoutes);
 v1.use('/network-health', networkHealthRoutes);
-v1.use('/settings', adminIpAllowlist, settingsRoutes);
+v1.use('/settings', ...adminIpAllowlist, settingsRoutes);
 // Install-operator only, and gated inside the router — see routes/systemVersion.js.
 v1.use('/system', systemVersionRoutes);
 v1.use('/message-templates', messageTemplateRoutes);
 v1.use('/document-templates', documentTemplateRoutes);
 v1.use('/signed-documents', signedDocumentRoutes);
-v1.use('/audit-logs', adminIpAllowlist, auditLogRoutes);
+v1.use('/audit-logs', ...adminIpAllowlist, auditLogRoutes);
 v1.use('/files', fileRoutes);
 v1.use('/service-areas', serviceAreaRoutes);
 v1.use('/coverage-zones', coverageZoneRoutes);
@@ -730,19 +726,19 @@ v1.use('/suspension-rules', suspensionRuleRoutes);
 v1.use('/csd-certificates', requireFeature('cfdi'), csdCertificateRoutes);
 v1.use('/pac-providers', requireFeature('cfdi'), pacProviderRoutes);
 v1.use('/cfdi-documents', requireFeature('cfdi'), cfdiDocumentRoutes);
-v1.use('/scheduled-tasks', adminIpAllowlist, scheduledTaskRoutes);
+v1.use('/scheduled-tasks', ...adminIpAllowlist, scheduledTaskRoutes);
 v1.use('/concession-titles', concessionTitleRoutes);
 v1.use('/regulatory-filings', regulatoryFilingRoutes);
 v1.use('/ift-statistical-reports', iftStatisticalReportRoutes);
 v1.use('/snii-reporting', sniiReportingRoutes);
 v1.use('/sat-catalogs', requireFeature('cfdi'), satCatalogRoutes);
 v1.use('/facturas-publicas', requireFeature('cfdi'), facturaPublicaRoutes);
-v1.use('/billing', adminIpAllowlist, billingRoutes);
+v1.use('/billing', ...adminIpAllowlist, billingRoutes);
 v1.use('/cfdi', requireFeature('cfdi'), cfdiRoutes);
 v1.use('/suspension', suspensionRoutes);
 v1.use('/dashboard', dashboardRoutes);
 v1.use('/export', exportRoutes);
-v1.use('/import', adminIpAllowlist, importRoutes);
+v1.use('/import', ...adminIpAllowlist, importRoutes);
 v1.use('/firerelay', firerelayRoutes);
 v1.use('/pdf', pdfRoutes);
 v1.use('/events', eventsRoutes);
@@ -764,7 +760,7 @@ v1.use('/sms', smsRoutes);
 v1.use('/communication-campaigns', communicationCampaignRoutes);
 v1.use('/clients', clientDndRoutes);
 v1.use('/invoice-settings', invoiceSettingsRoutes);
-v1.use('/email-settings', adminIpAllowlist, emailSettingsRoutes);
+v1.use('/email-settings', ...adminIpAllowlist, emailSettingsRoutes);
 v1.use('/late-fee-rules', lateFeeRulesRoutes);
 v1.use('/payment-reminder-settings', paymentRemindersRoutes);
 v1.use('/communication', communicationDeliveryRoutes);
@@ -775,13 +771,13 @@ v1.use('/billing-disputes', billingDisputeRoutes);
 v1.use('/chargebacks', chargebackRoutes);
 v1.use('/billing-adjustments', billingAdjustmentRoutes);
 v1.use('/subscriber-certificates', requireFeature('radius'), subscriberCertificateRoutes);
-v1.use('/dr-drill', adminIpAllowlist, drDrillRoutes);
-v1.use('/backup-settings', adminIpAllowlist, backupSettingsRoutes);
-v1.use('/dsar', adminIpAllowlist, dsarRoutes);
+v1.use('/dr-drill', ...adminIpAllowlist, drDrillRoutes);
+v1.use('/backup-settings', ...adminIpAllowlist, backupSettingsRoutes);
+v1.use('/dsar', ...adminIpAllowlist, dsarRoutes);
 v1.use('/profeco-complaints', profecoRoutes);
 v1.use('/sso', ssoRoutes);
 v1.use('/ai', aiRoutes);
-v1.use('/queue-stats', adminIpAllowlist, queueStatsRoutes);
+v1.use('/queue-stats', ...adminIpAllowlist, queueStatsRoutes);
 v1.use('/changelog', changelogRoutes);
 v1.use('/pppoe-service-profiles', pppoeServiceProfileRoutes);
 v1.use('/pppoe', pppoeRoutes);
@@ -808,9 +804,9 @@ v1.use('/numbering-management', numberingManagementRoutes);
 v1.use('/universal-service', universalServiceRoutes);
 v1.use('/consumer-protection', consumerProtectionRoutes);
 v1.use('/data-residency', dataResidencyRoutes);
-v1.use('/security-admin', adminIpAllowlist, securityAdminRoutes);
+v1.use('/security-admin', ...adminIpAllowlist, securityAdminRoutes);
 v1.use('/network-security', networkSecurityRoutes);
-v1.use('/data-security', adminIpAllowlist, dataSecurityRoutes);
+v1.use('/data-security', ...adminIpAllowlist, dataSecurityRoutes);
 v1.use('/webhook-security', requireFeature('webhooks'), webhookSecurityRoutes);
 
 // §18 Automation & Scripting
@@ -818,7 +814,7 @@ v1.use('/automation-rules', automationRulesRoutes);
 v1.use('/batch-jobs', batchJobsRoutes);
 v1.use('/provisioning-pipelines', provisioningPipelinesRoutes);
 v1.use('/remediation-rules', remediationRulesRoutes);
-v1.use('/automation-scripts', adminIpAllowlist, automationScriptsRoutes);
+v1.use('/automation-scripts', ...adminIpAllowlist, automationScriptsRoutes);
 v1.use('/router-drivers', routerDriversRoutes);
 v1.use('/analytics', analyticsAIRoutes);
 

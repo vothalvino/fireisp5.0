@@ -973,8 +973,8 @@ layer on top of JWT authentication and RBAC.
 
 ### Protected endpoints
 
-The following API routes require the client IP to match the configured list.
-In production, they fail closed when the list is missing or entirely invalid:
+Once the allowlist is activated, the following API routes require the client IP
+to match the configured list:
 
 | Route | Purpose |
 |---|---|
@@ -989,8 +989,17 @@ In production, they fail closed when the list is missing or entirely invalid:
 
 ### Configuration
 
-Set `ADMIN_IP_ALLOWLIST` in `.env` to a comma-separated list of IPv4
-addresses and/or CIDR blocks:
+The recommended flow is in the web GUI: open **Security & Access Control**, add
+trusted IPv4 addresses or CIDR blocks as inactive entries, then explicitly
+activate an entry. FireISP refuses an activation or edit that would exclude the
+current browser IP. Deactivating the last active entry disables enforcement.
+
+Until the first entry is activated, the endpoints remain accessible to
+authenticated administrators and the install operator sees a persistent setup
+warning.
+
+`ADMIN_IP_ALLOWLIST` remains available as an optional installation-wide
+override for operators who prefer deployment-managed configuration:
 
 ```env
 # Allow a private management subnet and a specific jump-box IP
@@ -1000,9 +1009,9 @@ ADMIN_IP_ALLOWLIST=10.0.0.0/8,203.0.113.5
 # ADMIN_IP_ALLOWLIST=192.168.100.0/24
 ```
 
-When `ADMIN_IP_ALLOWLIST` is **not set**, production returns `403` from every
-protected endpoint until the operator fixes the environment and redeploys.
-Development and test environments keep the allowlist disabled when it is empty.
+When `ADMIN_IP_ALLOWLIST` is set, it takes precedence over the database policy.
+A configured but entirely invalid environment override fails closed. When it is
+empty, the GUI-managed per-organization policy controls enforcement.
 
 ### Rejected requests
 
@@ -1086,7 +1095,7 @@ Available metrics:
 - [ ] Database user has minimal required privileges
 - [ ] File upload directory permissions correct (`storage/`)
 - [ ] Rate limiting verified
-- [ ] `ADMIN_IP_ALLOWLIST` configured (required — production admin routes fail closed without it)
+- [ ] Admin IP allowlist reviewed and activated in Security & Access Control (or deployment-managed with `ADMIN_IP_ALLOWLIST`)
 
 ---
 

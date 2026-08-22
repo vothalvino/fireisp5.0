@@ -52392,6 +52392,32 @@
         }
       }
     },
+    "/security-admin/admin-ip-allowlist/status": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Get admin IP allowlist setup and activation status",
+        "operationId": "getAdminIpAllowlistStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AdminIpAllowlistStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/security-admin/admin-ip-allowlist/{id}": {
       "put": {
         "tags": [

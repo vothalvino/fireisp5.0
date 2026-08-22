@@ -2883,6 +2883,9 @@ function generateSpec() {
         get: { tags: ['Security'], summary: 'List admin IP allowlist entries', operationId: 'listAdminIpAllowlist', security: [{ bearerAuth: [] }], responses: r200('AdminIpAllowlist[]') },
         post: { tags: ['Security'], summary: 'Add admin IP allowlist entry', operationId: 'createAdminIpAllowlist', security: [{ bearerAuth: [] }], requestBody: jsonBody('security_createAdminIpAllowlist'), responses: r201('AdminIpAllowlist') },
       },
+      '/security-admin/admin-ip-allowlist/status': {
+        get: { tags: ['Security'], summary: 'Get admin IP allowlist setup and activation status', operationId: 'getAdminIpAllowlistStatus', security: [{ bearerAuth: [] }], responses: r200('AdminIpAllowlistStatus') },
+      },
       '/security-admin/admin-ip-allowlist/{id}': {
         put: { tags: ['Security'], summary: 'Update admin IP allowlist entry', operationId: 'updateAdminIpAllowlist', security: [{ bearerAuth: [] }], parameters: [idParam()], requestBody: jsonBody('AdminIpAllowlist'), responses: r200('Success') },
         delete: { tags: ['Security'], summary: 'Delete admin IP allowlist entry', operationId: 'deleteAdminIpAllowlist', security: [{ bearerAuth: [] }], parameters: [idParam()], responses: r200('Success') },
