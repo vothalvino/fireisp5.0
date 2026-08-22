@@ -48,13 +48,14 @@ const user1 = {
 // src/routes/organizations.js — generic crudController list).
 const GROUPS_RESPONSE = {
   data: [
+    { id: 9, name: 'super_admin', description: null, kind: 'admin', is_system: 1 },
     { id: 10, name: 'admin', description: null, kind: 'admin', is_system: 1 },
     { id: 11, name: 'billing', description: null, kind: 'billing', is_system: 1 },
     { id: 12, name: 'support', description: null, kind: 'support', is_system: 1 },
     { id: 13, name: 'technician', description: null, kind: 'technician', is_system: 1 },
     { id: 20, name: 'Custom NOC', description: null, kind: 'technician', is_system: 0 },
   ],
-  meta: { total: 5, page: 1, limit: 100, totalPages: 1 },
+  meta: { total: 6, page: 1, limit: 100, totalPages: 1 },
 };
 
 const ORGANIZATIONS_RESPONSE = {
@@ -293,6 +294,31 @@ describe('UserList page', () => {
       });
     });
 
+    it('uses automatic access for a new system super administrator and sends no organization_ids', async () => {
+      const user = userEvent.setup();
+      renderUserList();
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await user.click(screen.getByText('+ New User'));
+
+      await user.type(screen.getByPlaceholderText('First name'), 'Global');
+      await user.type(screen.getByPlaceholderText('Last name'), 'Admin');
+      await user.type(screen.getByPlaceholderText('user@example.com'), 'global@test.com');
+      await user.type(screen.getByPlaceholderText('••••••••'), 'password123');
+      await user.selectOptions(await screen.findByLabelText('Group'), '9');
+
+      expect(screen.queryByLabelText('Org One')).not.toBeInTheDocument();
+      expect(screen.getByText(/organization access is automatic/i)).toBeInTheDocument();
+      await user.click(screen.getByText('Create User'));
+
+      await waitFor(() => {
+        const call = findCall(globalThis.fetch as ReturnType<typeof vi.fn>, '/api/v1/users', 'POST');
+        expect(call).toBeDefined();
+        const body = JSON.parse(call![1]!.body as string);
+        expect(body.group_id).toBe(9);
+        expect(body).not.toHaveProperty('organization_ids');
+      });
+    });
+
     it('disables Create and shows a hint when no organization is checked', async () => {
       const user = userEvent.setup();
       renderUserList();
@@ -345,6 +371,43 @@ describe('UserList page', () => {
         expect(body.group_id).toBe(20);
         expect(body.organization_ids.sort()).toEqual([1, 2]);
         expect(body).not.toHaveProperty('role');
+      });
+    });
+
+    it('does not load or show manual assignments when editing an automatic cross-org identity', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(globalThis, 'fetch').mockImplementation(routeFetch({
+        users: {
+          data: [{
+            ...user1,
+            id: 9,
+            email: 'super@test.com',
+            role: 'admin',
+            group_id: 9,
+            has_global_organization_access: 1,
+          }],
+          meta: USERS_RESPONSE.meta,
+        },
+      }));
+      renderUserList();
+      const row = (await screen.findByText('super@test.com')).closest('tr') as HTMLElement;
+      await user.click(within(row).getByRole('button', { name: 'Edit' }));
+
+      expect(screen.queryByLabelText('Org One')).not.toBeInTheDocument();
+      expect(screen.getByText(/organization access is automatic/i)).toBeInTheDocument();
+      expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([input]) =>
+        String(input).includes('/users/9/organizations'))).toBe(false);
+
+      const phone = screen.getByPlaceholderText('+52 55 1234 5678 (optional)');
+      await user.type(phone, '555-0100');
+      await user.click(screen.getByText('Save Changes'));
+
+      await waitFor(() => {
+        const call = findCall(globalThis.fetch as ReturnType<typeof vi.fn>, '/api/v1/users/9', 'PATCH');
+        expect(call).toBeDefined();
+        const body = JSON.parse(call![1]!.body as string);
+        expect(body.phone).toBe('555-0100');
+        expect(body).not.toHaveProperty('organization_ids');
       });
     });
 

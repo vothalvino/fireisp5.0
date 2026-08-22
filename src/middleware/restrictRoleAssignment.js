@@ -26,11 +26,12 @@
 //   on update removes no legitimate non-admin flow.
 // =============================================================================
 
-const { ForbiddenError } = require('../utils/errors');
+const { ForbiddenError, ValidationError } = require('../utils/errors');
 const User = require('../models/User');
 const { isInstallOperator, isInstallOperatorUser } = require('../services/installOperator');
 const {
   hasGlobalOrganizationAccess,
+  hasGlobalOrganizationAccessUser,
   isSuperAdminUser,
 } = require('../services/globalOrganizationAccess');
 const db = require('../config/database');
@@ -59,11 +60,23 @@ async function restrictRoleAssignment(req, _res, next) {
   const assignsOrganizations = Object.prototype.hasOwnProperty.call(body, 'organization_ids')
     && body.organization_ids !== undefined && body.organization_ids !== null;
   let actorHasGlobalAccess;
+  let targetUser;
+  let targetUserResolved = false;
   const globalAccess = async () => {
     if (actorHasGlobalAccess === undefined) {
       actorHasGlobalAccess = await hasGlobalOrganizationAccess(req);
     }
     return actorHasGlobalAccess;
+  };
+  const getTargetUser = async () => {
+    if (!targetUserResolved) {
+      targetUserResolved = true;
+      const targetId = Number(req.params?.id);
+      targetUser = Number.isInteger(targetId)
+        ? await User.findByIdIncludingDeleted(targetId)
+        : null;
+    }
+    return targetUser;
   };
 
   if (assignsOrganizations && !await globalAccess()) {
@@ -75,16 +88,39 @@ async function restrictRoleAssignment(req, _res, next) {
   // Both admin and super_admin mirror to users.role='admin'. Resolve the exact
   // group before accepting an assignment so a tenant admin cannot manufacture
   // a new installation-global account through that lossy legacy mirror.
+  let assignsSystemSuperAdmin = false;
   if (body.group_id !== undefined && body.group_id !== null) {
     try {
       const [groups] = await runInPrimaryContext(() => db.query(
         'SELECT name, is_system FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [body.group_id],
       ));
-      if (groups[0]?.name === 'super_admin' && Number(groups[0]?.is_system) === 1
-          && !await globalAccess()) {
+      assignsSystemSuperAdmin = groups[0]?.name === 'super_admin'
+        && Number(groups[0]?.is_system) === 1;
+      if (assignsSystemSuperAdmin && !await globalAccess()) {
         return next(new ForbiddenError(
           'Only the install operator or a super administrator may assign the super administrator group',
+        ));
+      }
+    } catch (err) { return next(err); }
+  }
+
+  // These identities already reach every live organization intrinsically.
+  // Accepting organization_ids would manufacture redundant membership rows,
+  // make the UI imply their access can be narrowed here, and leave stale
+  // assignments behind after organizations change. Reject the invalid field
+  // combination before the users row is created/updated.
+  if (assignsOrganizations && assignsSystemSuperAdmin) {
+    return next(new ValidationError(
+      'Install operators and system super administrators have automatic access to every organization; omit organization_ids.',
+    ));
+  }
+  if (assignsOrganizations && isUpdate) {
+    try {
+      const target = await getTargetUser();
+      if (target && await hasGlobalOrganizationAccessUser(target)) {
+        return next(new ValidationError(
+          'Install operators and system super administrators have automatic access to every organization; omit organization_ids.',
         ));
       }
     } catch (err) { return next(err); }
@@ -101,7 +137,7 @@ async function restrictRoleAssignment(req, _res, next) {
     try {
       const targetId = Number(req.params?.id);
       if (Number.isInteger(targetId) && targetId !== Number(req.user?.id)) {
-        const target = await User.findByIdIncludingDeleted(targetId);
+        const target = await getTargetUser();
         if (target && await isInstallOperatorUser(target) && !await isInstallOperator(req)) {
           return next(new ForbiddenError(
             'This account runs the installation; only the install operator can change its credentials.',

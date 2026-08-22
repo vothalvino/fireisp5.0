@@ -1016,6 +1016,7 @@
     "error": "Falha ao carregar usuários.",
     "crossOrgBadge": "Multi-org",
     "crossOrgBadgeTitle": "Este operador de instalação ou superadministrador tem acesso automático a todas as organizações.",
+    "automaticOrgAccess": "O acesso às organizações é automático para operadores de instalação e superadministradores do sistema. Nenhuma atribuição manual é necessária.",
     "remoteAccountActionDisabledTitle": "Mude para a organização principal deste usuário para gerenciar a conta.",
     "newUserModal": {
       "group": "Grupo",

@@ -1016,6 +1016,7 @@
     "error": "Failed to load users.",
     "crossOrgBadge": "Cross-org",
     "crossOrgBadgeTitle": "This install operator or super administrator automatically has access to every organization.",
+    "automaticOrgAccess": "Organization access is automatic for install operators and system super administrators. No manual organization assignment is needed.",
     "remoteAccountActionDisabledTitle": "Switch to this user's home organization to manage the account.",
     "newUserModal": {
       "group": "Group",
