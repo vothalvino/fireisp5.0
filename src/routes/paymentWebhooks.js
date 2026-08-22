@@ -46,7 +46,13 @@ const PROVIDERS = {
 // Env is read per-request (not memoized) so tests and runtime config changes
 // take effect without a restart.
 function unsignedWebhooksAllowed() {
-  return /^(1|true|yes|on)$/i.test(process.env.ALLOW_UNSIGNED_WEBHOOKS || '');
+  const requested = /^(1|true|yes|on)$/i.test(process.env.ALLOW_UNSIGNED_WEBHOOKS || '');
+  if (!requested) return false;
+
+  // Never let a convenience flag disable payment authentication on a deployed
+  // environment. Unknown/custom NODE_ENV values are treated as deployed too;
+  // only the two explicit local test modes may opt in.
+  return process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
 }
 
 // Decide whether a webhook request is authorized to proceed.

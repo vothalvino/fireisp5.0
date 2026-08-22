@@ -135,8 +135,9 @@ falling back to the shared primary database.
 > from payment callbacks — with no in-app alert, so check the provider's webhook
 > dashboard or the app logs. Note the receiver reads the **env var**, not the
 > per-gateway "Webhook Secret" field in Settings (that field is not yet wired to the
-> receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior for
-> local testing only — never set it in production.
+> receiver). `ALLOW_UNSIGNED_WEBHOOKS=true` re-enables the old unsigned behavior only
+> when `NODE_ENV` is explicitly `development` or `test`; deployed environments ignore
+> the flag and continue to fail closed.
 
 For a non-standard install path, set `FIREISP_DIR` inside a root shell
 (`sudo -i`) — as a `sudo` prefix it is stripped, see the rollback note below.
