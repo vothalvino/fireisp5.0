@@ -13,6 +13,7 @@ jest.mock('../src/services/installOperator', () => ({
 }));
 
 const db = require('../src/config/database');
+const User = require('../src/models/User');
 const { isInstallOperatorUser } = require('../src/services/installOperator');
 const { restrictRoleAssignment } = require('../src/middleware/restrictRoleAssignment');
 
@@ -60,5 +61,50 @@ describe('global organization-access assignment guard', () => {
       body: { group_id: 77 },
     });
     expect(result).toMatchObject({ statusCode: 403 });
+  });
+
+  test('a system super_admin group cannot be combined with manual organization assignments', async () => {
+    db.query.mockResolvedValueOnce([[{ name: 'super_admin', is_system: 1 }]]);
+
+    const result = await run({
+      method: 'POST',
+      user: { id: 8, role: 'admin', hasGlobalOrganizationAccess: true },
+      body: { group_id: 77, organization_ids: [1, 100] },
+    });
+
+    expect(result).toMatchObject({ statusCode: 422 });
+    expect(result.message).toMatch(/automatic access to every organization/i);
+  });
+
+  test('manual assignments are rejected for an existing system super administrator', async () => {
+    User.findByIdIncludingDeleted.mockResolvedValueOnce({
+      id: 9,
+      role: 'admin',
+      group_name: 'super_admin',
+      group_is_system: 1,
+    });
+
+    const result = await run({
+      method: 'PATCH',
+      params: { id: '9' },
+      user: { id: 8, role: 'admin', hasGlobalOrganizationAccess: true },
+      body: { organization_ids: [1] },
+    });
+
+    expect(result).toMatchObject({ statusCode: 422 });
+  });
+
+  test('manual assignments are rejected for an existing install operator', async () => {
+    User.findByIdIncludingDeleted.mockResolvedValueOnce({ id: 5, role: 'admin' });
+    isInstallOperatorUser.mockResolvedValueOnce(true);
+
+    const result = await run({
+      method: 'PATCH',
+      params: { id: '5' },
+      user: { id: 8, role: 'admin', hasGlobalOrganizationAccess: true },
+      body: { organization_ids: [100] },
+    });
+
+    expect(result).toMatchObject({ statusCode: 422 });
   });
 });

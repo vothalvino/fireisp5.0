@@ -16,8 +16,10 @@
 // Users belong to a "group" (roles.id, migration 378) which governs their
 // permission set; the legacy `role` field is a server-maintained mirror of
 // the group's `kind` and is never sent from this page — only `group_id` is.
-// Each user also has explicit organization access (`organization_ids`),
+// Ordinary users also have explicit organization access (`organization_ids`),
 // synced via POST/PUT/PATCH /users and prefilled via GET /users/:id/organizations.
+// Install operators and exact system super_admin users are automatic cross-org
+// identities, so the manual organization selector is never shown for them.
 // =============================================================================
 
 import { useEffect, useState } from 'react';
@@ -409,6 +411,29 @@ function OrgCheckboxList({ organizations, selected, onToggle, loading, disabled 
   );
 }
 
+function isSystemSuperAdminGroup(groups: Group[], groupId: number | null): boolean {
+  if (groupId === null) return false;
+  return groups.some(group => group.id === groupId
+    && group.name === 'super_admin'
+    && Boolean(group.is_system));
+}
+
+function AutomaticOrganizationAccessNotice() {
+  const { t } = useTranslation();
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: '8px 10px',
+      borderRadius: 6,
+      background: '#ede9fe',
+      color: '#5b21b6',
+      fontSize: '0.8rem',
+    }}>
+      {t('userList.automaticOrgAccess')}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // New User Modal
 // ---------------------------------------------------------------------------
@@ -436,6 +461,8 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId,
   const [groupId, setGroupId] = useState<number | null>(null);
   const [orgIds, setOrgIds] = useState<Set<number>>(() => new Set(currentOrgId ? [currentOrgId] : []));
   const [err, setErr] = useState('');
+  const usesAutomaticOrganizationAccess = isSystemSuperAdminGroup(groups, groupId);
+  const showOrganizationSelector = canManageOrgAccess && !usesAutomaticOrganizationAccess;
 
   // Default the group to the system "support" group once the groups list loads.
   useEffect(() => {
@@ -462,7 +489,7 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId,
         group_id: Number(groupId),
         status: form.status,
       };
-      if (canManageOrgAccess) body.organization_ids = Array.from(orgIds);
+      if (showOrganizationSelector) body.organization_ids = Array.from(orgIds);
       if (form.phone.trim()) body.phone = form.phone.trim();
       return createUser(body);
     },
@@ -479,7 +506,7 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId,
 
   const valid = form.first_name.trim() && form.last_name.trim() &&
                 form.email.trim() && form.password.length >= 8 &&
-                groupId !== null && (!canManageOrgAccess || orgIds.size > 0);
+                groupId !== null && (!showOrganizationSelector || orgIds.size > 0);
 
   return (
     <div style={modalOverlay}>
@@ -528,12 +555,13 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId,
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
 
-        {canManageOrgAccess && (
+        {showOrganizationSelector && (
           <>
             <label style={labelStyle}>{t('userList.newUserModal.orgAccess')}</label>
             <OrgCheckboxList organizations={organizations} selected={orgIds} onToggle={toggleOrg} />
           </>
         )}
+        {usesAutomaticOrganizationAccess && <AutomaticOrganizationAccessNotice />}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
@@ -576,11 +604,14 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
   const [groupId, setGroupId] = useState<number | null>(user.group_id);
   const [orgIds, setOrgIds] = useState<Set<number> | null>(null);
   const [err, setErr] = useState('');
+  const usesAutomaticOrganizationAccess = Boolean(user.has_global_organization_access)
+    || isSystemSuperAdminGroup(groups, groupId);
+  const showOrganizationSelector = canManageOrgAccess && !usesAutomaticOrganizationAccess;
 
   const orgsQuery = useQuery({
     queryKey: ['users', user.id, 'organizations'],
     queryFn: () => fetchUserOrganizations(user.id),
-    enabled: canManageOrgAccess,
+    enabled: showOrganizationSelector,
   });
 
   // Prefill the checklist once the user's current org access loads.
@@ -619,7 +650,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
       }
       // Organization access always syncs on save — the backend replaces the
       // set wholesale ('owner' rows are preserved server-side).
-      if (canManageOrgAccess) body.organization_ids = Array.from(orgIds ?? []);
+      if (showOrganizationSelector) body.organization_ids = Array.from(orgIds ?? []);
       return updateUser(user.id, body);
     },
     onSuccess: () => {
@@ -642,7 +673,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
   // explicitly on `orgsQuery.isError` (independent of `orgIds`) so a Save is
   // impossible until a prefill retry succeeds; the checklist is also
   // disabled during the error state so `orgIds` can't leave `null` at all.
-  const valid = groupId !== null && (!canManageOrgAccess
+  const valid = groupId !== null && (!showOrganizationSelector
     || (!orgsQuery.isError && orgIds !== null && orgIds.size > 0));
 
   return (
@@ -689,8 +720,8 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
 
-        {canManageOrgAccess && <label style={labelStyle}>{t('userList.editUserModal.orgAccess')}</label>}
-        {canManageOrgAccess && orgsQuery.isError && (
+        {showOrganizationSelector && <label style={labelStyle}>{t('userList.editUserModal.orgAccess')}</label>}
+        {showOrganizationSelector && orgsQuery.isError && (
           <div style={{ ...errStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>{t('userList.editUserModal.orgPrefillError')}</span>
             <button
@@ -703,7 +734,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
             </button>
           </div>
         )}
-        {canManageOrgAccess && (
+        {showOrganizationSelector && (
           <OrgCheckboxList
             organizations={organizations}
             selected={orgIds ?? new Set()}
@@ -712,6 +743,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations, canManag
             disabled={orgsQuery.isError}
           />
         )}
+        {usesAutomaticOrganizationAccess && <AutomaticOrganizationAccessNotice />}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
