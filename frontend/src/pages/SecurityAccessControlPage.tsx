@@ -10,8 +10,9 @@
 //                         secure deletion log
 // =============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { readCsrfCookie } from '@/api/csrf';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,16 @@ interface AdminIpEntry {
   cidr: string;
   description: string | null;
   is_active: number;
+}
+
+interface AdminIpStatus {
+  enabled: boolean;
+  source: 'environment' | 'database' | 'none';
+  configurationValid: boolean;
+  activeEntries: number;
+  invalidEntries: number;
+  currentIp: string | null;
+  currentIpAllowed: boolean;
 }
 
 interface ApiKeyRateLimit {
@@ -152,7 +163,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json() as { error?: { message?: string } };
+      if (body.error?.message) message = body.error.message;
+    } catch {
+      // Keep the status-only fallback when a proxy returns a non-JSON error.
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -201,9 +221,16 @@ export function SecurityAccessControlPage() {
 
 function UserSecurityTab() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [credentials, setCredentials] = useState<WebAuthnCredential[]>([]);
   const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
   const [ipList, setIpList] = useState<AdminIpEntry[]>([]);
+  const [ipStatus, setIpStatus] = useState<AdminIpStatus | null>(null);
+  const [cidr, setCidr] = useState('');
+  const [description, setDescription] = useState('');
+  const [activateNow, setActivateNow] = useState(false);
+  const [ipSaving, setIpSaving] = useState(false);
+  const [ipError, setIpError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -213,11 +240,13 @@ function UserSecurityTab() {
       apiFetch<{ data: WebAuthnCredential[] }>('/security-admin/webauthn'),
       apiFetch<{ data: PasswordPolicy }>('/security-admin/password-policy').catch(() => ({ data: null })),
       apiFetch<{ data: AdminIpEntry[] }>('/security-admin/admin-ip-allowlist'),
+      apiFetch<{ data: AdminIpStatus }>('/security-admin/admin-ip-allowlist/status'),
     ])
-      .then(([credRes, policyRes, ipRes]) => {
+      .then(([credRes, policyRes, ipRes, ipStatusRes]) => {
         setCredentials(credRes.data);
         setPolicy(policyRes.data);
         setIpList(ipRes.data);
+        setIpStatus(ipStatusRes.data);
         setLoading(false);
       })
       .catch(err => { setError(err.message); setLoading(false); });
@@ -225,6 +254,68 @@ function UserSecurityTab() {
 
   if (loading) return <p>{t('common.loading')}</p>;
   if (error) return <p style={{ color: 'red' }}>{t('common.error')}: {error}</p>;
+
+  const environmentManaged = ipStatus?.source === 'environment';
+
+  async function reloadIpAllowlist() {
+    const [listResponse, statusResponse] = await Promise.all([
+      apiFetch<{ data: AdminIpEntry[] }>('/security-admin/admin-ip-allowlist'),
+      apiFetch<{ data: AdminIpStatus }>('/security-admin/admin-ip-allowlist/status'),
+    ]);
+    setIpList(listResponse.data);
+    setIpStatus(statusResponse.data);
+    await queryClient.invalidateQueries({ queryKey: ['admin-ip-allowlist-status'] });
+  }
+
+  async function addIpEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIpSaving(true);
+    setIpError(null);
+    try {
+      await apiFetch('/security-admin/admin-ip-allowlist', {
+        method: 'POST',
+        body: JSON.stringify({ cidr, description: description || null, is_active: activateNow }),
+      });
+      setCidr('');
+      setDescription('');
+      setActivateNow(false);
+      await reloadIpAllowlist();
+    } catch (err) {
+      setIpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIpSaving(false);
+    }
+  }
+
+  async function toggleIpEntry(entry: AdminIpEntry) {
+    setIpSaving(true);
+    setIpError(null);
+    try {
+      await apiFetch(`/security-admin/admin-ip-allowlist/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: !entry.is_active }),
+      });
+      await reloadIpAllowlist();
+    } catch (err) {
+      setIpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIpSaving(false);
+    }
+  }
+
+  async function deleteIpEntry(entry: AdminIpEntry) {
+    if (!window.confirm(t('securityAccessControl.userSecurity.deleteConfirm', { cidr: entry.cidr }))) return;
+    setIpSaving(true);
+    setIpError(null);
+    try {
+      await apiFetch(`/security-admin/admin-ip-allowlist/${entry.id}`, { method: 'DELETE' });
+      await reloadIpAllowlist();
+    } catch (err) {
+      setIpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIpSaving(false);
+    }
+  }
 
   return (
     <div>
@@ -271,7 +362,85 @@ function UserSecurityTab() {
         : <p>{t('securityAccessControl.userSecurity.noPolicyConfigured')}</p>
       }
 
-      <h2>{t('securityAccessControl.userSecurity.adminIpAllowlist')}</h2>
+      <h2 id="admin-ip-allowlist">{t('securityAccessControl.userSecurity.adminIpAllowlist')}</h2>
+      <div
+        role="status"
+        style={{
+          border: `1px solid ${ipStatus?.enabled ? '#15803d' : '#d97706'}`,
+          borderLeftWidth: 4,
+          borderRadius: 6,
+          padding: '12px 14px',
+          marginBottom: 16,
+          background: ipStatus?.enabled ? '#f0fdf4' : '#fffbeb',
+          color: '#1f2937',
+        }}
+      >
+        <strong>
+          {ipStatus?.enabled
+            ? t('securityAccessControl.userSecurity.allowlistActive')
+            : t('securityAccessControl.userSecurity.allowlistWarningTitle')}
+        </strong>
+        <div style={{ marginTop: 4 }}>
+          {environmentManaged
+            ? t('securityAccessControl.userSecurity.environmentManaged')
+            : ipStatus?.enabled
+              ? t('securityAccessControl.userSecurity.allowlistActiveDetail', { count: ipStatus.activeEntries })
+              : t('securityAccessControl.userSecurity.allowlistWarningDetail')}
+        </div>
+        {ipStatus?.currentIp && (
+          <div style={{ marginTop: 6 }}>
+            {t('securityAccessControl.userSecurity.currentIp')}: <code>{ipStatus.currentIp}</code>
+          </div>
+        )}
+        {ipStatus && !ipStatus.configurationValid && (
+          <div style={{ marginTop: 6, color: '#b91c1c' }}>
+            {t('securityAccessControl.userSecurity.invalidActiveEntries', { count: ipStatus.invalidEntries })}
+          </div>
+        )}
+      </div>
+
+      {!environmentManaged && (
+        <form onSubmit={addIpEntry} style={{ display: 'grid', gap: 10, maxWidth: 620, marginBottom: 18 }}>
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{t('securityAccessControl.userSecurity.ipAddress')}</span>
+            <input
+              required
+              value={cidr}
+              onChange={event => setCidr(event.target.value)}
+              placeholder={ipStatus?.currentIp || '203.0.113.5/32'}
+              style={{ width: '100%', padding: '8px 10px' }}
+            />
+          </label>
+          <label>
+            <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{t('common.description')}</span>
+            <input
+              value={description}
+              onChange={event => setDescription(event.target.value)}
+              placeholder={t('securityAccessControl.userSecurity.descriptionPlaceholder')}
+              style={{ width: '100%', padding: '8px 10px' }}
+            />
+          </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <input
+              type="checkbox"
+              checked={activateNow}
+              onChange={event => setActivateNow(event.target.checked)}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <strong>{t('securityAccessControl.userSecurity.activateNow')}</strong><br />
+              <small>{t('securityAccessControl.userSecurity.activateSafety')}</small>
+            </span>
+          </label>
+          <div>
+            <button type="submit" disabled={ipSaving} style={{ padding: '8px 14px' }}>
+              {ipSaving ? t('common.loading') : t('securityAccessControl.userSecurity.addEntry')}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {ipError && <p role="alert" style={{ color: '#b91c1c' }}>{ipError}</p>}
       {ipList.length === 0
         ? <p>{t('securityAccessControl.userSecurity.noIpEntries')}</p>
         : (
@@ -281,6 +450,7 @@ function UserSecurityTab() {
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('securityAccessControl.userSecurity.ipAddress')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.description')}</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.status')}</th>
+                {!environmentManaged && <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #ccc' }}>{t('common.actions')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -289,6 +459,18 @@ function UserSecurityTab() {
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', fontFamily: 'monospace' }}>{e.cidr}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{e.description ?? '—'}</td>
                   <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee' }}>{e.is_active ? t('common.active') : t('common.inactive')}</td>
+                  {!environmentManaged && (
+                    <td style={{ padding: '6px 8px', borderBottom: '1px solid #eee', display: 'flex', gap: 6 }}>
+                      <button type="button" disabled={ipSaving} onClick={() => toggleIpEntry(e)}>
+                        {e.is_active
+                          ? t('securityAccessControl.userSecurity.deactivate')
+                          : t('securityAccessControl.userSecurity.activate')}
+                      </button>
+                      <button type="button" disabled={ipSaving} onClick={() => deleteIpEntry(e)}>
+                        {t('common.delete')}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

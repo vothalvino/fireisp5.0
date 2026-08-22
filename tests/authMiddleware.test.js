@@ -155,6 +155,28 @@ describe('auth middleware', () => {
       });
     });
 
+    test('is idempotent when a composed admin route applies auth twice', async () => {
+      jwt.verify.mockReturnValue({ sub: 1 });
+      User.findById.mockResolvedValue({
+        id: 1,
+        email: 'user@example.com',
+        role: 'admin',
+        status: 'active',
+        organization_id: 10,
+      });
+      const { req, res, next } = mockReqRes({
+        headers: { authorization: 'Bearer valid-token' },
+      });
+
+      await authenticate(req, res, next);
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(2);
+      expect(jwt.verify).toHaveBeenCalledTimes(1);
+      expect(User.findById).toHaveBeenCalledTimes(1);
+      expect(resolveOrgPrincipal).toHaveBeenCalledTimes(1);
+    });
+
     test('uses orgId from JWT payload when present', async () => {
       jwt.verify.mockReturnValue({ sub: 1, orgId: 77 });
       User.findById.mockResolvedValueOnce({

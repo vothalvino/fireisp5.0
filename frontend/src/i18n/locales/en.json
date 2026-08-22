@@ -44,6 +44,8 @@
     "select": "select",
     "all": "All",
     "actions": "Actions",
+    "active": "Active",
+    "inactive": "Inactive",
     "error": "Something went wrong",
     "retry": "Retry",
     "close": "Close"
@@ -4281,6 +4283,11 @@
       "userId": "User ID"
     }
   },
+  "adminIpAllowlistBanner": {
+    "title": "Admin IP protection has not been activated.",
+    "detail": "Sensitive administration pages are currently available to authenticated admins from any IP.",
+    "action": "Set up the allowlist"
+  },
   "securityAccessControl": {
     "title": "Security & Access Control",
     "tabs": {
@@ -4306,6 +4313,20 @@
       "adminIpAllowlist": "Admin IP Allowlist",
       "noIpEntries": "No IP allowlist entries configured",
       "ipAddress": "IP Address / CIDR",
+      "allowlistActive": "Admin IP protection is active",
+      "allowlistActiveDetail": "{{count}} active entry protects sensitive admin pages.",
+      "allowlistWarningTitle": "Admin IP protection is not active",
+      "allowlistWarningDetail": "Add one or more trusted addresses, then activate an entry when you are ready. Until then, sensitive admin pages remain accessible to authenticated administrators from any IP.",
+      "environmentManaged": "This installation is protected by the ADMIN_IP_ALLOWLIST environment override. Database entries are shown for reference but are not controlling access.",
+      "currentIp": "Your current IP as seen by FireISP",
+      "invalidActiveEntries": "{{count}} active entry is invalid. Correct it before relying on this policy.",
+      "descriptionPlaceholder": "Office, VPN, or trusted location",
+      "activateNow": "Activate this entry now",
+      "activateSafety": "Activation is refused if this address does not include your current IP, preventing accidental lockout.",
+      "addEntry": "Add allowlist entry",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "deleteConfirm": "Delete {{cidr}} from the admin IP allowlist?",
       "expiresAt": "Expires At"
     },
     "apiSecurity": {

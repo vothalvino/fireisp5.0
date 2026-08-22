@@ -44,6 +44,8 @@
     "select": "seleccionar",
     "all": "Todos",
     "actions": "Acciones",
+    "active": "Activo",
+    "inactive": "Inactivo",
     "error": "Ocurrió un error",
     "retry": "Reintentar",
     "close": "Cerrar"
@@ -4281,6 +4283,11 @@
       "userId": "ID de Usuario"
     }
   },
+  "adminIpAllowlistBanner": {
+    "title": "La protección de IP para administración no ha sido activada.",
+    "detail": "Las páginas administrativas sensibles están disponibles para administradores autenticados desde cualquier IP.",
+    "action": "Configurar la lista permitida"
+  },
   "securityAccessControl": {
     "title": "Seguridad y Control de Acceso",
     "tabs": {
@@ -4306,6 +4313,20 @@
       "adminIpAllowlist": "Lista de IPs Permitidas para Admin",
       "noIpEntries": "No hay entradas de IP permitidas configuradas",
       "ipAddress": "Direccion IP / CIDR",
+      "allowlistActive": "La protección de IP para administración está activa",
+      "allowlistActiveDetail": "{{count}} entrada activa protege las páginas administrativas sensibles.",
+      "allowlistWarningTitle": "La protección de IP para administración no está activa",
+      "allowlistWarningDetail": "Agregue una o más direcciones de confianza y active una entrada cuando esté listo. Hasta entonces, las páginas administrativas sensibles siguen disponibles para administradores autenticados desde cualquier IP.",
+      "environmentManaged": "Esta instalación está protegida por la variable ADMIN_IP_ALLOWLIST. Las entradas de la base de datos se muestran como referencia, pero no controlan el acceso.",
+      "currentIp": "Su IP actual vista por FireISP",
+      "invalidActiveEntries": "{{count}} entrada activa no es válida. Corríjala antes de confiar en esta política.",
+      "descriptionPlaceholder": "Oficina, VPN o ubicación de confianza",
+      "activateNow": "Activar esta entrada ahora",
+      "activateSafety": "La activación se rechaza si esta dirección no incluye su IP actual, evitando un bloqueo accidental.",
+      "addEntry": "Agregar entrada permitida",
+      "activate": "Activar",
+      "deactivate": "Desactivar",
+      "deleteConfirm": "¿Eliminar {{cidr}} de la lista de IPs permitidas?",
       "expiresAt": "Expira En"
     },
     "apiSecurity": {

@@ -58,6 +58,16 @@ const sampleIpEntry = {
   expires_at: null,
 };
 
+const sampleIpStatus = {
+  enabled: true,
+  source: 'database',
+  configurationValid: true,
+  activeEntries: 1,
+  invalidEntries: 0,
+  currentIp: '203.0.113.7',
+  currentIpAllowed: true,
+};
+
 const sampleRateLimit = {
   id: 1,
   api_token_id: 42,
@@ -113,6 +123,8 @@ function setupMocks() {
       return Promise.resolve(makeJsonResponse({ data: [sampleCredential] }));
     if (path.endsWith('/security-admin/password-policy'))
       return Promise.resolve(makeJsonResponse({ data: samplePolicy }));
+    if (path.endsWith('/security-admin/admin-ip-allowlist/status'))
+      return Promise.resolve(makeJsonResponse({ data: sampleIpStatus }));
     if (path.endsWith('/security-admin/admin-ip-allowlist'))
       return Promise.resolve(makeJsonResponse({ data: [sampleIpEntry] }));
     if (path.endsWith('/security-admin/api-key-rate-limits'))
@@ -201,6 +213,22 @@ describe('SecurityAccessControlPage (§17)', () => {
     );
   });
 
+  it('stages a new entry inactive unless activation is explicitly selected', async () => {
+    renderPage();
+    const cidrInput = await screen.findByPlaceholderText('203.0.113.7');
+    await userEvent.type(cidrInput, '203.0.113.7/32');
+    await userEvent.click(screen.getByRole('button', { name: /add allowlist entry/i }));
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(([, options]) => options?.method === 'POST');
+      expect(postCall).toBeDefined();
+      expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+        cidr: '203.0.113.7/32',
+        is_active: false,
+      });
+    });
+  });
+
   it('switches to API Security tab and shows rate limits', async () => {
     renderPage();
     const tabs = screen.getAllByRole('button');
@@ -251,6 +279,8 @@ describe('SecurityAccessControlPage (§17)', () => {
         return Promise.resolve(makeJsonResponse({}, false));
       if (path.endsWith('/security-admin/webauthn'))
         return Promise.resolve(makeJsonResponse({ data: [] }));
+      if (path.endsWith('/security-admin/admin-ip-allowlist/status'))
+        return Promise.resolve(makeJsonResponse({ data: { ...sampleIpStatus, enabled: false, source: 'none', activeEntries: 0 } }));
       if (path.endsWith('/security-admin/admin-ip-allowlist'))
         return Promise.resolve(makeJsonResponse({ data: [] }));
       return Promise.resolve(makeJsonResponse({ data: [] }));

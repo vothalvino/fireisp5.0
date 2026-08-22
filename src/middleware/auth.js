@@ -127,11 +127,22 @@ async function authenticateApiToken(req) {
  * Supports both Bearer JWT tokens and X-API-Key header.
  * For the browser SPA, also accepts the JWT from the `fireisp_access` httpOnly cookie.
  */
+const AUTHENTICATED_REQUEST = Symbol('fireisp.authenticatedRequest');
+
 async function authenticate(req, _res, next) {
   try {
+    // Admin-tier routes authenticate before the IP policy can resolve the
+    // active organization, and their routers also carry the normal auth guard.
+    // A module-local Symbol makes that composition idempotent without trusting
+    // any client-controlled request property.
+    if (req[AUTHENTICATED_REQUEST] === true) return next();
+
     // Try API key first
     const apiKeyAuth = await authenticateApiToken(req);
-    if (apiKeyAuth) return next();
+    if (apiKeyAuth) {
+      req[AUTHENTICATED_REQUEST] = true;
+      return next();
+    }
 
     // Determine JWT source: Authorization header takes precedence over cookie
     // so that programmatic API clients (tests, scripts) continue to work
@@ -172,6 +183,7 @@ async function authenticate(req, _res, next) {
       hasGlobalOrganizationAccess: principal.hasGlobalOrganizationAccess,
     };
 
+    req[AUTHENTICATED_REQUEST] = true;
     next();
   } catch (err) {
     next(err);

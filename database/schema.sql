@@ -13251,7 +13251,7 @@ CREATE TABLE IF NOT EXISTS admin_ip_allowlist (
     organization_id     BIGINT UNSIGNED NULL COMMENT 'Scoped to organization; NULL = global/single-tenant',
     cidr                VARCHAR(50)     NOT NULL COMMENT 'IPv4 or IPv6 CIDR, e.g. 203.0.113.0/24 or ::1/128',
     description         VARCHAR(255)    NULL COMMENT 'Human-readable label, e.g. "Office network"',
-    is_active           TINYINT(1)      NOT NULL DEFAULT 1,
+    is_active           TINYINT(1)      NOT NULL DEFAULT 0,
     created_by          BIGINT UNSIGNED NULL COMMENT 'User who added this entry',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

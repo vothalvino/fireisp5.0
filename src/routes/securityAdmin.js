@@ -16,6 +16,13 @@ const {
   createAdminIpAllowlist,
 } = require('../middleware/schemas/security');
 const { ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
+const { parseEntry, isAllowed } = require('../middleware/ipAllowlist');
+const {
+  clientIp,
+  environmentOverrideConfigured,
+  getAdminIpAllowlistStatus,
+  listActiveEntries,
+} = require('../middleware/adminIpAllowlist');
 
 const router = Router();
 
@@ -88,11 +95,43 @@ router.delete('/webauthn/:id', requirePermission('webauthn.delete'), async (req,
 // Admin IP Allowlist
 // ---------------------------------------------------------------------------
 
+function validatedCidr(value) {
+  const cidr = typeof value === 'string' ? value.trim() : '';
+  if (!cidr || !parseEntry(cidr)) {
+    throw new ValidationError('Enter a valid IPv4 address or CIDR range', [
+      { field: 'cidr', message: 'Use an IPv4 address such as 203.0.113.5 or CIDR such as 203.0.113.0/24' },
+    ]);
+  }
+  return cidr;
+}
+
+async function assertCurrentIpRemainsAllowed(req, candidateEntries) {
+  // The environment override takes precedence, so database edits cannot alter
+  // the policy currently protecting the request.
+  if (environmentOverrideConfigured() || candidateEntries.length === 0) return;
+  const parsed = candidateEntries.map(entry => parseEntry(entry.cidr)).filter(Boolean);
+  if (parsed.length > 0 && isAllowed(clientIp(req), parsed)) return;
+  throw new ValidationError(
+    'Activation refused because the resulting allowlist would exclude your current IP address',
+    [{ field: 'is_active', message: 'Add the current IP shown in the allowlist status before activating this policy' }],
+  );
+}
+
+// GET /admin-ip-allowlist/status — setup state used by the persistent GUI warning
+router.get('/admin-ip-allowlist/status', requirePermission('admin_ip_allowlist.view'), async (req, res, next) => {
+  try {
+    const status = await getAdminIpAllowlistStatus(req.orgId, clientIp(req));
+    res.json({ data: status });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /admin-ip-allowlist — list org admin IP allowlist
 router.get('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.view'), async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM admin_ip_allowlist WHERE organization_id = ? ORDER BY id DESC',
+      'SELECT * FROM admin_ip_allowlist WHERE organization_id = ? AND deleted_at IS NULL ORDER BY id DESC',
       [req.orgId],
     );
     res.json({ data: rows });
@@ -106,14 +145,21 @@ router.get('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.view'), 
 router.post('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.create'), validate(createAdminIpAllowlist), async (req, res, next) => {
   try {
     const { cidr, ip_address, description, is_active } = req.body;
-    const cidrValue = cidr ?? ip_address;
-    if (!cidrValue) {
+    const rawCidr = cidr ?? ip_address;
+    if (!rawCidr) {
       throw new ValidationError('Validation failed', [{ field: 'cidr', message: 'cidr (or ip_address) is required' }]);
+    }
+    const cidrValue = validatedCidr(rawCidr);
+    const activate = is_active === true;
+    if (activate) {
+      const activeEntries = await listActiveEntries(req.orgId);
+      await assertCurrentIpRemainsAllowed(req, [...activeEntries, { cidr: cidrValue }]);
     }
     const [result] = await db.query(
       `INSERT INTO admin_ip_allowlist (organization_id, cidr, description, is_active, created_by)
        VALUES (?, ?, ?, ?, ?)`,
-      [req.orgId, cidrValue, description || null, is_active !== false ? 1 : 0, req.user.id],
+      // New rules are staged inactive unless the user explicitly activates.
+      [req.orgId, cidrValue, description || null, activate ? 1 : 0, req.user.id],
     );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
@@ -126,7 +172,23 @@ router.post('/admin-ip-allowlist', requirePermission('admin_ip_allowlist.create'
 router.put('/admin-ip-allowlist/:id', requirePermission('admin_ip_allowlist.update'), async (req, res, next) => {
   try {
     const { cidr, ip_address, description, is_active } = req.body;
-    const cidrValue = cidr ?? ip_address ?? null;
+    const [[current]] = await db.query(
+      `SELECT id, organization_id, cidr, description, is_active
+       FROM admin_ip_allowlist
+       WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
+       LIMIT 1`,
+      [req.params.id, req.orgId],
+    );
+    if (!current) throw new NotFoundError('Admin IP allowlist entry');
+
+    const rawCidr = cidr ?? ip_address;
+    const cidrValue = rawCidr !== undefined ? validatedCidr(rawCidr) : current.cidr;
+    const activate = is_active !== undefined ? is_active === true : Boolean(current.is_active);
+    const activeEntries = await listActiveEntries(req.orgId);
+    const candidateEntries = activeEntries.filter(entry => Number(entry.id) !== Number(current.id));
+    if (activate) candidateEntries.push({ ...current, cidr: cidrValue, is_active: 1 });
+    await assertCurrentIpRemainsAllowed(req, candidateEntries);
+
     const [result] = await db.query(
       `UPDATE admin_ip_allowlist
        SET cidr = COALESCE(?, cidr),
@@ -134,7 +196,7 @@ router.put('/admin-ip-allowlist/:id', requirePermission('admin_ip_allowlist.upda
            is_active = COALESCE(?, is_active),
            updated_at = NOW()
        WHERE id = ? AND organization_id = ?`,
-      [cidrValue, description !== undefined ? description : null, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id, req.orgId],
+      [cidrValue, description !== undefined ? description : current.description, activate ? 1 : 0, req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('Admin IP allowlist entry');
     res.json({ success: true });
@@ -146,8 +208,11 @@ router.put('/admin-ip-allowlist/:id', requirePermission('admin_ip_allowlist.upda
 // DELETE /admin-ip-allowlist/:id — delete entry
 router.delete('/admin-ip-allowlist/:id', requirePermission('admin_ip_allowlist.delete'), async (req, res, next) => {
   try {
+    const activeEntries = await listActiveEntries(req.orgId);
+    const candidateEntries = activeEntries.filter(entry => Number(entry.id) !== Number(req.params.id));
+    await assertCurrentIpRemainsAllowed(req, candidateEntries);
     const [result] = await db.query(
-      'DELETE FROM admin_ip_allowlist WHERE id = ? AND organization_id = ?',
+      'DELETE FROM admin_ip_allowlist WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
       [req.params.id, req.orgId],
     );
     if (result.affectedRows === 0) throw new NotFoundError('Admin IP allowlist entry');
