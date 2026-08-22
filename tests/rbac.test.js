@@ -38,6 +38,36 @@ describe('requirePermission middleware', () => {
     expect(User.getPermissions).toHaveBeenCalledWith(1, 1);
   });
 
+  test('installation-global JWT users carry full authority into every organization', async () => {
+    User.getPermissions.mockResolvedValue([]);
+    const { req, res, next } = mockReqRes({
+      id: 8,
+      role: 'admin',
+      organizationId: 99,
+      hasGlobalOrganizationAccess: true,
+    });
+    await requirePermission('clients.delete')(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(User.getPermissions).not.toHaveBeenCalled();
+  });
+
+  test('an API token never inherits its owner\'s installation-global bypass', async () => {
+    User.getPermissions.mockResolvedValue([]);
+    const { req, res, next } = mockReqRes({
+      id: 8,
+      role: 'admin',
+      organizationId: 99,
+      hasGlobalOrganizationAccess: true,
+      apiTokenId: 12,
+      scopes: ['clients:write'],
+    });
+    await requirePermission('clients.delete')(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(User.getPermissions).toHaveBeenCalledWith(8, 99);
+  });
+
   test('allows user with matching permission', async () => {
     User.getPermissions.mockResolvedValue(['clients.view', 'clients.edit']);
     const { req, res, next } = mockReqRes({ id: 2, role: 'operator', organizationId: 1 });

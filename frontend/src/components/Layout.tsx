@@ -71,15 +71,15 @@ export function Layout() {
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
-  // Admins can switch their active org to ANY organization (not just ones they're
-  // a member of), so for them the switcher lists every org. Non-admins only see
-  // the orgs they belong to (from /auth/me → user.organizations).
+  // Installation-global accounts can switch their active org to ANY
+  // organization (not just ones they're a member of), so for them the switcher
+  // lists every org. Everyone else sees only explicit memberships.
   //
   // Deliberately an EXACT role check, not hasRole(user.role, 'admin') — hasRole
   // has readonly-passes-every-gate semantics meant for PrivateRoute's *page
   // reachability* (readonly should reach every page), not for a *literal
   // privilege* decision like this one. Readonly is not an admin: it is not a
-  // member of every org, so isAdmin=true here would enable the all-orgs query,
+  // member of every org, so a role-derived global flag would enable the all-orgs query,
   // and swapping `orgs` to that result (dropping the `memberships` fallback)
   // for a role with no actual all-org access — mirrors how the backend gates
   // switch-organization, which is now membership OR the install operator.
@@ -89,7 +89,7 @@ export function Layout() {
   // old check offered every tenant admin an all-orgs switcher listing ISPs
   // they can neither see nor switch into. GET /organizations is scoped to
   // memberships for them now, and switch-organization refuses them (j67).
-  const isAdmin = user?.is_install_operator === true;
+  const hasGlobalOrgAccess = user?.has_global_organization_access === true;
 
   // Accordion state: which sections are open. Persisted per browser; starts
   // fully collapsed (see loadExpanded) unless a stored value says otherwise.
@@ -214,7 +214,7 @@ export function Layout() {
       if (res.error) return [];
       return (res.data as unknown as { data?: { id: number; name: string }[] })?.data ?? [];
     },
-    enabled: isAdmin,
+    enabled: hasGlobalOrgAccess,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -248,7 +248,7 @@ export function Layout() {
   }
 
   const memberships = user?.organizations ?? [];
-  const orgs = isAdmin ? (allOrgs ?? memberships) : memberships;
+  const orgs = hasGlobalOrgAccess ? (allOrgs ?? memberships) : memberships;
   const showOrgSwitcher = orgs.length > 1;
   const activeRoute = routeForPath(location.pathname);
   const activeSection = SECTIONS.find(section => section.id === trailSection);

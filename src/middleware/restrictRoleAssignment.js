@@ -29,6 +29,12 @@
 const { ForbiddenError } = require('../utils/errors');
 const User = require('../models/User');
 const { isInstallOperator, isInstallOperatorUser } = require('../services/installOperator');
+const {
+  hasGlobalOrganizationAccess,
+  isSuperAdminUser,
+} = require('../services/globalOrganizationAccess');
+const db = require('../config/database');
+const { runInPrimaryContext } = require('../utils/primaryContext');
 
 const ALWAYS_PRIVILEGED = ['role', 'group_id', 'organization_ids'];
 const UPDATE_ONLY_PRIVILEGED = ['password', 'email', 'status'];
@@ -50,6 +56,40 @@ async function restrictRoleAssignment(req, _res, next) {
     ));
   }
 
+  const assignsOrganizations = Object.prototype.hasOwnProperty.call(body, 'organization_ids')
+    && body.organization_ids !== undefined && body.organization_ids !== null;
+  let actorHasGlobalAccess;
+  const globalAccess = async () => {
+    if (actorHasGlobalAccess === undefined) {
+      actorHasGlobalAccess = await hasGlobalOrganizationAccess(req);
+    }
+    return actorHasGlobalAccess;
+  };
+
+  if (assignsOrganizations && !await globalAccess()) {
+    return next(new ForbiddenError(
+      'Only the install operator or a super administrator may assign organization access',
+    ));
+  }
+
+  // Both admin and super_admin mirror to users.role='admin'. Resolve the exact
+  // group before accepting an assignment so a tenant admin cannot manufacture
+  // a new installation-global account through that lossy legacy mirror.
+  if (body.group_id !== undefined && body.group_id !== null) {
+    try {
+      const [groups] = await runInPrimaryContext(() => db.query(
+        'SELECT name, is_system FROM roles WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [body.group_id],
+      ));
+      if (groups[0]?.name === 'super_admin' && Number(groups[0]?.is_system) === 1
+          && !await globalAccess()) {
+        return next(new ForbiddenError(
+          'Only the install operator or a super administrator may assign the super administrator group',
+        ));
+      }
+    } catch (err) { return next(err); }
+  }
+
   // The install-operator flag cannot be granted through the API — but the
   // ACCOUNT that carries it was still takeable. Every one of the fields above
   // is a takeover primitive (set a password, or repoint the email and use the
@@ -61,10 +101,15 @@ async function restrictRoleAssignment(req, _res, next) {
     try {
       const targetId = Number(req.params?.id);
       if (Number.isInteger(targetId) && targetId !== Number(req.user?.id)) {
-        const target = await User.findById(targetId);
+        const target = await User.findByIdIncludingDeleted(targetId);
         if (target && await isInstallOperatorUser(target) && !await isInstallOperator(req)) {
           return next(new ForbiddenError(
             'This account runs the installation; only the install operator can change its credentials.',
+          ));
+        }
+        if (target && await isSuperAdminUser(target) && !await globalAccess()) {
+          return next(new ForbiddenError(
+            'Only the install operator or a super administrator can change a super administrator account.',
           ));
         }
       }

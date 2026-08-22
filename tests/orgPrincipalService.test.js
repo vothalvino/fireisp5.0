@@ -21,6 +21,8 @@ function controlRows({
     organization_id: 7,
     is_install_operator: 0,
     authority_persona: 'readonly',
+    group_name: 'readonly',
+    group_is_system: 1,
   },
 } = {}) {
   db.query
@@ -113,6 +115,53 @@ describe('resolveOrgPrincipal', () => {
     });
   });
 
+  test('allows the exact system super_admin group into a nonmember organization', async () => {
+    controlRows({
+      membershipRole: null,
+      liveUser: {
+        id: 8, role: 'admin', authority_persona: 'admin', organization_id: 1,
+        is_install_operator: 0, group_name: 'super_admin', group_is_system: 1,
+      },
+    });
+
+    await expect(resolveOrgPrincipal({ id: 8 }, 7)).resolves.toMatchObject({
+      organizationId: 7,
+      membershipRole: 'admin',
+      isInstallOperator: false,
+      isSuperAdmin: true,
+      hasGlobalOrganizationAccess: true,
+      accessKind: 'super_admin',
+    });
+  });
+
+  test('does not trust a custom group merely named super_admin', async () => {
+    controlRows({
+      membershipRole: null,
+      liveUser: {
+        id: 8, role: 'admin', authority_persona: 'admin', organization_id: 1,
+        is_install_operator: 0, group_name: 'super_admin', group_is_system: 0,
+      },
+    });
+
+    await expect(resolveOrgPrincipal({ id: 8 }, 7)).resolves.toBeNull();
+  });
+
+  test('a stale tenant membership cannot restrict an intrinsically global super administrator', async () => {
+    controlRows({
+      membershipRole: 'readonly',
+      liveUser: {
+        id: 8, role: 'admin', authority_persona: 'admin', organization_id: 1,
+        is_install_operator: 0, group_name: 'super_admin', group_is_system: 1,
+      },
+    });
+
+    await expect(resolveOrgPrincipal({ id: 8 }, 7)).resolves.toMatchObject({
+      organizationId: 7,
+      isSuperAdmin: true,
+      hasGlobalOrganizationAccess: true,
+    });
+  });
+
   test('never grants the install-operator carve-out to an API token', async () => {
     controlRows({
       membershipRole: null,
@@ -125,6 +174,18 @@ describe('resolveOrgPrincipal', () => {
 
     await expect(resolveOrgPrincipal({ id: 1 }, 7, { allowOperator: false })).resolves.toBeNull();
     expect(isInstallOperatorUser).not.toHaveBeenCalled();
+  });
+
+  test('never grants the super-admin carve-out to an API token', async () => {
+    controlRows({
+      membershipRole: null,
+      liveUser: {
+        id: 8, role: 'admin', authority_persona: 'admin', organization_id: 1,
+        is_install_operator: 0, group_name: 'super_admin', group_is_system: 1,
+      },
+    });
+
+    await expect(resolveOrgPrincipal({ id: 8 }, 7, { allowOperator: false })).resolves.toBeNull();
   });
 
   test('rejects an inactive/deleted organization or inactive user row', async () => {

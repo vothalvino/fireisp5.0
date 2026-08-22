@@ -43,10 +43,15 @@ export interface AuthUser {
    *  per-tenant Admin persona and every org has one. Gates install-wide UI:
    *  the version tab, the update banner, the sidebar entry. */
   is_install_operator?: boolean;
+  /** True only for an account in the exact seeded system super_admin group. */
+  is_super_admin?: boolean;
+  /** Install operators and super administrators can enter every organization
+   *  without explicit membership. Tenant admins cannot. */
+  has_global_organization_access?: boolean;
   /** The user's group (migration 378): reusable permission set replacing the
    *  fixed user type. `kind` is the persona the group is based on and matches
    *  what `role` mirrors. */
-  group?: { id: number; name: string; kind: string | null } | null;
+  group?: { id: number; name: string; kind: string | null; is_system?: number | boolean } | null;
   /** Resolved permission slugs for the ACTIVE org — drives can() so custom
    *  groups reflect accurately in action buttons. */
   permissions?: string[];

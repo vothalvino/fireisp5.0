@@ -1,0 +1,64 @@
+'use strict';
+
+jest.mock('../src/config/database', () => ({
+  query: jest.fn(),
+  withPrimaryContext: jest.fn((callback) => callback()),
+}));
+jest.mock('../src/models/User', () => ({
+  findByIdIncludingDeleted: jest.fn(),
+}));
+jest.mock('../src/services/installOperator', () => ({
+  isInstallOperator: jest.fn(),
+  isInstallOperatorUser: jest.fn(),
+}));
+
+const db = require('../src/config/database');
+const { isInstallOperatorUser } = require('../src/services/installOperator');
+const { restrictRoleAssignment } = require('../src/middleware/restrictRoleAssignment');
+
+async function run(req) {
+  let result = Symbol('not-called');
+  await restrictRoleAssignment(req, {}, (err) => { result = err; });
+  return result;
+}
+
+describe('global organization-access assignment guard', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    isInstallOperatorUser.mockResolvedValue(false);
+  });
+
+  test('a backend-resolved install operator or super administrator may assign organizations', async () => {
+    const result = await run({
+      method: 'POST',
+      user: { id: 8, role: 'admin', hasGlobalOrganizationAccess: true },
+      body: { organization_ids: [1, 100] },
+    });
+    expect(result).toBeUndefined();
+  });
+
+  test('an ordinary tenant admin cannot assign organization access', async () => {
+    db.query.mockResolvedValueOnce([[{ group_name: 'admin', group_is_system: 1 }]]);
+
+    const result = await run({
+      method: 'POST',
+      user: { id: 2, role: 'admin', hasGlobalOrganizationAccess: false },
+      body: { organization_ids: [1, 100] },
+    });
+
+    expect(result).toMatchObject({ statusCode: 403 });
+  });
+
+  test('a tenant admin cannot assign the system super_admin group', async () => {
+    db.query
+      .mockResolvedValueOnce([[{ name: 'super_admin', is_system: 1 }]])
+      .mockResolvedValueOnce([[{ group_name: 'admin', group_is_system: 1 }]]);
+
+    const result = await run({
+      method: 'POST',
+      user: { id: 2, role: 'admin', hasGlobalOrganizationAccess: false },
+      body: { group_id: 77 },
+    });
+    expect(result).toMatchObject({ statusCode: 403 });
+  });
+});

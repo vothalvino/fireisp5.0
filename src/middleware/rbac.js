@@ -79,10 +79,11 @@ function requirePermission(...requiredPermissions) {
       // Enforce API token scopes first (applies to all users including admins)
       enforceTokenScopes(req.user, requiredPermissions);
 
-      // The install-operator fact is revalidated from the primary database by
-      // authentication. It is the only cross-tenant bypass; ordinary tenant
-      // `users.role = admin` never bypasses the permission graph.
-      if (req.user.isInstallOperator && !req.user.apiTokenId) return next();
+      // Authentication revalidates the installation-wide identity from the
+      // primary database. Install operators and exact system super_admin
+      // accounts carry their full group authority into every tenant; ordinary
+      // tenant `users.role = admin` accounts never bypass the permission graph.
+      if (req.user.hasGlobalOrganizationAccess && !req.user.apiTokenId) return next();
       if (isLegacyTestAdmin(req.user)) return next();
 
       const permissions = await runInPrimaryContext(() => User.getPermissions(
@@ -115,7 +116,7 @@ function requireRole(...roles) {
         throw new ForbiddenError('No organization context');
       }
 
-      if (req.user.isInstallOperator && !req.user.apiTokenId) return next();
+      if (req.user.hasGlobalOrganizationAccess && !req.user.apiTokenId) return next();
       if (isLegacyTestAdmin(req.user) && roles.includes(req.user.role)) return next();
 
       const orgRole = await runInPrimaryContext(
@@ -146,7 +147,7 @@ async function userHasPermission(req, permission) {
   } catch {
     return false;
   }
-  if (req.user.isInstallOperator && !req.user.apiTokenId) return true;
+  if (req.user.hasGlobalOrganizationAccess && !req.user.apiTokenId) return true;
   if (isLegacyTestAdmin(req.user)) return true;
   const permissions = await runInPrimaryContext(
     () => User.getPermissions(req.user.id, req.user.organizationId),

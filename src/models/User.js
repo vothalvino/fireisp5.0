@@ -314,7 +314,7 @@ class User extends BaseModel {
    * (they DO have a membership row, so the fallback never applies to them) —
    * silently dropped from every notification. This is not hypothetical: the
    * default install (`src/scripts/seed.js`) creates user 1 with
-   * `users.role='admin'` + `organization_users.role='owner'` for org 1 — the
+   * `users.role='admin'` + `organization_users.role='owner'` for Demo ISP — the
    * exact shape that regresses. Fix: when the caller asks for `'admin'`,
    * ALSO match a membership role of `'owner'` — 'owner' outranks 'admin'
    * everywhere else in this codebase (`requireRole('owner','admin')`
@@ -421,8 +421,8 @@ class User extends BaseModel {
    */
   /**
    * @param {number[]|null} allowedOrgIds - organisations the ACTOR may grant
-   *   access to. null means unrestricted and is reserved for the install
-   *   operator and for internal callers with no request context.
+   *   access to. null means unrestricted and is reserved for installation-global
+   *   identities (install operator/system super_admin) and internal callers.
    *
    * The allowlist is mandatory-by-convention because this method MINTS
    * MEMBERSHIP, and membership is what every other tenant boundary trusts.

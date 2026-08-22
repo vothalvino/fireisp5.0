@@ -109,6 +109,8 @@ async function authenticateApiToken(req) {
     membershipRole: principal.membershipRole,
     organizationId: principal.organizationId,
     isInstallOperator: false,
+    isSuperAdmin: false,
+    hasGlobalOrganizationAccess: false,
     apiTokenId: token.id,
     // Preserve valid deny-all [] and malformed values for fail-closed scope
     // enforcement. Only a real SQL NULL is the legacy-unrestricted sentinel.
@@ -166,6 +168,8 @@ async function authenticate(req, _res, next) {
       membershipRole: principal.membershipRole,
       organizationId: principal.organizationId,
       isInstallOperator: principal.isInstallOperator,
+      isSuperAdmin: principal.isSuperAdmin,
+      hasGlobalOrganizationAccess: principal.hasGlobalOrganizationAccess,
     };
 
     next();

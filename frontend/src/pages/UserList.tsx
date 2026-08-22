@@ -144,7 +144,7 @@ interface CreateUserBody {
   email: string;
   password: string;
   group_id: number;
-  organization_ids: number[];
+  organization_ids?: number[];
   phone?: string;
   status?: string;
 }
@@ -414,9 +414,10 @@ interface NewUserModalProps {
   groups: Group[];
   organizations: Organization[];
   currentOrgId: number | null;
+  canManageOrgAccess: boolean;
 }
 
-function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId }: NewUserModalProps) {
+function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId, canManageOrgAccess }: NewUserModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
@@ -454,9 +455,9 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId 
         email: form.email.trim(),
         password: form.password,
         group_id: Number(groupId),
-        organization_ids: Array.from(orgIds),
         status: form.status,
       };
+      if (canManageOrgAccess) body.organization_ids = Array.from(orgIds);
       if (form.phone.trim()) body.phone = form.phone.trim();
       return createUser(body);
     },
@@ -473,7 +474,7 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId 
 
   const valid = form.first_name.trim() && form.last_name.trim() &&
                 form.email.trim() && form.password.length >= 8 &&
-                groupId !== null && orgIds.size > 0;
+                groupId !== null && (!canManageOrgAccess || orgIds.size > 0);
 
   return (
     <div style={modalOverlay}>
@@ -522,8 +523,12 @@ function NewUserModal({ onClose, onCreated, groups, organizations, currentOrgId 
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
 
-        <label style={labelStyle}>{t('userList.newUserModal.orgAccess')}</label>
-        <OrgCheckboxList organizations={organizations} selected={orgIds} onToggle={toggleOrg} />
+        {canManageOrgAccess && (
+          <>
+            <label style={labelStyle}>{t('userList.newUserModal.orgAccess')}</label>
+            <OrgCheckboxList organizations={organizations} selected={orgIds} onToggle={toggleOrg} />
+          </>
+        )}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
@@ -550,9 +555,10 @@ interface EditUserModalProps {
   onSaved: () => void;
   groups: Group[];
   organizations: Organization[];
+  canManageOrgAccess: boolean;
 }
 
-function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUserModalProps) {
+function EditUserModal({ user, onClose, onSaved, groups, organizations, canManageOrgAccess }: EditUserModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
@@ -569,6 +575,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
   const orgsQuery = useQuery({
     queryKey: ['users', user.id, 'organizations'],
     queryFn: () => fetchUserOrganizations(user.id),
+    enabled: canManageOrgAccess,
   });
 
   // Prefill the checklist once the user's current org access loads.
@@ -607,7 +614,7 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
       }
       // Organization access always syncs on save — the backend replaces the
       // set wholesale ('owner' rows are preserved server-side).
-      body.organization_ids = Array.from(orgIds ?? []);
+      if (canManageOrgAccess) body.organization_ids = Array.from(orgIds ?? []);
       return updateUser(user.id, body);
     },
     onSuccess: () => {
@@ -630,7 +637,8 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
   // explicitly on `orgsQuery.isError` (independent of `orgIds`) so a Save is
   // impossible until a prefill retry succeeds; the checklist is also
   // disabled during the error state so `orgIds` can't leave `null` at all.
-  const valid = !orgsQuery.isError && orgIds !== null && orgIds.size > 0 && groupId !== null;
+  const valid = groupId !== null && (!canManageOrgAccess
+    || (!orgsQuery.isError && orgIds !== null && orgIds.size > 0));
 
   return (
     <div style={modalOverlay}>
@@ -676,8 +684,8 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
         <label style={labelStyle}>Phone</label>
         <input style={inputStyle} value={form.phone} onChange={set('phone')} placeholder="+52 55 1234 5678 (optional)" />
 
-        <label style={labelStyle}>{t('userList.editUserModal.orgAccess')}</label>
-        {orgsQuery.isError && (
+        {canManageOrgAccess && <label style={labelStyle}>{t('userList.editUserModal.orgAccess')}</label>}
+        {canManageOrgAccess && orgsQuery.isError && (
           <div style={{ ...errStyle, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>{t('userList.editUserModal.orgPrefillError')}</span>
             <button
@@ -690,13 +698,15 @@ function EditUserModal({ user, onClose, onSaved, groups, organizations }: EditUs
             </button>
           </div>
         )}
-        <OrgCheckboxList
-          organizations={organizations}
-          selected={orgIds ?? new Set()}
-          onToggle={toggleOrg}
-          loading={orgsQuery.isLoading}
-          disabled={orgsQuery.isError}
-        />
+        {canManageOrgAccess && (
+          <OrgCheckboxList
+            organizations={organizations}
+            selected={orgIds ?? new Set()}
+            onToggle={toggleOrg}
+            loading={orgsQuery.isLoading}
+            disabled={orgsQuery.isError}
+          />
+        )}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: '1rem' }}>
           <button style={btnSecondary} onClick={onClose}>Cancel</button>
@@ -1258,9 +1268,15 @@ export function UserList() {
   // Fetched once (React Query caches by key) and shared by the filter select
   // and both modals, so the Group picker and table labels stay consistent.
   const groupsQuery = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
-  const organizationsQuery = useQuery({ queryKey: ['organizations'], queryFn: fetchOrganizations });
+  const canManageOrgAccess = currentUser?.has_global_organization_access === true;
+  const organizationsQuery = useQuery({
+    queryKey: ['organizations'],
+    queryFn: fetchOrganizations,
+    enabled: canManageOrgAccess,
+  });
 
-  const groups = groupsQuery.data ?? [];
+  const groups = (groupsQuery.data ?? []).filter(group =>
+    canManageOrgAccess || !(group.is_system && group.name === 'super_admin'));
   const organizations = organizationsQuery.data ?? [];
   const groupNames = groupsById(groups);
 
@@ -1477,6 +1493,7 @@ export function UserList() {
           groups={groups}
           organizations={organizations}
           currentOrgId={currentUser?.organization_id ?? null}
+          canManageOrgAccess={canManageOrgAccess}
         />
       )}
       {editUser && (
@@ -1486,6 +1503,7 @@ export function UserList() {
           onSaved={() => setEditUser(null)}
           groups={groups}
           organizations={organizations}
+          canManageOrgAccess={canManageOrgAccess}
         />
       )}
       {archiveTarget && (

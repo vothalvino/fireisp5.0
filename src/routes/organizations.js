@@ -14,6 +14,7 @@ const { createOrganization, updateOrganization, patchOrganization, updateSetting
 const db = require('../config/database');
 const { getQuotaWithUsage } = require('../services/quotaService');
 const { isInstallOperator, OPERATOR_ONLY_MESSAGE } = require('../services/installOperator');
+const { hasGlobalOrganizationAccess } = require('../services/globalOrganizationAccess');
 const {
   getDatabaseIsolation,
   saveDatabaseIsolation,
@@ -109,7 +110,8 @@ function localeAwareUpdate(method) {
 
 router.use(authenticate);
 
-// LIST — the caller's own organisations, unless they run the install (j67).
+// LIST — the caller's own organisations, unless their account has explicit
+// installation-wide access (install operator or system super_admin).
 //
 // Organization.hasOrgScope is false, so the generic list returned EVERY ISP on
 // the box to anyone holding organizations.view — which migration 119 grants
@@ -119,7 +121,7 @@ router.use(authenticate);
 // same source /auth/me already uses for the org switcher.
 router.get('/', requirePermission('organizations.view'), async (req, res, next) => {
   try {
-    if (await isInstallOperator(req)) return ctrl.list(req, res, next);
+    if (await hasGlobalOrganizationAccess(req)) return ctrl.list(req, res, next);
 
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));

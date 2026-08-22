@@ -15,11 +15,29 @@ const { createUser, updateUser, patchUser, setArchivedGroup } = require('../midd
 const { hashPasswordField } = require('../middleware/hashPassword');
 const userTunnelService = require('../services/userTunnelService');
 const auditLog = require('../services/auditLog');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, ForbiddenError } = require('../utils/errors');
 
-const { isInstallOperator } = require('../services/installOperator');
+const {
+  hasGlobalOrganizationAccess,
+  isSuperAdminUser,
+} = require('../services/globalOrganizationAccess');
+const { isInstallOperator, isInstallOperatorUser } = require('../services/installOperator');
 
 const router = Router();
+
+async function assertCanManageGlobalIdentity(req, target) {
+  if (!target || Number(target.id) === Number(req.user?.id)) return;
+  if (await isInstallOperatorUser(target) && !await isInstallOperator(req)) {
+    throw new ForbiddenError(
+      'This account runs the installation; only the install operator can archive or restore it.',
+    );
+  }
+  if (await isSuperAdminUser(target) && !await hasGlobalOrganizationAccess(req)) {
+    throw new ForbiddenError(
+      'Only the install operator or a super administrator can archive or restore a super administrator account.',
+    );
+  }
+}
 
 /**
  * Sync a staff user's organization access + membership-role mirror after a
@@ -31,13 +49,14 @@ const router = Router();
 async function syncUserOrgAccess(user, req) {
   const ids = req.body?.organization_ids;
   if (Array.isArray(ids) && ids.length > 0) {
-    // Which organisations may this ACTOR grant? Their own, unless they run the
-    // install. Before this, `organization_ids: [1, 2]` on any create/update
-    // minted an admin membership in organisations the actor had no relationship
-    // with — and manufactured membership defeats every boundary that trusts
-    // organization_users, switch-organization included.
-    const allowedOrgIds = await isInstallOperator(req) ? null : [req.orgId];
-    await User.setUserOrganizations(user.id, ids, user.role, allowedOrgIds);
+    // Organization access is installation-level identity administration.
+    // restrictRoleAssignment rejects ordinary tenant admins before the write;
+    // keep this second check beside the authorization-bearing mutation so a
+    // future route cannot accidentally bypass the policy.
+    if (!await hasGlobalOrganizationAccess(req)) {
+      throw new ValidationError('Only the install operator or a super administrator may assign organization access');
+    }
+    await User.setUserOrganizations(user.id, ids, user.role, null);
   } else if (req.body?.group_id !== undefined || req.body?.role !== undefined) {
     await User.refreshMembershipRoles(user.id, user.role);
   }
@@ -82,6 +101,7 @@ async function guardArchive(req, res, next) {
       throw new ValidationError('You cannot archive your own account');
     }
     const target = await User.findById(req.params.id, req.orgId);
+    await assertCanManageGlobalIdentity(req, target);
     if (target && target.role === 'admin' && target.status === 'active'
         && (await User.countOtherAdminKindUsers(req.orgId, target.id)) === 0) {
       throw new ValidationError('Cannot archive the last administrator of the organization');
@@ -98,7 +118,13 @@ router.post('/', requirePermission('users.create'), restrictRoleAssignment, vali
 router.put('/:id', requirePermission('users.update'), restrictRoleAssignment, validate(updateUser, { strip: true }), hashPasswordField, ctrl.update);
 router.patch('/:id', requirePermission('users.update'), restrictRoleAssignment, validate(patchUser, { strip: true }), hashPasswordField, ctrl.partialUpdate);
 router.delete('/:id', requirePermission('users.delete'), guardArchive, ctrl.destroy);
-router.post('/:id/restore', requirePermission('users.update'), ctrl.restore);
+router.post('/:id/restore', requirePermission('users.update'), async (req, _res, next) => {
+  try {
+    const target = await User.findByIdIncludingDeleted(req.params.id, req.orgId);
+    await assertCanManageGlobalIdentity(req, target);
+    next();
+  } catch (err) { next(err); }
+}, ctrl.restore);
 
 // Reassign an ARCHIVED user's group without restoring them — the path the
 // group-delete guard points admins at ("restore-and-reassign" is no longer
@@ -170,6 +196,11 @@ router.get('/:id/permissions', requirePermission('users.view'), async (req, res,
 // multi-select prefill in the user form.
 router.get('/:id/organizations', requirePermission('users.view'), async (req, res, next) => {
   try {
+    if (!await hasGlobalOrganizationAccess(req)) {
+      throw new ForbiddenError(
+        'Only the install operator or a super administrator may view organization access assignments',
+      );
+    }
     const organizations = await User.getOrganizations(req.params.id);
     res.json({ data: organizations.map((o) => ({ id: o.id, name: o.name, membership_role: o.membership_role })) });
   } catch (err) {

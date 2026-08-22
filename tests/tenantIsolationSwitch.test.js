@@ -16,8 +16,8 @@
 // admin minted a token whose orgId claim was org B, and from then on every
 // org-scoped route served them org B's data correctly. req.orgId IS the claim,
 // so no route guard could tell. The user chose real isolation, so membership is
-// now required for everyone except the install operator — a stored fact
-// (migration 444) that no request can grant.
+// now required for everyone except the install operator and the exact seeded
+// system super_admin group — neither identity can be manufactured by a tenant.
 // =============================================================================
 
 jest.mock('../src/config/database', () => ({
@@ -33,13 +33,14 @@ const config = require('../src/config');
 
 const TENANT_ADMIN = { id: 2, email: 'admin@tenant-a.mx', role: 'admin', status: 'active', organization_id: 2 };
 const OPERATOR = { id: 1, email: 'op@isp.mx', role: 'admin', status: 'active', organization_id: 1 };
+const SUPER_ADMIN = { id: 4, email: 'super@isp.mx', role: 'admin', status: 'active', organization_id: 1 };
 const MANAGER = { id: 3, email: 'mgr@tenant-a.mx', role: 'manager', status: 'active', organization_id: 2 };
 
 /**
  * @param member   is the user a member of the TARGET org?
  * @param operator does users.is_install_operator say they run the install?
  */
-function wireDb({ user, member = false, operator = false } = {}) {
+function wireDb({ user, member = false, operator = false, superAdmin = false } = {}) {
   db.query.mockImplementation(async (sql) => {
     if (/FROM organizations\s+WHERE id/.test(sql)) return [[{ id: 9, name: 'Other ISP' }]];
     if (/SELECT role AS membership_role FROM organization_users/.test(sql)) {
@@ -50,6 +51,8 @@ function wireDb({ user, member = false, operator = false } = {}) {
         ...user,
         is_install_operator: operator ? 1 : 0,
         authority_persona: user.role,
+        group_name: superAdmin ? 'super_admin' : 'admin',
+        group_is_system: 1,
       }]];
     }
     if (/SELECT is_install_operator FROM users/.test(sql)) {
@@ -118,6 +121,14 @@ describe('who may still switch', () => {
     wireDb({ user: OPERATOR, member: false, operator: false });
 
     await expect(authService.switchOrganization(OPERATOR.id, 9, 'refresh-token'))
+      .rejects.not.toThrow(/not a member/i);
+  });
+
+  it('a system super administrator switches into any organisation', async () => {
+    User.findById.mockResolvedValue(SUPER_ADMIN);
+    wireDb({ user: SUPER_ADMIN, member: false, superAdmin: true });
+
+    await expect(authService.switchOrganization(SUPER_ADMIN.id, 9, 'refresh-token'))
       .rejects.not.toThrow(/not a member/i);
   });
 });

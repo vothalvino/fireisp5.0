@@ -454,6 +454,31 @@ describe('authService', () => {
       expect(result.organizations).toBeDefined();
     });
 
+    test('a global operator whose seeded home tenant was deleted logs into a live organization', async () => {
+      const jwt = require('jsonwebtoken');
+      const user = {
+        id: 1, email: 'operator@example.com', password_hash: '$2a$12$hashedpassword',
+        status: 'active', role: 'admin', group_id: 10, organization_id: 100,
+        is_install_operator: 1, failed_login_attempts: 0, locked_until: null,
+      };
+
+      db.query
+        .mockResolvedValueOnce([[user]])
+        .mockResolvedValueOnce([]) // UPDATE last_login_at
+        .mockResolvedValueOnce([[]]) // no live memberships (Demo ISP deleted)
+        .mockResolvedValueOnce([[{ id: 1, name: 'First Real ISP', currency: 'MXN' }]])
+        .mockResolvedValueOnce([]); // INSERT user_sessions
+      bcrypt.compare.mockResolvedValueOnce(true);
+
+      const result = await authService.login({
+        email: user.email,
+        password: 'correct',
+      });
+
+      expect(jwt.decode(result.accessToken).orgId).toBe(1);
+      expect(result.activeOrganizationId).toBe(1);
+    });
+
     test('does not skip reset when failed_login_attempts is 0', async () => {
       const user = {
         id: 1, email: 'john@example.com', password_hash: '$2a$12$hashedpassword',

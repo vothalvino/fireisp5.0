@@ -654,6 +654,9 @@ describe('the operator ACCOUNT cannot be taken over', () => {
     jest.spyOn(User, 'findById').mockImplementation(async (id) => (
       Number(id) === Number(target.id) ? target : actor
     ));
+    jest.spyOn(User, 'findByIdIncludingDeleted').mockImplementation(async (id) => (
+      Number(id) === Number(target.id) ? target : actor
+    ));
   }
 
   it('403s a co-org admin resetting the operator\'s password', async () => {

@@ -532,7 +532,7 @@ describe('notificationHooks', () => {
     // and excluded from the legacy fallback because they DO have a membership
     // row — so they were silently dropped from every notification. This is
     // exactly the default install's shape: src/scripts/seed.js creates user 1
-    // with users.role='admin' + organization_users.role='owner' for org 1.
+    // with users.role='admin' + organization_users.role='owner' for Demo ISP.
     test("the default-install org owner (users.role='admin', membership role='owner') still receives bell/email — regression test", async () => {
       db.query.mockImplementation((sql, params) => {
         if (/FROM maintenance_windows/.test(sql)) return Promise.resolve([[]]);

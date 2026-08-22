@@ -34,6 +34,7 @@ vi.mock('@/api/client', () => ({
 
 const adminUser: AuthUser = {
   id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin',
+  has_global_organization_access: true,
   organization_id: 1, is_active: true, email_verified_at: '2026-01-01T00:00:00.000Z', twofa_enabled: false,
 };
 
@@ -124,9 +125,9 @@ function routeFetch(overrides: {
   });
 }
 
-function renderUserList() {
+function renderUserList(authUser: AuthUser = adminUser) {
   vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-    user: adminUser,
+    user: authUser,
     loading: false,
     initialized: true,
     login: vi.fn(),
@@ -214,6 +215,18 @@ describe('UserList page', () => {
   });
 
   describe('New User modal — group + organization access', () => {
+    it('hides organization assignment from an ordinary tenant admin', async () => {
+      const tenantAdmin = { ...adminUser, id: 7, has_global_organization_access: false };
+      renderUserList(tenantAdmin);
+      await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());
+      await userEvent.click(screen.getByText('+ New User'));
+
+      expect(screen.queryByText(/Organization Access/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Org One')).not.toBeInTheDocument();
+      expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([input]) =>
+        String(input).includes('/organizations'))).toBe(false);
+    });
+
     it('defaults the group to the system "support" group and checks the current org', async () => {
       renderUserList();
       await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument());

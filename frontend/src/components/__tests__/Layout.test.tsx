@@ -46,6 +46,7 @@ function makeUser(role: string, isInstallOperator = false): AuthUser {
     name: role,
     role,
     is_install_operator: isInstallOperator,
+    has_global_organization_access: isInstallOperator,
     organization_id: 1,
     is_active: true,
     email_verified_at: '2026-01-01T00:00:00.000Z',
@@ -352,7 +353,7 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(mockApiGet).not.toHaveBeenCalledWith('/organizations', expect.anything());
   });
 
-  it('shows an org switcher listing all organizations for an admin', async () => {
+  it('shows an org switcher listing all organizations for the install operator', async () => {
     mockUseAuth(makeUser('admin', true));
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/organizations') {
@@ -363,17 +364,32 @@ describe('Layout — grouped sidebar navigation', () => {
     renderLayout();
 
     // The all-orgs query populates the switcher with every organization, even
-    // ones the admin isn't an explicit member of. 'Org B' appears only as a
+    // ones the operator isn't an explicit member of. 'Org B' appears only as a
     // switcher option; 'Org A' (the active org) shows in both the option list
     // and the topbar label.
     expect(await screen.findByText('Org B')).toBeInTheDocument();
     expect(screen.getAllByText('Org A').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('readonly (multi-org member) sees its own memberships in the switcher and never fires the admin-only all-orgs query', async () => {
+  it('shows the same all-organization switcher for a backend-resolved super administrator', async () => {
+    const superAdmin = makeUser('admin', false);
+    superAdmin.has_global_organization_access = true;
+    mockUseAuth(superAdmin);
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/organizations') {
+        return Promise.resolve({ data: { data: [{ id: 1, name: 'Org A' }, { id: 2, name: 'Org B' }] }, error: undefined });
+      }
+      return Promise.resolve({ data: undefined, error: undefined });
+    });
+    renderLayout();
+
+    expect(await screen.findByText('Org B')).toBeInTheDocument();
+  });
+
+  it('readonly (multi-org member) sees its own memberships and never fires the global-only all-orgs query', async () => {
     // Regression for a review-caught bug: hasRole(user.role, 'admin') gives
     // readonly a bypass for PAGE-REACHABILITY (PrivateRoute/canSee), but
-    // Layout's isAdmin decides a LITERAL privilege (can this user list every
+    // Layout's global-access flag decides a LITERAL privilege (can this user list every
     // org on the platform?) — readonly must not inherit that bypass here, or
     // the all-orgs query fires, 403s/returns something readonly has no real
     // access to, and — worse — `orgs = isAdmin ? (allOrgs ?? memberships) :
@@ -401,7 +417,7 @@ describe('Layout — grouped sidebar navigation', () => {
     expect(screen.getByText('Org B')).toBeInTheDocument();
     // Never sees an org it isn't a member of.
     expect(screen.queryByText('Org C (not a member)')).not.toBeInTheDocument();
-    // The admin-only all-orgs query itself must never have fired.
+    // The global-only all-orgs query itself must never have fired.
     expect(mockApiGet).not.toHaveBeenCalledWith('/organizations', expect.anything());
   });
 
