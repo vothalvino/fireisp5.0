@@ -51,8 +51,12 @@ jest.mock('../src/middleware/rateLimit', () => ({
 }));
 jest.mock('../src/middleware/checkQuota', () => ({ quotaCheck: () => (_q, _r, next) => next() }));
 jest.mock('../src/middleware/ipAllowlist', () => ({
+  ...jest.requireActual('../src/middleware/ipAllowlist'),
   createIpAllowlist: () => (_q, _r, next) => next(),
   parseAllowlist: () => [],
+}));
+jest.mock('../src/middleware/adminIpAllowlist', () => ({
+  enforceAdminIpAllowlist: (_req, _res, next) => next(),
 }));
 
 // Task-runner dependency mocks (needed to load app.js)

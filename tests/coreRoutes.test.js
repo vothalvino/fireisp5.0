@@ -24,6 +24,10 @@ const db = require('../src/config/database');
 const testWindowService = require('../src/services/testWindowService');
 const { mockTxConnection } = require('./fixtures/mockTxConnection');
 const User = require('../src/models/User');
+jest.mock('../src/middleware/adminIpAllowlist', () => ({
+  enforceAdminIpAllowlist: (_req, _res, next) => next(),
+}));
+
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------

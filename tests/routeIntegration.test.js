@@ -30,6 +30,10 @@ const config = require('../src/config');
 const db = require('../src/config/database');
 const User = require('../src/models/User');
 const emailTransport = require('../src/services/emailTransport');
+jest.mock('../src/middleware/adminIpAllowlist', () => ({
+  enforceAdminIpAllowlist: (_req, _res, next) => next(),
+}));
+
 const app = require('../src/app');
 
 // ---------------------------------------------------------------------------

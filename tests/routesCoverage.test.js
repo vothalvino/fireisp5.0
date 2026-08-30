@@ -77,6 +77,10 @@ const billingService = require('../src/services/billingService');
 // SQL-branching db mock via the passed exec).
 const realBillingService = jest.requireActual('../src/services/billingService');
 const suspensionService = require('../src/services/suspensionService');
+jest.mock('../src/middleware/adminIpAllowlist', () => ({
+  enforceAdminIpAllowlist: (_req, _res, next) => next(),
+}));
+
 const app = require('../src/app');
 const relayConfig = require('../src/config/firerelay');
 relayConfig.authToken = 'a'.repeat(64);

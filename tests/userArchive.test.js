@@ -34,8 +34,12 @@ jest.mock('../src/middleware/orgLocale', () => ({
   requireMxLocale: (_req, _res, next) => next(),
 }));
 jest.mock('../src/middleware/ipAllowlist', () => ({
+  ...jest.requireActual('../src/middleware/ipAllowlist'),
   createIpAllowlist: () => (_req, _res, next) => next(),
   parseAllowlist: () => [],
+}));
+jest.mock('../src/middleware/adminIpAllowlist', () => ({
+  enforceAdminIpAllowlist: (_req, _res, next) => next(),
 }));
 jest.mock('../src/services/auditLog', () => ({ log: jest.fn().mockResolvedValue(undefined) }));
 
